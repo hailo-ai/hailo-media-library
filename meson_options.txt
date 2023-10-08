@@ -1,0 +1,5 @@
+# Targets
+option('targets', type : 'array', choices : ['core', 'gst', 'api', 'docs'], value : ['core', 'gst','api'])
+
+# Unit tests
+option('include_unit_tests', type : 'boolean', value : true)

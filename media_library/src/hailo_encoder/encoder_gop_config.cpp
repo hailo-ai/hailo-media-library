@@ -1,0 +1,154 @@
+#include <iostream>
+
+// Own includes
+#include "encoder_class.hpp"
+#include "encoder_internal.hpp"
+#include "encoder_gop_config.hpp"
+
+int Encoder::Impl::gopConfig::ParseGopConfigLine(GopPicConfig &pic_cfg, int gopSize)
+{
+    VCEncGopPicConfig *cfg = &(m_gop_cfg->pGopPicCfg[m_gop_cfg->size ++]);
+
+    cfg->codingType = pic_cfg.m_type;
+    cfg->poc = pic_cfg.m_poc;
+    cfg->QpOffset = pic_cfg.m_qp_offset;
+    cfg->QpFactor = pic_cfg.m_qp_factor;
+    cfg->temporalId = 0;
+    cfg->numRefPics = pic_cfg.m_num_ref_pics;
+    if (pic_cfg.m_num_ref_pics < 0 || pic_cfg.m_num_ref_pics > VCENC_MAX_REF_FRAMES)
+    {
+        printf ("GOP Config: Error, num_ref_pic can not be more than %d \n", VCENC_MAX_REF_FRAMES);
+        return -1;
+    }
+    for (int i = 0; i < pic_cfg.m_num_ref_pics; i ++)
+    {
+        cfg->refPics[i].ref_pic = pic_cfg.m_ref_pics[i];
+        cfg->refPics[i].used_by_cur = pic_cfg.m_used_by_cur[i];
+    }
+    return 0;
+}
+int Encoder::Impl::gopConfig::ReadGopConfig(std::vector<GopPicConfig>&config, int gopSize)
+{
+    int ret = -1;
+
+    if (m_gop_cfg->size >= MAX_GOP_PIC_CONFIG_NUM)
+        return -1;
+
+    if (m_gop_cfg_offset)
+        m_gop_cfg_offset[gopSize] = m_gop_cfg->size;
+
+    for (auto &pic_cfg : config)
+    {
+        ParseGopConfigLine(pic_cfg, gopSize);
+    }
+    ret = 0;
+    return ret;
+}
+
+
+int Encoder::Impl::gopConfig::init_config()
+{
+    int i, pre_load_num;
+    std::vector<std::vector<GopPicConfig>> default_configs = {
+        m_codec_h264?RpsDefault_H264_GOPSize_1:RpsDefault_GOPSize_1,
+        RpsDefault_GOPSize_2,
+        RpsDefault_GOPSize_3,
+        RpsDefault_GOPSize_4,
+        RpsDefault_GOPSize_5,
+        RpsDefault_GOPSize_6,
+        RpsDefault_GOPSize_7,
+        RpsDefault_GOPSize_8 };
+
+    if (m_gop_size < 0 || m_gop_size > MAX_GOP_SIZE)
+    {
+        printf ("GOP Config: Error, Invalid GOP Size\n");
+        return -1;
+    }
+
+    // GOP size in rps array for gopSize=N
+    // N<=4:      GOP1, ..., GOPN
+    // 4<N<=8:   GOP1, GOP2, GOP3, GOP4, GOPN
+    // N > 8:       GOP1, GOPN
+    // Adaptive:  GOP1, GOP2, GOP3, GOP4, GOP6, GOP8
+    if (m_gop_size > 8)
+        pre_load_num = 1;
+    else if (m_gop_size>=4 || m_gop_size==0)
+        pre_load_num = 4;
+    else
+        pre_load_num = m_gop_size;
+
+    m_gop_cfg->ltrInterval = 0;
+    for (i = 1; i <= pre_load_num; i ++)
+    {    
+        if (ReadGopConfig (default_configs[i-1], i))
+        {
+            printf ("GOP Config: Error, could not read config %d\n", i);
+            return -1;
+        }   
+    }
+
+    if (m_gop_size == 0)
+    {
+        //gop6
+        if (ReadGopConfig (default_configs[5], 6))
+        {
+            printf ("GOP Config: Error, could not read config %d\n", 6);
+            return -1;
+        }
+        //gop8
+        if (ReadGopConfig (default_configs[7], 8))
+        {
+            printf ("GOP Config: Error, could not read config %d\n", 8);
+            return -1;
+        }
+    }
+    else if (m_gop_size > 4)
+    {
+        //gopSize
+        if (ReadGopConfig (default_configs[m_gop_size-1], m_gop_size))
+        {
+            printf ("GOP Config: Error, could not read config %d\n", m_gop_size);
+            return -1;
+        }
+    }
+
+    if (m_gop_cfg->ltrInterval > 0)
+    {
+        for(i = 0; i < (m_gop_size == 0 ? m_gop_cfg->size : m_gop_cfg_offset[m_gop_size]); i++)
+        {
+            // when use long-term, change P to B in default configs (used for last gop)
+            VCEncGopPicConfig *cfg = &(m_gop_cfg->pGopPicCfg[i]);
+            if (cfg->codingType == VCENC_PREDICTED_FRAME)
+                cfg->codingType = VCENC_BIDIR_PREDICTED_FRAME;
+        }
+    }
+
+    //Compatible with old bFrameQpDelta setting
+    if (m_b_frame_qp_delta >= 0)
+    {
+        for (i = 0; i < m_gop_cfg->size; i++)
+        {
+            VCEncGopPicConfig *cfg = &(m_gop_cfg->pGopPicCfg[i]);
+            if (cfg->codingType == VCENC_BIDIR_PREDICTED_FRAME)
+                cfg->QpOffset = m_b_frame_qp_delta;
+        }
+    }
+    return 0;
+    
+}
+
+Encoder::Impl::gopConfig::gopConfig(VCEncGopConfig * gopConfig, int gopSize, int bFrameQpDelta, bool codecH264) :
+    m_gop_cfg(gopConfig),
+    m_gop_size(gopSize),
+    m_b_frame_qp_delta(bFrameQpDelta),
+    m_codec_h264(codecH264)
+{
+    m_gop_cfg->pGopPicCfg = m_gop_pic_cfg;
+    init_config();
+
+}
+
+int Encoder::Impl::gopConfig::get_gop_size() const
+{
+    return m_gop_size;
+}
