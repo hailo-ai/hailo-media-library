@@ -55,6 +55,7 @@ static void gst_hailo_vision_preproc_release_pad(GstElement *element, GstPad *pa
 static gboolean gst_hailo_vision_preproc_sink_query(GstPad *pad, GstObject *parent, GstQuery *query);
 static GstStateChangeReturn gst_hailo_vision_preproc_change_state(GstElement *element, GstStateChange transition);
 static void gst_hailo_vision_preproc_dispose(GObject *object);
+static void gst_hailo_vision_preproc_finalize(GObject *object);
 static void gst_hailo_vision_preproc_reset(GstHailoVisionPreProc *self);
 static void gst_hailo_vision_preproc_release_srcpad(GstPad *pad, GstHailoVisionPreProc *self);
 
@@ -85,6 +86,7 @@ gst_hailo_vision_preproc_class_init(GstHailoVisionPreProcClass *klass)
   gobject_class->set_property = gst_hailo_vision_preproc_set_property;
   gobject_class->get_property = gst_hailo_vision_preproc_get_property;
   gobject_class->dispose = GST_DEBUG_FUNCPTR(gst_hailo_vision_preproc_dispose);
+  gobject_class->finalize = GST_DEBUG_FUNCPTR(gst_hailo_vision_preproc_finalize);
 
   g_object_class_install_property(gobject_class, PROP_CONFIG_FILE_PATH,
                                   g_param_spec_string("config-file-path", "Config file path",
@@ -132,10 +134,14 @@ gst_hailo_vision_preproc_init(GstHailoVisionPreProc *vision_preproc)
 
 static GstFlowReturn gst_hailo_vision_preproc_push_output_frames(GstHailoVisionPreProc *self, std::vector<hailo_media_library_buffer> &output_frames)
 {
+  GstFlowReturn ret = GST_FLOW_OK;
   guint output_frames_size = output_frames.size();
   if (output_frames_size < self->srcpads.size())
   {
     GST_ERROR_OBJECT(self, "Number of output frames (%d) is lower than the number of srcpads (%ld)", output_frames_size, self->srcpads.size());
+    // Decrease ref count of output frames
+    for (guint i = 0; i < output_frames_size; i++)
+      output_frames[i].decrease_ref_count();
     return GST_FLOW_ERROR;
   }
   else if (output_frames_size > self->srcpads.size())
@@ -151,7 +157,8 @@ static GstFlowReturn gst_hailo_vision_preproc_push_output_frames(GstHailoVisionP
       continue;
     }
 
-    DspImagePropertiesPtr output_dsp_image_props = output_frames[i].hailo_pix_buffer;
+    HailoMediaLibraryBufferPtr hailo_buffer = std::make_shared<hailo_media_library_buffer>(std::move(output_frames[i]));
+    DspImagePropertiesPtr output_dsp_image_props = hailo_buffer->hailo_pix_buffer;
     GstPad *srcpad = self->srcpads[i];
     // Get caps from srcpad
     GstCaps *caps = gst_pad_get_current_caps(srcpad);
@@ -163,33 +170,39 @@ static GstFlowReturn gst_hailo_vision_preproc_push_output_frames(GstHailoVisionP
       if (!caps_status)
       {
         GST_ERROR_OBJECT(self, "Failed to parse video info from caps for srcpad: %d", i);
+        hailo_buffer->decrease_ref_count();
         gst_video_info_free(video_info);
-        return GST_FLOW_ERROR;
+        ret = GST_FLOW_ERROR;
+        continue;
       }
 
       if(output_dsp_image_props->width != (guint)video_info->width || output_dsp_image_props->height != (guint)video_info->height)
       {
         GST_ERROR_OBJECT(self, "Output frame size (%ld, %ld) does not match srcpad size (%d, %d)", output_dsp_image_props->width, output_dsp_image_props->height, video_info->width, video_info->height);
-        output_frames[i].decrease_ref_count();
+        hailo_buffer->decrease_ref_count();
         gst_video_info_free(video_info);
-        return GST_FLOW_ERROR;
+        ret = GST_FLOW_ERROR;
+        continue;
       }
 
-      guint buffer_size = video_info->size;
-      GST_DEBUG_OBJECT(self, "Creating GstBuffer from dsp buffer size: %d", buffer_size);
-      GstBuffer *gst_outbuf = create_gst_buffer_from_hailo_buffer(output_frames[i], buffer_size);
+      GST_DEBUG_OBJECT(self, "Creating GstBuffer from dsp buffer");
+      GstBuffer *gst_outbuf = create_gst_buffer_from_hailo_buffer(hailo_buffer);
 
       GST_DEBUG_OBJECT(self, "Pushing buffer to srcpad name %s", gst_pad_get_name(srcpad));
       gst_pad_push(srcpad, gst_outbuf);
       gst_video_info_free(video_info);
-    }
+    }  
     else
     {
-      output_frames[i].decrease_ref_count();
+      GST_WARNING_OBJECT(self, "Failed to get caps from srcpad name %s", gst_pad_get_name(srcpad));
+      hailo_buffer->decrease_ref_count();
+      ret = GST_FLOW_ERROR;
+      continue;
     }
+
   }
 
-  return GST_FLOW_OK;
+  return ret;
 }
 
 static GstFlowReturn gst_hailo_vision_preproc_chain(GstPad *pad, GstObject *parent, GstBuffer *buffer)
@@ -199,18 +212,22 @@ static GstFlowReturn gst_hailo_vision_preproc_chain(GstPad *pad, GstObject *pare
 
   GST_DEBUG_OBJECT(self, "Chain - Received buffer from sinkpad");
 
-  // Get the vsm from the buffer
-  GstHailoVsmMeta *meta = reinterpret_cast<GstHailoVsmMeta *>(gst_buffer_get_meta(buffer, g_type_from_name(HAILO_VSM_META_API_NAME)));
-
-  if (meta == NULL)
+  hailo15_vsm vsm = {0,0};
+  // If DIS is enabled
+  if (self->medialib_vision_pre_proc->get_pre_proc_configs().dis_config.enabled)
   {
-    GST_ERROR_OBJECT(self, "Cannot get VSM metadata from buffer");
-    return GST_FLOW_ERROR;
+    // Get the vsm from the buffer
+    GstHailoVsmMeta *meta = reinterpret_cast<GstHailoVsmMeta *>(gst_buffer_get_meta(buffer, g_type_from_name(HAILO_VSM_META_API_NAME)));
+    if (meta == NULL)
+    {
+      GST_ERROR_OBJECT(self, "Cannot get VSM metadata from buffer, check that source provides VSM (V4L2) or disable DIS");
+      return GST_FLOW_ERROR;
+    } else {
+      uint index = meta->v4l2_index;
+      vsm = meta->vsm;
+      GST_DEBUG_OBJECT(self, "Got VSM metadata, index: %d vsm x: %d vsm y: %d", index, vsm.dx, vsm.dy);
+    }
   }
-
-  uint index = meta->v4l2_index;
-  hailo15_vsm vsm = meta->vsm;
-  GST_DEBUG_OBJECT(self, "Got VSM metadata, index: %d vsm x: %d vsm y: %d", index, vsm.dx, vsm.dy);
 
   GstCaps *input_caps = gst_pad_get_current_caps(pad);
 
@@ -247,9 +264,7 @@ static GstFlowReturn gst_hailo_vision_preproc_chain(GstPad *pad, GstObject *pare
 
   GST_DEBUG_OBJECT(self, "Call media library handle frame - GstBuffer offset %ld", GST_BUFFER_OFFSET(buffer));
   media_library_return media_lib_ret = self->medialib_vision_pre_proc->handle_frame(hailo_buffer, output_frames);
-  
-  //TODO: move into handle_fame
-  hailo_media_library_buffer_unref(&hailo_buffer);
+
 
   if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
   {
@@ -437,10 +452,11 @@ static gboolean
 gst_hailo_handle_caps_query(GstHailoVisionPreProc *self, GstPad *pad, GstQuery *query)
 {
     // get pad name and direction
-    const gchar *pad_name = gst_pad_get_name(pad);
     GstPadDirection pad_direction = gst_pad_get_direction(pad);
 
+    gchar *pad_name = gst_pad_get_name(pad);
     GST_DEBUG_OBJECT(pad, "Received caps query from sinkpad name %s direction %d", pad_name, pad_direction);
+    g_free(pad_name);
     GstCaps *caps_result, *allowed_caps, *qcaps;
     /* we should report the supported caps here which are all */
     allowed_caps = gst_pad_get_pad_template_caps(pad);
@@ -524,11 +540,10 @@ gst_hailo_vision_preproc_sink_query(GstPad *pad,
   return ret;
 }
 
-static void gst_hailo_vision_preproc_dispose(GObject *object)
+static void gst_hailo_vision_preproc_finalize(GObject *object)
 {
   GstHailoVisionPreProc *self = GST_HAILO_VISION_PREPROC(object);
-  GST_DEBUG_OBJECT(self, "dispose");
-
+  GST_DEBUG_OBJECT(self, "finalize");
   if (self->config_file_path)
   {
     g_free(self->config_file_path);
@@ -540,6 +555,12 @@ static void gst_hailo_vision_preproc_dispose(GObject *object)
     self->medialib_vision_pre_proc.reset();
     self->medialib_vision_pre_proc = NULL;
   }
+}
+
+static void gst_hailo_vision_preproc_dispose(GObject *object)
+{
+  GstHailoVisionPreProc *self = GST_HAILO_VISION_PREPROC(object);
+  GST_DEBUG_OBJECT(self, "dispose");
 
   gst_hailo_vision_preproc_reset(self);
 

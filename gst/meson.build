@@ -5,8 +5,6 @@ endif
 # Generate config.h file for GStreamer
 configure_file(output : 'config.h', configuration : core_conf)
 
-opencv_dep = dependency('opencv4', version : '>= 4.0', method : 'pkg-config')
-
 ################################################
 # Gstreamer Media Library
 ################################################
@@ -14,13 +12,16 @@ opencv_dep = dependency('opencv4', version : '>= 4.0', method : 'pkg-config')
 utils_sources = [
     'buffer_utils/buffer_utils.cpp',
     'buffer_utils/gsthailobuffermeta.cpp',
+    'osd/gsthailoosd.cpp',
+    'osd/osd.cpp',
+    'osd/osd_impl.cpp'
 ]
 
 gstmedialibutils_lib = shared_library('gstmedialibutils',
     utils_sources,
     cpp_args : common_args,
     dependencies : gstreamer_deps +
-                   [dsp_dep, media_library_common_dep],
+                   [dsp_dep, media_library_common_dep, opencv_dep, spdlog_dep],
     gnu_symbol_visibility : 'default',
     version: meson.project_version(),
     install: true,
@@ -28,7 +29,7 @@ gstmedialibutils_lib = shared_library('gstmedialibutils',
 )
 
 gstmedialibrary_utils_dep = declare_dependency(
-  include_directories: [include_directories('./buffer_utils')],
+  include_directories: [include_directories('./buffer_utils', './osd')],
   dependencies : [media_library_common_dep],
   link_with : gstmedialibutils_lib)
 
@@ -43,6 +44,8 @@ pkgc.generate(
 
 install_headers('buffer_utils/buffer_utils.hpp')
 install_headers('buffer_utils/gsthailobuffermeta.hpp')
+install_headers('osd/osd_utils.hpp')
+install_headers('osd/osd.hpp')
 
 plugin_sources = [
     'gstmedialib.cpp',
@@ -50,9 +53,7 @@ plugin_sources = [
     'encoder/gsthailoenc.cpp',
     'encoder/gsthailoh265enc.cpp',
     'encoder/gsthailoh264enc.cpp',
-    'hailo_encoder/gsthailoencoder.cpp',
-    'osd/osd.cpp',
-    'osd/gsthailoosd.cpp'
+    'hailo_encoder/gsthailoencoder.cpp'
     ]
 
 shared_library('gstmedialib',

@@ -32,17 +32,16 @@
 * @param[in] dsp_image_props dsp_image_properties_t
 * @return GstBuffer
 */
-GstBuffer *create_gst_buffer_from_hailo_buffer(hailo_media_library_buffer &hailo_buffer, guint max_buffer_size)
+GstBuffer *create_gst_buffer_from_hailo_buffer(HailoMediaLibraryBufferPtr hailo_buffer)
 {
     GstBuffer* gst_outbuf = gst_buffer_new();
 
-    for(uint i = 0; i < hailo_buffer.get_num_of_planes(); i++)
+    for(uint i = 0; i < hailo_buffer->get_num_of_planes(); i++)
     {
-        dsp_data_plane_t plane = hailo_buffer.hailo_pix_buffer->planes[i];
+        dsp_data_plane_t plane = hailo_buffer->hailo_pix_buffer->planes[i];
         std::pair<HailoMediaLibraryBufferPtr, guint> *hailo_plane;
-        //TODO: is it possible with shared ptr?
         hailo_plane = new std::pair<HailoMediaLibraryBufferPtr, guint>();
-        hailo_plane->first = std::make_shared<hailo_media_library_buffer>(hailo_buffer);
+        hailo_plane->first = hailo_buffer;
         hailo_plane->second = i;
 
         // log DSP buffer plane ptr: " << plane.userptr

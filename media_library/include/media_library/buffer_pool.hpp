@@ -107,6 +107,11 @@ class MediaLibraryBufferPool : public std::enable_shared_from_this<MediaLibraryB
      */
     MediaLibraryBufferPool(uint width, uint height, dsp_image_format_t format, size_t max_buffers, HailoMemoryType memory_type);
     ~MediaLibraryBufferPool();
+    // Copy constructor - delete
+    MediaLibraryBufferPool(const MediaLibraryBufferPool&) = delete;
+    // Copy assignment - delete
+    MediaLibraryBufferPool& operator=(const MediaLibraryBufferPool&) = delete;
+
     /**
     * @brief Initialization of MediaLibraryBufferPool
     * Allocates all the required buffers (according to max_buffers)
@@ -163,7 +168,7 @@ private:
     {
         owner = nullptr;
         // free allocated planes memory resources
-        delete (hailo_pix_buffer->planes);
+        delete[] hailo_pix_buffer->planes;
         hailo_pix_buffer = nullptr;
         planes_reference_count.clear();
         return true;
@@ -194,6 +199,44 @@ public:
     hailo15_vsm vsm;
 
     hailo_media_library_buffer() : m_buffer_mutex(std::make_shared<std::mutex>()), m_plane_mutex(std::make_shared<std::mutex>()), hailo_pix_buffer(nullptr), owner(nullptr) {}
+    // Move constructor
+    hailo_media_library_buffer(hailo_media_library_buffer&& other) noexcept
+    {
+        m_buffer_mutex = other.m_buffer_mutex;
+        m_plane_mutex = other.m_plane_mutex;
+        hailo_pix_buffer = other.hailo_pix_buffer;
+        owner = other.owner;
+        planes_reference_count = other.planes_reference_count;
+        other.hailo_pix_buffer = nullptr;
+        other.owner = nullptr;
+        other.m_buffer_mutex = nullptr;
+        other.m_plane_mutex = nullptr;
+        other.planes_reference_count.clear();
+    }
+
+    // Move assignment
+    hailo_media_library_buffer& operator=(hailo_media_library_buffer&& other) noexcept
+    {
+        if (this != &other)
+        {
+            m_buffer_mutex = other.m_buffer_mutex;
+            m_plane_mutex = other.m_plane_mutex;
+            hailo_pix_buffer = other.hailo_pix_buffer;
+            owner = other.owner;
+            planes_reference_count = other.planes_reference_count;
+            other.hailo_pix_buffer = nullptr;
+            other.owner = nullptr;
+            other.m_buffer_mutex = nullptr;
+            other.m_plane_mutex = nullptr;
+            other.planes_reference_count.clear();
+        }
+        return *this;
+    }
+
+    // Copy constructor - delete
+    hailo_media_library_buffer(const hailo_media_library_buffer& other) = delete;
+    // Copy assignment - delete
+    hailo_media_library_buffer& operator=(const hailo_media_library_buffer& other) = delete;
 
     void *get_plane(uint32_t index)
     {

@@ -73,6 +73,8 @@ namespace dsp_utils
     dsp_status perform_dsp_multiblend(dsp_image_properties_t *image_frame, dsp_overlay_properties_t *overlay, size_t overlays_count);
     void free_overlay_property_planes(dsp_overlay_properties_t *overlay_properties);
     void free_image_property_planes(dsp_image_properties_t *image_properties);
+
+    static constexpr int max_blend_overlays = 50;
 }
 
 /** @} */ // end of dsp_utils_definitions

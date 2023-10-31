@@ -25,7 +25,7 @@
 #include "media_library_types.hpp"
 #include "v4l2_vsm/hailo_vsm.h"
 
-media_library_return init_mesh(void **ctx, dsp_dewarp_mesh_t &dsp_dewarp_mesh, dewarp_config_t &dewarp_config, uint output_width, uint output_height);
+media_library_return init_mesh(void **ctx, dsp_dewarp_mesh_t &dsp_dewarp_mesh, dewarp_config_t &dewarp_config, dis_config_t &dis_config, uint input_width, uint input_height);
 media_library_return free_mesh(void **ctx, dsp_dewarp_mesh_t &dsp_dewarp_mesh);
 media_library_return generate_dewarp_only_mesh(void* ctx, dsp_dewarp_mesh_t &dsp_dewarp_mesh, uint input_width, uint input_height, flip_direction_t flip_dir, rotation_angle_t rotation_angle);
 media_library_return generate_mesh(void* ctx, dsp_dewarp_mesh_t &dsp_dewarp_mesh, uint input_width, uint input_height, hailo15_vsm &vsm, flip_direction_t flip_dir, rotation_angle_t rotation_angle);

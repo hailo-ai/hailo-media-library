@@ -26,7 +26,9 @@
 #include <map>
 #include <iostream>
 #include "gsthailoosd.hpp"
+#include "osd_utils.hpp"
 #include "buffer_utils/buffer_utils.hpp"
+#include <fstream>
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailoosd_debug_category);
 #define GST_CAT_DEFAULT gst_hailoosd_debug_category
@@ -68,7 +70,7 @@ gst_hailoosd_class_init(GstHailoOsdClass *klass)
 
     gst_element_class_add_pad_template(GST_ELEMENT_CLASS(klass),
                                        gst_pad_template_new("src", GST_PAD_SRC, GST_PAD_ALWAYS,
-                                                            gst_caps_from_string(GST_VIDEO_CAPS_MAKE("{ NV12 }"))));
+                                                             gst_caps_from_string(GST_VIDEO_CAPS_MAKE("{ NV12 }"))));
     gst_element_class_add_pad_template(GST_ELEMENT_CLASS(klass),
                                        gst_pad_template_new("sink", GST_PAD_SINK, GST_PAD_ALWAYS,
                                                             gst_caps_from_string(GST_VIDEO_CAPS_MAKE("{ NV12 }"))));
@@ -82,12 +84,12 @@ gst_hailoosd_class_init(GstHailoOsdClass *klass)
     gobject_class->set_property = gst_hailoosd_set_property;
     gobject_class->get_property = gst_hailoosd_get_property;
     g_object_class_install_property(gobject_class, PROP_CONFIG_FILE_PATH,
-                                    g_param_spec_string("config-path", "config-path",
-                                                        "json config file path", NULL,
+                                    g_param_spec_string("config-path", NULL,
+                                                        "json config file path", "",
                                                         (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
     g_object_class_install_property(gobject_class, PROP_CONFIG_STR,
-                                    g_param_spec_string("config-str", "config-str",
-                                                        "json config string", NULL,
+                                    g_param_spec_string("config-str", NULL,
+                                                        "json config string", "",
                                                         (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
     g_object_class_install_property(gobject_class, PROP_WAIT_FOR_WRITABLE_BUFFER,
                                     g_param_spec_boolean("wait-for-writable-buffer", "wait-for-writable-buffer",
@@ -107,9 +109,9 @@ gst_hailoosd_class_init(GstHailoOsdClass *klass)
 static void
 gst_hailoosd_init(GstHailoOsd *hailoosd)
 {
-    hailoosd->params = nullptr;
-    hailoosd->config_path = g_strdup("NULL");
-    hailoosd->config_str = g_strdup("NULL");
+    hailoosd->blender = nullptr;
+    hailoosd->config_path = "";
+    hailoosd->config_str = "";
     hailoosd->wait_for_writable_buffer = false;
 }
 
@@ -160,6 +162,14 @@ void gst_hailoosd_get_property(GObject *object, guint property_id,
         break;
     }
 }
+
+std::shared_ptr<osd::Blender> gst_hailoosd_get_blender(GstElement *object)
+{
+    GstHailoOsd *hailoosd = GST_HAILO_OSD(object);
+    return hailoosd->blender;
+}
+
+
 void gst_hailoosd_dispose(GObject *object)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(object);
@@ -186,36 +196,48 @@ static gboolean gst_hailoosd_start(GstBaseTransform *trans)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
 
-    bool config_str_is_null = (g_strcmp0(hailoosd->config_str, "NULL") == 0);  
-    bool config_file_is_null = (g_strcmp0(hailoosd->config_path, "NULL") == 0);
+    std::string config_str = hailoosd->config_str;
+    std::string config_path = hailoosd->config_path;
 
-
-    if (!(config_str_is_null) && (config_file_is_null))
+    if (config_str != "" && config_path == "")
     {
-        // Load params from json string
-        hailoosd->params = load_json_config(hailoosd->config_path, hailoosd->config_str, true);
+        // Load overlays from json string
+        tl::expected<std::shared_ptr<osd::Blender>, media_library_return> blender_expected = osd::Blender::create(nlohmann::json::parse(config_str));
+        if (!blender_expected.has_value())
+        {
+            GST_ERROR_OBJECT(hailoosd, "Failed to create OSD from config str");
+            return FALSE;
+        }
+        hailoosd->blender = blender_expected.value();
     }
-    else if ((config_str_is_null) && (!(config_file_is_null)))
+    else if (config_str == "" && config_path != "")
     {
-        // Load params from json file
-        hailoosd->params = load_json_config(hailoosd->config_path, hailoosd->config_str, false);
+        // Load overlays from json file
+        std::ifstream config_file(config_path);
+        tl::expected<std::shared_ptr<osd::Blender>, media_library_return> blender_expected = osd::Blender::create(nlohmann::json::parse(config_file));
+        if (!blender_expected.has_value())
+        {
+            GST_ERROR_OBJECT(hailoosd, "Failed to create OSD from config file");
+            return FALSE;
+        }
+        hailoosd->blender = blender_expected.value();
     }
-    else if (!config_str_is_null && !config_file_is_null)
+    else if (config_str != "" && config_path != "")
     {
         GST_ERROR_OBJECT(hailoosd, "Both config string and config path are not empty, please choose only one");
     }
-
     else
     {
-        GST_WARNING_OBJECT(hailoosd, "Both config string and config path are empty, please choose one");
-        hailoosd->params = load_json_config(hailoosd->config_path, hailoosd->config_str, false);
-    }
+        // Load with default config
+        GST_WARNING_OBJECT(hailoosd, "Both config string and config path are empty, using default config");
 
-    // Acquire DSP device
-    dsp_status status = dsp_utils::acquire_device();
-    if (status != DSP_SUCCESS)
-    {
-        GST_ERROR_OBJECT(hailoosd, "Accuire DSP device failed with status code %d", status);
+        tl::expected<std::shared_ptr<osd::Blender>, media_library_return> blender_expected = osd::Blender::create();
+        if (!blender_expected.has_value())
+        {
+            GST_ERROR_OBJECT(hailoosd, "Failed to create OSD without config");
+            return FALSE;
+        }
+        hailoosd->blender = blender_expected.value();
     }
 
     GST_DEBUG_OBJECT(hailoosd, "start");
@@ -228,15 +250,8 @@ gst_hailoosd_stop(GstBaseTransform *trans)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
 
-    // Release param resources
-    free_param_resources(hailoosd->params);
-
-    // Release DSP device
-    dsp_status result = dsp_utils::release_device();
-    if (result != DSP_SUCCESS)
-    {
-        GST_ERROR_OBJECT(hailoosd, "Release DSP device failed with status code %d", result);
-    }
+    // Release overlays
+    hailoosd->blender = nullptr;
 
     GST_DEBUG_OBJECT(hailoosd, "stop");
 
@@ -279,22 +294,20 @@ static gboolean
 gst_hailoosd_set_caps(GstBaseTransform *trans, GstCaps *incaps, GstCaps *outcaps)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
-    osd_status_t ret = OSD_STATUS_UNINITIALIZED;
 
     // now that caps are negotiated, get the size of the image for relative scaling
     GstVideoInfo *full_image_info = gst_video_info_new();
     gst_video_info_from_caps(full_image_info, incaps);
 
-    // init overlay images from the json params
-    ret = initialize_overlay_images(hailoosd->params, full_image_info->width, full_image_info->height);
+    media_library_return ret = hailoosd->blender->set_frame_size(GST_VIDEO_INFO_WIDTH(full_image_info), GST_VIDEO_INFO_HEIGHT(full_image_info));
 
-    // cleanup
     gst_video_info_free(full_image_info);
-
-    // check success status
-    if (ret != OSD_STATUS_OK)
+    
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        GST_DEBUG_OBJECT(hailoosd, "Failed to init OSD with frame size %dX%d", GST_VIDEO_INFO_WIDTH(full_image_info), GST_VIDEO_INFO_HEIGHT(full_image_info));
         return FALSE;
-
+    }
     return TRUE;
 }
 
@@ -313,7 +326,7 @@ gst_hailoosd_propose_allocation(GstBaseTransform *trans,
 static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans,
                                                GstBuffer *buffer)
 {
-    osd_status_t ret = OSD_STATUS_UNINITIALIZED;
+    media_library_return ret = MEDIA_LIBRARY_SUCCESS;
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
     GST_DEBUG_OBJECT(hailoosd, "transform_ip");
     // print the config string
@@ -325,8 +338,6 @@ static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans,
     caps = gst_pad_get_current_caps(trans->sinkpad);
     GstVideoInfo *info = gst_video_info_new();
     gst_video_info_from_caps(info, caps);
-    size_t image_width = GST_VIDEO_INFO_WIDTH(info);
-    size_t image_height = GST_VIDEO_INFO_HEIGHT(info);
 
     switch (gst_buffer_n_memory(buffer))
     {
@@ -336,12 +347,15 @@ static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans,
         GstVideoFrame video_frame;
         gst_video_frame_map(&video_frame, info, buffer, GST_MAP_READ);
         
-
         // build image_properties from the input image and overlay
         create_dsp_buffer_from_video_frame(&video_frame, input_image_properties);
 
         // perform blending
-        ret = blend_all(input_image_properties, image_width, image_height, hailoosd->params);
+        ret = hailoosd->blender->blend(input_image_properties);
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+        {
+            GST_ERROR_OBJECT(trans, "Failed to do blend (%d)", ret);
+        }
 
         // cleanup
         gst_video_frame_unmap(&video_frame);
@@ -357,7 +371,11 @@ static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans,
         GST_DEBUG_OBJECT(trans, "dsp buffer created, performing blend...");
 
         // perform blending
-        ret = blend_all(input_image_properties, image_width, image_height, hailoosd->params);
+        ret = hailoosd->blender->blend(input_image_properties);
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+        {
+            GST_ERROR_OBJECT(trans, "Failed to do blend %d", ret);
+        }
         
         GST_DEBUG_OBJECT(trans, "blend done");
 
@@ -377,7 +395,7 @@ static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans,
     gst_caps_unref(caps);
 
     // check success status
-    if (ret != OSD_STATUS_OK)
+    if (ret != MEDIA_LIBRARY_SUCCESS)
         return GST_FLOW_ERROR;
     return GST_FLOW_OK;
 }

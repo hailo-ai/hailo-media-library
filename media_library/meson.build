@@ -2,7 +2,6 @@ if not dsp_dep.found()
     error('dsp is required')
 endif
 
-spdlog_dep = dependency('spdlog', version: '1.9.2')
 incdir = [include_directories('./include/media_library')]
 utils_incdir = [include_directories('./src/utils')]
 
@@ -11,13 +10,14 @@ common_sourcs = [
     'src/dsp/dsp_utils.cpp',
     'src/buffer_pool/buffer_pool.cpp',
     'src/utils/media_library_logger.cpp',
+    'src/config_manager/config_manager.cpp'
 ]
 
 media_library_common_lib = shared_library('hailo_media_library_common',
     common_sourcs,
     cpp_args: common_args,
     include_directories: [incdir, utils_incdir],
-    dependencies : [dsp_dep, spdlog_dep],
+    dependencies : [dsp_dep, spdlog_dep, json_dep, expected_dep],
     version: meson.project_version(),
     install: true,
     install_dir: get_option('libdir'),
@@ -44,7 +44,7 @@ dis_sources = [
 dis_library_lib = shared_library('dis_library',
     dis_sources,
     cpp_args: common_args,
-    include_directories: [dis_incdir],
+    include_directories: [dis_incdir, incdir],
     dependencies : [],
     version: meson.project_version(),
     install: true,
@@ -57,7 +57,6 @@ dis_library_dep = declare_dependency(
 
 frontend_sources = [
     'src/vision_pre_proc/vision_pre_proc.cpp',
-    'src/config_manager/config_manager.cpp',
     'src/vision_pre_proc/generate_mesh.cpp'
 ]
 
@@ -92,6 +91,7 @@ encoder_lib = shared_library('hailo_encoder',
     cpp_args: common_args,
     link_args: ['-lhantro_vc8000e', '-lm'],
     include_directories: [incdir],
+    dependencies : [media_library_common_dep],
     version: meson.project_version(),
     install: true,
     install_dir: get_option('libdir'),
@@ -112,7 +112,6 @@ pkgc.generate(name: 'hailo_encoder',
 media_library_encoder_lib_sources = [
     'src/hailo_encoder/encoder.cpp',
     'src/hailo_encoder/encoder_config.cpp',
-    'src/hailo_encoder/encoder_schema.cpp',
     'src/hailo_encoder/encoder_gop_config.cpp',
 ]
 
@@ -120,7 +119,7 @@ hailo_media_library_encoder_lib = shared_library('hailo_media_library_encoder',
     media_library_encoder_lib_sources,
     cpp_args: common_args,
     link_args: ['-lhantro_vc8000e', '-lm'],
-    dependencies : [media_library_common_dep, spdlog_dep, rapidjson_dep],
+    dependencies : [media_library_common_dep, spdlog_dep],
     include_directories: [incdir, utils_incdir],
     version: meson.project_version(),
     install: true,

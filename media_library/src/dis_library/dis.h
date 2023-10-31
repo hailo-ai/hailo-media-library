@@ -1,15 +1,25 @@
-/**
-* Copyright 2020 (C) Hailo Technologies Ltd.
-* All rights reserved.
-*
-* Hailo Technologies Ltd. ("Hailo") disclaims any warranties, including, but not limited to,
-* the implied warranties of merchantability and fitness for a particular purpose.
-* This software is provided on an "AS IS" basis, and Hailo has no obligation to provide maintenance,
-* support, updates, enhancements, or modifications.
-*
-* You may use this software in the development of any project.
-* You shall not reproduce, modify or distribute this software without prior written permission.
-**/
+/*
+* Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+* 
+* Permission is hereby granted, free of charge, to any person obtaining
+* a copy of this software and associated documentation files (the
+* "Software"), to deal in the Software without restriction, including
+* without limitation the rights to use, copy, modify, merge, publish,
+* distribute, sublicense, and/or sell copies of the Software, and to
+* permit persons to whom the Software is furnished to do so, subject to
+* the following conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+* LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+* OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+* WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 /**
 * @file dis.h
 * @brief DIS (Digital image stabilization) class and methods
@@ -22,7 +32,7 @@
 #include "interface_types.h"
 #include "dis_math.h"
 #include "camera.h"
-#include "common.h"
+#include "dis_common.h"
 
 #include "dewarp.h"
 
@@ -46,13 +56,16 @@
 /// stabilizing and dewarping grids on the output.
 class DIS {
 public:
-    /// Config file
-    Cfg cfg;
+    // DIS Configuration parameters
+    dis_config_t cfg;
     /// Whether the class is initialized properly.
     bool initialized = false;
     /// Input camera model
     FishEye in_cam;
 private:
+    // Dewarp Configurations
+    camera_type_t m_camera_type = CAMERA_TYPE_FISHEYE;
+    float m_camera_fov = 0;
     /// Flip/mirror/rotation code of last processed frame.
     int last_flip_mirror_rot = 0;
     /// Output camera model. Points to either a PinHole or a FishEye class according to config.
@@ -108,11 +121,7 @@ public:
     /// @brief initialize DIS class. parse_config() and init_in_cam() must be called first!
     /// @param out_width output image width
     /// @param out_height output image height
-    RetCodes init(int out_width, int out_height);
-
-    /// @brief parses the string and performs sanity check of the configured values
-    /// @param cfg config file as a string with a terminating 0
-    int parse_config(const char* cfg);
+    RetCodes init(int out_width, int out_height, camera_type_t camera_type, float camera_fov);
 
     /// @brief creates Dis::in_cam
     /// @param calib camera calibration as a string with a terminating 0 read from a file

@@ -190,6 +190,22 @@ static GstFlowReturn appsink_new_sample(GstAppSink *appsink, gpointer user_data)
     create_hailo_buffer_from_video_frame(&frame,buffer,vsm);
     // frame unmap
     gst_video_frame_unmap(&frame);
+
+    // move text down a little every 50 frames
+    if (GST_BUFFER_OFFSET(gst_buffer) % 50 == 0)
+    {
+        auto blender = media_lib->encoder->get_blender();
+        auto txt_expected = blender->get_overlay("example_text1");
+        if (!txt_expected.has_value())
+        {
+            std::cout << "Failed to get overlay (" << txt_expected.error() << ")" << std::endl;
+        }
+
+        auto txt = std::static_pointer_cast<osd::TextOverlay>(txt_expected.value());
+        txt->y += 0.03;
+        blender->set_overlay("example_text1", *txt);
+    }
+
   }
   gst_video_info_free(info);
 
@@ -198,9 +214,9 @@ static GstFlowReturn appsink_new_sample(GstAppSink *appsink, gpointer user_data)
   if (preproc_status != MEDIA_LIBRARY_SUCCESS)
     return_status = GST_FLOW_ERROR;
 
-  // encode 
-  media_lib->encoder->add_buffer(std::make_shared<hailo_media_library_buffer>(outputs[0]));
-
+  // encode
+  HailoMediaLibraryBufferPtr hailo_buffer = std::make_shared<hailo_media_library_buffer>(std::move(outputs[0]));
+  media_lib->encoder->add_buffer(hailo_buffer);
 
   gst_sample_unref(sample);
   return return_status;
@@ -331,7 +347,7 @@ int main(int argc, char *argv[])
   gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
   ret = wait_for_end_of_pipeline(pipeline);
-  media_lib->encoder->stop();  
+  media_lib->encoder->stop();
 
   // Free resources
   gst_element_set_state(pipeline, GST_STATE_NULL);

@@ -1,15 +1,25 @@
-/**
-* Copyright 2020 (C) Hailo Technologies Ltd.
-* All rights reserved.
-*
-* Hailo Technologies Ltd. ("Hailo") disclaims any warranties, including, but not limited to,
-* the implied warranties of merchantability and fitness for a particular purpose.
-* This software is provided on an "AS IS" basis, and Hailo has no obligation to provide maintenance,
-* support, updates, enhancements, or modifications.
-*
-* You may use this software in the development of any project.
-* You shall not reproduce, modify or distribute this software without prior written permission.
-**/
+/*
+* Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+* 
+* Permission is hereby granted, free of charge, to any person obtaining
+* a copy of this software and associated documentation files (the
+* "Software"), to deal in the Software without restriction, including
+* without limitation the rights to use, copy, modify, merge, publish,
+* distribute, sublicense, and/or sell copies of the Software, and to
+* permit persons to whom the Software is furnished to do so, subject to
+* the following conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+* LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+* OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+* WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 /**
 * @file interface.h
 * @brief Contains interface APIs for digital image stabilization and comments about their usage
@@ -19,6 +29,7 @@
 
 #include "interface_types.h"
 #include "dewarp.h"
+#include "dis_common.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -39,17 +50,16 @@ extern "C" {
 ///  a few instances of DIS may work together, independently from each other.
 ///  *ctx must be NULL, otherwise dis_init will return an error.
 /// @param cfg contents of the config file (including the terminating 0) read in the memory by the caller.
-/// DIS library does not access the file system.
-/// @param cfg_bytes size of config file (including the terminating 0)
 /// @param calib contents of the camera calibration file (including the terminating 0), see cfg.
 /// @param calib_bytes size of camera calibration file (including the terminating 0)
 /// @param out_width output size. Necessary to determine grid size (grid cell size is square and constant)
 /// @param out_height output size. Necessary to determine grid size (grid cell size is square and constant)
 /// @param grid pointer to DewarpT (size of the grid vertexes to be allocated externally).
 RetCodes dis_init(void** ctx,
-               const char* cfg, int32_t cfg_bytes,
+               dis_config_t &cfg,
                const char* calib, int32_t calib_bytes,
                int32_t out_width, int32_t out_height,
+               camera_type_t camera_type, float camera_fov,
                DewarpT* grid
                );
 

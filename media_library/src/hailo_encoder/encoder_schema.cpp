@@ -1,3 +1,25 @@
+/*
+* Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+* 
+* Permission is hereby granted, free of charge, to any person obtaining
+* a copy of this software and associated documentation files (the
+* "Software"), to deal in the Software without restriction, including
+* without limitation the rights to use, copy, modify, merge, publish,
+* distribute, sublicense, and/or sell copies of the Software, and to
+* permit persons to whom the Software is furnished to do so, subject to
+* the following conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+* LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+* OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+* WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 #include <iostream>
 #include <filesystem>
 namespace fs = std::filesystem;
@@ -9,34 +31,34 @@ namespace fs = std::filesystem;
 EncoderConfig::EncoderConfig(const std::string& json_string)
     : m_json_string(json_string)
 {
-    m_doc.Parse(m_json_string.c_str());
+    m_doc = nlohmann::json::parse(m_json_string);
 }
-const Document& EncoderConfig::get_doc() const
+const nlohmann::json& EncoderConfig::get_doc() const
 {
     return m_doc;
 }
-const Value::ConstObject EncoderConfig::get_gop_config() const
+const nlohmann::json& EncoderConfig::get_gop_config() const
 {
-    return m_doc["gop_config"].GetObject();
+    return m_doc["gop_config"];
 }
-const Value::ConstObject EncoderConfig::get_input_stream() const
+const nlohmann::json& EncoderConfig::get_input_stream() const
 {
-    return m_doc["config"]["input_stream"].GetObject();
-}
-
-const Value::ConstObject EncoderConfig::get_coding_control() const
-{
-    return m_doc["coding_control"].GetObject();
+    return m_doc["config"]["input_stream"];
 }
 
-const Value::ConstObject EncoderConfig::get_rate_control() const
+const nlohmann::json& EncoderConfig::get_coding_control() const
 {
-    return m_doc["rate_control"].GetObject();
+    return m_doc["coding_control"];
 }
 
-const Value::ConstObject EncoderConfig::get_output_stream() const
+const nlohmann::json& EncoderConfig::get_rate_control() const
 {
-    return m_doc["config"]["output_stream"].GetObject();
+    return m_doc["rate_control"];
+}
+
+const nlohmann::json& EncoderConfig::get_output_stream() const
+{
+    return m_doc["config"]["output_stream"];
 }
 
 // const char *json_schema const get_json_schema() const {

@@ -1,11 +1,32 @@
+/*
+* Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+* 
+* Permission is hereby granted, free of charge, to any person obtaining
+* a copy of this software and associated documentation files (the
+* "Software"), to deal in the Software without restriction, including
+* without limitation the rights to use, copy, modify, merge, publish,
+* distribute, sublicense, and/or sell copies of the Software, and to
+* permit persons to whom the Software is furnished to do so, subject to
+* the following conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+* LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+* OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+* WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 #include "dis.h"
 
 #include "interface_types.h"
 #include "dis_math.h"
 #include "camera.h"
-#include "common.h"
+#include "dis_common.h"
 #include "log.h"
-#include "c_basic_parser.h"
 #include "dewarp.h"
 
 #include <sstream>
@@ -24,101 +45,6 @@ const std::map<int, mat2> ROT_MAT_MAP = {
 };
 
 
-///////////////////////////////////////////////////////////////////////////////
-//parse_config()
-///////////////////////////////////////////////////////////////////////////////
-int DIS::parse_config(const char* parse_str)
-{
-    int cnt_read;
-    float tmpf;
-    int tmpi;
-
-//    cfg.FMV_HISTORY_LEN = read_int(parse_str, "FMV_HISTORY_LEN" , cnt_read );
-//    if (cnt_read == 0)  {LOGE("FMV_HISTORY_LEN not read successfully"); return (-1);}
-//    int shift = 0;
-//    while( ((cfg.FMV_HISTORY_LEN >> shift) & 1) == 0 )
-//        shift++; //shift right till the right-most 1 move into the LSbit
-//    if ( (cfg.FMV_HISTORY_LEN >> shift) & ~1 ) { //if there is 1 outside the LSbit
-//        LOGE("FMV_HISTORY_LEN (%d) must be a power of 2", cfg.OUT_CAMERA_TYPE);
-//        return (-1);
-//    }
-//    cfg.fmv_history_bits = shift;
-
-    //---------------------------------
-    cfg.OUT_CAMERA_TYPE = read_int(parse_str, "OUT_CAMERA_TYPE" , cnt_read );
-    if(cnt_read == 0)  {LOGE("OUT_CAMERA_TYPE not read successfully"); return (-1);}
-    if (cfg.OUT_CAMERA_TYPE < 0 ||  cfg.OUT_CAMERA_TYPE > 2) {
-        LOGE("Invalid value of OUT_CAMERA_TYPE %d", cfg.OUT_CAMERA_TYPE);
-        return (-1);
-    }
-    //---------------------------------
-    cfg.OUT_CAMERA_FOV = read_float(parse_str, "OUT_CAMERA_FOV" , cnt_read );
-    if(cnt_read == 0)  { LOGE("OUT_CAMERA_FOV not read successfully"); return (-1); }
-    if( /*cfg.OUT_CAMERA_FOV < 1.f ||*/ cfg.OUT_CAMERA_FOV > 359.f ) {
-        LOGE("Invalid value of OUT_CAMERA_FOV %.1f", cfg.OUT_CAMERA_FOV);
-        return (-1);
-    }
-    if( cfg.OUT_CAMERA_FOV > 160.f && cfg.OUT_CAMERA_TYPE == 0) {
-        LOGE("Too big OUT_CAMERA_FOV (%.1f) for a pin-hole camera", cfg.OUT_CAMERA_FOV);
-        return (-1);
-    }
-    //---------------------------------
-    tmpf = read_float(parse_str, "STAB_K_MIN" , cnt_read );
-    if(cnt_read)  { cfg.STAB_K_MIN  = tmpf; }
-    if( cfg.STAB_K_MIN < 0.f || cfg.STAB_K_MIN > 1.f ) {
-        LOGE("Invalid value of STAB_K_MIN %.1f", cfg.STAB_K_MIN);
-        return (-1);
-    }
-    tmpf = read_float(parse_str, "STAB_K_DECR" , cnt_read );
-    if(cnt_read)  { cfg.STAB_K_DECR = tmpf; }
-    if( cfg.STAB_K_DECR < 0.f || cfg.STAB_K_DECR > 1.f ) {
-        LOGE("Invalid value of STAB_K_DECR %.1f", cfg.STAB_K_DECR);
-        return (-1);
-    }
-    tmpf = read_float(parse_str, "STAB_K_INC_BLKCRN" , cnt_read );
-    if(cnt_read)  {cfg.STAB_K_INC_BLKCRN = tmpf;}
-    if( cfg.STAB_K_INC_BLKCRN < 0.f || cfg.STAB_K_INC_BLKCRN > 1.f ) {
-        LOGE("Invalid value of STAB_K_INC_BLKCRN %.1f", cfg.STAB_K_INC_BLKCRN);
-        return (-1);
-    }
-
-    tmpf = read_float(parse_str, "BLKCRN_TO_K_THR" , cnt_read );
-    if(cnt_read)  {cfg.BLKCRN_TO_K_THR = tmpf;}
-    if( cfg.BLKCRN_TO_K_THR < 0.f || cfg.BLKCRN_TO_K_THR > 1.f ) {
-        LOGE("Invalid value of BLKCRN_TO_K_THR %.1f", cfg.BLKCRN_TO_K_THR);
-        return (-1);
-    }
-
-    tmpi = read_int(parse_str, "BLKCRN_CORRECT_ENB" , cnt_read );
-    if(cnt_read)  {cfg.BLKCRN_CORRECT_ENB = tmpi;}
-    if(cfg.BLKCRN_CORRECT_ENB <0 || cfg.BLKCRN_CORRECT_ENB > 1) {
-        LOGE("BLKCRN_CORRECT_ENB (%d) must be 0 or 1", cfg.BLKCRN_CORRECT_ENB);
-        return (-1);
-    }
-
-
-    tmpf = read_float(parse_str, "RUNNING_AVG_COEFF" , cnt_read );
-    if(cnt_read)  { cfg.RUNNING_AVG_COEFF = tmpf; }
-    if( cfg.RUNNING_AVG_COEFF <= 0.f || cfg.RUNNING_AVG_COEFF > 1.f ) {
-        LOGE("Invalid value of RUNNING_AVG_COEFF %.1f", cfg.RUNNING_AVG_COEFF);
-        return (-1);
-    }
-    tmpf = read_float(parse_str, "STD_MULTIPLIER" , cnt_read );
-    if(cnt_read)  {cfg.STD_MULTIPLIER = tmpf;}
-    if( cfg.STD_MULTIPLIER <= 0.f) {
-        LOGE("Invalid value of STD_MULTIPLIER %.1f", cfg.STD_MULTIPLIER);
-        return (-1);
-    }
-    //---------------------------------
-    cfg.GEN_RESIZE_GRID = read_int(parse_str, "GEN_RESIZE_GRID" , cnt_read );
-
-    cfg.DEBUG_FIX_STAB = read_int(parse_str, "DEBUG_FIX_STAB" , cnt_read );
-
-    cfg.FIX_STAB_LO = read_float(parse_str, "FIX_STAB_LO" , cnt_read );
-    cfg.FIX_STAB_LA = read_float(parse_str, "FIX_STAB_LA" , cnt_read );
-
-    return 0;
-}
 ///////////////////////////////////////////////////////////////////////////////
 //init_in_cam()
 ///////////////////////////////////////////////////////////////////////////////
@@ -167,8 +93,11 @@ int DIS::init_in_cam(const char* calib_data_str)
 ///////////////////////////////////////////////////////////////////////////////
 //init_in_cam()
 ///////////////////////////////////////////////////////////////////////////////
-RetCodes DIS::init(int out_width, int out_height)
+RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, float camera_fov)
 {
+    m_camera_type = camera_type;
+    m_camera_fov = camera_fov;
+
     if( out_width <= 0 || out_height <=0 )  {
         LOGE("Output size my be between 2 and 4095. Otherwise the grid.mesh_table format can not be ");
         return ERROR_INPUT_DATA;
@@ -183,7 +112,7 @@ RetCodes DIS::init(int out_width, int out_height)
     float out_diag = vec2(out_width, out_height).len();
     float max_out_fov = 0; //for print
     //create virtual camera
-    if (cfg.OUT_CAMERA_TYPE == 0) { // pinhole
+    if (m_camera_type == CAMERA_TYPE_PINHOLE) { // pinhole
         float flen;
         const float in_tan_ltrb[4] = {
             tan(std::min( in_cam.ltrb[0], RADIANS(89.9) )),
@@ -197,8 +126,8 @@ RetCodes DIS::init(int out_width, int out_height)
         flen = std::max( out_width / (in_tan_ltrb[0] + in_tan_ltrb[2]) ,
                             out_height / (in_tan_ltrb[1] + in_tan_ltrb[3] ) ); //std::max() : smaller FOV, bigger flen
         max_out_fov = 2 * std::atan2( 0.5f*out_diag, flen ) ;
-        if (cfg.OUT_CAMERA_FOV > 0.f) { //configured FOV
-            flen = 0.5f * out_diag / tan( RADIANS(std::min( cfg.OUT_CAMERA_FOV / 2, 89.9f)) );
+        if (m_camera_fov > 0.f) { //configured FOV
+            flen = 0.5f * out_diag / tan( RADIANS(std::min(m_camera_fov / 2, 89.9f)) );
         }
         //calc out OC such that the cropping to be symmetrical
         vec2 oc;
@@ -207,7 +136,7 @@ RetCodes DIS::init(int out_width, int out_height)
         //create virtual pinhole camera
         out_cam = std::make_unique<PinHole>(  PinHole(flen, oc, ivec2(out_width, out_height) )  );
 
-    } else if (cfg.OUT_CAMERA_TYPE == 1) // fisheye
+    } else if (m_camera_type == CAMERA_TYPE_FISHEYE) // fisheye
     {
         float out_fov = 0;
         //find max possible output fov
@@ -235,8 +164,8 @@ RetCodes DIS::init(int out_width, int out_height)
         out_fov = std::min( out_fov, (in_cam.ltrb[1] + in_cam.ltrb[3]) * out_diag / out_height );
         max_out_fov = out_fov;
 
-        if (cfg.OUT_CAMERA_FOV > 0.f) { //configured FOV
-            out_fov = RADIANS(cfg.OUT_CAMERA_FOV);
+        if (m_camera_fov > 0.f) { //configured FOV
+            out_fov = RADIANS(m_camera_fov);
         }
 
         //calc out OC such that the cropping to be symmetrical. Not accurate when DFOV is the limitation, but
@@ -255,7 +184,7 @@ RetCodes DIS::init(int out_width, int out_height)
         //create virtual fisheye camera
         out_cam = std::make_unique<FishEye>( FishEye(oc, ivec2(out_width, out_height), theta2r) );
 
-    } else if (cfg.OUT_CAMERA_TYPE == 2) // input distortions
+    } else if (m_camera_type == CAMERA_TYPE_INPUT_DISTORTIONS) // input distortions
     {
         //I.e. the output image when in the center is cropped and scaled version of the input image
         //theta2rad is same as input, but scaled to get the out_diag/2 at out_fov/2
@@ -269,8 +198,8 @@ RetCodes DIS::init(int out_width, int out_height)
         max_out_fov = out_fov;
         s = out_diag / crop_diag;
 
-        if (cfg.OUT_CAMERA_FOV > 0.f) { //configured FOV
-            out_fov = RADIANS(cfg.OUT_CAMERA_FOV);
+        if (m_camera_fov > 0.f) { //configured FOV
+            out_fov = RADIANS(m_camera_fov);
             s = out_diag / (2*in_cam.theta2rad(out_fov/2));
         }
         vec2 oc;
@@ -316,7 +245,7 @@ RetCodes DIS::init(int out_width, int out_height)
         DEGREES(room4stab[0]), DEGREES(room4stab[1]), DEGREES(room4stab[2]), DEGREES(room4stab[3]) );
 
 
-    k = cfg.STAB_K_MIN;
+    k = cfg.minimun_coefficient_filter;
 
 //    // allocate FMVs circular buffer
 //    for (int i = 0; i < cfg.FMV_HISTORY_LEN; i++)
@@ -358,7 +287,7 @@ RetCodes DIS::generate_grid(vec2 fmv,  int32_t panning,
                       FlipMirrorRot flip_mirror_rot,
                       DewarpT & grid )
 {
-    if(cfg.GEN_RESIZE_GRID)
+    if(cfg.debug.generate_resize_grid)
     { //generate grid, which only resizes the input image into the output one
         gen_resize_grid(grid);
         return DIS_OK;
@@ -370,15 +299,15 @@ RetCodes DIS::generate_grid(vec2 fmv,  int32_t panning,
     }
 
     //analyze FMV and decide whether valid (caused by camera motion) or fake (caused by moving object in the scene)
-    running_avg_coeff = std::max(1.0f * cfg.RUNNING_AVG_COEFF, 1.0f / (frame_cnt + 1) );
+    running_avg_coeff = std::max(1.0f * cfg.running_average_coefficient, 1.0f / (frame_cnt + 1) );
 
     vec2 fmv_mean = prev_fmv_mean * (1 - running_avg_coeff) + fmv * running_avg_coeff;
     vec2 fmv_sq_mean {prev_fmv_sq_mean.x * (1 - running_avg_coeff) + fmv.x * fmv.x * running_avg_coeff,
                       prev_fmv_sq_mean.y * (1 - running_avg_coeff) + fmv.y * fmv.y * running_avg_coeff};
     vec2 dev_from_mean = fmv - fmv_mean;
 
-    vec2 var {std::max(1.f, fmv_sq_mean.x - fmv_mean.x * fmv_mean.x) * cfg.STD_MULTIPLIER*cfg.STD_MULTIPLIER,
-              std::max(1.f, fmv_sq_mean.y - fmv_mean.y * fmv_mean.y) * cfg.STD_MULTIPLIER*cfg.STD_MULTIPLIER};
+    vec2 var {std::max(1.f, fmv_sq_mean.x - fmv_mean.x * fmv_mean.x) * cfg.std_multiplier * cfg.std_multiplier,
+              std::max(1.f, fmv_sq_mean.y - fmv_mean.y * fmv_mean.y) * cfg.std_multiplier * cfg.std_multiplier};
 
     // char FMV_LIMITED = '-';
     // clamp outlier motion vectors
@@ -414,16 +343,16 @@ RetCodes DIS::generate_grid(vec2 fmv,  int32_t panning,
     // filter
     filt_lo = (in_lo - filt_lo) * k + filt_lo;
     filt_la = (in_la - filt_la) * k + filt_la;
-    if (cfg.DEBUG_FIX_STAB){
-        filt_lo = cfg.FIX_STAB_LO;
-        filt_la = cfg.FIX_STAB_LA;
+    if (cfg.debug.fix_stabilization){
+        filt_lo = cfg.debug.fix_stabilization_longitude;
+        filt_la = cfg.debug.fix_stabilization_longitude;
     }
 
     // stabilizing rotation is the difference between actual and stabilized orientation
     float stab_la = filt_la - in_la;
     float stab_lo = filt_lo - in_lo;
 
-    if (!cfg.DEBUG_FIX_STAB && cfg.BLKCRN_CORRECT_ENB){
+    if (!cfg.debug.fix_stabilization && cfg.black_corners_correction_enabled){
         //check if black corners will appear with this stabilizing rotation. If so, limit (decrease) the stabilizing
         //rotation.
         if ( black_corner_adjust(stab_lo, stab_la) ){
@@ -450,15 +379,15 @@ RetCodes DIS::generate_grid(vec2 fmv,  int32_t panning,
     //limited - if the filtered orient is close to black corners - increase k.
     bool weaken = false;
     for (int i = 0; i < 4; i++) {
-        if (crn[i] > - cfg.BLKCRN_TO_K_THR * room4stab[i]) {
-            k = std::min(k + cfg.STAB_K_INC_BLKCRN, 1.f);
+        if (crn[i] > - cfg.black_corners_threshold * room4stab[i]) {
+            k = std::min(k + cfg.increment_coefficient_threshold, 1.f);
             weaken = true;
             break;
         }
     }
     if(! weaken) {
         //decrease k down to K_MIN : strengthen the filter if it was weakened
-        k = std::max(cfg.STAB_K_MIN, k - cfg.STAB_K_DECR);
+        k = std::max(cfg.minimun_coefficient_filter, k - cfg.decrement_coefficient_threshold);
     }
 
     //convert stabilizing rotation from longitude/latitude to rotation matrix
@@ -506,7 +435,7 @@ RetCodes DIS::generate_grid(vec2 fmv,  int32_t panning,
 RetCodes DIS::dewarp_only_grid(FlipMirrorRot flip_mirror_rot,
                         DewarpT & grid)
 {
-    if(cfg.GEN_RESIZE_GRID)
+    if(cfg.debug.generate_resize_grid)
     { //generate grid, which only resizes the input image into the output one
         gen_resize_grid(grid);
         return DIS_OK;

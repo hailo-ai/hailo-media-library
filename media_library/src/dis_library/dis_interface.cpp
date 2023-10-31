@@ -1,9 +1,30 @@
+/*
+* Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+* 
+* Permission is hereby granted, free of charge, to any person obtaining
+* a copy of this software and associated documentation files (the
+* "Software"), to deal in the Software without restriction, including
+* without limitation the rights to use, copy, modify, merge, publish,
+* distribute, sublicense, and/or sell copies of the Software, and to
+* permit persons to whom the Software is furnished to do so, subject to
+* the following conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+* LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+* OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+* WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 #include "dis_interface.h"
 
 #include "dis.h"
 #include "dis_math.h"
 #include "camera.h"
-#include "common.h"
 #include "log.h"
 
 #if LOG_TO_FILE   //see log.h
@@ -11,9 +32,10 @@ DisFileLog disFileLog;
 #endif // LOG_TO_FILE
 
 RetCodes dis_init(void** ctx,
-               const char* cfg, int32_t cfg_bytes,
+               dis_config_t &cfg,
                const char* calib, int32_t calib_bytes,
                int32_t out_width, int32_t out_height,
+               camera_type_t camera_type, float camera_fov,
                DewarpT* grid
               )
 {
@@ -34,14 +56,9 @@ RetCodes dis_init(void** ctx,
         return ERROR_CTX;  //*ctx alreay points to something
     }
     DIS & dis = *reinterpret_cast<DIS*>(*ctx);
+    dis.cfg = cfg;
 
-    LOG("dis_init cfg %d bytes, calib %d bytes, out resolution  %dx%d", cfg_bytes, calib_bytes, out_width, out_height);
-
-    if( cfg[cfg_bytes-1] != 0 ) {
-        LOGE("dis_init: Config string not terminated by 0 or improper cfg_bytes");
-        return ERROR_CONFIG;
-    }
-    if( dis.parse_config( cfg ) ) return ERROR_CONFIG;  //fills dis.cfg
+    LOG("dis_init calib %d bytes, out resolution  %dx%d", calib_bytes, out_width, out_height);
 
     if( calib[calib_bytes-1] != 0 ) {
         LOGE("dis_init: Calib string not terminated by 0 or improper calib_bytes");
@@ -49,7 +66,7 @@ RetCodes dis_init(void** ctx,
     }
     if( dis.init_in_cam( calib ) )  return ERROR_CALIB; //creates dis.in_cam
 
-    RetCodes ret = dis.init(out_width, out_height);
+    RetCodes ret = dis.init(out_width, out_height, camera_type, camera_fov);
     if( ret != DIS_OK )  return ret;
 
     //init grid structure: it tells the outer world what the grid will be

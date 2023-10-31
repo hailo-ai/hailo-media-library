@@ -1,3 +1,25 @@
+/*
+* Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+* 
+* Permission is hereby granted, free of charge, to any person obtaining
+* a copy of this software and associated documentation files (the
+* "Software"), to deal in the Software without restriction, including
+* without limitation the rights to use, copy, modify, merge, publish,
+* distribute, sublicense, and/or sell copies of the Software, and to
+* permit persons to whom the Software is furnished to do so, subject to
+* the following conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+* LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+* OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+* WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 #include <iostream>
 #include <sstream>
 
@@ -5,6 +27,7 @@
 #include "media_library/encoder.hpp"
 #include "gsthailobuffermeta.hpp"
 #include "buffer_utils.hpp"
+#include "osd_utils.hpp"
 
 tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>, media_library_return> MediaLibraryEncoder::Impl::create(std::string json_config)
 {
@@ -37,6 +60,7 @@ MediaLibraryEncoder::Impl::Impl(std::string json_config, media_library_return &s
     gst_bus_add_watch(gst_element_get_bus(m_pipeline), (GstBusFunc)bus_call, this);
     m_main_loop = g_main_loop_new(NULL, FALSE);
     this->set_gst_callbacks(m_pipeline);
+
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -82,6 +106,17 @@ media_library_return MediaLibraryEncoder::Impl::start()
     m_main_loop_thread = std::make_shared<std::thread>([this]() {
         g_main_loop_run(m_main_loop);
     });
+
+    GstElement *osd = gst_bin_get_by_name(GST_BIN(m_pipeline), "osd");
+    if (osd == nullptr)
+    {
+        std::cout << "got null hailoosd element" << std::endl;
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    m_blender = gst_hailoosd_get_blender(osd);
+    gst_object_unref(osd);
+
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -120,9 +155,8 @@ std::string MediaLibraryEncoder::Impl::create_pipeline_string(nlohmann::json enc
 
     pipeline = "appsrc do-timestamp=true format=buffers is-live=true max-bytes=0 max-buffers=1 name=encoder_src ! "
                "queue leaky=no max-size-buffers=5 max-size-bytes=0 max-size-time=0 ! "+caps.str()+" ! "
-            //    TODO: Uncomment after MSW-3675
-            //    "hailoosd config-str="+std::string(json_osd_config)+" wait-for-writable-buffer=true ! "
-            //    "queue leaky=no max-size-buffers=5 max-size-bytes=0 max-size-time=0 ! "
+               "hailoosd config-str="+std::string(json_osd_config)+" name=osd wait-for-writable-buffer=true ! "
+               "queue leaky=no max-size-buffers=5 max-size-bytes=0 max-size-time=0 ! "
                "hailoencoder config-str="+std::string(json_encoder_config)+" name=enco ! h264parse config-interval=-1 ! video/x-h264,framerate=30/1 ! "
                "queue leaky=no max-size-buffers=5 max-size-bytes=0 max-size-time=0 ! "
                "fpsdisplaysink signal-fps-measurements=true name=fpsdisplaysink text-overlay=false sync=false video-sink=\"appsink name=encoder_sink\"";
@@ -213,8 +247,7 @@ gboolean MediaLibraryEncoder::Impl::on_bus_call(GstBus *bus, GstMessage *msg)
 
 media_library_return MediaLibraryEncoder::Impl::add_buffer(HailoMediaLibraryBufferPtr ptr)
 {
-    GstBuffer *gst_buffer = create_gst_buffer_from_hailo_buffer(*ptr, 0);
-    // GstBuffer *gst_buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, buffer, size, 0, size, NULL, NULL);
+    GstBuffer *gst_buffer = create_gst_buffer_from_hailo_buffer(ptr);
     this->add_buffer_internal(gst_buffer);
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -319,6 +352,7 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
     {
         callback(buffer_ptr, used_size);
     }
+
     gst_sample_unref(sample);
 
     return GST_FLOW_OK;
@@ -342,4 +376,14 @@ media_library_return MediaLibraryEncoder::stop()
 media_library_return MediaLibraryEncoder::add_buffer(HailoMediaLibraryBufferPtr ptr)
 {
     return m_impl->add_buffer(ptr);
+}
+
+std::shared_ptr<osd::Blender> MediaLibraryEncoder::Impl::get_blender()
+{
+    return m_blender;
+}
+
+std::shared_ptr<osd::Blender> MediaLibraryEncoder::get_blender()
+{
+    return m_impl->get_blender();
 }

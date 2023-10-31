@@ -22,7 +22,7 @@
  */
 /**
  * @file encoder.hpp
- * @brief MediaLibrary Encoder + Overlays CPP API module
+ * @brief MediaLibrary Encoder + OSD CPP API module
  **/
 #pragma once
 #include <functional>
@@ -30,6 +30,7 @@
 #include <nlohmann/json.hpp>
 #include "media_library/buffer_pool.hpp"
 #include "media_library/media_library_types.hpp"
+#include "osd.hpp"
 #include <tl/expected.hpp>
 
 /*!
@@ -118,9 +119,15 @@ public:
      * @param[in] ptr - a shared pointer to hailo_media_library_buffer to be encoded
      * @return media_library_return - status of the add buffer operation.
      * @note The MediaLibraryEncoder module will take ownership of the buffer.
-     * Th
     */
     media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
+
+    /**
+     * @brief Get an overlay manager object
+     * @return :shared_ptr containing the object
+     * @ref osd::Blender
+    */
+    std::shared_ptr<osd::Blender> get_blender();
 
     /**
      * @brief Constructor for the encoder module

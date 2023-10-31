@@ -89,7 +89,7 @@ media_library_return HailoBucket::acquire(intptr_t *buffer_ptr)
     std::unique_lock<std::mutex> lock(*m_bucket_mutex);
     if (m_available_buffers.empty())
     {
-        LOGGER__ERROR("Buffer acquire failed - no available buffers remaining, please valdiate the max buffers size you set");
+        LOGGER__ERROR("Buffer acquire failed - no available buffers remaining, please valdiate the max buffers size you set ({})", m_num_buffers);
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 

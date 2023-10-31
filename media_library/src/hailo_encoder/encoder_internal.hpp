@@ -1,3 +1,25 @@
+/*
+ * Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 #pragma once
 #include <iostream>
 #include <memory>
@@ -16,8 +38,6 @@ extern "C"
 #include "buffer_pool.hpp"
 #include "encoder_gop_config.hpp"
 
-using namespace rapidjson;
-
 struct EncoderCounters
 {
     i32 picture_cnt;
@@ -27,51 +47,49 @@ struct EncoderCounters
     u32 validencodedframenumber;
 };
 
-class Encoder::Impl final {
+class Encoder::Impl final
+{
 private:
-    const std::unordered_map<std::string,VCEncLevel> h265_level =
-    {
-        {"1.0", VCENC_HEVC_LEVEL_1},
-        {"2.0", VCENC_HEVC_LEVEL_2},
-        {"2.1", VCENC_HEVC_LEVEL_2_1},
-        {"3.0", VCENC_HEVC_LEVEL_3},
-        {"3.1", VCENC_HEVC_LEVEL_3_1},
-        {"4.0", VCENC_HEVC_LEVEL_4},
-        {"4.1", VCENC_HEVC_LEVEL_4_1},
-        {"5.0", VCENC_HEVC_LEVEL_5},
-        {"5.1", VCENC_HEVC_LEVEL_5_1}
-    };
-    const std::unordered_map<std::string,VCEncLevel> h264_level = 
-    {
-        {"1.0", VCENC_H264_LEVEL_1},
-        {"1.1", VCENC_H264_LEVEL_1_1},
-        {"1.2", VCENC_H264_LEVEL_1_2},
-        {"1.3", VCENC_H264_LEVEL_1_3},
-        {"2.0", VCENC_H264_LEVEL_2},
-        {"2.1", VCENC_H264_LEVEL_2_1},
-        {"2.2", VCENC_H264_LEVEL_2_2},
-        {"3.0", VCENC_H264_LEVEL_3},
-        {"3.1", VCENC_H264_LEVEL_3_1},
-        {"3.2", VCENC_H264_LEVEL_3_2},
-        {"4.0", VCENC_H264_LEVEL_4},
-        {"4.1", VCENC_H264_LEVEL_4_1},
-        {"4.2", VCENC_H264_LEVEL_4_2},
-        {"5.0", VCENC_H264_LEVEL_5},
-        {"5.1", VCENC_H264_LEVEL_5_1}
-    };
-    const std::unordered_map<std::string,VCEncPictureType> input_formats = 
-    {
-        {"I420", VCENC_YUV420_PLANAR},
-        {"NV12", VCENC_YUV420_SEMIPLANAR},
-        {"NV21", VCENC_YUV420_SEMIPLANAR_VU}
-    };
+    const std::unordered_map<std::string, VCEncLevel> h265_level =
+        {
+            {"1.0", VCENC_HEVC_LEVEL_1},
+            {"2.0", VCENC_HEVC_LEVEL_2},
+            {"2.1", VCENC_HEVC_LEVEL_2_1},
+            {"3.0", VCENC_HEVC_LEVEL_3},
+            {"3.1", VCENC_HEVC_LEVEL_3_1},
+            {"4.0", VCENC_HEVC_LEVEL_4},
+            {"4.1", VCENC_HEVC_LEVEL_4_1},
+            {"5.0", VCENC_HEVC_LEVEL_5},
+            {"5.1", VCENC_HEVC_LEVEL_5_1}};
+    const std::unordered_map<std::string, VCEncLevel> h264_level =
+        {
+            {"1.0", VCENC_H264_LEVEL_1},
+            {"1.1", VCENC_H264_LEVEL_1_1},
+            {"1.2", VCENC_H264_LEVEL_1_2},
+            {"1.3", VCENC_H264_LEVEL_1_3},
+            {"2.0", VCENC_H264_LEVEL_2},
+            {"2.1", VCENC_H264_LEVEL_2_1},
+            {"2.2", VCENC_H264_LEVEL_2_2},
+            {"3.0", VCENC_H264_LEVEL_3},
+            {"3.1", VCENC_H264_LEVEL_3_1},
+            {"3.2", VCENC_H264_LEVEL_3_2},
+            {"4.0", VCENC_H264_LEVEL_4},
+            {"4.1", VCENC_H264_LEVEL_4_1},
+            {"4.2", VCENC_H264_LEVEL_4_2},
+            {"5.0", VCENC_H264_LEVEL_5},
+            {"5.1", VCENC_H264_LEVEL_5_1}};
+    const std::unordered_map<std::string, VCEncPictureType> input_formats =
+        {
+            {"I420", VCENC_YUV420_PLANAR},
+            {"NV12", VCENC_YUV420_SEMIPLANAR},
+            {"NV21", VCENC_YUV420_SEMIPLANAR_VU}};
     VCEncApiVersion m_encoder_version;
     VCEncBuild m_encoder_build;
     VCEncConfig m_vc_cfg;
     VCEncCodingCtrl m_vc_coding_cfg;
     VCEncRateCtrl m_vc_rate_cfg;
     VCEncPreProcessingCfg m_vc_pre_proc_cfg;
-    
+
     // const char * const m_json_schema = load_json_schema();
     VCEncInst m_inst;
     VCEncIn m_enc_in;
@@ -79,7 +97,7 @@ private:
     int m_next_gop_size;
     VCEncPictureCodingType m_next_coding_type;
     EncoderCounters m_counters;
-    void * m_ewl;
+    void *m_ewl;
     bool m_multislice_encoding;
     EWLLinearMem_t m_output_memory;
     std::vector<EncoderInputBuffer> m_inputs;
@@ -87,6 +105,7 @@ private:
     class gopConfig;
     std::unique_ptr<gopConfig> m_gop_cfg;
     MediaLibraryBufferPoolPtr m_buffer_pool;
+
 public:
     Impl(std::string json_string);
     ~Impl();
@@ -100,7 +119,7 @@ public:
     // static const char *json_schema const get_json_schema() const;
     // static const char * const load_json_schema() const;
 private:
-    void updateArea(Value::ConstObject area, VCEncPictureArea& vc_area);
+    void updateArea(nlohmann::json &area, VCEncPictureArea &vc_area);
     void init_gop_config();
     void init_buffer_pool();
     VCEncRet init_coding_control_config();
@@ -110,12 +129,13 @@ private:
     VCEncLevel get_level(std::string level, bool codecH264);
     VCEncPictureType get_input_format(std::string format);
     VCEncPictureCodingType find_next_pic();
-    media_library_return update_input_buffer(EncoderInputBuffer& buf);
+    media_library_return update_input_buffer(EncoderInputBuffer &buf);
     media_library_return create_output_buffer(EncoderOutputBuffer &output_buf);
     int allocate_output_memory();
-    media_library_return encode_frame(EncoderInputBuffer &buf, std::vector<EncoderOutputBuffer> & outputs);
-    media_library_return encode_multiple_frames(std::vector<EncoderOutputBuffer> & outputs);
+    media_library_return encode_frame(EncoderInputBuffer &buf, std::vector<EncoderOutputBuffer> &outputs);
+    media_library_return encode_multiple_frames(std::vector<EncoderOutputBuffer> &outputs);
     uint32_t get_codec();
+    VCEncProfile get_profile();
 };
 
 class Encoder::Impl::gopConfig
@@ -131,8 +151,9 @@ private:
     int init_config();
     int ReadGopConfig(std::vector<GopPicConfig> &config, int gopSize);
     int ParseGopConfigLine(GopPicConfig &pic_cfg, int gopSize);
+
 public:
-    gopConfig(VCEncGopConfig * gopConfig, int gopSize, int bFrameQpDelta, bool codecH264);
+    gopConfig(VCEncGopConfig *gopConfig, int gopSize, int bFrameQpDelta, bool codecH264);
     int get_gop_size() const;
     ~gopConfig() = default;
     const VCEncGopPicConfig *get_gop_pic_cfg() const
@@ -143,5 +164,4 @@ public:
     {
         return m_gop_cfg_offset;
     }
-   
 };

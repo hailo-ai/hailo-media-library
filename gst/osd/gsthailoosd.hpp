@@ -26,6 +26,7 @@
 #include <gst/video/video.h>
 #include <map>
 #include <vector>
+#include <memory>
 #include "osd.hpp"
 #include "media_library/dsp_utils.hpp"
 
@@ -43,9 +44,9 @@ typedef struct _GstHailoOsdClass GstHailoOsdClass;
 struct _GstHailoOsd
 {
     GstBaseTransform base_hailoosd;
-    gchar *config_path;
-    gchar *config_str;
-    OsdParams * params;
+    const gchar *config_path;
+    const gchar *config_str;
+    std::shared_ptr<osd::Blender> blender;
     gboolean wait_for_writable_buffer;
 };
 

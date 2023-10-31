@@ -62,21 +62,18 @@ media_library_return read_file(const char* name, std::vector<char>& str)
     *
     * @return media_library_return
 */
-media_library_return init_mesh(void **ctx, dsp_dewarp_mesh_t &dsp_dewarp_mesh, dewarp_config_t &dewarp_config, uint input_width, uint input_height)
+media_library_return init_mesh(void **ctx, dsp_dewarp_mesh_t &dsp_dewarp_mesh, dewarp_config_t &dewarp_config, dis_config_t &dis_config, uint input_width, uint input_height)
 {
     DewarpT dewarp_mesh;
 
     // Read the sensor calibration and dewarp configuration files
-    std::vector<char> cfg_file;
     std::vector<char> calib_file;
-    if(read_file(dewarp_config.dewarp_config_path.c_str(), cfg_file) != MEDIA_LIBRARY_SUCCESS)
-        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     if(read_file(dewarp_config.sensor_calib_path.c_str(), calib_file) != MEDIA_LIBRARY_SUCCESS)
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
 
     // Initialize dis dewarp mesh object using DIS library
-    RetCodes ret = dis_init(ctx, cfg_file.data(), cfg_file.size(), calib_file.data(), \
-                            calib_file.size(), input_width, input_height, &dewarp_mesh);
+    RetCodes ret = dis_init(ctx, dis_config, calib_file.data(), \
+                            calib_file.size(), input_width, input_height, dewarp_config.camera_type, dewarp_config.camera_fov, &dewarp_mesh);
     if (ret != DIS_OK)
     {
         LOGGER__ERROR("dewarp mesh initialization failed on error {}", ret);

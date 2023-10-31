@@ -29,6 +29,7 @@
 #include <string>
 
 #include "dsp_utils.hpp"
+#include "dis_common.h"
 
 /** @defgroup media_library_types_definitions MediaLibrary Types CPP API definitions
  *  @{
@@ -75,6 +76,15 @@ enum flip_direction_t
   FLIP_DIRECTION_MAX = INT_MAX
 };
 
+enum digital_zoom_mode_t
+{
+  DIGITAL_ZOOM_MODE_ROI  = 0,
+  DIGITAL_ZOOM_MODE_MAGNIFICATION,
+
+  /** Max enum value to maintain ABI Integrity */
+  DIGITAL_ZOOM_MODE_MAX = INT_MAX
+};
+
 enum rotation_angle_t
 {
   ROTATION_ANGLE_0 = 0,
@@ -98,11 +108,27 @@ struct dewarp_config_t
 {
     bool enabled;
     std::string sensor_calib_path;
-    std::string dewarp_config_path;
     dsp_interpolation_type_t interpolation_type;
+    camera_type_t camera_type;
+
+    /* 
+    Diagonal FoV of output camera in degrees. The difference between input and output FOV, (horizontal, verticsal
+    and diagonal) is the room for stabilization. Note the relation betwen aspect ratio and H,V,DFOV ratios:
+     - for fisheye camera:
+      HFOV / VFOV / DFOV = width / hight / diagonal
+     - for pinhole camera:
+      tan(HFOV/2) / tan(VFOV/2) / tan(DFOV/2) = width / hight / diagonal
+     Set to <=0  to let DIS calculate and use the maximum possible FOV at the given input camera model and output
+    aspect ratio.
+    values: pinhole: 1-179, fisheye: or 1-360, degrees, no default, <=0 means "maximum possible FOV"
+    */
+    float camera_fov;
+
     bool operator==(const dewarp_config_t &other) const
     {
-        return sensor_calib_path == other.sensor_calib_path && dewarp_config_path == other.dewarp_config_path && interpolation_type == other.interpolation_type;
+        return sensor_calib_path == other.sensor_calib_path && \
+                interpolation_type == other.interpolation_type && \
+                camera_type == other.camera_type && camera_fov == other.camera_fov;
     }
     bool operator!=(const dewarp_config_t &other) const
     {
@@ -110,14 +136,10 @@ struct dewarp_config_t
     }
 };
 
-struct dis_config_t
-{
-    bool enabled;
-};
-
 struct digital_zoom_config_t
 {
   bool enabled;
+  digital_zoom_mode_t mode;
   float magnification;
   roi_t roi;
 };

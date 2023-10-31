@@ -94,6 +94,17 @@ MEDIALIB_JSON_SERIALIZE_ENUM( rotation_angle_t, {
     {ROTATION_ANGLE_270, "ROTATION_ANGLE_270"},
 })
 
+MEDIALIB_JSON_SERIALIZE_ENUM( camera_type_t, {
+    {CAMERA_TYPE_FISHEYE, "CAMERA_TYPE_FISHEYE"},
+    {CAMERA_TYPE_PINHOLE, "CAMERA_TYPE_PINHOLE"},
+    {CAMERA_TYPE_INPUT_DISTORTIONS, "CAMERA_TYPE_INPUT_DISTORTIONS"},
+})
+
+MEDIALIB_JSON_SERIALIZE_ENUM( digital_zoom_mode_t, {
+    {DIGITAL_ZOOM_MODE_ROI, "DIGITAL_ZOOM_MODE_ROI"},
+    {DIGITAL_ZOOM_MODE_MAGNIFICATION, "DIGITAL_ZOOM_MODE_MAGNIFICATION"},
+})
+
 //------------------------ roi_t ------------------------
 
 void to_json(nlohmann::json& j, const roi_t& roi)
@@ -121,8 +132,9 @@ void to_json(nlohmann::json& j, const dewarp_config_t& dewarp)
     j = nlohmann::json{
         { "enabled", dewarp.enabled },
         { "sensor_calib_path", dewarp.sensor_calib_path },
-        { "dewarp_config_path", dewarp.dewarp_config_path },
         { "color_interpolation", dewarp.interpolation_type },
+        { "camera_type", dewarp.camera_type },
+        { "camera_fov", dewarp.camera_fov },
     };
 }
 
@@ -130,8 +142,29 @@ void from_json(const nlohmann::json& j, dewarp_config_t& dewarp)
 {
     j.at("enabled").get_to(dewarp.enabled);
     j.at("sensor_calib_path").get_to(dewarp.sensor_calib_path);
-    j.at("dewarp_config_path").get_to(dewarp.dewarp_config_path);
     j.at("color_interpolation").get_to(dewarp.interpolation_type);
+    j.at("camera_type").get_to(dewarp.camera_type);
+    j.at("camera_fov").get_to(dewarp.camera_fov);
+}
+
+//------------------------ dis_debug_config_t ------------------------
+
+void to_json(nlohmann::json& j, const dis_debug_config_t& dis_debug)
+{
+    j = nlohmann::json{
+        { "generate_resize_grid", dis_debug.generate_resize_grid },
+        { "fix_stabilization", dis_debug.fix_stabilization },
+        { "fix_stabilization_longitude", dis_debug.fix_stabilization_longitude },
+        { "fix_stabilization_latitude", dis_debug.fix_stabilization_latitude },
+    };
+}
+
+void from_json(const nlohmann::json& j, dis_debug_config_t& dis_debug)
+{
+    j.at("generate_resize_grid").get_to(dis_debug.generate_resize_grid);
+    j.at("fix_stabilization").get_to(dis_debug.fix_stabilization);
+    j.at("fix_stabilization_longitude").get_to(dis_debug.fix_stabilization_longitude);
+    j.at("fix_stabilization_latitude").get_to(dis_debug.fix_stabilization_latitude);
 }
 
 //------------------------ dis_config_t ------------------------
@@ -139,13 +172,29 @@ void from_json(const nlohmann::json& j, dewarp_config_t& dewarp)
 void to_json(nlohmann::json& j, const dis_config_t& dis)
 {
     j = nlohmann::json{
-        { "enabled", dis.enabled }
+        { "enabled", dis.enabled },
+        { "minimun_coefficient_filter", dis.minimun_coefficient_filter},
+        { "decrement_coefficient_threshold", dis.decrement_coefficient_threshold},
+        { "increment_coefficient_threshold", dis.increment_coefficient_threshold},
+        { "running_average_coefficient", dis.running_average_coefficient},
+        { "std_multiplier", dis.std_multiplier},
+        { "black_corners_correction_enabled", dis.black_corners_correction_enabled},
+        { "black_corners_threshold", dis.black_corners_threshold},
+        { "debug", dis.debug},
     };
 }
 
 void from_json(const nlohmann::json& j, dis_config_t& dis)
 {
     j.at("enabled").get_to(dis.enabled);
+    j.at("minimun_coefficient_filter").get_to(dis.minimun_coefficient_filter);
+    j.at("decrement_coefficient_threshold").get_to(dis.decrement_coefficient_threshold);
+    j.at("increment_coefficient_threshold").get_to(dis.increment_coefficient_threshold);
+    j.at("running_average_coefficient").get_to(dis.running_average_coefficient);
+    j.at("std_multiplier").get_to(dis.std_multiplier);
+    j.at("black_corners_correction_enabled").get_to(dis.black_corners_correction_enabled);
+    j.at("black_corners_threshold").get_to(dis.black_corners_threshold);
+    j.at("debug").get_to(dis.debug);
 }
 
 //------------------------ digital_zoom_config_t ------------------------
@@ -154,6 +203,7 @@ void to_json(nlohmann::json& j, const digital_zoom_config_t& dz_conf)
 {
     j = nlohmann::json{
         { "enabled", dz_conf.enabled },
+        { "mode", dz_conf.mode},
         { "magnification", dz_conf.magnification },
         { "roi", dz_conf.roi },
     };
@@ -162,6 +212,7 @@ void to_json(nlohmann::json& j, const digital_zoom_config_t& dz_conf)
 void from_json(const nlohmann::json& j, digital_zoom_config_t& dz_conf)
 {
     j.at("enabled").get_to(dz_conf.enabled);
+    j.at("mode").get_to(dz_conf.mode);
     j.at("magnification").get_to(dz_conf.magnification);
     j.at("roi").get_to(dz_conf.roi);
 }

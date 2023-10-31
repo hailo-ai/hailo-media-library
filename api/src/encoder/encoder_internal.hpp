@@ -1,3 +1,25 @@
+/*
+* Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+* 
+* Permission is hereby granted, free of charge, to any person obtaining
+* a copy of this software and associated documentation files (the
+* "Software"), to deal in the Software without restriction, including
+* without limitation the rights to use, copy, modify, merge, publish,
+* distribute, sublicense, and/or sell copies of the Software, and to
+* permit persons to whom the Software is furnished to do so, subject to
+* the following conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+* LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+* OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+* WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 #pragma once
 #include <vector>
 #include <gst/gst.h>
@@ -25,13 +47,14 @@ private:
     InputParams m_input_params;
     std::shared_ptr<std::mutex> m_mutex;
     std::vector<AppWrapperCallback> m_callbacks;
-    std::queue<GstBuffer *> m_queue;
-    GstAppSrc *m_appsrc;
-    GMainLoop *m_main_loop;
+    std::queue<GstBuffer* > m_queue;
+    GstAppSrc* m_appsrc;
+    GMainLoop* m_main_loop;
     std::shared_ptr<std::thread> m_main_loop_thread;
-    GstElement *m_pipeline;
+    GstElement* m_pipeline; 
     guint m_send_buffer_id;
     std::string m_json_config; //this should be const
+    std::shared_ptr<osd::Blender> m_blender;
 
 public:
     static tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>, media_library_return> create(std::string json_config);
@@ -47,6 +70,9 @@ public:
     media_library_return stop();
     media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
     void add_gst_buffer(GstBuffer *buffer);
+
+    std::shared_ptr<osd::Blender> get_blender();
+
     /**
      * Below are public functions that are not part of the public API
      * but are public for gstreamer callbacks.

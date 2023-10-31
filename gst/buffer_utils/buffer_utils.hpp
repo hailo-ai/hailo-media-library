@@ -34,7 +34,7 @@
 #include <gst/video/video.h>
 G_BEGIN_DECLS
 
-GstBuffer *create_gst_buffer_from_hailo_buffer(hailo_media_library_buffer &hailo_buffer, guint max_buffer_size);
+GstBuffer *create_gst_buffer_from_hailo_buffer(HailoMediaLibraryBufferPtr hailo_buffer);
 bool create_hailo_buffer_from_video_frame(GstVideoFrame *video_frame, hailo_media_library_buffer &hailo_buffer, hailo15_vsm &hailo15_vsm);
 bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_properties_t &dsp_image_props);
 bool create_dsp_buffer_from_video_info(GstBuffer *buffer, GstVideoInfo *video_info, dsp_image_properties_t &dsp_image_props);
