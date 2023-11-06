@@ -56,11 +56,14 @@ plugin_sources = [
     'hailo_encoder/gsthailoencoder.cpp'
     ]
 
+opencv_freetype_lib_dep = meson.get_compiler('cpp').find_library('opencv_freetype', required: true, dirs: '/usr/lib/')
+
+
 shared_library('gstmedialib',
     plugin_sources,
     cpp_args : common_args,
     link_args: ['-lhantro_vc8000e', '-lm'],
-    dependencies : gstreamer_deps + [opencv_dep, rapidjson_dep] +
+    dependencies : gstreamer_deps + [opencv_dep, opencv_freetype_lib_dep, rapidjson_dep] +
                    [dsp_dep, gstmedialibrary_utils_dep, encoder_dep,
                    media_library_common_dep, media_library_frontend_dep, media_library_encoder_dep],
     gnu_symbol_visibility : 'default',

@@ -33,6 +33,9 @@
 #include <nlohmann/json.hpp>
 #include "media_library/dsp_utils.hpp"
 #include "media_library/media_library_types.hpp"
+#include "media_library/buffer_pool.hpp"
+
+#define DEFAULT_FONT_PATH "/usr/share/fonts/ttf/LiberationMono-Regular.ttf"
 
 namespace osd {
 
@@ -98,9 +101,12 @@ struct TextOverlay : Overlay
     RGBColor rgb;
     float font_size;
     int line_thickness;
+    std::string font_path;
 
-    TextOverlay() = default;
+
+    TextOverlay();
     TextOverlay(float x, float y, std::string label, RGBColor rgb, float font_size, int line_thickness, unsigned int z_index);
+    TextOverlay(float x, float y, std::string label, RGBColor rgb, float font_size, int line_thickness, unsigned int z_index, std::string font_path);
 };
 
 /** 
@@ -113,9 +119,25 @@ struct DateTimeOverlay : Overlay
     RGBColor rgb;
     float font_size;
     int line_thickness;
+    std::string font_path;
 
-    DateTimeOverlay() = default;
+    DateTimeOverlay();
     DateTimeOverlay(float x, float y, RGBColor rgb, float font_size, int line_thickness, unsigned int z_index);
+    DateTimeOverlay(float x, float y, RGBColor rgb, float font_size, int line_thickness, unsigned int z_index,std::string font_path);
+};
+
+/** Overlay containing custom buffer ptr */
+struct CustomOverlay : Overlay
+{
+    float width;
+    float height;
+
+    DspImagePropertiesPtr get_buffer() const { return m_buffer; }
+    CustomOverlay() = default;
+    CustomOverlay(float x, float y, float width, float height, DspImagePropertiesPtr buffer, unsigned int z_index);
+
+    private:
+        DspImagePropertiesPtr m_buffer;
 };
 
 /** 
@@ -125,6 +147,7 @@ struct DateTimeOverlay : Overlay
 void from_json(const nlohmann::json& json, ImageOverlay& overlay);
 void from_json(const nlohmann::json& json, TextOverlay& overlay);
 void from_json(const nlohmann::json& json, DateTimeOverlay& overlay);
+void from_json(const nlohmann::json& json, CustomOverlay& overlay);
 
 /** 
  * @} 
@@ -150,6 +173,7 @@ public:
     media_library_return add_overlay(const std::string& id, const ImageOverlay& overlay);
     media_library_return add_overlay(const std::string& id, const TextOverlay& overlay);
     media_library_return add_overlay(const std::string& id, const DateTimeOverlay& overlay);
+    media_library_return add_overlay(const std::string& id, const CustomOverlay& overlay);
 
     /**
      * @brief Retrieve info of an existing overlay.
@@ -174,6 +198,7 @@ public:
     media_library_return set_overlay(const std::string& id, const ImageOverlay& overlay);
     media_library_return set_overlay(const std::string& id, const TextOverlay& overlay);
     media_library_return set_overlay(const std::string& id, const DateTimeOverlay& overlay);
+    media_library_return set_overlay(const std::string& id, const CustomOverlay& overlay);
 
     /**
      * @brief Remove an exiting overlay

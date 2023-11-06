@@ -27,7 +27,7 @@
             {
                 "id": "example_text1",
                 "label" : "HailoAI",
-                "font_size" : 2,
+                "font_size" : 100,
                 "line_thickness" : 3,
                 "rgb" : [ 255, 255, 255 ],
                 "x" : 0.7,
@@ -37,9 +37,9 @@
             {
                 "id": "example_text2",
                 "label" : "camera_name",
-                "font_size" : 2,
+                "font_size" : 100,
                 "line_thickness" : 3,
-                "rgb" : [ 0, 255, 0 ],
+                "rgb" : [ 102, 0, 51 ],
                 "x" : 0.05,
                 "y" : 0.1,
                 "z-index": 1

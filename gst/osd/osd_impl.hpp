@@ -31,6 +31,7 @@
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/core/utils/filesystem.hpp>
+#include <opencv2/freetype.hpp>
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include "media_library/media_library_logger.hpp"
@@ -58,6 +59,7 @@ protected:
         float x_norm, float y_norm, int overlay_width, int overlay_height, int image_width, int image_height);
     static GstVideoFrame gst_video_frame_from_mat_bgra(cv::Mat mat);
     static media_library_return convert_2_dsp_video_frame(GstVideoFrame* src_frame, GstVideoFrame* dest_frame, GstVideoFormat dest_format);
+    static media_library_return create_gst_video_frame(uint width, uint height, std::string format, GstVideoFrame* frame);
     static cv::Mat resize_mat(cv::Mat mat, int width, int height);
     void free_resources();
 
@@ -73,6 +75,21 @@ protected:
     float m_height;
 
     unsigned int m_z_index;
+};
+
+class CustomOverlayImpl;
+using CustomOverlayImplPtr = std::shared_ptr<CustomOverlayImpl>;
+
+class CustomOverlayImpl : public OverlayImpl
+{
+public:
+    static tl::expected<CustomOverlayImplPtr, media_library_return> create(const osd::CustomOverlay& overlay);
+    CustomOverlayImpl(const osd::CustomOverlay& overlay, media_library_return &status);
+    virtual ~CustomOverlayImpl() = default;
+
+    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> get_dsp_overlays(int frame_width, int frame_height);
+
+    virtual std::shared_ptr<osd::Overlay> get_metadata();
 };
 
 class ImageOverlayImpl;
@@ -110,6 +127,7 @@ protected:
     std::array<int, 3> m_rgb;
     float m_font_size;
     int m_line_thickness;
+    std::string m_font_path;
 };
 
 class DateTimeOverlayImpl;
@@ -147,6 +165,7 @@ public:
     media_library_return add_overlay(const std::string& id, const ImageOverlay& overlay);
     media_library_return add_overlay(const std::string& id, const TextOverlay& overlay);
     media_library_return add_overlay(const std::string& id, const DateTimeOverlay& overlay);
+    media_library_return add_overlay(const std::string& id, const CustomOverlay& overlay);
 
     media_library_return remove_overlay(const std::string& id);
 
@@ -155,6 +174,7 @@ public:
     media_library_return set_overlay(const std::string& id, const ImageOverlay& overlay);
     media_library_return set_overlay(const std::string& id, const TextOverlay& overlay);
     media_library_return set_overlay(const std::string& id, const DateTimeOverlay& overlay);
+    media_library_return set_overlay(const std::string& id, const CustomOverlay& overlay);
 
     media_library_return blend(dsp_image_properties_t& input_image_properties);
 

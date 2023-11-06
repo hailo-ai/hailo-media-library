@@ -26,6 +26,8 @@
 #include <chrono>
 #include "buffer_utils/buffer_utils.hpp"
 
+#define WIDTH_PADDING 10
+
 cv::Mat OverlayImpl::resize_mat(cv::Mat mat, int width, int height)
 {
     // ensure even dimensions, round up not to clip image
@@ -62,11 +64,50 @@ GstVideoFrame OverlayImpl::gst_video_frame_from_mat_bgra(cv::Mat mat)
     return frame;
 }
 
+media_library_return OverlayImpl::create_gst_video_frame(uint width, uint height, std::string format, GstVideoFrame* frame)
+{
+    media_library_return ret = MEDIA_LIBRARY_SUCCESS;
+    // Create caps at format and required size
+    GstCaps *caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, format.c_str(),
+                                        "width", G_TYPE_INT, width,
+                                        "height", G_TYPE_INT, height,
+                                        NULL);
+
+    void *buffer_ptr = NULL;
+
+    // Create GstVideoInfo meta from those caps
+    GstVideoInfo *image_info = gst_video_info_new();
+    gst_video_info_from_caps(image_info, caps);
+    uint buffer_size = image_info->size;
+    dsp_status buffer_status = dsp_utils::create_hailo_dsp_buffer(buffer_size, &buffer_ptr);
+
+    if (buffer_status != DSP_SUCCESS)
+    {
+        gst_caps_unref(caps);
+        LOGGER__ERROR("Error: create_hailo_dsp_buffer - failed to create buffer");
+        return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
+    }
+
+    // Create a GstBuffer from the cv::mat, allowing for contiguous memory
+    GstBuffer *buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY,
+                                                    buffer_ptr,
+                                                    buffer_size,
+                                                    0, buffer_size,
+                                                    buffer_ptr, GDestroyNotify(dsp_utils::release_hailo_dsp_buffer));
+
+    // Create and map a GstVideoFrame from the GstVideoInfo and GstBuffer
+    gst_video_frame_map(frame, image_info, buffer, GST_MAP_READ);
+    gst_buffer_unref(buffer);
+    gst_video_info_free(image_info);
+    gst_caps_unref(caps);
+    return ret;
+}
+
 media_library_return OverlayImpl::convert_2_dsp_video_frame(GstVideoFrame* src_frame, GstVideoFrame* dest_frame, GstVideoFormat dest_format) {
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
 
     // Prepare the video info and set the new format
-    GstVideoInfo *dest_info = gst_video_info_copy(&src_frame->info);
+    GstVideoInfo *dest_info = gst_video_info_new();
     gst_video_info_set_format(dest_info, dest_format, src_frame->info.width, src_frame->info.height);
     // Prepare the GstVideoConverter that will facilitate the conversion
     GstVideoConverter* converter = gst_video_converter_new(&src_frame->info, dest_info, NULL);
@@ -191,36 +232,85 @@ ImageOverlayImpl::ImageOverlayImpl(const osd::ImageOverlay& overlay, media_libra
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
-TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay& overlay, media_library_return &status) :
-    OverlayImpl(overlay.x, overlay.y, 0, 0, overlay.z_index),
-    m_label(overlay.label), m_rgb{overlay.rgb.red, overlay.rgb.green, overlay.rgb.blue}, m_font_size(overlay.font_size), m_line_thickness(overlay.line_thickness)
+
+TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay &overlay, media_library_return &status) : OverlayImpl(overlay.x, overlay.y, 0, 0, overlay.z_index),
+    m_label(overlay.label), m_rgb{overlay.rgb.red, overlay.rgb.green, overlay.rgb.blue}, m_font_size(overlay.font_size), m_line_thickness(overlay.line_thickness), m_font_path(overlay.font_path)
 {
+    if(m_label.empty())
+    {
+        // if DateTimeOverlay, the label should be empty at this time and it is ok
+        status = MEDIA_LIBRARY_SUCCESS;
+        return;
+    }
+    cv::Ptr<cv::freetype::FreeType2> ft2;
+    ft2 = cv::freetype::createFreeType2();
+    ft2->loadFontData(m_font_path, 0);
+
     // calculate the size of the text
     int baseline = 0;
-    cv::Size text_size = cv::getTextSize(m_label, cv::FONT_HERSHEY_SIMPLEX, m_font_size, m_line_thickness, &baseline);
+    cv::Size text_size = ft2->getTextSize(m_label,
+                                          m_font_size,
+                                          m_line_thickness,
+                                          &baseline);
+
 
     // ensure even dimensions, round up not to clip text
     text_size.width += text_size.width % 2;
     text_size.height += text_size.height % 2;
 
+    baseline += baseline % 2;
     m_width = text_size.width;
     m_height = text_size.height + baseline;
 
-    // create a transparent BGRA image
-    m_image_mat = cv::Mat(text_size.height + baseline, text_size.width, CV_8UC4, cv::Scalar(0, 0, 0, 0));
+    cv::Scalar background_color_rgb(255, 255, 255);
+    cv::Scalar background_color_rgba(255, 255, 255, 0); // transparent background
+
+    // check if the desired font color is black, if so, use white background
+    if (m_rgb[0] == 255 && m_rgb[1] == 255 && m_rgb[2] == 255)
+    {
+        background_color_rgb = cv::Scalar(0, 0, 0);
+        background_color_rgba = cv::Scalar(0, 0, 0, 0);
+    }
+
+
+    cv::Mat rgb_mat = cv::Mat(text_size.height + baseline, text_size.width + WIDTH_PADDING, CV_8UC3, background_color_rgb);
+
+    m_image_mat = cv::Mat(text_size.height + baseline, text_size.width + WIDTH_PADDING, CV_8UC4, background_color_rgba);
 
     auto text_position = cv::Point(0, text_size.height);
     cv::Scalar text_color(m_rgb[2], m_rgb[1], m_rgb[0], 255); // The input is expected RGB, but we draw as BGRA
+    cv::Scalar rgb_text_color(m_rgb[0], m_rgb[1], m_rgb[2]);  // The input is expected RGB, but we draw as BGRA
 
-    // draw the text
-    cv::putText(m_image_mat, m_label, text_position, cv::FONT_HERSHEY_SIMPLEX, m_font_size, text_color, m_line_thickness);
+
+    ft2->putText(rgb_mat, m_label, text_position, m_font_size, rgb_text_color, cv::FILLED, 8, true);
+
+    for (int i = 0; i < rgb_mat.rows; i++)
+    {
+        for (int j = 0; j < rgb_mat.cols; j++)
+        {
+            if (rgb_mat.at<cv::Vec3b>(i, j)[0] != background_color_rgb[0] || rgb_mat.at<cv::Vec3b>(i, j)[1] != background_color_rgb[1] || rgb_mat.at<cv::Vec3b>(i, j)[2] != background_color_rgb[2])
+            {
+                m_image_mat.at<cv::Vec4b>(i, j)[0] = rgb_mat.at<cv::Vec3b>(i, j)[2];
+                m_image_mat.at<cv::Vec4b>(i, j)[1] = rgb_mat.at<cv::Vec3b>(i, j)[1];
+                m_image_mat.at<cv::Vec4b>(i, j)[2] = rgb_mat.at<cv::Vec3b>(i, j)[0];
+                m_image_mat.at<cv::Vec4b>(i, j)[3] = 255;
+            }
+        }
+    }
 
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
+
 DateTimeOverlayImpl::DateTimeOverlayImpl(const osd::DateTimeOverlay& overlay, media_library_return &status) :
-    TextOverlayImpl(osd::TextOverlay(overlay.x, overlay.y, "", overlay.rgb, overlay.font_size, overlay.line_thickness, overlay.z_index), status)
+    TextOverlayImpl(osd::TextOverlay(overlay.x, overlay.y, "", overlay.rgb, overlay.font_size, overlay.line_thickness, overlay.z_index, overlay.font_path), status)
 {
+}
+
+CustomOverlayImpl::CustomOverlayImpl(const osd::CustomOverlay& overlay, media_library_return &status) :
+    OverlayImpl(overlay.x, overlay.y, overlay.width, overlay.height, overlay.z_index)
+{
+    status = MEDIA_LIBRARY_SUCCESS;
 }
 
 tl::expected<ImageOverlayImplPtr, media_library_return> ImageOverlayImpl::create(const osd::ImageOverlay& overlay)
@@ -256,21 +346,43 @@ tl::expected<DateTimeOverlayImplPtr, media_library_return> DateTimeOverlayImpl::
     return osd_overlay;
 }
 
+tl::expected<CustomOverlayImplPtr, media_library_return> CustomOverlayImpl::create(const osd::CustomOverlay& overlay)
+{
+    media_library_return status = MEDIA_LIBRARY_UNINITIALIZED;
+    auto osd_overlay = std::make_shared<CustomOverlayImpl>(overlay, status);
+    if (status != MEDIA_LIBRARY_SUCCESS)
+    {
+        return tl::make_unexpected(status);
+    }
+    return osd_overlay;
+}
+
 tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> OverlayImpl::get_dsp_overlays(int frame_width, int frame_height)
 {
+    media_library_return status;
     if (m_dsp_overlays.empty())
     {
-        GstVideoFrame gst_bgra_image = gst_video_frame_from_mat_bgra(m_image_mat);
         GstVideoFrame dest_frame;
-        media_library_return ret = convert_2_dsp_video_frame(&gst_bgra_image, &dest_frame, GST_VIDEO_FORMAT_A420);
-        if (ret != MEDIA_LIBRARY_SUCCESS)
+        if (m_image_mat.empty())
         {
-            return tl::make_unexpected(ret);
+            status = create_gst_video_frame(m_width * frame_width, m_height * frame_height, "A420", &dest_frame);
+        }
+        else
+        {
+            GstVideoFrame gst_bgra_image = gst_video_frame_from_mat_bgra(m_image_mat);
+            status = convert_2_dsp_video_frame(&gst_bgra_image, &dest_frame, GST_VIDEO_FORMAT_A420);
+
+            gst_buffer_unref(gst_bgra_image.buffer);
+            gst_video_frame_unmap(&gst_bgra_image);
+        }
+
+        if (status != MEDIA_LIBRARY_SUCCESS)
+        {
+            return tl::make_unexpected(status);
         }
 
         dsp_image_properties_t dsp_image;
         create_dsp_buffer_from_video_frame(&dest_frame, dsp_image);
-
         m_video_frames.push_back(dest_frame);
         auto offsets_expected = calc_xy_offsets(m_x, m_y, dsp_image.width, dsp_image.height, frame_width, frame_height);
         if (!offsets_expected.has_value())
@@ -286,9 +398,6 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
             .y_offset = (size_t)y_offset,
         };
 
-        gst_buffer_unref(gst_bgra_image.buffer);
-        gst_video_frame_unmap(&gst_bgra_image);
-
         m_dsp_overlays.push_back(dsp_overlay);
     }
 
@@ -303,6 +412,17 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> ImageO
     }
 
     return OverlayImpl::get_dsp_overlays(frame_width, frame_height);
+}
+
+tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> CustomOverlayImpl::get_dsp_overlays(int frame_width, int frame_height)
+{
+    auto dsp_overlays_expected = OverlayImpl::get_dsp_overlays(frame_width, frame_height);
+    if (!dsp_overlays_expected.has_value())
+    {
+        return dsp_overlays_expected;
+    }
+
+    return dsp_overlays_expected;
 }
 
 tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> DateTimeOverlayImpl::get_dsp_overlays(int frame_width, int frame_height)
@@ -371,12 +491,18 @@ std::shared_ptr<osd::Overlay> ImageOverlayImpl::get_metadata()
 
 std::shared_ptr<osd::Overlay> TextOverlayImpl::get_metadata()
 {
-    return std::make_shared<osd::TextOverlay>(m_x, m_y, m_label, osd::RGBColor{m_rgb[0], m_rgb[1], m_rgb[2]}, m_font_size, m_line_thickness, m_z_index);
+    return std::make_shared<osd::TextOverlay>(m_x, m_y, m_label, osd::RGBColor{m_rgb[0], m_rgb[1], m_rgb[2]}, m_font_size, m_line_thickness, m_z_index, m_font_path);
 }
 
 std::shared_ptr<osd::Overlay> DateTimeOverlayImpl::get_metadata()
 {
-    return std::make_shared<osd::DateTimeOverlay>(m_x, m_y, osd::RGBColor{m_rgb[0], m_rgb[1], m_rgb[2]}, m_font_size, m_line_thickness, m_z_index);
+    return std::make_shared<osd::DateTimeOverlay>(m_x, m_y, osd::RGBColor{m_rgb[0], m_rgb[1], m_rgb[2]}, m_font_size, m_line_thickness, m_z_index, m_font_path);
+}
+
+std::shared_ptr<osd::Overlay> CustomOverlayImpl::get_metadata()
+{
+    DspImagePropertiesPtr dsp_image = std::make_shared<dsp_image_properties_t>(m_dsp_overlays[0].overlay);
+    return std::make_shared<osd::CustomOverlay>(m_x, m_y, m_width, m_height, dsp_image, m_z_index);
 }
 
 namespace osd
@@ -431,6 +557,15 @@ Blender::Impl::Impl(const nlohmann::json& config, media_library_return &status) 
         }
     }
 
+    if (m_config.contains("custom"))
+    {
+        for (auto& custom_json: m_config["custom"])
+        {
+            auto overlay = custom_json.template get<CustomOverlay>();
+            add_overlay(custom_json["id"], overlay);
+        }
+    }
+
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -476,6 +611,18 @@ media_library_return Blender::Impl::add_overlay(const std::string& id, const Dat
     if (!overlay_expected.has_value())
     {
         LOGGER__ERROR("Failed to create datetime overlay {}", id);
+        return overlay_expected.error();
+    }
+
+    return add_overlay(id, overlay_expected.value());
+}
+
+media_library_return Blender::Impl::add_overlay(const std::string& id, const CustomOverlay& overlay)
+{
+    auto overlay_expected = CustomOverlayImpl::create(overlay);
+    if (!overlay_expected.has_value())
+    {
+        LOGGER__ERROR("Failed to create custom overlay {}", id);
         return overlay_expected.error();
     }
 
@@ -553,7 +700,7 @@ tl::expected<std::shared_ptr<osd::Overlay>, media_library_return> Blender::Impl:
 
     m_mutex.unlock();
 
-    return overlay->get_metadata();
+    return m_overlays[id]->get_metadata();
 }
 
 media_library_return Blender::Impl::set_overlay(const std::string& id, const ImageOverlay& overlay)
@@ -580,13 +727,24 @@ media_library_return Blender::Impl::set_overlay(const std::string& id, const Tex
     return set_overlay(id, overlay_expected.value());
 }
 
-
 media_library_return Blender::Impl::set_overlay(const std::string& id, const DateTimeOverlay& overlay)
 {
     auto overlay_expected = DateTimeOverlayImpl::create(overlay);
     if (!overlay_expected.has_value())
     {
         LOGGER__ERROR("Failed to set datettime overlay {}", id);
+        return overlay_expected.error();
+    }
+
+    return set_overlay(id, overlay_expected.value());
+}
+
+media_library_return Blender::Impl::set_overlay(const std::string& id, const CustomOverlay& overlay)
+{
+    auto overlay_expected = CustomOverlayImpl::create(overlay);
+    if (!overlay_expected.has_value())
+    {
+        LOGGER__ERROR("Failed to set custom overlay {}", id);
         return overlay_expected.error();
     }
 
@@ -604,12 +762,18 @@ media_library_return Blender::Impl::set_overlay(const std::string& id, const Ove
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
-    remove_overlay(id);
-    add_overlay(id, overlay);
+    if (remove_overlay(id) != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to remove overlay with id {}", id);
+        m_mutex.unlock();
+        return MEDIA_LIBRARY_ERROR;
+    }
+    
+    media_library_return ret = add_overlay(id, overlay);
 
     m_mutex.unlock();
 
-    return MEDIA_LIBRARY_SUCCESS;
+    return ret;
 }
 
 media_library_return Blender::Impl::blend(dsp_image_properties_t& input_image_properties)
