@@ -27,7 +27,6 @@
 
 #pragma once
 #include <string>
-
 #include "dsp_utils.hpp"
 #include "dis_common.h"
 
@@ -237,19 +236,22 @@ struct pre_proc_op_configurations
       // TODO: can we change interpolation type?
       if (dewarp_config != pre_proc_op_configs.dewarp_config)
       {
+        // Update dewarp configuration is restricted
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
       }
       if(input_video_config != pre_proc_op_configs.input_video_config)
       {
+        // Update input video configuration which is restricted
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
       }
 
       for (uint8_t i=0; i<pre_proc_op_configs.output_video_config.resolutions.size(); i++)
       {
-        output_resolution_t current_res = output_video_config.resolutions[i];
-        output_resolution_t new_res = pre_proc_op_configs.output_video_config.resolutions[i];
-        if (current_res.dimensions_equal(new_res))
+        output_resolution_t &current_res = output_video_config.resolutions[i];
+        output_resolution_t &new_res = pre_proc_op_configs.output_video_config.resolutions[i];
+        if (!current_res.dimensions_equal(new_res))
         {
+          // Update output video dimensions is restricted
           return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
         current_res.framerate = new_res.framerate;

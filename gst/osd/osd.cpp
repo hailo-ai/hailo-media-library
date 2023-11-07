@@ -38,14 +38,29 @@ ImageOverlay::ImageOverlay(float _x, float _y, float _width, float _height, std:
     width(_width), height(_height), image_path(_image_path)
 {}
 
-TextOverlay::TextOverlay(float _x, float _y, std::string _label, RGBColor _rgb, float _font_size, int _line_thickness, unsigned int _z_index) :
-    Overlay(_x, _y, _z_index),
-    label(_label), rgb(_rgb), font_size(_font_size), line_thickness(_line_thickness)
+TextOverlay::TextOverlay() : Overlay(0, 0, 1),
+    label(""), rgb(RGBColor()), font_size(20), line_thickness(1), font_path(DEFAULT_FONT_PATH)
 {}
 
-DateTimeOverlay::DateTimeOverlay(float _x, float _y, RGBColor _rgb, float _font_size, int _line_thickness, unsigned int _z_index) :
-    Overlay(_x, _y, _z_index),
-    rgb(_rgb), font_size(_font_size), line_thickness(_line_thickness)
+TextOverlay::TextOverlay(float _x, float _y, std::string _label, RGBColor _rgb, float _font_size, int _line_thickness, unsigned int _z_index, std::string font_path) : Overlay(_x, _y, _z_index),
+    label(_label), rgb(_rgb), font_size(_font_size), line_thickness(_line_thickness), font_path(font_path)
+{}
+
+TextOverlay::TextOverlay(float _x, float _y, std::string _label, RGBColor _rgb, float _font_size, int _line_thickness, unsigned int _z_index) : Overlay(_x, _y, _z_index),
+    label(_label), rgb(_rgb), font_size(_font_size), line_thickness(_line_thickness), font_path(DEFAULT_FONT_PATH)
+{}
+
+DateTimeOverlay::DateTimeOverlay() : Overlay(0.1, 0.1, 3), 
+    rgb(RGBColor()), font_size(2), line_thickness(1), font_path(DEFAULT_FONT_PATH)
+{}
+DateTimeOverlay::DateTimeOverlay(float _x, float _y, RGBColor _rgb, float _font_size, int _line_thickness, unsigned int _z_index, std::string font_path) : Overlay(_x, _y, _z_index),
+    rgb(_rgb), font_size(_font_size), line_thickness(_line_thickness), font_path(font_path)
+{}
+DateTimeOverlay::DateTimeOverlay(float _x, float _y, RGBColor _rgb, float _font_size, int _line_thickness, unsigned int _z_index) : Overlay(_x, _y, _z_index),
+    rgb(_rgb), font_size(_font_size), line_thickness(_line_thickness), font_path(DEFAULT_FONT_PATH)
+{}
+CustomOverlay::CustomOverlay(float _x, float _y, float _width, float _height, DspImagePropertiesPtr buffer, unsigned int _z_index) : Overlay(_x, _y, _z_index),
+    width(_width), height(_height), m_buffer(buffer)
 {}
 
 void from_json(const nlohmann::json& json, RGBColor& rgb)
@@ -83,6 +98,15 @@ void from_json(const nlohmann::json& json, DateTimeOverlay& overlay)
     json.at("rgb").get_to(overlay.rgb);
     json.at("font_size").get_to(overlay.font_size);
     json.at("line_thickness").get_to(overlay.line_thickness);
+    json.at("z-index").get_to(overlay.z_index);
+}
+
+void from_json(const nlohmann::json& json, CustomOverlay& overlay)
+{
+    json.at("x").get_to(overlay.x);
+    json.at("y").get_to(overlay.y);
+    json.at("width").get_to(overlay.width);
+    json.at("height").get_to(overlay.height);
     json.at("z-index").get_to(overlay.z_index);
 }
 
@@ -148,6 +172,8 @@ media_library_return Blender::add_overlay(const std::string& id, const TextOverl
 
 media_library_return Blender::add_overlay(const std::string& id, const DateTimeOverlay& overlay) { return m_impl->add_overlay(id, overlay); }
 
+media_library_return Blender::add_overlay(const std::string& id, const CustomOverlay& overlay) { return m_impl->add_overlay(id, overlay); }
+
 tl::expected<std::shared_ptr<Overlay>, media_library_return> Blender::get_overlay(const std::string& id) { return m_impl->get_overlay(id); }
 
 media_library_return Blender::set_overlay(const std::string& id, const ImageOverlay& overlay) { return m_impl->set_overlay(id, overlay); }
@@ -155,6 +181,8 @@ media_library_return Blender::set_overlay(const std::string& id, const ImageOver
 media_library_return Blender::set_overlay(const std::string& id, const TextOverlay& overlay) { return m_impl->set_overlay(id, overlay); }
 
 media_library_return Blender::set_overlay(const std::string& id, const DateTimeOverlay& overlay) { return m_impl->set_overlay(id, overlay); }
+
+media_library_return Blender::set_overlay(const std::string& id, const CustomOverlay& overlay) { return m_impl->set_overlay(id, overlay); }
 
 media_library_return Blender::remove_overlay(const std::string& id) { return m_impl->remove_overlay(id); }
 

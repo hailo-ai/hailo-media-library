@@ -35,25 +35,7 @@ pkgc.generate(name: 'hailo_media_library_common',
               description: 'Hailo Media Library Common',
 )
 
-dis_incdir = [include_directories('./src/dis_library')]
-dis_sources = [
-  'src/dis_library/dis.cpp',
-  'src/dis_library/dis_interface.cpp',
-]
-
-dis_library_lib = shared_library('dis_library',
-    dis_sources,
-    cpp_args: common_args,
-    include_directories: [dis_incdir, incdir],
-    dependencies : [],
-    version: meson.project_version(),
-    install: true,
-    install_dir: get_option('libdir'),
-)
-
-dis_library_dep = declare_dependency(
-  include_directories: [include_directories('.')],
-  link_with : dis_library_lib)
+subdir('./src/dis_library')
 
 frontend_sources = [
     'src/vision_pre_proc/vision_pre_proc.cpp',

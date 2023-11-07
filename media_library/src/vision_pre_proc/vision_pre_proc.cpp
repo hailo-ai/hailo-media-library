@@ -317,7 +317,7 @@ media_library_return MediaLibraryVisionPreProc::Impl::configure(pre_proc_op_conf
 media_library_return MediaLibraryVisionPreProc::Impl::initialize_dewarp_mesh()
 {
     output_resolution_t &input_res = m_pre_proc_configs.input_video_config.resolution;
-    media_library_return ret = init_mesh(&m_dis_ctx, m_dewarp_mesh, m_pre_proc_configs.dewarp_config, m_pre_proc_configs.dis_config, m_dewarp_output_width, m_dewarp_output_height);
+    media_library_return ret = init_mesh(&m_dis_ctx, m_dewarp_mesh, m_pre_proc_configs.dewarp_config, m_pre_proc_configs.dis_config, input_res.dimensions.destination_width, input_res.dimensions.destination_height);
 
     if (ret != MEDIA_LIBRARY_SUCCESS)
         return ret;
@@ -542,13 +542,13 @@ media_library_return MediaLibraryVisionPreProc::Impl::perform_multi_resize(hailo
             // Validate digital zoom ROI values with the input frame dimensions
             if (end_x > m_dewarp_output_width)
             {
-                LOGGER__ERROR("Invalid digital zoom ROI. X ({}) and width ({}) coordinates exceed input frame width ({})", start_x, digital_zoom_roi.width, m_pre_proc_configs.input_video_config.resolution.dimensions.destination_width);
+                LOGGER__ERROR("Invalid digital zoom ROI. X ({}) and width ({}) coordinates exceed input frame width ({})", start_x, digital_zoom_roi.width, m_dewarp_output_width);
                 return MEDIA_LIBRARY_ERROR;
             }
 
             if (end_y > m_dewarp_output_height)
             {
-                LOGGER__ERROR("Invalid digital zoom ROI. Y ({}) and height ({}) coordinates exceed input frame height ({})", start_y, digital_zoom_roi.height, m_pre_proc_configs.input_video_config.resolution.dimensions.destination_height);
+                LOGGER__ERROR("Invalid digital zoom ROI. Y ({}) and height ({}) coordinates exceed input frame height ({})", start_y, digital_zoom_roi.height, m_dewarp_output_height);
                 return MEDIA_LIBRARY_ERROR;
             }
         }
