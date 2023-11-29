@@ -23,7 +23,8 @@
 #include "dsp_utils.hpp"
 #include "media_library_logger.hpp"
 
-/** @defgroup dsp_utils_definitions MediaLibrary DSP utilities CPP API definitions
+/** @defgroup dsp_utils_definitions MediaLibrary DSP utilities CPP API
+ * definitions
  *  @{
  */
 
@@ -47,7 +48,8 @@ namespace dsp_utils
             create_device_status = dsp_create_device(&device);
             if (create_device_status != DSP_SUCCESS)
             {
-                LOGGER__ERROR("Open DSP device failed with status {}", create_device_status);
+                LOGGER__ERROR("Open DSP device failed with status {}",
+                              create_device_status);
                 return create_device_status;
             }
         }
@@ -58,7 +60,8 @@ namespace dsp_utils
     /**
      * Release the DSP device.
      * The function releases the device using the DSP library.
-     * If there are other references to the device, just decrement the refcount and skip the release.
+     * If there are other references to the device, just decrement the refcount and
+     * skip the release.
      * @return dsp_status
      */
     dsp_status release_device()
@@ -72,11 +75,13 @@ namespace dsp_utils
         dsp_device_refcount--;
         if (dsp_device_refcount > 0)
         {
-            LOGGER__DEBUG("Release dsp device skipped, refcount is {}", dsp_device_refcount);
+            LOGGER__DEBUG("Release dsp device skipped, refcount is {}",
+                          dsp_device_refcount);
         }
         else
         {
-            LOGGER__DEBUG("Releasing dsp device, refcount is {}", dsp_device_refcount);
+            LOGGER__DEBUG("Releasing dsp device, refcount is {}",
+                          dsp_device_refcount);
             dsp_status status = dsp_release_device(device);
             if (status != DSP_SUCCESS)
             {
@@ -92,7 +97,8 @@ namespace dsp_utils
 
     /**
      * Acquire the DSP device.
-     * This function creates the DSP device using the DSP library once, and then increases the reference count.
+     * This function creates the DSP device using the DSP library once, and then
+     * increases the reference count.
      *
      * @return dsp_status
      */
@@ -114,7 +120,8 @@ namespace dsp_utils
      * The function requests a buffer from the DSP library.
      * The buffer can be used later for DSP operations.
      * @param[in] size the size of the buffer to create
-     * @param[out] buffer a pointer to a buffer - DSP library will allocate the buffer
+     * @param[out] buffer a pointer to a buffer - DSP library will allocate the
+     * buffer
      * @return dsp_status
      */
     dsp_status create_hailo_dsp_buffer(size_t size, void **buffer)
@@ -165,8 +172,8 @@ namespace dsp_utils
 
     /**
      * Perform DSP crop and resize
-     * The function calls the DSP library to perform crop and resize on a given buffer.
-     * DSP will place the result in the output buffer.
+     * The function calls the DSP library to perform crop and resize on a given
+     * buffer. DSP will place the result in the output buffer.
      *
      * @param[in] input_image_properties input image properties
      * @param[out] output_image_properties output image properties
@@ -174,8 +181,11 @@ namespace dsp_utils
      * @param[in] dsp_interpolation_type interpolation type to use
      * @return dsp_status
      */
-    dsp_status perform_crop_and_resize(dsp_image_properties_t *input_image_properties, dsp_image_properties_t *output_image_properties,
-                                       crop_resize_dims_t args, dsp_interpolation_type_t dsp_interpolation_type)
+    dsp_status
+    perform_crop_and_resize(dsp_image_properties_t *input_image_properties,
+                            dsp_image_properties_t *output_image_properties,
+                            crop_resize_dims_t args,
+                            dsp_interpolation_type_t dsp_interpolation_type)
     {
         if (device == NULL)
         {
@@ -207,7 +217,8 @@ namespace dsp_utils
 
         if (status != DSP_SUCCESS)
         {
-            LOGGER__ERROR("DSP Crop & resize command failed with status {}", status);
+            LOGGER__ERROR("DSP Crop & resize command failed with status {}",
+                          status);
             return status;
         }
 
@@ -217,15 +228,18 @@ namespace dsp_utils
 
     /**
      * Perform multiple crop and resize on the DSP
-     * The function calls the DSP library to perform crop and resize on a given input buffer.
-     * DSP will place the results in the array of output buffer.
+     * The function calls the DSP library to perform crop and resize on a given
+     * input buffer. DSP will place the results in the array of output buffer.
      *
      * @param[in] input_image_properties pointer input buffer
      * @param[in] dsp_interpolation_type interpolation type to use
      * @param[out] output_image_properties_array array of output buffers
      * @return dsp_status
      */
-    dsp_status perform_dsp_multi_resize(dsp_multi_resize_params_t *multi_resize_params, uint crop_start_x, uint crop_start_y, uint crop_end_x, uint crop_end_y)
+    dsp_status
+    perform_dsp_multi_resize(dsp_multi_resize_params_t *multi_resize_params,
+                             uint crop_start_x, uint crop_start_y, uint crop_end_x,
+                             uint crop_end_y)
     {
         dsp_crop_api_t crop_params = {
             .start_x = crop_start_x,
@@ -242,7 +256,8 @@ namespace dsp_utils
                                   dsp_dewarp_mesh_t *mesh,
                                   dsp_interpolation_type_t interpolation)
     {
-        return dsp_dewarp(device, input_image_properties, output_image_properties, mesh, interpolation);
+        return dsp_dewarp(device, input_image_properties, output_image_properties,
+                          mesh, interpolation);
     }
 
     /**
@@ -256,7 +271,9 @@ namespace dsp_utils
      * @param[in] overlays_count number of overlays to blend
      * @return dsp_status
      */
-    dsp_status perform_dsp_multiblend(dsp_image_properties_t *image_frame, dsp_overlay_properties_t *overlay, size_t overlays_count)
+    dsp_status perform_dsp_multiblend(dsp_image_properties_t *image_frame,
+                                      dsp_overlay_properties_t *overlay,
+                                      size_t overlays_count)
     {
         return dsp_blend(device, image_frame, overlay, overlays_count);
     }

@@ -17,11 +17,13 @@ utils_sources = [
     'osd/osd_impl.cpp'
 ]
 
+opencv_freetype_lib_dep = meson.get_compiler('cpp').find_library('opencv_freetype', required: true, dirs: '/usr/lib/')
+
 gstmedialibutils_lib = shared_library('gstmedialibutils',
     utils_sources,
     cpp_args : common_args,
     dependencies : gstreamer_deps +
-                   [dsp_dep, media_library_common_dep, opencv_dep, spdlog_dep],
+                   [dsp_dep, media_library_common_dep, opencv_dep, spdlog_dep, opencv_freetype_lib_dep],
     gnu_symbol_visibility : 'default',
     version: meson.project_version(),
     install: true,
@@ -56,7 +58,12 @@ plugin_sources = [
     'hailo_encoder/gsthailoencoder.cpp'
     ]
 
-opencv_freetype_lib_dep = meson.get_compiler('cpp').find_library('opencv_freetype', required: true, dirs: '/usr/lib/')
+if get_option('hailort_4_16')
+    message('Building gstmedialib with Hailort 4.16')
+    plugin_sources += [
+    ]
+    common_args += ['-DHAILORT_4_16']
+endif
 
 
 shared_library('gstmedialib',

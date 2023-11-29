@@ -42,6 +42,13 @@ frontend_sources = [
     'src/vision_pre_proc/generate_mesh.cpp'
 ]
 
+if get_option('hailort_4_16')
+    message('Building media_library with Hailort 4.16')
+    frontend_sources += [
+    ]
+    common_args += ['-DHAILORT_4_16']
+endif
+
 media_library_frontend_lib = shared_library('hailo_media_library_frontend',
     frontend_sources,
     cpp_args: common_args,

@@ -1,11 +1,11 @@
-#include <gst/check/gstcheck.h>
+#include "v4l2_vsm/hailo_vsm.h"
+#include "v4l2_vsm/hailo_vsm_meta.h"
 #include <gst/check/check.h>
+#include <gst/check/gstcheck.h>
 #include <gst/gst.h>
 #include <stdio.h>
-#include <tuple>
 #include <string>
-#include "v4l2_vsm/hailo_vsm_meta.h"
-#include "v4l2_vsm/hailo_vsm.h"
+#include <tuple>
 
 #define DEFAULT_VIDEO_DEVICE "/dev/video0"
 #define MAX_V4L_BUFFERS 29
@@ -49,7 +49,7 @@ buffer_callback(GstObject *pad, GstPadProbeInfo *info, gpointer data)
 }
 
 static void
-run_pipeline (GstElement * pipeline, guint timeout_in_seconds)
+run_pipeline(GstElement *pipeline, guint timeout_in_seconds)
 {
     GstElement *visionpreproc;
     GstPad *pad;
@@ -68,8 +68,7 @@ run_pipeline (GstElement * pipeline, guint timeout_in_seconds)
 
     probe =
         gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER,
-                        (GstPadProbeCallback)buffer_callback, visionpreproc, NULL);
-
+                          (GstPadProbeCallback)buffer_callback, visionpreproc, NULL);
 
     state_ret = gst_element_set_state(pipeline, GST_STATE_PLAYING);
     fail_unless(state_ret != GST_STATE_CHANGE_FAILURE);
@@ -77,7 +76,7 @@ run_pipeline (GstElement * pipeline, guint timeout_in_seconds)
     msg = gst_bus_poll(bus, GstMessageType(GST_MESSAGE_ERROR | GST_MESSAGE_EOS), timeout_in_seconds * GST_SECOND);
     fail_unless(msg != NULL, "timeout waiting for error or eos message");
 
-    fail_unless_equals_int(gst_element_set_state(pipeline, GST_STATE_NULL),GST_STATE_CHANGE_SUCCESS);
+    fail_unless_equals_int(gst_element_set_state(pipeline, GST_STATE_NULL), GST_STATE_CHANGE_SUCCESS);
 
     gst_message_unref(msg);
     gst_object_unref(bus);

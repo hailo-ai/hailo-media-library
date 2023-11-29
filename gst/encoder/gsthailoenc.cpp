@@ -1,38 +1,37 @@
 /*
-* Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
-* 
-* Permission is hereby granted, free of charge, to any person obtaining
-* a copy of this software and associated documentation files (the
-* "Software"), to deal in the Software without restriction, including
-* without limitation the rights to use, copy, modify, merge, publish,
-* distribute, sublicense, and/or sell copies of the Software, and to
-* permit persons to whom the Software is furnished to do so, subject to
-* the following conditions:
-* 
-* The above copyright notice and this permission notice shall be
-* included in all copies or substantial portions of the Software.
-* 
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-* LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-* OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-* WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
+ * Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 #include <assert.h>
 #include <string.h>
 /* for stats file handling */
-#include <stdio.h>
-#include <errno.h>
-#include <time.h>
 #include "gsthailoenc.hpp"
-
+#include <errno.h>
+#include <stdio.h>
+#include <time.h>
 
 /*******************
 Property Definitions
 *******************/
-enum    
+enum
 {
   PROP_0,
   PROP_INTRA_PIC_RATE,
@@ -66,66 +65,66 @@ enum
 static GType
 gst_hailoenc_compressor_get_type(void)
 {
-    /*Enable/Disable Embedded Compression
-      0 = Disable Compression
-      1 = Only Enable Luma Compression
-      2 = Only Enable Chroma Compression
-      3 = Enable Both Luma and Chroma Compression*/
-    static GType hailoenc_compressor_type = 0;
-    static const GEnumValue hailoenc_compressors[] = {
-        {0, "Disable Compression", "disable"},
-        {1, "Only Enable Luma Compression", "enable-luma"},
-        {2, "Only Enable Chroma Compression", "enable-chroma"},
-        {3, "Enable Both Luma and Chroma Compression", "enable-both"},
-        {0, NULL, NULL},
-    };
-    if (!hailoenc_compressor_type)
-    {
-        hailoenc_compressor_type =
-            g_enum_register_static("GstHailoEncCompressor", hailoenc_compressors);
-    }
-    return hailoenc_compressor_type;
+  /*Enable/Disable Embedded Compression
+    0 = Disable Compression
+    1 = Only Enable Luma Compression
+    2 = Only Enable Chroma Compression
+    3 = Enable Both Luma and Chroma Compression*/
+  static GType hailoenc_compressor_type = 0;
+  static const GEnumValue hailoenc_compressors[] = {
+      {0, "Disable Compression", "disable"},
+      {1, "Only Enable Luma Compression", "enable-luma"},
+      {2, "Only Enable Chroma Compression", "enable-chroma"},
+      {3, "Enable Both Luma and Chroma Compression", "enable-both"},
+      {0, NULL, NULL},
+  };
+  if (!hailoenc_compressor_type)
+  {
+    hailoenc_compressor_type =
+        g_enum_register_static("GstHailoEncCompressor", hailoenc_compressors);
+  }
+  return hailoenc_compressor_type;
 }
 
 #define GST_TYPE_HAILOENC_BLOCK_RC_SIZE (gst_hailoenc_block_rc_size_get_type())
 static GType
 gst_hailoenc_block_rc_size_get_type(void)
 {
-    static GType hailoenc_block_rc_size_type = 0;
-    static const GEnumValue hailoenc_block_rc_size_types[] = {
-        {0, "64X64", "64x64"},
-        {1, "32X32", "32x32"},
-        {2, "16X16", "16x16"},
-        {0, NULL, NULL},
-    };
-    if (!hailoenc_block_rc_size_type)
-    {
-        hailoenc_block_rc_size_type =
-            g_enum_register_static("GstHailoEncBlockRcSize", hailoenc_block_rc_size_types);
-    }
-    return hailoenc_block_rc_size_type;
+  static GType hailoenc_block_rc_size_type = 0;
+  static const GEnumValue hailoenc_block_rc_size_types[] = {
+      {0, "64X64", "64x64"},
+      {1, "32X32", "32x32"},
+      {2, "16X16", "16x16"},
+      {0, NULL, NULL},
+  };
+  if (!hailoenc_block_rc_size_type)
+  {
+    hailoenc_block_rc_size_type =
+        g_enum_register_static("GstHailoEncBlockRcSize", hailoenc_block_rc_size_types);
+  }
+  return hailoenc_block_rc_size_type;
 }
 
 /*******************
 Function Definitions
 *******************/
 
-static void gst_hailoenc_class_init(GstHailoEncClass * klass);
-static void gst_hailoenc_init(GstHailoEnc * hailoenc);
-static void gst_hailoenc_set_property(GObject * object,
-    guint prop_id, const GValue * value, GParamSpec * pspec);
-static void gst_hailoenc_get_property(GObject * object,
-    guint prop_id, GValue * value, GParamSpec * pspec);
-static void gst_hailoenc_finalize(GObject * object);
+static void gst_hailoenc_class_init(GstHailoEncClass *klass);
+static void gst_hailoenc_init(GstHailoEnc *hailoenc);
+static void gst_hailoenc_set_property(GObject *object,
+                                      guint prop_id, const GValue *value, GParamSpec *pspec);
+static void gst_hailoenc_get_property(GObject *object,
+                                      guint prop_id, GValue *value, GParamSpec *pspec);
+static void gst_hailoenc_finalize(GObject *object);
 static void gst_hailoenc_dispose(GObject *object);
 
-static gboolean gst_hailoenc_set_format(GstVideoEncoder * encoder, GstVideoCodecState * state);
-static gboolean gst_hailoenc_propose_allocation(GstVideoEncoder * encoder, GstQuery * query);
-static gboolean gst_hailoenc_flush(GstVideoEncoder * encoder);
-static gboolean gst_hailoenc_start(GstVideoEncoder * encoder);
-static gboolean gst_hailoenc_stop(GstVideoEncoder * encoder);
-static GstFlowReturn gst_hailoenc_finish(GstVideoEncoder * encoder);
-static GstFlowReturn gst_hailoenc_handle_frame(GstVideoEncoder * encoder, GstVideoCodecFrame * frame);
+static gboolean gst_hailoenc_set_format(GstVideoEncoder *encoder, GstVideoCodecState *state);
+static gboolean gst_hailoenc_propose_allocation(GstVideoEncoder *encoder, GstQuery *query);
+static gboolean gst_hailoenc_flush(GstVideoEncoder *encoder);
+static gboolean gst_hailoenc_start(GstVideoEncoder *encoder);
+static gboolean gst_hailoenc_stop(GstVideoEncoder *encoder);
+static GstFlowReturn gst_hailoenc_finish(GstVideoEncoder *encoder);
+static GstFlowReturn gst_hailoenc_handle_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *frame);
 
 /*************
 Init Functions
@@ -134,115 +133,115 @@ Init Functions
 GST_DEBUG_CATEGORY_STATIC(gst_hailoenc_debug);
 #define GST_CAT_DEFAULT gst_hailoenc_debug
 #define _do_init \
-    GST_DEBUG_CATEGORY_INIT(gst_hailoenc_debug, "hailoenc", 0, "hailoenc element");
+  GST_DEBUG_CATEGORY_INIT(gst_hailoenc_debug, "hailoenc", 0, "hailoenc element");
 #define gst_hailoenc_parent_class parent_class
 G_DEFINE_TYPE_WITH_CODE(GstHailoEnc, gst_hailoenc, GST_TYPE_VIDEO_ENCODER, _do_init);
 
 static void
-gst_hailoenc_class_init(GstHailoEncClass * klass)
+gst_hailoenc_class_init(GstHailoEncClass *klass)
 {
   GObjectClass *gobject_class;
   GstVideoEncoderClass *venc_class;
 
-  gobject_class = (GObjectClass *) klass;
-  venc_class = (GstVideoEncoderClass *) klass;
+  gobject_class = (GObjectClass *)klass;
+  venc_class = (GstVideoEncoderClass *)klass;
 
   gobject_class->set_property = gst_hailoenc_set_property;
   gobject_class->get_property = gst_hailoenc_get_property;
 
   g_object_class_install_property(gobject_class, PROP_INTRA_PIC_RATE,
-                                    g_param_spec_uint("intra-pic-rate", "IDR Interval", "I frames interval (0 - Dynamic IDR Interval)",
-                                                      MIN_INTRA_PIC_RATE, MAX_INTRA_PIC_RATE, (guint)DEFAULT_INTRA_PIC_RATE,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_uint("intra-pic-rate", "IDR Interval", "I frames interval (0 - Dynamic IDR Interval)",
+                                                    MIN_INTRA_PIC_RATE, MAX_INTRA_PIC_RATE, (guint)DEFAULT_INTRA_PIC_RATE,
+                                                    (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_GOP_SIZE,
-                                    g_param_spec_uint("gop-size", "GOP Size", "GOP Size (1 - No B Frames)",
-                                                      MIN_GOP_SIZE, MAX_GOP_SIZE, (guint)DEFAULT_GOP_SIZE,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_uint("gop-size", "GOP Size", "GOP Size (1 - No B Frames)",
+                                                    MIN_GOP_SIZE, MAX_GOP_SIZE, (guint)DEFAULT_GOP_SIZE,
+                                                    (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_GOP_LENGTH,
-                                    g_param_spec_uint("gop-length", "GOP Length", "GOP Length",
-                                                      MIN_GOP_LENGTH, MAX_GOP_LENGTH, (guint)DEFAULT_GOP_LENGTH,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_uint("gop-length", "GOP Length", "GOP Length",
+                                                    MIN_GOP_LENGTH, MAX_GOP_LENGTH, (guint)DEFAULT_GOP_LENGTH,
+                                                    (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_QPHDR,
-                                    g_param_spec_int("qp-hdr", "Initial target QP", "Initial target QP, -1 = Encoder calculates initial QP",
-                                                      MIN_QPHDR, MAX_QPHDR, (gint)DEFAULT_QPHDR,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_int("qp-hdr", "Initial target QP", "Initial target QP, -1 = Encoder calculates initial QP",
+                                                   MIN_QPHDR, MAX_QPHDR, (gint)DEFAULT_QPHDR,
+                                                   (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_QPMIN,
-                                    g_param_spec_uint("qp-min", "QP Min", "Minimum frame header QP",
-                                                      MIN_QP_VALUE, MAX_QP_VALUE, (guint)DEFAULT_QPMIN,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_uint("qp-min", "QP Min", "Minimum frame header QP",
+                                                    MIN_QP_VALUE, MAX_QP_VALUE, (guint)DEFAULT_QPMIN,
+                                                    (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_QPMAX,
-                                    g_param_spec_uint("qp-max", "QP Max", "Maximum frame header QP",
-                                                      MIN_QP_VALUE, MAX_QP_VALUE, (guint)DEFAULT_QPMAX,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_uint("qp-max", "QP Max", "Maximum frame header QP",
+                                                    MIN_QP_VALUE, MAX_QP_VALUE, (guint)DEFAULT_QPMAX,
+                                                    (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_INTRA_QP_DELTA,
-                                    g_param_spec_int("intra-qp-delta", "Intra QP delta", "QP difference between target QP and intra frame QP",
-                                                      MIN_INTRA_QP_DELTA, MAX_INTRA_QP_DELTA, (gint)DEFAULT_INTRA_QP_DELTA,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_int("intra-qp-delta", "Intra QP delta", "QP difference between target QP and intra frame QP",
+                                                   MIN_INTRA_QP_DELTA, MAX_INTRA_QP_DELTA, (gint)DEFAULT_INTRA_QP_DELTA,
+                                                   (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_FIXED_INTRA_QP,
-                                    g_param_spec_uint("fixed-intra-qp", "Fixed Intra QP", "Use fixed QP value for every intra frame in stream, 0 = disabled",
-                                                      MIN_FIXED_INTRA_QP, MAX_FIXED_INTRA_QP, (guint)DEFAULT_FIXED_INTRA_QP,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_uint("fixed-intra-qp", "Fixed Intra QP", "Use fixed QP value for every intra frame in stream, 0 = disabled",
+                                                    MIN_FIXED_INTRA_QP, MAX_FIXED_INTRA_QP, (guint)DEFAULT_FIXED_INTRA_QP,
+                                                    (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_BFRAME_QP_DELTA,
-                                    g_param_spec_int("bframe-qp-delta", "BFrame QP Delta", "QP difference between BFrame QP and target QP, -1 = Disabled",
-                                                      MIN_BFRAME_QP_DELTA, MAX_BFRAME_QP_DELTA, (guint)DEFAULT_BFRAME_QP_DELTA,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_int("bframe-qp-delta", "BFrame QP Delta", "QP difference between BFrame QP and target QP, -1 = Disabled",
+                                                   MIN_BFRAME_QP_DELTA, MAX_BFRAME_QP_DELTA, (guint)DEFAULT_BFRAME_QP_DELTA,
+                                                   (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_BITRATE,
-                                    g_param_spec_uint("bitrate", "Target bitrate", "Target bitrate for rate control in bits/second",
-                                                      MIN_BITRATE, MAX_BITRATE, (guint)DEFAULT_BITRATE,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_uint("bitrate", "Target bitrate", "Target bitrate for rate control in bits/second",
+                                                    MIN_BITRATE, MAX_BITRATE, (guint)DEFAULT_BITRATE,
+                                                    (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_TOL_MOVING_BITRATE,
-                                    g_param_spec_uint("tol-moving-bitrate", "Tolerance moving bitrate", "Percent tolerance over target bitrate of moving bit rate",
-                                                      MIN_BITRATE_VARIABLE_RANGE, MAX_BITRATE_VARIABLE_RANGE, (guint)DEFAULT_TOL_MOVING_BITRATE,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_uint("tol-moving-bitrate", "Tolerance moving bitrate", "Percent tolerance over target bitrate of moving bit rate",
+                                                    MIN_BITRATE_VARIABLE_RANGE, MAX_BITRATE_VARIABLE_RANGE, (guint)DEFAULT_TOL_MOVING_BITRATE,
+                                                    (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_BITRATE_VAR_RANGE_I,
-                                    g_param_spec_uint("bitvar-range-i", "Bitrate percent variation I frame", "Percent variations over average bits per frame for I frame",
-                                                      MIN_BITRATE_VARIABLE_RANGE, MAX_BITRATE_VARIABLE_RANGE, (guint)DEFAULT_BITVAR_RANGE_I,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_uint("bitvar-range-i", "Bitrate percent variation I frame", "Percent variations over average bits per frame for I frame",
+                                                    MIN_BITRATE_VARIABLE_RANGE, MAX_BITRATE_VARIABLE_RANGE, (guint)DEFAULT_BITVAR_RANGE_I,
+                                                    (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_BITRATE_VAR_RANGE_P,
-                                    g_param_spec_uint("bitvar-range-p", "Bitrate percent variation P frame", "Percent variations over average bits per frame for P frame",
-                                                      MIN_BITRATE_VARIABLE_RANGE, MAX_BITRATE_VARIABLE_RANGE, (guint)DEFAULT_BITVAR_RANGE_P,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_uint("bitvar-range-p", "Bitrate percent variation P frame", "Percent variations over average bits per frame for P frame",
+                                                    MIN_BITRATE_VARIABLE_RANGE, MAX_BITRATE_VARIABLE_RANGE, (guint)DEFAULT_BITVAR_RANGE_P,
+                                                    (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_BITRATE_VAR_RANGE_B,
-                                    g_param_spec_uint("bitvar-range-b", "Bitrate percent variation B frame", "Percent variations over average bits per frame for B frame",
-                                                      MIN_BITRATE_VARIABLE_RANGE, MAX_BITRATE_VARIABLE_RANGE, (guint)DEFAULT_BITVAR_RANGE_B,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_uint("bitvar-range-b", "Bitrate percent variation B frame", "Percent variations over average bits per frame for B frame",
+                                                    MIN_BITRATE_VARIABLE_RANGE, MAX_BITRATE_VARIABLE_RANGE, (guint)DEFAULT_BITVAR_RANGE_B,
+                                                    (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_PICTURE_RC,
-                                    g_param_spec_boolean("picture-rc", "Picture Rate Control", "Adjust QP between pictures", true,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_boolean("picture-rc", "Picture Rate Control", "Adjust QP between pictures", true,
+                                                       (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_CTB_RC,
-                                    g_param_spec_boolean("ctb-rc", "Block Rate Control", "Adaptive adjustment of QP inside frame", false,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_boolean("ctb-rc", "Block Rate Control", "Adaptive adjustment of QP inside frame", false,
+                                                       (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_PICTURE_SKIP,
-                                    g_param_spec_boolean("picture-skip", "Picture Skip", "Allow rate control to skip pictures", false,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_boolean("picture-skip", "Picture Skip", "Allow rate control to skip pictures", false,
+                                                       (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_HRD,
-                                    g_param_spec_boolean("hrd", "Picture Rate Control", "Restricts the instantaneous bitrate and total bit amount of every coded picture.", false,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_boolean("hrd", "Picture Rate Control", "Restricts the instantaneous bitrate and total bit amount of every coded picture.", false,
+                                                       (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_MONITOR_FRAMES,
-                                    g_param_spec_uint("monitor-frames", "Monitor Frames", "How many frames will be monitored for moving bit rate. Default is using framerate",
-                                                      MIN_MONITOR_FRAMES, MAX_MONITOR_FRAMES, (gint)DEFAULT_MONITOR_FRAMES,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_uint("monitor-frames", "Monitor Frames", "How many frames will be monitored for moving bit rate. Default is using framerate",
+                                                    MIN_MONITOR_FRAMES, MAX_MONITOR_FRAMES, (gint)DEFAULT_MONITOR_FRAMES,
+                                                    (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_ROI_AREA_1,
-                                    g_param_spec_string("roi-area1", "ROI Area and QP Delta",
-                                                        "Specifying rectangular area of CTBs as Region Of Interest with lower QP, left:top:right:bottom:delta_qp format ", NULL,
-                                                        (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_string("roi-area1", "ROI Area and QP Delta",
+                                                      "Specifying rectangular area of CTBs as Region Of Interest with lower QP, left:top:right:bottom:delta_qp format ", NULL,
+                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_ROI_AREA_2,
-                                    g_param_spec_string("roi-area2", "ROI Area and QP Delta",
-                                                        "Specifying rectangular area of CTBs as Region Of Interest with lower QP, left:top:right:bottom:delta_qp format ", NULL,
-                                                        (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_string("roi-area2", "ROI Area and QP Delta",
+                                                      "Specifying rectangular area of CTBs as Region Of Interest with lower QP, left:top:right:bottom:delta_qp format ", NULL,
+                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_COMPRESSOR,
-                                    g_param_spec_enum("compressor", "Compressor", "Enable/Disable Embedded Compression",
-                                                      GST_TYPE_HAILOENC_COMPRESSOR, (guint)3,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+                                  g_param_spec_enum("compressor", "Compressor", "Enable/Disable Embedded Compression",
+                                                    GST_TYPE_HAILOENC_COMPRESSOR, (guint)3,
+                                                    (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
   g_object_class_install_property(gobject_class, PROP_BLOCK_RC_SIZE,
-                                    g_param_spec_enum("block-rc-size", "Block Rate Control Size", "Size of block rate control",
-                                                      GST_TYPE_HAILOENC_BLOCK_RC_SIZE, (guint)0,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                  g_param_spec_enum("block-rc-size", "Block Rate Control Size", "Size of block rate control",
+                                                    GST_TYPE_HAILOENC_BLOCK_RC_SIZE, (guint)0,
+                                                    (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_HRD_CPB_SIZE,
-                                    g_param_spec_uint("hrd-cpb-size", "HRD Coded Picture Buffer size", "Buffer size used by the HRD model in bits",
-                                                      MIN_HRD_CPB_SIZE, MAX_HRD_CPB_SIZE, (guint)DEFAULT_HRD_CPB_SIZE,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
-                              
+                                  g_param_spec_uint("hrd-cpb-size", "HRD Coded Picture Buffer size", "Buffer size used by the HRD model in bits",
+                                                    MIN_HRD_CPB_SIZE, MAX_HRD_CPB_SIZE, (guint)DEFAULT_HRD_CPB_SIZE,
+                                                    (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+
   venc_class->start = gst_hailoenc_start;
   venc_class->stop = gst_hailoenc_stop;
   venc_class->finish = gst_hailoenc_finish;
@@ -250,14 +249,13 @@ gst_hailoenc_class_init(GstHailoEncClass * klass)
   venc_class->set_format = gst_hailoenc_set_format;
   venc_class->propose_allocation = gst_hailoenc_propose_allocation;
   venc_class->flush = gst_hailoenc_flush;
-  
+
   gobject_class->finalize = gst_hailoenc_finalize;
   gobject_class->dispose = gst_hailoenc_dispose;
-
 }
 
 static void
-gst_hailoenc_init(GstHailoEnc * hailoenc)
+gst_hailoenc_init(GstHailoEnc *hailoenc)
 {
   EncoderParams *enc_params = &(hailoenc->enc_params);
   hailoenc->apiVer = VCEncGetApiVersion();
@@ -276,318 +274,320 @@ GObject Virtual Functions
 ************************/
 
 static void
-gst_hailoenc_get_property(GObject * object,
-    guint prop_id, GValue * value, GParamSpec * pspec)
+gst_hailoenc_get_property(GObject *object,
+                          guint prop_id, GValue *value, GParamSpec *pspec)
 {
-  GstHailoEnc *hailoenc = (GstHailoEnc *) (object);
+  GstHailoEnc *hailoenc = (GstHailoEnc *)(object);
 
-  switch (prop_id) {
-    case PROP_INTRA_PIC_RATE:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.intraPicRate);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_GOP_SIZE:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.gopSize);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_GOP_LENGTH:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.gopLength);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_QPHDR:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_int(value, (gint)hailoenc->enc_params.qphdr);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_QPMIN:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.qpmin);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_QPMAX:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.qpmax);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_INTRA_QP_DELTA:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_int(value, (gint)hailoenc->enc_params.intra_qp_delta);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_FIXED_INTRA_QP:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.fixed_intra_qp);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_BFRAME_QP_DELTA:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_int(value, (gint)hailoenc->enc_params.bFrameQpDelta);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_BITRATE:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.bitrate);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_TOL_MOVING_BITRATE:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.tolMovingBitRate);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_BITRATE_VAR_RANGE_I:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.bitVarRangeI);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_BITRATE_VAR_RANGE_P:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.bitVarRangeP);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_BITRATE_VAR_RANGE_B:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.bitVarRangeB);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_MONITOR_FRAMES:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.monitorFrames);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_PICTURE_RC:
-    {
-        GST_OBJECT_LOCK(hailoenc);
-        gboolean picture_rc = hailoenc->enc_params.pictureRc == 1 ? TRUE : FALSE;
-        g_value_set_boolean(value, picture_rc);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    }
-    case PROP_CTB_RC:
-    {
-        GST_OBJECT_LOCK(hailoenc);
-        gboolean ctb_rc = hailoenc->enc_params.ctbRc == 1 ? TRUE : FALSE;
-        g_value_set_boolean(value, ctb_rc);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    }
-    case PROP_PICTURE_SKIP:
-    {
-        GST_OBJECT_LOCK(hailoenc);
-        gboolean picture_skip = hailoenc->enc_params.pictureSkip == 1 ? TRUE : FALSE;
-        g_value_set_boolean(value, picture_skip);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    }
-    case PROP_HRD:
-    {
-        GST_OBJECT_LOCK(hailoenc);
-        gboolean hrd = hailoenc->enc_params.hrd == 1 ? TRUE : FALSE;
-        g_value_set_boolean(value, hrd);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    }
-    case PROP_ROI_AREA_1:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_string(value, (const gchar *)hailoenc->enc_params.roiArea1);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_ROI_AREA_2:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_string(value, (const gchar *)hailoenc->enc_params.roiArea2);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_COMPRESSOR:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_enum(value, (gint)hailoenc->enc_params.compressor);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_BLOCK_RC_SIZE:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_enum(value, (gint)hailoenc->enc_params.blockRcSize);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_HRD_CPB_SIZE:
-        GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.hrdCpbSize);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    default:
-      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
-      break;
+  switch (prop_id)
+  {
+  case PROP_INTRA_PIC_RATE:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_uint(value, (guint)hailoenc->enc_params.intraPicRate);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_GOP_SIZE:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_uint(value, (guint)hailoenc->enc_params.gopSize);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_GOP_LENGTH:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_uint(value, (guint)hailoenc->enc_params.gopLength);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_QPHDR:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_int(value, (gint)hailoenc->enc_params.qphdr);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_QPMIN:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_uint(value, (guint)hailoenc->enc_params.qpmin);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_QPMAX:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_uint(value, (guint)hailoenc->enc_params.qpmax);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_INTRA_QP_DELTA:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_int(value, (gint)hailoenc->enc_params.intra_qp_delta);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_FIXED_INTRA_QP:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_uint(value, (guint)hailoenc->enc_params.fixed_intra_qp);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_BFRAME_QP_DELTA:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_int(value, (gint)hailoenc->enc_params.bFrameQpDelta);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_BITRATE:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_uint(value, (guint)hailoenc->enc_params.bitrate);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_TOL_MOVING_BITRATE:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_uint(value, (guint)hailoenc->enc_params.tolMovingBitRate);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_BITRATE_VAR_RANGE_I:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_uint(value, (guint)hailoenc->enc_params.bitVarRangeI);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_BITRATE_VAR_RANGE_P:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_uint(value, (guint)hailoenc->enc_params.bitVarRangeP);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_BITRATE_VAR_RANGE_B:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_uint(value, (guint)hailoenc->enc_params.bitVarRangeB);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_MONITOR_FRAMES:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_uint(value, (guint)hailoenc->enc_params.monitorFrames);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_PICTURE_RC:
+  {
+    GST_OBJECT_LOCK(hailoenc);
+    gboolean picture_rc = hailoenc->enc_params.pictureRc == 1 ? TRUE : FALSE;
+    g_value_set_boolean(value, picture_rc);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  }
+  case PROP_CTB_RC:
+  {
+    GST_OBJECT_LOCK(hailoenc);
+    gboolean ctb_rc = hailoenc->enc_params.ctbRc == 1 ? TRUE : FALSE;
+    g_value_set_boolean(value, ctb_rc);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  }
+  case PROP_PICTURE_SKIP:
+  {
+    GST_OBJECT_LOCK(hailoenc);
+    gboolean picture_skip = hailoenc->enc_params.pictureSkip == 1 ? TRUE : FALSE;
+    g_value_set_boolean(value, picture_skip);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  }
+  case PROP_HRD:
+  {
+    GST_OBJECT_LOCK(hailoenc);
+    gboolean hrd = hailoenc->enc_params.hrd == 1 ? TRUE : FALSE;
+    g_value_set_boolean(value, hrd);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  }
+  case PROP_ROI_AREA_1:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_string(value, (const gchar *)hailoenc->enc_params.roiArea1);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_ROI_AREA_2:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_string(value, (const gchar *)hailoenc->enc_params.roiArea2);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_COMPRESSOR:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_enum(value, (gint)hailoenc->enc_params.compressor);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_BLOCK_RC_SIZE:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_enum(value, (gint)hailoenc->enc_params.blockRcSize);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_HRD_CPB_SIZE:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_uint(value, (guint)hailoenc->enc_params.hrdCpbSize);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  default:
+    G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
+    break;
   }
 }
 
 static void
-gst_hailoenc_set_property(GObject * object,
-    guint prop_id, const GValue * value, GParamSpec * pspec)
+gst_hailoenc_set_property(GObject *object,
+                          guint prop_id, const GValue *value, GParamSpec *pspec)
 {
-  GstHailoEnc *hailoenc = (GstHailoEnc *) (object);
+  GstHailoEnc *hailoenc = (GstHailoEnc *)(object);
   hailoenc->update_config = hailoenc->enc_params.picture_enc_cnt != 0;
 
-  switch (prop_id) {
-    case PROP_INTRA_PIC_RATE:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.intraPicRate = g_value_get_uint(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_GOP_SIZE:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.gopSize = g_value_get_uint(value);
-        hailoenc->update_gop_size = TRUE;
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_GOP_LENGTH:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.gopLength = g_value_get_uint(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_QPHDR:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.qphdr = g_value_get_int(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_QPMIN:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.qpmin = g_value_get_uint(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_QPMAX:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.qpmax = g_value_get_uint(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_INTRA_QP_DELTA:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.intra_qp_delta = g_value_get_int(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_FIXED_INTRA_QP:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.fixed_intra_qp = g_value_get_uint(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_BFRAME_QP_DELTA:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.bFrameQpDelta = g_value_get_int(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_BITRATE:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.bitrate = g_value_get_uint(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_TOL_MOVING_BITRATE:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.tolMovingBitRate = g_value_get_uint(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_BITRATE_VAR_RANGE_I:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.bitVarRangeI = g_value_get_uint(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_BITRATE_VAR_RANGE_P:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.bitVarRangeP = g_value_get_uint(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_BITRATE_VAR_RANGE_B:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.bitVarRangeB = g_value_get_uint(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_MONITOR_FRAMES:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.monitorFrames = g_value_get_uint(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_PICTURE_RC:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.pictureRc = g_value_get_boolean(value) ? 1 : 0;
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_CTB_RC:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.ctbRc = g_value_get_boolean(value) ? 1 : 0;
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_PICTURE_SKIP:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.pictureSkip = g_value_get_boolean(value) ? 1 : 0;
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_HRD:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.hrd = g_value_get_boolean(value) ? 1 : 0;
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_ROI_AREA_1:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.roiArea1 = (char *)g_value_get_string(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_ROI_AREA_2:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.roiArea2 = (char *)g_value_get_string(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_COMPRESSOR:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.compressor = (u32)g_value_get_enum(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_BLOCK_RC_SIZE:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.blockRcSize = (u32)g_value_get_enum(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    case PROP_HRD_CPB_SIZE:
-        GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.hrdCpbSize = g_value_get_uint(value);
-        GST_OBJECT_UNLOCK(hailoenc);
-        break;
-    default:
-      hailoenc->update_config = FALSE;
-      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
-      break;
+  switch (prop_id)
+  {
+  case PROP_INTRA_PIC_RATE:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.intraPicRate = g_value_get_uint(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_GOP_SIZE:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.gopSize = g_value_get_uint(value);
+    hailoenc->update_gop_size = TRUE;
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_GOP_LENGTH:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.gopLength = g_value_get_uint(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_QPHDR:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.qphdr = g_value_get_int(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_QPMIN:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.qpmin = g_value_get_uint(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_QPMAX:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.qpmax = g_value_get_uint(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_INTRA_QP_DELTA:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.intra_qp_delta = g_value_get_int(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_FIXED_INTRA_QP:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.fixed_intra_qp = g_value_get_uint(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_BFRAME_QP_DELTA:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.bFrameQpDelta = g_value_get_int(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_BITRATE:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.bitrate = g_value_get_uint(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_TOL_MOVING_BITRATE:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.tolMovingBitRate = g_value_get_uint(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_BITRATE_VAR_RANGE_I:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.bitVarRangeI = g_value_get_uint(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_BITRATE_VAR_RANGE_P:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.bitVarRangeP = g_value_get_uint(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_BITRATE_VAR_RANGE_B:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.bitVarRangeB = g_value_get_uint(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_MONITOR_FRAMES:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.monitorFrames = g_value_get_uint(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_PICTURE_RC:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.pictureRc = g_value_get_boolean(value) ? 1 : 0;
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_CTB_RC:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.ctbRc = g_value_get_boolean(value) ? 1 : 0;
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_PICTURE_SKIP:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.pictureSkip = g_value_get_boolean(value) ? 1 : 0;
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_HRD:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.hrd = g_value_get_boolean(value) ? 1 : 0;
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_ROI_AREA_1:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.roiArea1 = (char *)g_value_get_string(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_ROI_AREA_2:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.roiArea2 = (char *)g_value_get_string(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_COMPRESSOR:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.compressor = (u32)g_value_get_enum(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_BLOCK_RC_SIZE:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.blockRcSize = (u32)g_value_get_enum(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_HRD_CPB_SIZE:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.hrdCpbSize = g_value_get_uint(value);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  default:
+    hailoenc->update_config = FALSE;
+    G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
+    break;
   }
 }
 
 static void
-gst_hailoenc_finalize(GObject * object)
+gst_hailoenc_finalize(GObject *object)
 {
-  GstHailoEnc *hailoenc = (GstHailoEnc *) object;
+  GstHailoEnc *hailoenc = (GstHailoEnc *)object;
   GST_DEBUG_OBJECT(hailoenc, "hailoenc finalize callback");
 
   /* clean up remaining allocated data */
 
-  G_OBJECT_CLASS (parent_class)->finalize (object);
+  G_OBJECT_CLASS(parent_class)->finalize(object);
 }
 
 static void
-gst_hailoenc_dispose(GObject * object)
+gst_hailoenc_dispose(GObject *object)
 {
-  GstHailoEnc *hailoenc = (GstHailoEnc *) object;
+  GstHailoEnc *hailoenc = (GstHailoEnc *)object;
   GST_DEBUG_OBJECT(hailoenc, "hailoenc dispose callback");
 
   /* clean up as possible.  may be called multiple times */
-  if (hailoenc->encoder_instance) {
+  if (hailoenc->encoder_instance)
+  {
     CloseEncoder(hailoenc->encoder_instance);
     hailoenc->encoder_instance = NULL;
     FreeRes(&(hailoenc->enc_params));
     g_queue_free(hailoenc->dts_queue);
   }
 
-  G_OBJECT_CLASS (parent_class)->dispose (object);
+  G_OBJECT_CLASS(parent_class)->dispose(object);
 }
 
 /*****************
 Internal Functions
 *****************/
-
 
 /**
  * Gets the time difference between 2 time specs in milliseconds.
@@ -597,8 +597,7 @@ Internal Functions
  */
 int64_t gst_hailoenc_difftimespec_ms(const struct timespec after, const struct timespec before)
 {
-    return ((int64_t)after.tv_sec - (int64_t)before.tv_sec) * (int64_t)1000
-         + ((int64_t)after.tv_nsec - (int64_t)before.tv_nsec) / 1000000;
+  return ((int64_t)after.tv_sec - (int64_t)before.tv_sec) * (int64_t)1000 + ((int64_t)after.tv_nsec - (int64_t)before.tv_nsec) / 1000000;
 }
 
 /**
@@ -609,25 +608,25 @@ int64_t gst_hailoenc_difftimespec_ms(const struct timespec after, const struct t
  * @returns TRUE if the encoder parameters were updated, FALSE otherwise.
  * @note The updated data is the resolution, framerate and input format.
  */
-static gboolean 
-gst_hailoenc_update_params(GstHailoEnc *hailoenc, GstVideoInfo * info)
+static gboolean
+gst_hailoenc_update_params(GstHailoEnc *hailoenc, GstVideoInfo *info)
 {
   gboolean updated_params = FALSE;
   EncoderParams *enc_params = &(hailoenc->enc_params);
 
-  if (enc_params->width != GST_VIDEO_INFO_WIDTH (info) ||
-      enc_params->height != GST_VIDEO_INFO_HEIGHT (info))
+  if (enc_params->width != GST_VIDEO_INFO_WIDTH(info) ||
+      enc_params->height != GST_VIDEO_INFO_HEIGHT(info))
   {
-    enc_params->width = GST_VIDEO_INFO_WIDTH (info);
-    enc_params->height = GST_VIDEO_INFO_HEIGHT (info);
+    enc_params->width = GST_VIDEO_INFO_WIDTH(info);
+    enc_params->height = GST_VIDEO_INFO_HEIGHT(info);
     updated_params = TRUE;
   }
 
-  if (enc_params->frameRateNumer != GST_VIDEO_INFO_FPS_N (info) ||
-      enc_params->frameRateDenom != GST_VIDEO_INFO_FPS_D (info))
+  if (enc_params->frameRateNumer != GST_VIDEO_INFO_FPS_N(info) ||
+      enc_params->frameRateDenom != GST_VIDEO_INFO_FPS_D(info))
   {
-    enc_params->frameRateNumer = GST_VIDEO_INFO_FPS_N (info);
-    enc_params->frameRateDenom = GST_VIDEO_INFO_FPS_D (info);
+    enc_params->frameRateNumer = GST_VIDEO_INFO_FPS_N(info);
+    enc_params->frameRateDenom = GST_VIDEO_INFO_FPS_D(info);
     updated_params = TRUE;
   }
 
@@ -657,13 +656,13 @@ gst_hailoenc_update_params(GstHailoEnc *hailoenc, GstVideoInfo * info)
  * @return GST_FLOW_OK on success, GST_FLOW_ERROR on failure.
  * @note The function will fail when it cannot get the physical address or the memory is non-continous.
  */
-static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc * hailoenc,
-    GstVideoCodecFrame * frame)
+static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc *hailoenc,
+                                                      GstVideoCodecFrame *frame)
 {
   EncoderParams *enc_params = &(hailoenc->enc_params);
   GstFlowReturn ret = GST_FLOW_OK;
-  uint32_t* luma = nullptr;
-  uint32_t * chroma = nullptr;
+  uint32_t *luma = nullptr;
+  uint32_t *chroma = nullptr;
   size_t luma_size = 0;
   size_t chroma_size = 0;
   int ewl_ret;
@@ -675,10 +674,10 @@ static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc * hailoenc,
     GST_DEBUG_OBJECT(hailoenc, "Input buffer has 1 memory");
     GstVideoFrame vframe;
     gst_video_frame_map(&vframe, &(hailoenc->input_state->info), frame->input_buffer, GST_MAP_READ);
-    luma = (uint32_t*)GST_VIDEO_FRAME_PLANE_DATA (&vframe, 0);
-    chroma = (uint32_t*)GST_VIDEO_FRAME_PLANE_DATA (&vframe, 1);
-    luma_size = GST_VIDEO_FRAME_HEIGHT (&vframe) * GST_VIDEO_FRAME_PLANE_STRIDE (&vframe, 0);
-    chroma_size = GST_VIDEO_FRAME_HEIGHT (&vframe) * GST_VIDEO_FRAME_PLANE_STRIDE (&vframe, 1) / 2;
+    luma = (uint32_t *)GST_VIDEO_FRAME_PLANE_DATA(&vframe, 0);
+    chroma = (uint32_t *)GST_VIDEO_FRAME_PLANE_DATA(&vframe, 1);
+    luma_size = GST_VIDEO_FRAME_HEIGHT(&vframe) * GST_VIDEO_FRAME_PLANE_STRIDE(&vframe, 0);
+    chroma_size = GST_VIDEO_FRAME_HEIGHT(&vframe) * GST_VIDEO_FRAME_PLANE_STRIDE(&vframe, 1) / 2;
     gst_video_frame_unmap(&vframe);
     break;
   }
@@ -691,8 +690,8 @@ static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc * hailoenc,
     GstMemory *mem1 = gst_buffer_peek_memory(frame->input_buffer, 1);
     gst_memory_map(mem0, &map_info0, GST_MAP_READ);
     gst_memory_map(mem1, &map_info1, GST_MAP_READ);
-    luma = (uint32_t*)map_info0.data;
-    chroma = (uint32_t*)map_info1.data;
+    luma = (uint32_t *)map_info0.data;
+    chroma = (uint32_t *)map_info1.data;
     luma_size = map_info0.size;
     chroma_size = map_info1.size;
     gst_memory_unmap(mem0, &map_info0);
@@ -706,7 +705,7 @@ static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc * hailoenc,
     break;
   }
   }
-  if(ret != GST_FLOW_OK)
+  if (ret != GST_FLOW_OK)
   {
     return ret;
   }
@@ -715,7 +714,7 @@ static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc * hailoenc,
     GST_ERROR_OBJECT(hailoenc, "Could not get input buffer luma and chroma");
     return GST_FLOW_ERROR;
   }
-  
+
   // Get the physical Addresses of input buffer luma and chroma.
   ewl_ret = EWLGetBusAddress(enc_params->ewl, luma, &(enc_params->encIn.busLuma), luma_size);
   if (ewl_ret != EWL_OK)
@@ -739,12 +738,12 @@ static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc * hailoenc,
  * @return A GstBuffer object of the encoded data.
  * @note It also modifies parameters containing the total streamed bytes and bits.
  */
-static GstBuffer *gst_hailoenc_get_encoded_buffer(GstHailoEnc * hailoenc)
+static GstBuffer *gst_hailoenc_get_encoded_buffer(GstHailoEnc *hailoenc)
 {
   GstBuffer *outbuf;
   EncoderParams *enc_params = &(hailoenc->enc_params);
-  outbuf = gst_buffer_new_memdup(enc_params->outbufMem.virtualAddress, 
-                                              enc_params->encOut.streamSize);
+  outbuf = gst_buffer_new_memdup(enc_params->outbufMem.virtualAddress,
+                                 enc_params->encOut.streamSize);
   return outbuf;
 }
 
@@ -755,7 +754,7 @@ static GstBuffer *gst_hailoenc_get_encoded_buffer(GstHailoEnc * hailoenc)
  * @param[in] new_header     The new header as GstBuf fer object.
  */
 static void
-gst_hailoenc_add_headers(GstHailoEnc * hailoenc, GstBuffer *new_header)
+gst_hailoenc_add_headers(GstHailoEnc *hailoenc, GstBuffer *new_header)
 {
   if (hailoenc->header_buffer)
     hailoenc->header_buffer = gst_buffer_append(hailoenc->header_buffer, new_header);
@@ -770,10 +769,10 @@ gst_hailoenc_add_headers(GstHailoEnc * hailoenc, GstBuffer *new_header)
  * @return Upon success, returns VCENC_OK. Otherwise, returns another error value from VCEncRet.
  */
 static VCEncRet
-gst_hailoenc_encode_header(GstVideoEncoder * encoder)
+gst_hailoenc_encode_header(GstVideoEncoder *encoder)
 {
   VCEncRet enc_ret;
-  GstHailoEnc *hailoenc = (GstHailoEnc *) encoder;
+  GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
   EncoderParams *enc_params = &(hailoenc->enc_params);
   VCEncIn *pEncIn = &(enc_params->encIn);
   VCEncOut *pEncOut = &(enc_params->encOut);
@@ -790,15 +789,14 @@ gst_hailoenc_encode_header(GstVideoEncoder * encoder)
     return enc_ret;
   }
   gst_hailoenc_add_headers(hailoenc, gst_hailoenc_get_encoded_buffer(hailoenc));
-  
+
   // Default gop size as IPPP
   pEncIn->poc = 0;
-  pEncIn->gopSize =  enc_params->nextGopSize = ((enc_params->gopSize == 0) ? 1 : enc_params->gopSize);
+  pEncIn->gopSize = enc_params->nextGopSize = ((enc_params->gopSize == 0) ? 1 : enc_params->gopSize);
   enc_params->nextCodingType = VCENC_INTRA_FRAME;
 
   return enc_ret;
 }
-
 
 /**
  * Restart the encoder
@@ -808,13 +806,13 @@ gst_hailoenc_encode_header(GstVideoEncoder * encoder)
  * @return Upon success, returns GST_FLOW_OK, GST_FLOW_ERROR on failure.
  */
 static GstFlowReturn
-gst_hailoenc_stream_restart(GstVideoEncoder * encoder, GstVideoCodecFrame * frame)
+gst_hailoenc_stream_restart(GstVideoEncoder *encoder, GstVideoCodecFrame *frame)
 {
   VCEncRet enc_ret;
-  GstHailoEnc *hailoenc = (GstHailoEnc *) encoder;
+  GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
   EncoderParams *enc_params = &(hailoenc->enc_params);
-  VCEncIn * pEncIn = &(enc_params->encIn);
-  VCEncOut * pEncOut = &(enc_params->encOut);
+  VCEncIn *pEncIn = &(enc_params->encIn);
+  VCEncOut *pEncOut = &(enc_params->encOut);
   GST_WARNING_OBJECT(hailoenc, "Restarting encoder");
 
   if (hailoenc->encoder_instance == NULL)
@@ -856,7 +854,7 @@ gst_hailoenc_stream_restart(GstVideoEncoder * encoder, GstVideoCodecFrame * fram
     {
       GST_ERROR_OBJECT(hailoenc, "Encoder restart - Failed to update gop size");
       return GST_FLOW_ERROR;
-    }    
+    }
     hailoenc->update_gop_size = FALSE;
   }
 
@@ -899,17 +897,17 @@ gst_hailoenc_stream_restart(GstVideoEncoder * encoder, GstVideoCodecFrame * fram
  * @return Upon success, returns GST_FLOW_OK, GST_FLOW_ERROR on failure.
  */
 static GstFlowReturn
-gst_hailoenc_send_slice(GstHailoEnc * hailoenc, u32 *address, u32 size)
+gst_hailoenc_send_slice(GstHailoEnc *hailoenc, u32 *address, u32 size)
 {
   GstBuffer *outbuf;
   GstVideoCodecFrame *frame;
 
   /* Get oldest frame */
-  frame = gst_video_encoder_get_oldest_frame (GST_VIDEO_ENCODER(hailoenc));
+  frame = gst_video_encoder_get_oldest_frame(GST_VIDEO_ENCODER(hailoenc));
   outbuf = gst_buffer_new_memdup(address, size);
   frame->output_buffer = outbuf;
 
-  return gst_video_encoder_finish_subframe (GST_VIDEO_ENCODER (hailoenc), frame);
+  return gst_video_encoder_finish_subframe(GST_VIDEO_ENCODER(hailoenc), frame);
 }
 
 /*
@@ -923,34 +921,34 @@ static void gst_hailoenc_slice_ready(VCEncSliceReady *slice)
   u32 i;
   u32 streamSize;
   u8 *strmPtr;
-  GstHailoEnc *hailoenc = (GstHailoEnc *) slice->pAppData;
+  GstHailoEnc *hailoenc = (GstHailoEnc *)slice->pAppData;
   EncoderParams *enc_params = &(hailoenc->enc_params);
   /* Here is possible to implement low-latency streaming by
    * sending the complete slices before the whole frame is completed. */
-   
-  if(enc_params->multislice_encoding)
+
+  if (enc_params->multislice_encoding)
   {
-    if (slice->slicesReadyPrev == 0)    /* New frame */
+    if (slice->slicesReadyPrev == 0) /* New frame */
     {
-        strmPtr = (u8 *)slice->pOutBuf; /* Pointer to beginning of frame */
-        streamSize=0;
-        for(i=0;i<slice->nalUnitInfoNum+slice->slicesReady;i++)
-        {
-          streamSize+=*(slice->sliceSizes+i);
-        }
-        gst_hailoenc_send_slice(hailoenc, (u32 *)strmPtr, streamSize);
+      strmPtr = (u8 *)slice->pOutBuf; /* Pointer to beginning of frame */
+      streamSize = 0;
+      for (i = 0; i < slice->nalUnitInfoNum + slice->slicesReady; i++)
+      {
+        streamSize += *(slice->sliceSizes + i);
+      }
+      gst_hailoenc_send_slice(hailoenc, (u32 *)strmPtr, streamSize);
     }
     else
     {
       strmPtr = (u8 *)enc_params->strmPtr; /* Here we store the slice pointer */
-      streamSize=0;
-      for(i=(slice->nalUnitInfoNum+slice->slicesReadyPrev);i<slice->slicesReady+slice->nalUnitInfoNum;i++)
+      streamSize = 0;
+      for (i = (slice->nalUnitInfoNum + slice->slicesReadyPrev); i < slice->slicesReady + slice->nalUnitInfoNum; i++)
       {
-        streamSize+=*(slice->sliceSizes+i);
+        streamSize += *(slice->sliceSizes + i);
       }
       gst_hailoenc_send_slice(hailoenc, (u32 *)strmPtr, streamSize);
     }
-    strmPtr+=streamSize;
+    strmPtr += streamSize;
     /* Store the slice pointer for next callback */
     enc_params->strmPtr = strmPtr;
   }
@@ -963,7 +961,7 @@ static void gst_hailoenc_slice_ready(VCEncSliceReady *slice)
  * @param[in] frame        A GstVideoCodecFrame containing the input to encode.
  * @return Upon success, returns GST_FLOW_OK, GST_FLOW_ERROR on failure.
  */
-static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFrame * frame)
+static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFrame *frame)
 {
   GstFlowReturn ret = GST_FLOW_ERROR;
   VCEncRet enc_ret;
@@ -984,49 +982,49 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
     return ret;
   }
 
-  clock_gettime(CLOCK_MONOTONIC,&start_encode);
+  clock_gettime(CLOCK_MONOTONIC, &start_encode);
   enc_ret = EncodeFrame(enc_params, hailoenc->encoder_instance, &gst_hailoenc_slice_ready, hailoenc);
-  clock_gettime(CLOCK_MONOTONIC,&end_encode);
-  GST_DEBUG_OBJECT(hailoenc, "Encode took %lu milliseconds", (long)gst_hailoenc_difftimespec_ms(end_encode,start_encode));
+  clock_gettime(CLOCK_MONOTONIC, &end_encode);
+  GST_DEBUG_OBJECT(hailoenc, "Encode took %lu milliseconds", (long)gst_hailoenc_difftimespec_ms(end_encode, start_encode));
 
   switch (enc_ret)
   {
-    case VCENC_FRAME_READY:
-      enc_params->picture_enc_cnt++;
-      if (enc_params->encOut.streamSize == 0)
+  case VCENC_FRAME_READY:
+    enc_params->picture_enc_cnt++;
+    if (enc_params->encOut.streamSize == 0)
+    {
+      enc_params->picture_cnt++;
+      ret = GST_FLOW_OK;
+      GST_WARNING_OBJECT(hailoenc, "Encoder didn't return any output for frame %d", enc_params->picture_cnt);
+    }
+    else
+    {
+      if (enc_params->multislice_encoding == 0)
       {
-        enc_params->picture_cnt++;
-        ret = GST_FLOW_OK;
-        GST_WARNING_OBJECT(hailoenc, "Encoder didn't return any output for frame %d", enc_params->picture_cnt);
-      }
-      else
-      {
-        if(enc_params->multislice_encoding==0)
+        // Get the encoded output buffer.
+        frame->dts = GPOINTER_TO_UINT(g_queue_pop_head(hailoenc->dts_queue));
+        frame->output_buffer = gst_hailoenc_get_encoded_buffer(hailoenc);
+        if (hailoenc->header_buffer)
         {
-          // Get the encoded output buffer.
-          frame->dts = GPOINTER_TO_UINT(g_queue_pop_head(hailoenc->dts_queue));
-          frame->output_buffer = gst_hailoenc_get_encoded_buffer(hailoenc);
-          if (hailoenc->header_buffer)
-          {
-            frame->output_buffer = gst_buffer_append(hailoenc->header_buffer, frame->output_buffer);
-            hailoenc->header_buffer = NULL;
-          }
-
-          ret = gst_video_encoder_finish_frame(GST_VIDEO_ENCODER (hailoenc), frame);
-          if (ret != GST_FLOW_OK)
-          {
-            GST_ERROR_OBJECT(hailoenc, "Could not send encoded buffer, reason %d", ret);
-            return ret;
-          }
+          frame->output_buffer = gst_buffer_append(hailoenc->header_buffer, frame->output_buffer);
+          hailoenc->header_buffer = NULL;
         }
-        UpdateEncoderGOP(enc_params, hailoenc->encoder_instance);
+
+        ret = gst_video_encoder_finish_frame(GST_VIDEO_ENCODER(hailoenc), frame);
+        if (ret != GST_FLOW_OK)
+        {
+          GST_ERROR_OBJECT(hailoenc, "Could not send encoded buffer, reason %d", ret);
+          return ret;
+        }
       }
-      break;
-    default:
-      GST_ERROR_OBJECT(hailoenc, "Encoder failed with error %d", enc_ret);
-      ret = GST_FLOW_ERROR;
-      return ret;
-      break;
+      UpdateEncoderGOP(enc_params, hailoenc->encoder_instance);
+    }
+    break;
+  default:
+    GST_ERROR_OBJECT(hailoenc, "Encoder failed with error %d", enc_ret);
+    ret = GST_FLOW_ERROR;
+    return ret;
+    break;
   }
   return ret;
 }
@@ -1040,11 +1038,11 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
  *       via the gst_video_encoder_get_frame function.
  */
 static GstFlowReturn
-gst_hailoenc_encode_frames(GstVideoEncoder * encoder)
+gst_hailoenc_encode_frames(GstVideoEncoder *encoder)
 {
-  GstHailoEnc *hailoenc = (GstHailoEnc *) encoder;
+  GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
   EncoderParams *enc_params = &(hailoenc->enc_params);
-  GstVideoCodecFrame * current_frame;
+  GstVideoCodecFrame *current_frame;
   GstFlowReturn ret = GST_FLOW_ERROR;
   guint gop_size = enc_params->encIn.gopSize;
   GST_DEBUG_OBJECT(hailoenc, "Encoding %u frames", gop_size);
@@ -1062,7 +1060,7 @@ gst_hailoenc_encode_frames(GstVideoEncoder * encoder)
   }
 
   // Assuming enc_params->encIn.gopSize is not 0.
-  for (guint i=0;i<gop_size;i++)
+  for (guint i = 0; i < gop_size; i++)
   {
     current_frame = gst_video_encoder_get_frame(encoder, enc_params->picture_cnt);
     if (!current_frame)
@@ -1083,25 +1081,24 @@ gst_hailoenc_encode_frames(GstVideoEncoder * encoder)
   {
     GST_INFO_OBJECT(hailoenc, "Finished GOP, restarting encoder in order to update config");
     hailoenc->stream_restart = TRUE;
-    hailoenc->update_config=FALSE;
+    hailoenc->update_config = FALSE;
   }
 
   return ret;
 }
-
 
 /********************************
 GstVideoEncoder Virtual Functions
 ********************************/
 
 static gboolean
-gst_hailoenc_set_format(GstVideoEncoder * encoder, GstVideoCodecState * state)
+gst_hailoenc_set_format(GstVideoEncoder *encoder, GstVideoCodecState *state)
 {
   // GstCaps *other_caps;
   GstCaps *allowed_caps;
   GstCaps *icaps;
   GstVideoCodecState *output_format;
-  GstHailoEnc *hailoenc = (GstHailoEnc *) encoder;
+  GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
   EncoderParams *enc_params = &(hailoenc->enc_params);
 
   gboolean updated_caps = gst_hailoenc_update_params(hailoenc, &(state->info));
@@ -1128,69 +1125,69 @@ gst_hailoenc_set_format(GstVideoEncoder * encoder, GstVideoCodecState * state)
   }
 
   /* some codecs support more than one format, first auto-choose one */
-  GST_DEBUG_OBJECT (hailoenc, "picking an output format ...");
-  allowed_caps = gst_pad_get_allowed_caps (GST_VIDEO_ENCODER_SRC_PAD (encoder));
-  if (!allowed_caps) {
-    GST_DEBUG_OBJECT (hailoenc, "... but no peer, using template caps");
+  GST_DEBUG_OBJECT(hailoenc, "picking an output format ...");
+  allowed_caps = gst_pad_get_allowed_caps(GST_VIDEO_ENCODER_SRC_PAD(encoder));
+  if (!allowed_caps)
+  {
+    GST_DEBUG_OBJECT(hailoenc, "... but no peer, using template caps");
     /* we need to copy because get_allowed_caps returns a ref, and
      * get_pad_template_caps doesn't */
     allowed_caps =
-        gst_pad_get_pad_template_caps (GST_VIDEO_ENCODER_SRC_PAD (encoder));
+        gst_pad_get_pad_template_caps(GST_VIDEO_ENCODER_SRC_PAD(encoder));
   }
-  GST_DEBUG_OBJECT (hailoenc, "chose caps %" GST_PTR_FORMAT, allowed_caps);
+  GST_DEBUG_OBJECT(hailoenc, "chose caps %" GST_PTR_FORMAT, allowed_caps);
 
-  icaps = gst_caps_fixate (allowed_caps);
-  
+  icaps = gst_caps_fixate(allowed_caps);
+
   /* Store input state and set output state */
   if (hailoenc->input_state)
-    gst_video_codec_state_unref (hailoenc->input_state);
-  hailoenc->input_state = gst_video_codec_state_ref (state);
-  GST_DEBUG_OBJECT (hailoenc, "Setting output caps state %" GST_PTR_FORMAT, icaps);
+    gst_video_codec_state_unref(hailoenc->input_state);
+  hailoenc->input_state = gst_video_codec_state_ref(state);
+  GST_DEBUG_OBJECT(hailoenc, "Setting output caps state %" GST_PTR_FORMAT, icaps);
 
-  output_format = gst_video_encoder_set_output_state (encoder, icaps, state);
-  
-  gst_video_codec_state_unref (output_format);
+  output_format = gst_video_encoder_set_output_state(encoder, icaps, state);
+
+  gst_video_codec_state_unref(output_format);
 
   /* Store some tags */
   {
-    GstTagList *tags = gst_tag_list_new_empty ();
-    gst_video_encoder_merge_tags (encoder, tags, GST_TAG_MERGE_REPLACE);
-    gst_tag_list_unref (tags);
+    GstTagList *tags = gst_tag_list_new_empty();
+    gst_video_encoder_merge_tags(encoder, tags, GST_TAG_MERGE_REPLACE);
+    gst_tag_list_unref(tags);
   }
   gint max_delayed_frames = 5;
   GstClockTime latency;
-  latency = gst_util_uint64_scale_ceil (GST_SECOND * 1, max_delayed_frames, 25);
-  gst_video_encoder_set_latency (GST_VIDEO_ENCODER (encoder), latency, latency);
+  latency = gst_util_uint64_scale_ceil(GST_SECOND * 1, max_delayed_frames, 25);
+  gst_video_encoder_set_latency(GST_VIDEO_ENCODER(encoder), latency, latency);
 
   return TRUE;
 }
 
 static gboolean
-gst_hailoenc_propose_allocation(GstVideoEncoder * encoder, GstQuery * query)
+gst_hailoenc_propose_allocation(GstVideoEncoder *encoder, GstQuery *query)
 {
-  GstHailoEnc *hailoenc = (GstHailoEnc *) encoder;
+  GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
   GST_DEBUG_OBJECT(hailoenc, "hailoenc propose allocation callback");
 
-  gst_query_add_allocation_meta (query, GST_VIDEO_META_API_TYPE, NULL);
+  gst_query_add_allocation_meta(query, GST_VIDEO_META_API_TYPE, NULL);
 
-  return GST_VIDEO_ENCODER_CLASS (parent_class)->propose_allocation (encoder,
-      query);
+  return GST_VIDEO_ENCODER_CLASS(parent_class)->propose_allocation(encoder, query);
 }
 
 static gboolean
-gst_hailoenc_flush(GstVideoEncoder * encoder)
+gst_hailoenc_flush(GstVideoEncoder *encoder)
 {
   return TRUE;
 }
 
 static gboolean
-gst_hailoenc_start(GstVideoEncoder * encoder)
+gst_hailoenc_start(GstVideoEncoder *encoder)
 {
-  GstHailoEnc *hailoenc = (GstHailoEnc *) encoder;
+  GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
   EncoderParams *enc_params = &(hailoenc->enc_params);
-  VCEncIn * pEncIn = &(enc_params->encIn);
+  VCEncIn *pEncIn = &(enc_params->encIn);
 
-  if (VCEncInitGopConfigs (enc_params->gopSize, NULL, &(enc_params->encIn.gopConfig), enc_params->gopCfgOffset, enc_params->bFrameQpDelta, enc_params->codecH264) != 0)
+  if (VCEncInitGopConfigs(enc_params->gopSize, NULL, &(enc_params->encIn.gopConfig), enc_params->gopCfgOffset, enc_params->bFrameQpDelta, enc_params->codecH264) != 0)
   {
     return FALSE;
   }
@@ -1206,15 +1203,15 @@ gst_hailoenc_start(GstVideoEncoder * encoder)
   pEncIn->outBufSize = enc_params->outbufMem.size;
   pEncIn->pOutBuf = enc_params->outbufMem.virtualAddress;
 
-  gst_video_encoder_set_min_pts (encoder, GST_SECOND);
+  gst_video_encoder_set_min_pts(encoder, GST_SECOND);
 
   return TRUE;
 }
 
 static gboolean
-gst_hailoenc_stop(GstVideoEncoder * encoder)
+gst_hailoenc_stop(GstVideoEncoder *encoder)
 {
-  GstHailoEnc *hailoenc = (GstHailoEnc *) encoder;
+  GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
   EncoderParams *enc_params = &(hailoenc->enc_params);
   CloseEncoder(hailoenc->encoder_instance);
   hailoenc->encoder_instance = NULL;
@@ -1225,9 +1222,9 @@ gst_hailoenc_stop(GstVideoEncoder * encoder)
 }
 
 static GstFlowReturn
-gst_hailoenc_finish(GstVideoEncoder * encoder)
+gst_hailoenc_finish(GstVideoEncoder *encoder)
 {
-  GstHailoEnc *hailoenc = (GstHailoEnc *) encoder;
+  GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
   VCEncOut *pEncOut = &(hailoenc->enc_params.encOut);
   VCEncIn *pEncIn = &(hailoenc->enc_params.encIn);
   VCEncRet enc_ret;
@@ -1246,17 +1243,17 @@ gst_hailoenc_finish(GstVideoEncoder * encoder)
 }
 
 static GstFlowReturn
-gst_hailoenc_handle_frame(GstVideoEncoder * encoder,
-    GstVideoCodecFrame * frame)
+gst_hailoenc_handle_frame(GstVideoEncoder *encoder,
+                          GstVideoCodecFrame *frame)
 {
-  GstHailoEnc *hailoenc = (GstHailoEnc *) encoder;
+  GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
   GstFlowReturn ret = GST_FLOW_ERROR;
   EncoderParams *enc_params = &(hailoenc->enc_params);
   GList *frames;
   guint delayed_frames;
-  GstVideoCodecFrame * oldest_frame;
+  GstVideoCodecFrame *oldest_frame;
   struct timespec start_handle, end_handle;
-  clock_gettime(CLOCK_MONOTONIC,&start_handle);
+  clock_gettime(CLOCK_MONOTONIC, &start_handle);
   GST_DEBUG_OBJECT(hailoenc, "Received frame number %u", frame->system_frame_number);
 
   if (hailoenc->stream_restart)
@@ -1271,7 +1268,7 @@ gst_hailoenc_handle_frame(GstVideoEncoder * encoder,
   if (enc_params->picture_enc_cnt == 0)
   {
 
-    switch(enc_params->gopSize)
+    switch (enc_params->gopSize)
     {
     case 1:
       break;
@@ -1289,7 +1286,7 @@ gst_hailoenc_handle_frame(GstVideoEncoder * encoder,
   g_queue_push_tail(hailoenc->dts_queue, GUINT_TO_POINTER(frame->pts));
 
   // Update Slice Encoding parameters
-  enc_params->multislice_encoding=0;
+  enc_params->multislice_encoding = 0;
   enc_params->strmPtr = NULL;
 
   if (GST_VIDEO_CODEC_FRAME_IS_FORCE_KEYFRAME(frame))
@@ -1314,37 +1311,37 @@ gst_hailoenc_handle_frame(GstVideoEncoder * encoder,
 
   switch (enc_params->nextCodingType)
   {
-    case VCENC_INTRA_FRAME:
-      ret = encode_single_frame(hailoenc, frame);
-      break;
-    case VCENC_PREDICTED_FRAME:
+  case VCENC_INTRA_FRAME:
+    ret = encode_single_frame(hailoenc, frame);
+    break;
+  case VCENC_PREDICTED_FRAME:
+  {
+    frames = gst_video_encoder_get_frames(encoder);
+    delayed_frames = g_list_length(frames);
+    g_list_free_full(frames, (GDestroyNotify)gst_video_codec_frame_unref);
+    guint gop_size = enc_params->encIn.gopSize;
+    if (delayed_frames == gop_size)
     {
-      frames = gst_video_encoder_get_frames (encoder);
-      delayed_frames = g_list_length (frames);
-      g_list_free_full (frames, (GDestroyNotify) gst_video_codec_frame_unref);
-      guint gop_size = enc_params->encIn.gopSize;
-      if (delayed_frames == gop_size)
-      {
-        ret = gst_hailoenc_encode_frames(encoder);
-      }
-      else if (delayed_frames < gop_size)
-      {
-        ret = GST_FLOW_OK;
-      }
-      else
-      {
-        GST_ERROR_OBJECT(hailoenc, "Skipped too many frames");
-      }
-      break;
+      ret = gst_hailoenc_encode_frames(encoder);
     }
-    case VCENC_BIDIR_PREDICTED_FRAME:
-      GST_ERROR_OBJECT(hailoenc,"Got B frame without pending P frame");
-      break;
-    default:
-      GST_ERROR_OBJECT(hailoenc,"Unknown coding type %d", (int)enc_params->nextCodingType);
-      break;
+    else if (delayed_frames < gop_size)
+    {
+      ret = GST_FLOW_OK;
+    }
+    else
+    {
+      GST_ERROR_OBJECT(hailoenc, "Skipped too many frames");
+    }
+    break;
   }
-  clock_gettime(CLOCK_MONOTONIC,&end_handle);
-  GST_DEBUG_OBJECT(hailoenc, "handle_frame took %lu milliseconds", (long)gst_hailoenc_difftimespec_ms(end_handle,start_handle));
+  case VCENC_BIDIR_PREDICTED_FRAME:
+    GST_ERROR_OBJECT(hailoenc, "Got B frame without pending P frame");
+    break;
+  default:
+    GST_ERROR_OBJECT(hailoenc, "Unknown coding type %d", (int)enc_params->nextCodingType);
+    break;
+  }
+  clock_gettime(CLOCK_MONOTONIC, &end_handle);
+  GST_DEBUG_OBJECT(hailoenc, "handle_frame took %lu milliseconds", (long)gst_hailoenc_difftimespec_ms(end_handle, start_handle));
   return ret;
 }

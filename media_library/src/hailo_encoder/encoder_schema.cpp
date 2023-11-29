@@ -1,62 +1,59 @@
 /*
-* Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
-* 
-* Permission is hereby granted, free of charge, to any person obtaining
-* a copy of this software and associated documentation files (the
-* "Software"), to deal in the Software without restriction, including
-* without limitation the rights to use, copy, modify, merge, publish,
-* distribute, sublicense, and/or sell copies of the Software, and to
-* permit persons to whom the Software is furnished to do so, subject to
-* the following conditions:
-* 
-* The above copyright notice and this permission notice shall be
-* included in all copies or substantial portions of the Software.
-* 
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-* LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-* OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-* WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ * Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-#include <iostream>
 #include <filesystem>
+#include <iostream>
 namespace fs = std::filesystem;
 
 // Own includes
 #include "encoder_config.hpp"
 #include "encoder_internal.hpp"
 
-EncoderConfig::EncoderConfig(const std::string& json_string)
+EncoderConfig::EncoderConfig(const std::string &json_string)
     : m_json_string(json_string)
 {
     m_doc = nlohmann::json::parse(m_json_string);
 }
-const nlohmann::json& EncoderConfig::get_doc() const
-{
-    return m_doc;
-}
-const nlohmann::json& EncoderConfig::get_gop_config() const
+const nlohmann::json &EncoderConfig::get_doc() const { return m_doc; }
+const nlohmann::json &EncoderConfig::get_gop_config() const
 {
     return m_doc["gop_config"];
 }
-const nlohmann::json& EncoderConfig::get_input_stream() const
+const nlohmann::json &EncoderConfig::get_input_stream() const
 {
     return m_doc["config"]["input_stream"];
 }
 
-const nlohmann::json& EncoderConfig::get_coding_control() const
+const nlohmann::json &EncoderConfig::get_coding_control() const
 {
     return m_doc["coding_control"];
 }
 
-const nlohmann::json& EncoderConfig::get_rate_control() const
+const nlohmann::json &EncoderConfig::get_rate_control() const
 {
     return m_doc["rate_control"];
 }
 
-const nlohmann::json& EncoderConfig::get_output_stream() const
+const nlohmann::json &EncoderConfig::get_output_stream() const
 {
     return m_doc["config"]["output_stream"];
 }
@@ -95,7 +92,8 @@ const nlohmann::json& EncoderConfig::get_output_stream() const
 //                                 "type": "number"
 //                             },
 //                         },
-//                         "required": ["width", "height", "format", "framerate"]
+//                         "required": ["width", "height", "format",
+//                         "framerate"]
 //                     },
 //                     "output_stream": {
 //                         "type": "object",
@@ -116,7 +114,8 @@ const nlohmann::json& EncoderConfig::get_output_stream() const
 //                                 "type": "integer"
 //                             }
 //                         },
-//                         "required": ["codec", "profile", "level", "bit_depth_luma", "bit_depth_chroma"]
+//                         "required": ["codec", "profile", "level",
+//                         "bit_depth_luma", "bit_depth_chroma"]
 //                     }
 //                 },
 //                 "required": ["input_stream", "output_stream"]
@@ -158,7 +157,8 @@ const nlohmann::json& EncoderConfig::get_output_stream() const
 //                                 "type": "boolean"
 //                             }
 //                         },
-//                         "required": ["enabled", "disabled_on_edges", "tc_offset", "beta_offset", "deblock_override"]
+//                         "required": ["enabled", "disabled_on_edges",
+//                         "tc_offset", "beta_offset", "deblock_override"]
 //                     },
 //                     "intra_area": {
 //                         "type": "object",
@@ -179,7 +179,8 @@ const nlohmann::json& EncoderConfig::get_output_stream() const
 //                                 "type": "integer"
 //                             }
 //                         },
-//                         "required": ["enabled", "left", "right", "top", "bottom"]
+//                         "required": ["enabled", "left", "right", "top",
+//                         "bottom"]
 //                     },
 //                     "ipcm_area_1": {
 //                         "type": "object",
@@ -200,7 +201,8 @@ const nlohmann::json& EncoderConfig::get_output_stream() const
 //                                 "type": "integer"
 //                             }
 //                         },
-//                         "required": ["enabled", "left", "right", "top", "bottom"]
+//                         "required": ["enabled", "left", "right", "top",
+//                         "bottom"]
 //                     },
 //                     "ipcm_area_2": {
 //                         "type": "object",
@@ -221,7 +223,8 @@ const nlohmann::json& EncoderConfig::get_output_stream() const
 //                                 "type": "integer"
 //                             }
 //                         },
-//                         "required": ["enabled", "left", "right", "top", "bottom"]
+//                         "required": ["enabled", "left", "right", "top",
+//                         "bottom"]
 //                     },
 //                     "roi_area_1": {
 //                         "type": "object",
@@ -242,7 +245,8 @@ const nlohmann::json& EncoderConfig::get_output_stream() const
 //                                 "type": "integer"
 //                             }
 //                         },
-//                         "required": ["enabled", "left", "right", "top", "bottom"]
+//                         "required": ["enabled", "left", "right", "top",
+//                         "bottom"]
 //                     },
 //                     "roi_area_2": {
 //                         "type": "object",
@@ -263,10 +267,13 @@ const nlohmann::json& EncoderConfig::get_output_stream() const
 //                                 "type": "integer"
 //                             }
 //                         },
-//                         "required": ["enabled", "left", "right", "top", "bottom"]
+//                         "required": ["enabled", "left", "right", "top",
+//                         "bottom"]
 //                     }
 //                 },
-//                 "required": ["add_sei_messages", "deblocking_filter", "intra_area", "ipcm_area_1", "ipcm_area_2", "roi_area_1", "roi_area_2"]
+//                 "required": ["add_sei_messages", "deblocking_filter",
+//                 "intra_area", "ipcm_area_1", "ipcm_area_2", "roi_area_1",
+//                 "roi_area_2"]
 //             },
 //             "rate_control":
 //                 "type": "object",
@@ -314,7 +321,8 @@ const nlohmann::json& EncoderConfig::get_output_stream() const
 //                                 "type": "integer"
 //                             }
 //                         },
-//                         "required": ["qp_min", "qp_max", "init_qp", "intra_qp_delta", "fixed_intra_qp"]
+//                         "required": ["qp_min", "qp_max", "init_qp",
+//                         "intra_qp_delta", "fixed_intra_qp"]
 //                     },
 //                     "bitrate": {
 //                         "type": "object",
@@ -335,7 +343,9 @@ const nlohmann::json& EncoderConfig::get_output_stream() const
 //                                 "type": "integer"
 //                             }
 //                         },
-//                         "required": ["target_bitrate", "bitvar_range_i", "bitvar_range_p", "bitvar_range_b", "tolerance_moving_bitrate"]
+//                         "required": ["target_bitrate", "bitvar_range_i",
+//                         "bitvar_range_p", "bitvar_range_b",
+//                         "tolerance_moving_bitrate"]
 //                     },
 //                     "monitor_frames": {
 //                         "type": "integer"
@@ -344,9 +354,12 @@ const nlohmann::json& EncoderConfig::get_output_stream() const
 //                         "type": "integer"
 //                     },
 //                 },
-//                 "required": ["picture_rc", "picture_skip", "ctb_rc", "block_rc_size", "hrd", "quantization", "bitrate", "monitor_frames", "gop_length"]
+//                 "required": ["picture_rc", "picture_skip", "ctb_rc",
+//                 "block_rc_size", "hrd", "quantization", "bitrate",
+//                 "monitor_frames", "gop_length"]
 //             }
 //         },
-//         "required": ["config", "gop_config", "coding_control", "rate_control"]
+//         "required": ["config", "gop_config", "coding_control",
+//         "rate_control"]
 //     })"""";
 // }

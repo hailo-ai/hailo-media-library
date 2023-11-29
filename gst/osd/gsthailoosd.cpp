@@ -1,34 +1,34 @@
 /*
-* Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
-* 
-* Permission is hereby granted, free of charge, to any person obtaining
-* a copy of this software and associated documentation files (the
-* "Software"), to deal in the Software without restriction, including
-* without limitation the rights to use, copy, modify, merge, publish,
-* distribute, sublicense, and/or sell copies of the Software, and to
-* permit persons to whom the Software is furnished to do so, subject to
-* the following conditions:
-* 
-* The above copyright notice and this permission notice shall be
-* included in all copies or substantial portions of the Software.
-* 
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-* LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-* OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-* WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
-#include <gst/video/video.h>
+ * Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+#include "gsthailoosd.hpp"
+#include "buffer_utils/buffer_utils.hpp"
+#include "osd_utils.hpp"
+#include <fstream>
 #include <gst/gst.h>
 #include <gst/gstobject.h>
-#include <map>
+#include <gst/video/video.h>
 #include <iostream>
-#include "gsthailoosd.hpp"
-#include "osd_utils.hpp"
-#include "buffer_utils/buffer_utils.hpp"
-#include <fstream>
+#include <map>
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailoosd_debug_category);
 #define GST_CAT_DEFAULT gst_hailoosd_debug_category
@@ -70,7 +70,7 @@ gst_hailoosd_class_init(GstHailoOsdClass *klass)
 
     gst_element_class_add_pad_template(GST_ELEMENT_CLASS(klass),
                                        gst_pad_template_new("src", GST_PAD_SRC, GST_PAD_ALWAYS,
-                                                             gst_caps_from_string(GST_VIDEO_CAPS_MAKE("{ NV12 }"))));
+                                                            gst_caps_from_string(GST_VIDEO_CAPS_MAKE("{ NV12 }"))));
     gst_element_class_add_pad_template(GST_ELEMENT_CLASS(klass),
                                        gst_pad_template_new("sink", GST_PAD_SINK, GST_PAD_ALWAYS,
                                                             gst_caps_from_string(GST_VIDEO_CAPS_MAKE("{ NV12 }"))));
@@ -168,7 +168,6 @@ std::shared_ptr<osd::Blender> gst_hailoosd_get_blender(GstElement *object)
     GstHailoOsd *hailoosd = GST_HAILO_OSD(object);
     return hailoosd->blender;
 }
-
 
 void gst_hailoosd_dispose(GObject *object)
 {
@@ -302,7 +301,7 @@ gst_hailoosd_set_caps(GstBaseTransform *trans, GstCaps *incaps, GstCaps *outcaps
     media_library_return ret = hailoosd->blender->set_frame_size(GST_VIDEO_INFO_WIDTH(full_image_info), GST_VIDEO_INFO_HEIGHT(full_image_info));
 
     gst_video_info_free(full_image_info);
-    
+
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
         GST_DEBUG_OBJECT(hailoosd, "Failed to init OSD with frame size %dX%d", GST_VIDEO_INFO_WIDTH(full_image_info), GST_VIDEO_INFO_HEIGHT(full_image_info));
@@ -346,7 +345,7 @@ static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans,
         GST_DEBUG_OBJECT(trans, "Input buffer has 1 memory");
         GstVideoFrame video_frame;
         gst_video_frame_map(&video_frame, info, buffer, GST_MAP_READ);
-        
+
         // build image_properties from the input image and overlay
         create_dsp_buffer_from_video_frame(&video_frame, input_image_properties);
 
@@ -376,7 +375,7 @@ static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans,
         {
             GST_ERROR_OBJECT(trans, "Failed to do blend %d", ret);
         }
-        
+
         GST_DEBUG_OBJECT(trans, "blend done");
 
         break;

@@ -22,12 +22,12 @@
  */
 #include <iostream>
 #include <memory>
-#include <unordered_map>
 #include <stdexcept>
+#include <unordered_map>
 
-#include "encoder_config.hpp"
 #include "config_manager.hpp"
 #include "encoder_class.hpp"
+#include "encoder_config.hpp"
 #include "encoder_internal.hpp"
 #include "media_library_logger.hpp"
 
@@ -37,7 +37,8 @@
 EncoderConfig::EncoderConfig(const std::string &json_string)
     : m_json_string(json_string)
 {
-    m_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_ENCODER);
+    m_config_manager =
+        std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_ENCODER);
     auto ret = m_config_manager->validate_configuration(json_string);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
@@ -45,10 +46,7 @@ EncoderConfig::EncoderConfig(const std::string &json_string)
     }
     m_doc = nlohmann::json::parse(m_json_string);
 }
-const nlohmann::json &EncoderConfig::get_doc() const
-{
-    return m_doc;
-}
+const nlohmann::json &EncoderConfig::get_doc() const { return m_doc; }
 const nlohmann::json &EncoderConfig::get_gop_config() const
 {
     return m_doc["gop_config"];
@@ -157,7 +155,8 @@ void Encoder::Impl::init_gop_config()
     int32_t bframe_qp_delta = gop_config_json["b_frame_qp_delta"];
     int32_t gop_size = gop_config_json["gop_size"];
     memset(&m_enc_in.gopConfig, 0, sizeof(VCEncGopConfig));
-    m_gop_cfg = std::make_unique<gopConfig>(&(m_enc_in.gopConfig), gop_size, bframe_qp_delta, codec);
+    m_gop_cfg = std::make_unique<gopConfig>(&(m_enc_in.gopConfig), gop_size,
+                                            bframe_qp_delta, codec);
 }
 
 VCEncRet Encoder::Impl::init_rate_control_config()
@@ -200,13 +199,16 @@ VCEncRet Encoder::Impl::init_rate_control_config()
     m_vc_rate_cfg.bitVarRangeI = rate_control["bitrate"]["bit_var_range_i"];
     m_vc_rate_cfg.bitVarRangeP = rate_control["bitrate"]["bit_var_range_p"];
     m_vc_rate_cfg.bitVarRangeB = rate_control["bitrate"]["bit_var_range_b"];
-    m_vc_rate_cfg.tolMovingBitRate = rate_control["bitrate"]["tolerance_moving_bitrate"];
+    m_vc_rate_cfg.tolMovingBitRate =
+        rate_control["bitrate"]["tolerance_moving_bitrate"];
 
     uint32_t monitor_frames = rate_control["monitor_frames"];
     if (monitor_frames != 0)
         m_vc_rate_cfg.monitorFrames = monitor_frames;
     else
-        m_vc_rate_cfg.monitorFrames = (m_vc_cfg.frameRateNum + m_vc_cfg.frameRateDenom - 1) / m_vc_cfg.frameRateDenom;
+        m_vc_rate_cfg.monitorFrames =
+            (m_vc_cfg.frameRateNum + m_vc_cfg.frameRateDenom - 1) /
+            m_vc_cfg.frameRateDenom;
 
     if (m_vc_rate_cfg.monitorFrames > MAX_MONITOR_FRAMES)
         m_vc_rate_cfg.monitorFrames = MAX_MONITOR_FRAMES;
@@ -249,7 +251,7 @@ VCEncRet Encoder::Impl::init_coding_control_config()
     m_vc_coding_cfg.deblockOverride = 0;
     m_vc_coding_cfg.enableCabac = 1;
     m_vc_coding_cfg.cabacInitFlag = 0;
-    m_vc_coding_cfg.videoFullRange = 0;
+    m_vc_coding_cfg.vuiVideoFullRange = 0;
 
     /* Disabled */
     m_vc_coding_cfg.seiMessages = 0;
@@ -311,7 +313,8 @@ VCEncRet Encoder::Impl::init_preprocessing_config()
     }
     auto input_stream = m_config->get_input_stream();
 
-    m_vc_pre_proc_cfg.inputType = get_input_format(std::string(input_stream["format"]));
+    m_vc_pre_proc_cfg.inputType =
+        get_input_format(std::string(input_stream["format"]));
     // No Rotation
     m_vc_pre_proc_cfg.rotation = (VCEncPictureRotation)0;
 
@@ -371,6 +374,7 @@ VCEncRet Encoder::Impl::init_preprocessing_config()
 
 VCEncRet Encoder::Impl::init_encoder_config()
 {
+    memset(&m_vc_cfg, 0, sizeof(m_vc_cfg));
     LOGGER__DEBUG("Encoder - init_encoder_config");
     VCEncRet ret = VCENC_OK;
     auto input_stream = m_config->get_input_stream();
@@ -412,7 +416,8 @@ VCEncRet Encoder::Impl::init_encoder_config()
                 maxTemporalId = cfg->temporalId;
         }
     }
-    m_vc_cfg.refFrameAmount = maxRefPics + m_vc_cfg.interlacedFrame + (m_enc_in.gopConfig.ltrInterval > 0);
+    m_vc_cfg.refFrameAmount = maxRefPics + m_vc_cfg.interlacedFrame +
+                              (m_enc_in.gopConfig.ltrInterval > 0);
     m_vc_cfg.maxTLayers = maxTemporalId + 1;
     // TODO: Change compressor from json
     m_vc_cfg.compressor = 3;
@@ -420,8 +425,9 @@ VCEncRet Encoder::Impl::init_encoder_config()
     m_vc_cfg.exp_of_alignment = 0;
     m_vc_cfg.refAlignmentExp = 0;
     m_vc_cfg.AXIAlignment = 0;
-    m_vc_cfg.AXIreadOutstandingNum = 64;  // ENCH2_ASIC_AXI_READ_OUTSTANDING_NUM;
-    m_vc_cfg.AXIwriteOutstandingNum = 64; // ENCH2_ASIC_AXI_WRITE_OUTSTANDING_NUM;
+    m_vc_cfg.AXIreadOutstandingNum = 64; // ENCH2_ASIC_AXI_READ_OUTSTANDING_NUM;
+    m_vc_cfg.AXIwriteOutstandingNum =
+        64; // ENCH2_ASIC_AXI_WRITE_OUTSTANDING_NUM;
     if ((ret = VCEncInit(&m_vc_cfg, &m_inst)) != VCENC_OK)
     {
         // PrintErrorValue("VCEncInit() failed.", ret);

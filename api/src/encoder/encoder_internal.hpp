@@ -1,38 +1,38 @@
 /*
-* Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
-* 
-* Permission is hereby granted, free of charge, to any person obtaining
-* a copy of this software and associated documentation files (the
-* "Software"), to deal in the Software without restriction, including
-* without limitation the rights to use, copy, modify, merge, publish,
-* distribute, sublicense, and/or sell copies of the Software, and to
-* permit persons to whom the Software is furnished to do so, subject to
-* the following conditions:
-* 
-* The above copyright notice and this permission notice shall be
-* included in all copies or substantial portions of the Software.
-* 
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-* LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-* OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-* WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ * Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #pragma once
-#include <vector>
-#include <gst/gst.h>
-#include <gst/video/video.h>
+#include "media_library/encoder.hpp"
+#include <condition_variable>
+#include <functional>
 #include <gst/app/gstappsink.h>
 #include <gst/app/gstappsrc.h>
+#include <gst/gst.h>
+#include <gst/video/video.h>
 #include <iostream>
-#include <functional>
-#include <queue>
 #include <mutex>
-#include <condition_variable>
+#include <queue>
 #include <thread>
-#include "media_library/encoder.hpp"
+#include <vector>
 
 struct InputParams
 {
@@ -47,19 +47,22 @@ private:
     InputParams m_input_params;
     std::shared_ptr<std::mutex> m_mutex;
     std::vector<AppWrapperCallback> m_callbacks;
-    std::queue<GstBuffer* > m_queue;
-    GstAppSrc* m_appsrc;
-    GMainLoop* m_main_loop;
+    std::queue<GstBuffer *> m_queue;
+    GstAppSrc *m_appsrc;
+    GMainLoop *m_main_loop;
     std::shared_ptr<std::thread> m_main_loop_thread;
-    GstElement* m_pipeline; 
+    GstElement *m_pipeline;
     guint m_send_buffer_id;
-    std::string m_json_config; //this should be const
+    std::string m_json_config; // this should be const
     std::shared_ptr<osd::Blender> m_blender;
 
 public:
-    static tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>, media_library_return> create(std::string json_config);
+    static tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>,
+                        media_library_return>
+    create(std::string json_config);
 
-    // static tl::expected<MediaLibraryEncoder::Impl, media_library_return> create(nlohmann::json encoder_config);
+    // static tl::expected<MediaLibraryEncoder::Impl, media_library_return>
+    // create(nlohmann::json encoder_config);
     ~Impl();
     Impl(std::string json_config, media_library_return &status);
     // Impl(nlohmann::json encoder_config, media_library_return &status);
@@ -80,7 +83,8 @@ public:
 public:
     void on_need_data(GstAppSrc *appsrc, guint size);
     void on_enough_data(GstAppSrc *appsrc);
-    void on_fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps);
+    void on_fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate,
+                            gdouble avgfps);
     GstFlowReturn on_new_sample(GstAppSink *appsink);
     gboolean on_idle_callback();
     gboolean on_bus_call(GstBus *bus, GstMessage *msg);
@@ -88,33 +92,40 @@ public:
 private:
     static void need_data(GstAppSrc *appsrc, guint size, gpointer user_data)
     {
-        MediaLibraryEncoder::Impl *encoder = static_cast<MediaLibraryEncoder::Impl *>(user_data);
+        MediaLibraryEncoder::Impl *encoder =
+            static_cast<MediaLibraryEncoder::Impl *>(user_data);
         encoder->on_need_data(appsrc, size);
     }
     static void enough_data(GstAppSrc *appsrc, gpointer user_data)
     {
-        MediaLibraryEncoder::Impl *encoder = static_cast<MediaLibraryEncoder::Impl *>(user_data);
+        MediaLibraryEncoder::Impl *encoder =
+            static_cast<MediaLibraryEncoder::Impl *>(user_data);
         encoder->on_enough_data(appsrc);
     }
-    static void fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate,
-                                gdouble avgfps, gpointer user_data)
+    static void fps_measurement(GstElement *fpssink, gdouble fps,
+                                gdouble droprate, gdouble avgfps,
+                                gpointer user_data)
     {
-        MediaLibraryEncoder::Impl *encoder = static_cast<MediaLibraryEncoder::Impl *>(user_data);
+        MediaLibraryEncoder::Impl *encoder =
+            static_cast<MediaLibraryEncoder::Impl *>(user_data);
         encoder->on_fps_measurement(fpssink, fps, droprate, avgfps);
     }
     static GstFlowReturn new_sample(GstAppSink *appsink, gpointer user_data)
     {
-        MediaLibraryEncoder::Impl *encoder = static_cast<MediaLibraryEncoder::Impl *>(user_data);
+        MediaLibraryEncoder::Impl *encoder =
+            static_cast<MediaLibraryEncoder::Impl *>(user_data);
         return encoder->on_new_sample(appsink);
     }
     static gboolean idle_callback(gpointer user_data)
     {
-        MediaLibraryEncoder::Impl *encoder = static_cast<MediaLibraryEncoder::Impl *>(user_data);
+        MediaLibraryEncoder::Impl *encoder =
+            static_cast<MediaLibraryEncoder::Impl *>(user_data);
         return encoder->send_buffer();
     }
     static gboolean bus_call(GstBus *bus, GstMessage *msg, gpointer user_data)
     {
-        MediaLibraryEncoder::Impl *encoder = static_cast<MediaLibraryEncoder::Impl *>(user_data);
+        MediaLibraryEncoder::Impl *encoder =
+            static_cast<MediaLibraryEncoder::Impl *>(user_data);
         return encoder->on_bus_call(bus, msg);
     }
 

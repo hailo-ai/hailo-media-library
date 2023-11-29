@@ -1,25 +1,25 @@
 /*
-* Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
-* 
-* Permission is hereby granted, free of charge, to any person obtaining
-* a copy of this software and associated documentation files (the
-* "Software"), to deal in the Software without restriction, including
-* without limitation the rights to use, copy, modify, merge, publish,
-* distribute, sublicense, and/or sell copies of the Software, and to
-* permit persons to whom the Software is furnished to do so, subject to
-* the following conditions:
-* 
-* The above copyright notice and this permission notice shall be
-* included in all copies or substantial portions of the Software.
-* 
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-* LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-* OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-* WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
+ * Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 /**
  * @file encoder_common.hpp
  * @brief MediaLibrary Encoder parameter definitions
@@ -33,12 +33,13 @@
 extern "C"
 {
 #include "video_encoder/base_type.h"
-#include "video_encoder/hevcencapi.h"
 #include "video_encoder/encinputlinebuffer.h"
 #include "video_encoder/ewl.h"
+#include "video_encoder/hevcencapi.h"
 }
 
-/** @defgroup encoder_common_definitions MediaLibrary Encoder Common CPP API definitions
+/** @defgroup encoder_common_definitions MediaLibrary Encoder Common CPP API
+ * definitions
  *  @{
  */
 
@@ -68,7 +69,6 @@ extern "C"
 #define MIN_BFRAME_QP_DELTA (-1)
 #define MAX_BFRAME_QP_DELTA (MAX_QP_VALUE)
 
-
 #define DEFAULT_UNCHANGED (-255)
 #define DEFAULT_INPUT_FORMAT (VCENC_YUV420_SEMIPLANAR)
 #define DEFAULT_HEVC_PROFILE (VCENC_HEVC_MAIN_PROFILE)
@@ -92,90 +92,90 @@ extern "C"
 #define DEFAULT_MONITOR_FRAMES (30)
 #define DEFAULT_HRD_CPB_SIZE (10000000)
 
+typedef struct
+{
+    i32 width;
+    i32 height;
+    VCEncPictureType inputFormat;
+    VCEncProfile profile;
+    VCEncLevel level;
+    VCEncStreamType streamType;
+    i32 frameRateNumer; /* Output frame rate numerator */
+    i32 frameRateDenom; /* Output frame rate denominator */
+    i32 picture_cnt;
+    i32 picture_enc_cnt;
+    u32 idr_interval;
+    i32 last_idr_picture_cnt;
+    u32 validencodedframenumber;
+    u32 alignment;
 
-typedef struct {
-  i32 width;
-  i32 height;
-  VCEncPictureType inputFormat;
-  VCEncProfile profile;
-  VCEncLevel level;
-  VCEncStreamType streamType;
-  i32 frameRateNumer;      /* Output frame rate numerator */
-  i32 frameRateDenom;      /* Output frame rate denominator */
-  i32 picture_cnt;
-  i32 picture_enc_cnt;
-  u32 idr_interval;
-  i32 last_idr_picture_cnt;
-  u32 validencodedframenumber;
-  u32 alignment;
+    i32 max_cu_size;    /* Max coding unit size in pixels */
+    i32 min_cu_size;    /* Min coding unit size in pixels */
+    i32 max_tr_size;    /* Max transform size in pixels */
+    i32 min_tr_size;    /* Min transform size in pixels */
+    i32 tr_depth_intra; /* Max transform hierarchy depth */
+    i32 tr_depth_inter; /* Max transform hierarchy depth */
+    u32 outBufSizeMax;  /* Max buf size in MB */
+    u32 roiMapDeltaQpBlockUnit;
 
-  i32 max_cu_size;    /* Max coding unit size in pixels */
-  i32 min_cu_size;    /* Min coding unit size in pixels */
-  i32 max_tr_size;    /* Max transform size in pixels */
-  i32 min_tr_size;    /* Min transform size in pixels */
-  i32 tr_depth_intra;   /* Max transform hierarchy depth */
-  i32 tr_depth_inter;   /* Max transform hierarchy depth */
-  u32 outBufSizeMax; /* Max buf size in MB */
-  u32 roiMapDeltaQpBlockUnit;
-  
-  // Rate Control Params
-  i32 qphdr;
-  u32 qpmin;
-  u32 qpmax;
-  i32 intra_qp_delta;
-  i32 bFrameQpDelta;
-  u32 fixed_intra_qp;
-  u32 bitrate;
-  u32 bitVarRangeI;
-  u32 bitVarRangeP;
-  u32 bitVarRangeB;
-  u32 tolMovingBitRate;
-  u32 monitorFrames;
-  u32 pictureRc;
-  u32 ctbRc;
-  u32 blockRcSize;    /*size of block rate control : 2=16x16,1= 32x32, 0=64x64*/
-  u32 pictureSkip;
-  u32 hrd;
-  u32 hrdCpbSize;
+    // Rate Control Params
+    i32 qphdr;
+    u32 qpmin;
+    u32 qpmax;
+    i32 intra_qp_delta;
+    i32 bFrameQpDelta;
+    u32 fixed_intra_qp;
+    u32 bitrate;
+    u32 bitVarRangeI;
+    u32 bitVarRangeP;
+    u32 bitVarRangeB;
+    u32 tolMovingBitRate;
+    u32 monitorFrames;
+    u32 pictureRc;
+    u32 ctbRc;
+    u32 blockRcSize; /*size of block rate control : 2=16x16,1= 32x32, 0=64x64*/
+    u32 pictureSkip;
+    u32 hrd;
+    u32 hrdCpbSize;
 
-  u32 compressor;
+    u32 compressor;
 
-  /* SW/HW shared memories for output buffers */
-  void * ewl;
-  EWLLinearMem_t outbufMem;
+    /* SW/HW shared memories for output buffers */
+    void *ewl;
+    EWLLinearMem_t outbufMem;
 
-  float sumsquareoferror;
-  float averagesquareoferror;
-  i32 maxerrorovertarget;
-  i32 maxerrorundertarget;
-  long numbersquareoferror;
+    float sumsquareoferror;
+    float averagesquareoferror;
+    i32 maxerrorovertarget;
+    i32 maxerrorundertarget;
+    long numbersquareoferror;
 
-  char * roiArea1;
-  char * roiArea2;
+    char *roiArea1;
+    char *roiArea2;
 
-  u32 gopSize;
-  u32 gopLength;
-  VCEncIn encIn;
-  VCEncOut encOut;
-  bool codecH264;
-  u32 intraPicRate;
-  u8 gopCfgOffset[MAX_GOP_SIZE + 1];
+    u32 gopSize;
+    u32 gopLength;
+    VCEncIn encIn;
+    VCEncOut encOut;
+    bool codecH264;
+    u32 intraPicRate;
+    u8 gopCfgOffset[MAX_GOP_SIZE + 1];
 
-  // Slice data
-  u8 *strmPtr;
-  u32 multislice_encoding;
+    // Slice data
+    u8 *strmPtr;
+    u32 multislice_encoding;
 
-  // Adaptive Gop variables
-  int gop_frm_num;
-  double sum_intra_vs_interskip;
-  double sum_skip_vs_interskip;
-  double sum_intra_vs_interskipP;
-  double sum_intra_vs_interskipB;
-  int sum_costP;
-  int sum_costB;
-  int last_gopsize;
-  i32 nextGopSize;
-  VCEncPictureCodingType nextCodingType;
+    // Adaptive Gop variables
+    int gop_frm_num;
+    double sum_intra_vs_interskip;
+    double sum_skip_vs_interskip;
+    double sum_intra_vs_interskipP;
+    double sum_intra_vs_interskipB;
+    int sum_costP;
+    int sum_costB;
+    int last_gopsize;
+    i32 nextGopSize;
+    VCEncPictureCodingType nextCodingType;
 
 } EncoderParams;
 

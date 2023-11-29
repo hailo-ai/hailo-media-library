@@ -1,24 +1,24 @@
 /*
-* Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
-* 
-* Permission is hereby granted, free of charge, to any person obtaining
-* a copy of this software and associated documentation files (the
-* "Software"), to deal in the Software without restriction, including
-* without limitation the rights to use, copy, modify, merge, publish,
-* distribute, sublicense, and/or sell copies of the Software, and to
-* permit persons to whom the Software is furnished to do so, subject to
-* the following conditions:
-* 
-* The above copyright notice and this permission notice shall be
-* included in all copies or substantial portions of the Software.
-* 
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-* LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-* OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-* WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ * Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include "gsthailobuffermeta.hpp"
 
@@ -29,7 +29,7 @@
 static gboolean gst_hailo_buffer_meta_init(GstMeta *meta, gpointer params, GstBuffer *buffer);
 static void gst_hailo_buffer_meta_free(GstMeta *meta, GstBuffer *buffer);
 static gboolean gst_hailo_buffer_meta_transform(GstBuffer *transbuf, GstMeta *meta, GstBuffer *buffer,
-                                         GQuark type, gpointer data);
+                                                GQuark type, gpointer data);
 
 // Register metadata type and returns Gtype
 // https://gstreamer.freedesktop.org/data/doc/gstreamer/head/gstreamer/html/gstreamer-GstMeta.html#gst-meta-api-type-register
@@ -56,8 +56,8 @@ const GstMetaInfo *gst_hailo_buffer_meta_get_info(void)
         // Explanation of fields
         // https://gstreamer.freedesktop.org/documentation/design/meta.html#gstmeta1
         const GstMetaInfo *meta = gst_meta_register(GST_HAILO_BUFFER_META_API_TYPE, /* api type */
-                                                    "GstHailoBufferMeta",          /* implementation type */
-                                                    sizeof(GstHailoBufferMeta),    /* size of the structure */
+                                                    "GstHailoBufferMeta",           /* implementation type */
+                                                    sizeof(GstHailoBufferMeta),     /* size of the structure */
                                                     gst_hailo_buffer_meta_init,
                                                     (GstMetaFreeFunction)gst_hailo_buffer_meta_free,
                                                     gst_hailo_buffer_meta_transform);
@@ -99,7 +99,7 @@ static void gst_hailo_buffer_meta_free(GstMeta *meta, GstBuffer *buffer)
 // Sixth field in GstMetaInfo
 // https://gstreamer.freedesktop.org/data/doc/gstreamer/head/gstreamer/html/gstreamer-GstMeta.html#GstMetaTransformFunction
 static gboolean gst_hailo_buffer_meta_transform(GstBuffer *transbuf, GstMeta *meta, GstBuffer *buffer,
-                                         GQuark type, gpointer data)
+                                                GQuark type, gpointer data)
 {
     GstHailoBufferMeta *gst_hailo_buffer_meta = (GstHailoBufferMeta *)meta;
     HailoMediaLibraryBufferPtr buffer_ptr = gst_hailo_buffer_meta->buffer_ptr;
@@ -109,7 +109,7 @@ static gboolean gst_hailo_buffer_meta_transform(GstBuffer *transbuf, GstMeta *me
     if (gst_buffer_is_writable(buffer))
         gst_buffer_remove_meta(buffer, &gst_hailo_buffer_meta->meta);
 
-    if(!new_hailo_meta)
+    if (!new_hailo_meta)
     {
         GST_ERROR("gst_hailo_buffer_meta_transform: failed to transform hailo_meta");
         return FALSE;
@@ -131,7 +131,7 @@ GstHailoBufferMeta *gst_buffer_get_hailo_meta(GstBuffer *buffer)
  * @param buffer_ptr HailoMediaLibraryBufferPtr to initialize the meta with
  * @return GstHailoBufferMeta* The meta structure that was added to the buffer.
  */
-GstHailoBufferMeta *gst_buffer_add_hailo_buffer_meta(GstBuffer *buffer, 
+GstHailoBufferMeta *gst_buffer_add_hailo_buffer_meta(GstBuffer *buffer,
                                                      HailoMediaLibraryBufferPtr buffer_ptr,
                                                      uint32_t used_size)
 {
@@ -179,7 +179,6 @@ gboolean gst_buffer_remove_hailo_meta(GstBuffer *buffer)
     // https://gstreamer.freedesktop.org/data/doc/gstreamer/head/gstreamer/html/GstBuffer.html#gst-buffer-remove-meta
     return gst_buffer_remove_meta(buffer, &meta->meta);
 }
-
 
 /**
  * @brief Returns the GstHailoBufferMeta from a given buffer.

@@ -22,23 +22,27 @@
  */
 
 // Includes
-#include <string>
 #include <nlohmann/json-schema.hpp>
+#include <string>
 
 // Media Library Includes
-#include "media_library_logger.hpp"
 #include "config_manager.hpp"
 #include "config_manager_schemas.hpp"
 #include "config_type_conversions.hpp"
+#include "media_library_logger.hpp"
 
 /* json-parse configurations - with custom error handler */
-class config_manager_error_handler : public nlohmann::json_schema::basic_error_handler
+class config_manager_error_handler
+    : public nlohmann::json_schema::basic_error_handler
 {
-    void error(const nlohmann::json_pointer<nlohmann::basic_json<>> &pointer, const nlohmann::json &instance,
+    void error(const nlohmann::json_pointer<nlohmann::basic_json<>> &pointer,
+               const nlohmann::json &instance,
                const std::string &message) override
     {
-        nlohmann::json_schema::basic_error_handler::error(pointer, instance, message);
-        LOGGER__ERROR("Configuration Manager encountered an error: {} \nEncountered in: {} \nEncountered instance: {}",
+        nlohmann::json_schema::basic_error_handler::error(pointer, instance,
+                                                          message);
+        LOGGER__ERROR("Configuration Manager encountered an error: {} "
+                      "\nEncountered in: {} \nEncountered instance: {}",
                       message, pointer.to_string(), instance.dump());
     }
 };
@@ -52,7 +56,11 @@ public:
      */
     ConfigManagerImpl(ConfigSchema schema)
     {
-        m_config_validator.set_root_schema(schema == ConfigSchema::CONFIG_SCHEMA_ENCODER ? config_schemas::encoder_config_schema : config_schemas::vision_config_schema); // Default to the vision_config schema
+        m_config_validator.set_root_schema(
+            schema == ConfigSchema::CONFIG_SCHEMA_ENCODER
+                ? config_schemas::encoder_config_schema
+                : config_schemas::vision_config_schema); // Default to the
+                                                         // vision_config schema
     };
 
     /**
@@ -81,12 +89,14 @@ public:
     ConfigManagerImpl &operator=(ConfigManagerImpl &&) = delete;
 
     /**
-     * @brief Validate the user's configuration json string against internal schema
+     * @brief Validate the user's configuration json string against internal
+     * schema
      *
      * @param[in] user_config - the user's configuration (as a json string)
      * @return media_library_return
      */
-    media_library_return validate_config_string(const std::string &user_config_string);
+    media_library_return
+    validate_config_string(const std::string &user_config_string);
 
     /**
      * @brief Validate a json string and populate a configuration struct
@@ -96,8 +106,8 @@ public:
      * @return media_library_return
      */
     template <typename TConf>
-    media_library_return config_string_to_struct(const std::string &user_config_string,
-                                                 TConf &conf);
+    media_library_return
+    config_string_to_struct(const std::string &user_config_string, TConf &conf);
 
 private:
     nlohmann::json_schema::json_validator m_config_validator;
@@ -123,23 +133,31 @@ ConfigManager::~ConfigManager()
     // Defined this in the .cpp file(s) or you will get incomplete type errors
 }
 
-media_library_return ConfigManager::validate_configuration(const std::string &user_config_string)
+media_library_return
+ConfigManager::validate_configuration(const std::string &user_config_string)
 {
     return m_config_manager_impl->validate_config_string(user_config_string);
 }
 
 template <typename TConf>
-media_library_return ConfigManager::config_string_to_struct(const std::string &user_config_string, TConf &conf)
+media_library_return
+ConfigManager::config_string_to_struct(const std::string &user_config_string,
+                                       TConf &conf)
 {
-    return m_config_manager_impl->config_string_to_struct<TConf>(user_config_string, conf);
+    return m_config_manager_impl->config_string_to_struct<TConf>(
+        user_config_string, conf);
 }
 
-// Explicit instantiation for pre_proc_op_configurations type (because it was defined in a .cpp file)
-template media_library_return ConfigManager::config_string_to_struct<pre_proc_op_configurations>(const std::string &user_config_string, pre_proc_op_configurations &conf);
+// Explicit instantiation for pre_proc_op_configurations type (because it was
+// defined in a .cpp file)
+template media_library_return
+ConfigManager::config_string_to_struct<pre_proc_op_configurations>(
+    const std::string &user_config_string, pre_proc_op_configurations &conf);
 
 //------------------------ ConfigManagerImpl ------------------------
 
-media_library_return ConfigManager::ConfigManagerImpl::validate_config(const nlohmann::json &user_config)
+media_library_return ConfigManager::ConfigManagerImpl::validate_config(
+    const nlohmann::json &user_config)
 {
     config_manager_error_handler err;
     m_config_validator.validate(user_config, err); // validate the document
@@ -150,9 +168,11 @@ media_library_return ConfigManager::ConfigManagerImpl::validate_config(const nlo
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return ConfigManager::ConfigManagerImpl::validate_config_string(const std::string &user_config_string)
+media_library_return ConfigManager::ConfigManagerImpl::validate_config_string(
+    const std::string &user_config_string)
 {
-    const nlohmann::json user_config_json = nlohmann::json::parse(user_config_string, nullptr, false);
+    const nlohmann::json user_config_json =
+        nlohmann::json::parse(user_config_string, nullptr, false);
     if (user_config_json.is_discarded())
     {
         LOGGER__ERROR("Config Manager failed to parse string as JSON");
@@ -163,11 +183,12 @@ media_library_return ConfigManager::ConfigManagerImpl::validate_config_string(co
 }
 
 template <typename TConf>
-media_library_return ConfigManager::ConfigManagerImpl::config_string_to_struct(const std::string &user_config_string,
-                                                                               TConf &conf)
+media_library_return ConfigManager::ConfigManagerImpl::config_string_to_struct(
+    const std::string &user_config_string, TConf &conf)
 {
     // Convert string to JSON
-    const nlohmann::json user_config_json = nlohmann::json::parse(user_config_string, nullptr, false);
+    const nlohmann::json user_config_json =
+        nlohmann::json::parse(user_config_string, nullptr, false);
     if (user_config_json.is_discarded())
     {
         LOGGER__ERROR("Config Manager failed to parse string as JSON");
@@ -189,7 +210,8 @@ media_library_return ConfigManager::ConfigManagerImpl::config_string_to_struct(c
     }
     catch (const nlohmann::json::exception &e)
     {
-        LOGGER__ERROR("Config Manager failed to convert JSON to struct: {}", e.what());
+        LOGGER__ERROR("Config Manager failed to convert JSON to struct: {}",
+                      e.what());
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 

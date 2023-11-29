@@ -492,6 +492,9 @@ namespace config_schemas
           "format": {
             "type": "string"
           },
+          "grayscale": {
+            "type": "boolean"
+          },
           "resolutions": {
             "type": "array",
             "items": {

@@ -1,30 +1,31 @@
 /*
-* Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
-* 
-* Permission is hereby granted, free of charge, to any person obtaining
-* a copy of this software and associated documentation files (the
-* "Software"), to deal in the Software without restriction, including
-* without limitation the rights to use, copy, modify, merge, publish,
-* distribute, sublicense, and/or sell copies of the Software, and to
-* permit persons to whom the Software is furnished to do so, subject to
-* the following conditions:
-* 
-* The above copyright notice and this permission notice shall be
-* included in all copies or substantial portions of the Software.
-* 
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-* LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-* OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-* WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ * Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #include "osd_impl.hpp"
+#include "buffer_utils/buffer_utils.hpp"
 #include <algorithm>
 #include <chrono>
-#include "buffer_utils/buffer_utils.hpp"
+#include <thread>
 
 #define WIDTH_PADDING 10
 
@@ -55,7 +56,7 @@ GstVideoFrame OverlayImpl::gst_video_frame_from_mat_bgra(cv::Mat mat)
                                                     mat.data,
                                                     mat.total() * mat.elemSize(),
                                                     0, mat.total() * mat.elemSize(),
-                                                    NULL, NULL );
+                                                    NULL, NULL);
     // Create and map a GstVideoFrame from the GstVideoInfo and GstBuffer
     GstVideoFrame frame;
     gst_video_frame_map(&frame, image_info, buffer, GST_MAP_READ);
@@ -64,7 +65,7 @@ GstVideoFrame OverlayImpl::gst_video_frame_from_mat_bgra(cv::Mat mat)
     return frame;
 }
 
-media_library_return OverlayImpl::create_gst_video_frame(uint width, uint height, std::string format, GstVideoFrame* frame)
+media_library_return OverlayImpl::create_gst_video_frame(uint width, uint height, std::string format, GstVideoFrame *frame)
 {
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
     // Create caps at format and required size
@@ -103,14 +104,15 @@ media_library_return OverlayImpl::create_gst_video_frame(uint width, uint height
     return ret;
 }
 
-media_library_return OverlayImpl::convert_2_dsp_video_frame(GstVideoFrame* src_frame, GstVideoFrame* dest_frame, GstVideoFormat dest_format) {
+media_library_return OverlayImpl::convert_2_dsp_video_frame(GstVideoFrame *src_frame, GstVideoFrame *dest_frame, GstVideoFormat dest_format)
+{
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
 
     // Prepare the video info and set the new format
     GstVideoInfo *dest_info = gst_video_info_new();
     gst_video_info_set_format(dest_info, dest_format, src_frame->info.width, src_frame->info.height);
     // Prepare the GstVideoConverter that will facilitate the conversion
-    GstVideoConverter* converter = gst_video_converter_new(&src_frame->info, dest_info, NULL);
+    GstVideoConverter *converter = gst_video_converter_new(&src_frame->info, dest_info, NULL);
 
     void *buffer_ptr = NULL;
     dsp_status buffer_status = dsp_utils::create_hailo_dsp_buffer(dest_info->size, &buffer_ptr);
@@ -137,7 +139,6 @@ media_library_return OverlayImpl::convert_2_dsp_video_frame(GstVideoFrame* src_f
     return ret;
 }
 
-
 tl::expected<std::tuple<int, int>, media_library_return> OverlayImpl::calc_xy_offsets(
     float x_norm, float y_norm, int overlay_width, int overlay_height, int image_width, int image_height)
 {
@@ -155,13 +156,23 @@ tl::expected<std::tuple<int, int>, media_library_return> OverlayImpl::calc_xy_of
         return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
     }
 
-    std::tuple ret = { x_offset, y_offset };
+    std::tuple ret = {x_offset, y_offset};
     return ret;
 }
 
-OverlayImpl::OverlayImpl(float x, float y, float width, float height, unsigned int z_index) :
-    m_x(x), m_y(y), m_width(width), m_height(height), m_z_index(z_index)
-{ }
+OverlayImpl::OverlayImpl(float x, float y, float width, float height, unsigned int z_index, bool ready_to_blend = true) : m_x(x), m_y(y), m_width(width), m_height(height), m_z_index(z_index), m_ready_to_blend(ready_to_blend)
+{
+}
+
+bool OverlayImpl::get_ready_to_blend()
+{
+    /*
+    no need to lock this field because it can only be
+    changed once and the only possible direction is from false to true,
+    so there is no way to get a true when it is false.
+    */
+    return m_ready_to_blend;
+}
 
 OverlayImpl::~OverlayImpl()
 {
@@ -171,11 +182,11 @@ OverlayImpl::~OverlayImpl()
 
 void OverlayImpl::free_resources()
 {
-    for (auto& video_frame : m_video_frames)
+    for (auto &video_frame : m_video_frames)
     {
         gst_video_frame_unmap(&video_frame);
     }
-    for (auto& dsp_overlay : m_dsp_overlays)
+    for (auto &dsp_overlay : m_dsp_overlays)
     {
         dsp_utils::free_overlay_property_planes(&dsp_overlay);
     }
@@ -184,7 +195,7 @@ void OverlayImpl::free_resources()
     m_dsp_overlays.clear();
 }
 
-bool OverlayImpl::operator<(const OverlayImpl& other)
+bool OverlayImpl::operator<(const OverlayImpl &other)
 {
     return m_z_index < other.m_z_index;
 }
@@ -199,9 +210,8 @@ void OverlayImpl::set_priority_iterator(std::set<OverlayImplPtr>::iterator prior
     m_priority_iterator = priority_iterator;
 }
 
-ImageOverlayImpl::ImageOverlayImpl(const osd::ImageOverlay& overlay, media_library_return &status) :
-    OverlayImpl(overlay.x, overlay.y, overlay.width, overlay.height, overlay.z_index),
-    m_path(overlay.image_path)
+ImageOverlayImpl::ImageOverlayImpl(const osd::ImageOverlay &overlay, media_library_return &status) : OverlayImpl(overlay.x, overlay.y, overlay.width, overlay.height, overlay.z_index),
+                                                                                                     m_path(overlay.image_path)
 {
     // check if the file exists
     if (!cv::utils::fs::exists(m_path))
@@ -232,16 +242,8 @@ ImageOverlayImpl::ImageOverlayImpl(const osd::ImageOverlay& overlay, media_libra
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
-
-TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay &overlay, media_library_return &status) : OverlayImpl(overlay.x, overlay.y, 0, 0, overlay.z_index),
-    m_label(overlay.label), m_rgb{overlay.rgb.red, overlay.rgb.green, overlay.rgb.blue}, m_font_size(overlay.font_size), m_line_thickness(overlay.line_thickness), m_font_path(overlay.font_path)
+void TextOverlayImpl::create_text_mat(const osd::TextOverlay &overlay)
 {
-    if(m_label.empty())
-    {
-        // if DateTimeOverlay, the label should be empty at this time and it is ok
-        status = MEDIA_LIBRARY_SUCCESS;
-        return;
-    }
     cv::Ptr<cv::freetype::FreeType2> ft2;
     ft2 = cv::freetype::createFreeType2();
     ft2->loadFontData(m_font_path, 0);
@@ -252,7 +254,6 @@ TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay &overlay, media_library_
                                           m_font_size,
                                           m_line_thickness,
                                           &baseline);
-
 
     // ensure even dimensions, round up not to clip text
     text_size.width += text_size.width % 2;
@@ -272,7 +273,6 @@ TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay &overlay, media_library_
         background_color_rgba = cv::Scalar(0, 0, 0, 0);
     }
 
-
     cv::Mat rgb_mat = cv::Mat(text_size.height + baseline, text_size.width + WIDTH_PADDING, CV_8UC3, background_color_rgb);
 
     m_image_mat = cv::Mat(text_size.height + baseline, text_size.width + WIDTH_PADDING, CV_8UC4, background_color_rgba);
@@ -280,7 +280,6 @@ TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay &overlay, media_library_
     auto text_position = cv::Point(0, text_size.height);
     cv::Scalar text_color(m_rgb[2], m_rgb[1], m_rgb[0], 255); // The input is expected RGB, but we draw as BGRA
     cv::Scalar rgb_text_color(m_rgb[0], m_rgb[1], m_rgb[2]);  // The input is expected RGB, but we draw as BGRA
-
 
     ft2->putText(rgb_mat, m_label, text_position, m_font_size, rgb_text_color, cv::FILLED, 8, true);
 
@@ -297,23 +296,41 @@ TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay &overlay, media_library_
             }
         }
     }
+    if (m_ready_to_blend)
+    {
+        LOGGER__ERROR("m_ready_to_blend = true, but should be false at this point.");
+    }
+    m_ready_to_blend = true;
+}
+
+TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay &overlay, media_library_return &status) : OverlayImpl(overlay.x, overlay.y, 0, 0, overlay.z_index, false),
+                                                                                                  m_label(overlay.label), m_rgb{overlay.rgb.red, overlay.rgb.green, overlay.rgb.blue}, m_font_size(overlay.font_size), m_line_thickness(overlay.line_thickness), m_font_path(overlay.font_path)
+{
+    if (m_label.empty())
+    {
+        LOGGER__ERROR("m_label is empty");
+        status = MEDIA_LIBRARY_ERROR;
+        return;
+    }
+
+    std::thread t(&TextOverlayImpl::create_text_mat, this, std::ref(overlay)); // create the text mat in a separate thread
+    t.detach();
 
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
-
-DateTimeOverlayImpl::DateTimeOverlayImpl(const osd::DateTimeOverlay& overlay, media_library_return &status) :
-    TextOverlayImpl(osd::TextOverlay(overlay.x, overlay.y, "", overlay.rgb, overlay.font_size, overlay.line_thickness, overlay.z_index, overlay.font_path), status)
-{
-}
-
-CustomOverlayImpl::CustomOverlayImpl(const osd::CustomOverlay& overlay, media_library_return &status) :
-    OverlayImpl(overlay.x, overlay.y, overlay.width, overlay.height, overlay.z_index)
+DateTimeOverlayImpl::DateTimeOverlayImpl(const osd::DateTimeOverlay &overlay, media_library_return &status) : OverlayImpl(overlay.x, overlay.y, 0, 0, overlay.z_index),
+                                                                                                              m_rgb{overlay.rgb.red, overlay.rgb.green, overlay.rgb.blue}, m_font_size(overlay.font_size), m_line_thickness(overlay.line_thickness)
 {
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
-tl::expected<ImageOverlayImplPtr, media_library_return> ImageOverlayImpl::create(const osd::ImageOverlay& overlay)
+CustomOverlayImpl::CustomOverlayImpl(const osd::CustomOverlay &overlay, media_library_return &status) : OverlayImpl(overlay.x, overlay.y, overlay.width, overlay.height, overlay.z_index)
+{
+    status = MEDIA_LIBRARY_SUCCESS;
+}
+
+tl::expected<ImageOverlayImplPtr, media_library_return> ImageOverlayImpl::create(const osd::ImageOverlay &overlay)
 {
     media_library_return status = MEDIA_LIBRARY_UNINITIALIZED;
     auto osd_overlay = std::make_shared<ImageOverlayImpl>(overlay, status);
@@ -324,7 +341,7 @@ tl::expected<ImageOverlayImplPtr, media_library_return> ImageOverlayImpl::create
     return osd_overlay;
 }
 
-tl::expected<TextOverlayImplPtr, media_library_return> TextOverlayImpl::create(const osd::TextOverlay& overlay)
+tl::expected<TextOverlayImplPtr, media_library_return> TextOverlayImpl::create(const osd::TextOverlay &overlay)
 {
     media_library_return status = MEDIA_LIBRARY_UNINITIALIZED;
     auto osd_overlay = std::make_shared<TextOverlayImpl>(overlay, status);
@@ -335,7 +352,7 @@ tl::expected<TextOverlayImplPtr, media_library_return> TextOverlayImpl::create(c
     return osd_overlay;
 }
 
-tl::expected<DateTimeOverlayImplPtr, media_library_return> DateTimeOverlayImpl::create(const osd::DateTimeOverlay& overlay)
+tl::expected<DateTimeOverlayImplPtr, media_library_return> DateTimeOverlayImpl::create(const osd::DateTimeOverlay &overlay)
 {
     media_library_return status = MEDIA_LIBRARY_UNINITIALIZED;
     auto osd_overlay = std::make_shared<DateTimeOverlayImpl>(overlay, status);
@@ -346,7 +363,7 @@ tl::expected<DateTimeOverlayImplPtr, media_library_return> DateTimeOverlayImpl::
     return osd_overlay;
 }
 
-tl::expected<CustomOverlayImplPtr, media_library_return> CustomOverlayImpl::create(const osd::CustomOverlay& overlay)
+tl::expected<CustomOverlayImplPtr, media_library_return> CustomOverlayImpl::create(const osd::CustomOverlay &overlay)
 {
     media_library_return status = MEDIA_LIBRARY_UNINITIALIZED;
     auto osd_overlay = std::make_shared<CustomOverlayImpl>(overlay, status);
@@ -357,7 +374,7 @@ tl::expected<CustomOverlayImplPtr, media_library_return> CustomOverlayImpl::crea
     return osd_overlay;
 }
 
-tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> OverlayImpl::get_dsp_overlays(int frame_width, int frame_height)
+tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> OverlayImpl::create_dsp_overlays(int frame_width, int frame_height)
 {
     media_library_return status;
     if (m_dsp_overlays.empty())
@@ -365,7 +382,9 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
         GstVideoFrame dest_frame;
         if (m_image_mat.empty())
         {
-            status = create_gst_video_frame(m_width * frame_width, m_height * frame_height, "A420", &dest_frame);
+            LOGGER__ERROR("m_image_mat is empty");
+            status = MEDIA_LIBRARY_ERROR;
+            return tl::make_unexpected(status);
         }
         else
         {
@@ -391,12 +410,12 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
         }
 
         auto [x_offset, y_offset] = offsets_expected.value();
-        dsp_overlay_properties_t dsp_overlay = 
-        {
-            .overlay = dsp_image,
-            .x_offset = (size_t)x_offset,
-            .y_offset = (size_t)y_offset,
-        };
+        dsp_overlay_properties_t dsp_overlay =
+            {
+                .overlay = dsp_image,
+                .x_offset = (size_t)x_offset,
+                .y_offset = (size_t)y_offset,
+            };
 
         m_dsp_overlays.push_back(dsp_overlay);
     }
@@ -404,42 +423,67 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
     return m_dsp_overlays;
 }
 
-tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> ImageOverlayImpl::get_dsp_overlays(int frame_width, int frame_height)
+tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> ImageOverlayImpl::create_dsp_overlays(int frame_width, int frame_height)
 {
     if (m_dsp_overlays.empty())
     {
         m_image_mat = resize_mat(m_image_mat, m_width * frame_width, m_height * frame_height);
     }
 
-    return OverlayImpl::get_dsp_overlays(frame_width, frame_height);
+    return OverlayImpl::create_dsp_overlays(frame_width, frame_height);
 }
 
-tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> CustomOverlayImpl::get_dsp_overlays(int frame_width, int frame_height)
+tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> CustomOverlayImpl::create_dsp_overlays(int frame_width, int frame_height)
 {
-    auto dsp_overlays_expected = OverlayImpl::get_dsp_overlays(frame_width, frame_height);
-    if (!dsp_overlays_expected.has_value())
+    media_library_return status;
+    if (m_dsp_overlays.empty())
     {
-        return dsp_overlays_expected;
+        GstVideoFrame dest_frame;
+        status = create_gst_video_frame(m_width * frame_width, m_height * frame_height, "A420", &dest_frame);
+
+        if (status != MEDIA_LIBRARY_SUCCESS)
+        {
+            return tl::make_unexpected(status);
+        }
+
+        dsp_image_properties_t dsp_image;
+        create_dsp_buffer_from_video_frame(&dest_frame, dsp_image);
+        m_video_frames.push_back(dest_frame);
+        auto offsets_expected = calc_xy_offsets(m_x, m_y, dsp_image.width, dsp_image.height, frame_width, frame_height);
+        if (!offsets_expected.has_value())
+        {
+            return tl::make_unexpected(offsets_expected.error());
+        }
+
+        auto [x_offset, y_offset] = offsets_expected.value();
+        dsp_overlay_properties_t dsp_overlay =
+            {
+                .overlay = dsp_image,
+                .x_offset = (size_t)x_offset,
+                .y_offset = (size_t)y_offset,
+            };
+
+        m_dsp_overlays.push_back(dsp_overlay);
     }
 
-    return dsp_overlays_expected;
+    return m_dsp_overlays;
 }
 
-tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> DateTimeOverlayImpl::get_dsp_overlays(int frame_width, int frame_height)
+tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> DateTimeOverlayImpl::create_dsp_overlays(int frame_width, int frame_height)
 {
     std::string datetime = select_chars_for_timestamp();
-    if (datetime == m_label)
+    if (datetime == m_datetime_str)
     {
-        return TextOverlayImpl::get_dsp_overlays(frame_width, frame_height);
+        return OverlayImpl::create_dsp_overlays(frame_width, frame_height);
     }
 
-    m_label = datetime;
-    
+    m_datetime_str = datetime;
+
     OverlayImpl::free_resources();
 
     // calculate the size of the text
     int baseline = 0;
-    cv::Size text_size = cv::getTextSize(m_label, cv::FONT_HERSHEY_SIMPLEX, m_font_size, m_line_thickness, &baseline);
+    cv::Size text_size = cv::getTextSize(m_datetime_str, cv::FONT_HERSHEY_SIMPLEX, m_font_size, m_line_thickness, &baseline);
 
     // ensure even dimensions, round up not to clip text
     text_size.width += text_size.width % 2;
@@ -455,8 +499,8 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> DateTi
     cv::Scalar text_color(m_rgb[2], m_rgb[1], m_rgb[0], 255); // The input is expected RGB, but we draw as BGRA
 
     // draw the text
-    cv::putText(m_image_mat, m_label, text_position, cv::FONT_HERSHEY_SIMPLEX, m_font_size, text_color, m_line_thickness);
-    return TextOverlayImpl::get_dsp_overlays(frame_width, frame_height);
+    cv::putText(m_image_mat, m_datetime_str, text_position, cv::FONT_HERSHEY_SIMPLEX, m_font_size, text_color, m_line_thickness);
+    return OverlayImpl::create_dsp_overlays(frame_width, frame_height);
 }
 
 std::string DateTimeOverlayImpl::select_chars_for_timestamp()
@@ -465,7 +509,7 @@ std::string DateTimeOverlayImpl::select_chars_for_timestamp()
     std::time_t ttime = std::chrono::system_clock::to_time_t(system_time);
     std::tm *time_now = std::gmtime(&ttime);
 
-    //std::vector<char> char_indices(11);
+    // std::vector<char> char_indices(11);
 
     std::string chars;
 
@@ -496,7 +540,7 @@ std::shared_ptr<osd::Overlay> TextOverlayImpl::get_metadata()
 
 std::shared_ptr<osd::Overlay> DateTimeOverlayImpl::get_metadata()
 {
-    return std::make_shared<osd::DateTimeOverlay>(m_x, m_y, osd::RGBColor{m_rgb[0], m_rgb[1], m_rgb[2]}, m_font_size, m_line_thickness, m_z_index, m_font_path);
+    return std::make_shared<osd::DateTimeOverlay>(m_x, m_y, osd::RGBColor{m_rgb[0], m_rgb[1], m_rgb[2]}, m_font_size, m_line_thickness, m_z_index);
 }
 
 std::shared_ptr<osd::Overlay> CustomOverlayImpl::get_metadata()
@@ -508,341 +552,346 @@ std::shared_ptr<osd::Overlay> CustomOverlayImpl::get_metadata()
 namespace osd
 {
 
-tl::expected<std::unique_ptr<Blender::Impl>, media_library_return> Blender::Impl::create(const nlohmann::json& config)
-{
-    media_library_return status = MEDIA_LIBRARY_UNINITIALIZED;
-    auto encoder = std::make_unique<Blender::Impl>(config, status);
-    if (status != MEDIA_LIBRARY_SUCCESS)
+    tl::expected<std::unique_ptr<Blender::Impl>, media_library_return> Blender::Impl::create(const nlohmann::json &config)
     {
-        return tl::make_unexpected(status);
-    }
-    return encoder;
-}
-
-Blender::Impl::Impl(const nlohmann::json& config, media_library_return &status) :
-    m_config(config)
-{
-    // Acquire DSP device
-    dsp_status dsp_result = dsp_utils::acquire_device();
-    if (dsp_result != DSP_SUCCESS)
-    {
-        status = MEDIA_LIBRARY_DSP_OPERATION_ERROR;
-        LOGGER__ERROR("Accuire DSP device failed with status code {}", status);
-        return;
-    }
-
-    if (m_config.contains("image"))
-    {
-        for (auto& image_json: m_config["image"])
+        media_library_return status = MEDIA_LIBRARY_UNINITIALIZED;
+        auto encoder = std::make_unique<Blender::Impl>(config, status);
+        if (status != MEDIA_LIBRARY_SUCCESS)
         {
-            auto overlay = image_json.template get<ImageOverlay>();
-            add_overlay(image_json["id"], overlay);
+            return tl::make_unexpected(status);
+        }
+        return encoder;
+    }
+
+    Blender::Impl::Impl(const nlohmann::json &config, media_library_return &status) : m_config(config)
+    {
+        // Acquire DSP device
+        dsp_status dsp_result = dsp_utils::acquire_device();
+        if (dsp_result != DSP_SUCCESS)
+        {
+            status = MEDIA_LIBRARY_DSP_OPERATION_ERROR;
+            LOGGER__ERROR("Accuire DSP device failed with status code {}", status);
+            return;
+        }
+
+        if (m_config.contains("image"))
+        {
+            for (auto &image_json : m_config["image"])
+            {
+                auto overlay = image_json.template get<ImageOverlay>();
+                add_overlay(image_json["id"], overlay);
+            }
+        }
+        if (m_config.contains("text"))
+        {
+            for (auto &text_json : m_config["text"])
+            {
+                auto overlay = text_json.template get<TextOverlay>();
+                add_overlay(text_json["id"], overlay);
+            }
+        }
+
+        if (m_config.contains("dateTime"))
+        {
+            for (auto &datetime_json : m_config["dateTime"])
+            {
+                auto overlay = datetime_json.template get<DateTimeOverlay>();
+                add_overlay(datetime_json["id"], overlay);
+            }
+        }
+
+        if (m_config.contains("custom"))
+        {
+            for (auto &custom_json : m_config["custom"])
+            {
+                auto overlay = custom_json.template get<CustomOverlay>();
+                add_overlay(custom_json["id"], overlay);
+            }
+        }
+
+        status = MEDIA_LIBRARY_SUCCESS;
+    }
+
+    Blender::Impl::~Impl()
+    {
+        m_prioritized_overlays.clear();
+        m_overlays.clear();
+
+        dsp_status dsp_result = dsp_utils::release_device();
+        if (dsp_result != DSP_SUCCESS)
+        {
+            LOGGER__ERROR("Release DSP device failed with status code {}", dsp_result);
         }
     }
-    if (m_config.contains("text"))
+
+    media_library_return Blender::Impl::add_overlay(const std::string &id, const ImageOverlay &overlay)
     {
-        for (auto& text_json: m_config["text"])
+        auto overlay_expected = ImageOverlayImpl::create(overlay);
+        if (!overlay_expected.has_value())
         {
-            auto overlay = text_json.template get<TextOverlay>();
-            add_overlay(text_json["id"], overlay);
+            LOGGER__ERROR("Failed to create image overlay {}", id);
+            return overlay_expected.error();
         }
+
+        return add_overlay(id, overlay_expected.value());
     }
 
-    if (m_config.contains("dateTime"))
+    media_library_return Blender::Impl::add_overlay(const std::string &id, const TextOverlay &overlay)
     {
-        for (auto& datetime_json: m_config["dateTime"])
+        auto overlay_expected = TextOverlayImpl::create(overlay);
+        if (!overlay_expected.has_value())
         {
-            auto overlay = datetime_json.template get<DateTimeOverlay>();
-            add_overlay(datetime_json["id"], overlay);
+            LOGGER__ERROR("Failed to create text overlay {}", id);
+            return overlay_expected.error();
         }
+
+        return add_overlay(id, overlay_expected.value());
     }
 
-    if (m_config.contains("custom"))
+    media_library_return Blender::Impl::add_overlay(const std::string &id, const DateTimeOverlay &overlay)
     {
-        for (auto& custom_json: m_config["custom"])
+        auto overlay_expected = DateTimeOverlayImpl::create(overlay);
+        if (!overlay_expected.has_value())
         {
-            auto overlay = custom_json.template get<CustomOverlay>();
-            add_overlay(custom_json["id"], overlay);
+            LOGGER__ERROR("Failed to create datetime overlay {}", id);
+            return overlay_expected.error();
         }
+
+        return add_overlay(id, overlay_expected.value());
     }
 
-    status = MEDIA_LIBRARY_SUCCESS;
-}
-
-Blender::Impl::~Impl()
-{
-    m_prioritized_overlays.clear();
-    m_overlays.clear();
-
-    dsp_status dsp_result = dsp_utils::release_device();
-    if (dsp_result != DSP_SUCCESS)
+    media_library_return Blender::Impl::add_overlay(const std::string &id, const CustomOverlay &overlay)
     {
-        LOGGER__ERROR("Release DSP device failed with status code {}", dsp_result);
-    }
-}
+        auto overlay_expected = CustomOverlayImpl::create(overlay);
+        if (!overlay_expected.has_value())
+        {
+            LOGGER__ERROR("Failed to create custom overlay {}", id);
+            return overlay_expected.error();
+        }
 
-media_library_return Blender::Impl::add_overlay(const std::string& id, const ImageOverlay& overlay)
-{
-    auto overlay_expected = ImageOverlayImpl::create(overlay);
-    if (!overlay_expected.has_value())
-    {
-        LOGGER__ERROR("Failed to create image overlay {}", id);
-        return overlay_expected.error();
+        return add_overlay(id, overlay_expected.value());
     }
 
-    return add_overlay(id, overlay_expected.value());
-}
-
-media_library_return Blender::Impl::add_overlay(const std::string& id, const TextOverlay& overlay)
-{
-    auto overlay_expected = TextOverlayImpl::create(overlay);
-    if (!overlay_expected.has_value())
+    media_library_return Blender::Impl::add_overlay(const std::string &id, const OverlayImplPtr overlay)
     {
-        LOGGER__ERROR("Failed to create text overlay {}", id);
-        return overlay_expected.error();
-    }
+        m_mutex.lock();
 
-    return add_overlay(id, overlay_expected.value());
-}
+        if (m_overlays.contains(id))
+        {
+            LOGGER__ERROR("Overlay with id {} already exists", id);
+            m_mutex.unlock();
+            return MEDIA_LIBRARY_INVALID_ARGUMENT;
+        }
 
-media_library_return Blender::Impl::add_overlay(const std::string& id, const DateTimeOverlay& overlay)
-{
-    auto overlay_expected = DateTimeOverlayImpl::create(overlay);
-    if (!overlay_expected.has_value())
-    {
-        LOGGER__ERROR("Failed to create datetime overlay {}", id);
-        return overlay_expected.error();
-    }
+        LOGGER__DEBUG("Inserting overlay with id {}", id);
+        auto result1 = m_overlays.insert({id, overlay});
 
-    return add_overlay(id, overlay_expected.value());
-}
+        if (!result1.second)
+        {
+            LOGGER__ERROR("Failed to insert overlay with id {}", id);
+            m_mutex.unlock();
+            return MEDIA_LIBRARY_ERROR;
+        }
 
-media_library_return Blender::Impl::add_overlay(const std::string& id, const CustomOverlay& overlay)
-{
-    auto overlay_expected = CustomOverlayImpl::create(overlay);
-    if (!overlay_expected.has_value())
-    {
-        LOGGER__ERROR("Failed to create custom overlay {}", id);
-        return overlay_expected.error();
-    }
+        auto result2 = m_prioritized_overlays.insert(overlay);
+        if (!result2.second)
+        {
+            LOGGER__ERROR("Failed to insert overlay with id {}", id);
+            m_overlays.erase(id);
+            m_mutex.unlock();
+            return MEDIA_LIBRARY_ERROR;
+        }
 
-    return add_overlay(id, overlay_expected.value());
-}
-
-media_library_return Blender::Impl::add_overlay(const std::string& id, const OverlayImplPtr overlay)
-{
-    m_mutex.lock();
-
-    if (m_overlays.contains(id))
-    {
-        LOGGER__ERROR("Overlay with id {} already exists", id);
         m_mutex.unlock();
-        return MEDIA_LIBRARY_INVALID_ARGUMENT;
-    }
-    
-    LOGGER__DEBUG("Inserting overlay with id {}", id);
-    auto result1 = m_overlays.insert({id, overlay});
 
-    if (!result1.second)
-    {
-        LOGGER__ERROR("Failed to insert overlay with id {}", id);
-        m_mutex.unlock();
-        return MEDIA_LIBRARY_ERROR;
+        result1.first->second->set_priority_iterator(result2.first);
+
+        return MEDIA_LIBRARY_SUCCESS;
     }
 
-    auto result2 = m_prioritized_overlays.insert(overlay);
-    if (!result2.second)
+    media_library_return Blender::Impl::remove_overlay(const std::string &id)
     {
-        LOGGER__ERROR("Failed to insert overlay with id {}", id);
+        m_mutex.lock();
+
+        if (!m_overlays.contains(id))
+        {
+            LOGGER__ERROR("No overlay with id {}", id);
+            m_mutex.unlock();
+            return MEDIA_LIBRARY_INVALID_ARGUMENT;
+        }
+
+        LOGGER__DEBUG("Removing overlay with id {}", id);
+        m_prioritized_overlays.erase(m_overlays[id]->get_priority_iterator());
         m_overlays.erase(id);
         m_mutex.unlock();
-        return MEDIA_LIBRARY_ERROR;
+
+        return MEDIA_LIBRARY_SUCCESS;
     }
 
-    m_mutex.unlock();
-
-    result1.first->second->set_priority_iterator(result2.first);
-
-    return MEDIA_LIBRARY_SUCCESS;
-}
-
-media_library_return Blender::Impl::remove_overlay(const std::string& id)
-{
-    m_mutex.lock();
-
-    if (!m_overlays.contains(id))
+    tl::expected<std::shared_ptr<osd::Overlay>, media_library_return> Blender::Impl::get_overlay(const std::string &id)
     {
-        LOGGER__ERROR("No overlay with id {}", id);
-        m_mutex.unlock();
-        return MEDIA_LIBRARY_INVALID_ARGUMENT;
-    }
-    
-    LOGGER__DEBUG("Removing overlay with id {}", id);
-    m_prioritized_overlays.erase(m_overlays[id]->get_priority_iterator());
-    m_overlays.erase(id);
-    m_mutex.unlock();
+        m_mutex.lock();
 
-    return MEDIA_LIBRARY_SUCCESS;
-}
-
-tl::expected<std::shared_ptr<osd::Overlay>, media_library_return> Blender::Impl::get_overlay(const std::string& id)
-{
-    m_mutex.lock();
-
-    if (!m_overlays.contains(id))
-    {
-        LOGGER__ERROR("No overlay with id {}", id);
-        m_mutex.unlock();
-        return tl::make_unexpected(MEDIA_LIBRARY_INVALID_ARGUMENT);
-    }
-
-    auto overlay = m_overlays[id];
-
-    m_mutex.unlock();
-
-    return m_overlays[id]->get_metadata();
-}
-
-media_library_return Blender::Impl::set_overlay(const std::string& id, const ImageOverlay& overlay)
-{
-    auto overlay_expected = ImageOverlayImpl::create(overlay);
-    if (!overlay_expected.has_value())
-    {
-        LOGGER__ERROR("Failed to set text overlay {}", id);
-        return overlay_expected.error();
-    }
-
-    return set_overlay(id, overlay_expected.value());
-}
-
-media_library_return Blender::Impl::set_overlay(const std::string& id, const TextOverlay& overlay)
-{
-    auto overlay_expected = TextOverlayImpl::create(overlay);
-    if (!overlay_expected.has_value())
-    {
-        LOGGER__ERROR("Failed to set text overlay {}", id);
-        return overlay_expected.error();
-    }
-
-    return set_overlay(id, overlay_expected.value());
-}
-
-media_library_return Blender::Impl::set_overlay(const std::string& id, const DateTimeOverlay& overlay)
-{
-    auto overlay_expected = DateTimeOverlayImpl::create(overlay);
-    if (!overlay_expected.has_value())
-    {
-        LOGGER__ERROR("Failed to set datettime overlay {}", id);
-        return overlay_expected.error();
-    }
-
-    return set_overlay(id, overlay_expected.value());
-}
-
-media_library_return Blender::Impl::set_overlay(const std::string& id, const CustomOverlay& overlay)
-{
-    auto overlay_expected = CustomOverlayImpl::create(overlay);
-    if (!overlay_expected.has_value())
-    {
-        LOGGER__ERROR("Failed to set custom overlay {}", id);
-        return overlay_expected.error();
-    }
-
-    return set_overlay(id, overlay_expected.value());
-}
-
-media_library_return Blender::Impl::set_overlay(const std::string& id, const OverlayImplPtr overlay)
-{
-    m_mutex.lock();
-
-    if (!m_overlays.contains(id))
-    {
-        LOGGER__ERROR("No overlay with id {}", id);
-        m_mutex.unlock();
-        return MEDIA_LIBRARY_INVALID_ARGUMENT;
-    }
-
-    if (remove_overlay(id) != MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__ERROR("Failed to remove overlay with id {}", id);
-        m_mutex.unlock();
-        return MEDIA_LIBRARY_ERROR;
-    }
-    
-    media_library_return ret = add_overlay(id, overlay);
-
-    m_mutex.unlock();
-
-    return ret;
-}
-
-media_library_return Blender::Impl::blend(dsp_image_properties_t& input_image_properties)
-{
-    m_mutex.lock();
-
-    // We prepare to blend all overlays at once
-    std::vector<dsp_overlay_properties_t> all_overlays_to_blend;
-    all_overlays_to_blend.reserve(m_overlays.size());
-    for (const auto& overlay : m_prioritized_overlays)
-    {
-        auto dsp_overlays_expected = overlay->get_dsp_overlays(input_image_properties.width, input_image_properties.height);
-        if (!dsp_overlays_expected.has_value())
+        if (!m_overlays.contains(id))
         {
-            LOGGER__ERROR("Failed to get DSP compatible overlays ({})", dsp_overlays_expected.error());
+            LOGGER__ERROR("No overlay with id {}", id);
             m_mutex.unlock();
-            return dsp_overlays_expected.error();
+            return tl::make_unexpected(MEDIA_LIBRARY_INVALID_ARGUMENT);
         }
-        auto dsp_overlays = dsp_overlays_expected.value();
-        all_overlays_to_blend.insert(all_overlays_to_blend.end(), dsp_overlays.begin(), dsp_overlays.end());
+
+        auto overlay = m_overlays[id];
+
+        m_mutex.unlock();
+
+        return m_overlays[id]->get_metadata();
     }
 
-    m_mutex.unlock();
-
-    // Perform blending for all overlays
-    for (unsigned int i = 0; i < all_overlays_to_blend.size(); i += dsp_utils::max_blend_overlays)
+    media_library_return Blender::Impl::set_overlay(const std::string &id, const ImageOverlay &overlay)
     {
-        auto first = all_overlays_to_blend.begin() + i;
-        auto last = all_overlays_to_blend.end();
-
-        if (i + dsp_utils::max_blend_overlays < all_overlays_to_blend.size())
+        auto overlay_expected = ImageOverlayImpl::create(overlay);
+        if (!overlay_expected.has_value())
         {
-            last = first + dsp_utils::max_blend_overlays;
+            LOGGER__ERROR("Failed to set text overlay {}", id);
+            return overlay_expected.error();
         }
-        
-        std::vector blend_chuck(first, last);
 
-        dsp_status status = dsp_utils::perform_dsp_multiblend(&input_image_properties, blend_chuck.data(), blend_chuck.size());
-        if (status != DSP_SUCCESS)
-        {
-            LOGGER__ERROR("DSP blend failed with {}", status);
-            return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
-        }
+        return set_overlay(id, overlay_expected.value());
     }
 
-    return MEDIA_LIBRARY_SUCCESS;
-}
-
-media_library_return Blender::Impl::set_frame_size(int frame_width, int frame_height)
-{
-    m_mutex.lock();
-
-    // Initialize static images
-    std::vector<dsp_overlay_properties_t> overlays;
-    overlays.reserve(m_overlays.size());
-    for (const auto& overlay : m_prioritized_overlays)
+    media_library_return Blender::Impl::set_overlay(const std::string &id, const TextOverlay &overlay)
     {
-        auto overlays_expected = overlay->get_dsp_overlays(frame_width, frame_height);
-        if (!overlays_expected.has_value())
+        auto overlay_expected = TextOverlayImpl::create(overlay);
+        if (!overlay_expected.has_value())
         {
-            LOGGER__ERROR("Failed to prepare overlays ({})", overlays_expected.error());
+            LOGGER__ERROR("Failed to set text overlay {}", id);
+            return overlay_expected.error();
+        }
+
+        return set_overlay(id, overlay_expected.value());
+    }
+
+    media_library_return Blender::Impl::set_overlay(const std::string &id, const DateTimeOverlay &overlay)
+    {
+        auto overlay_expected = DateTimeOverlayImpl::create(overlay);
+        if (!overlay_expected.has_value())
+        {
+            LOGGER__ERROR("Failed to set datettime overlay {}", id);
+            return overlay_expected.error();
+        }
+
+        return set_overlay(id, overlay_expected.value());
+    }
+
+    media_library_return Blender::Impl::set_overlay(const std::string &id, const CustomOverlay &overlay)
+    {
+        auto overlay_expected = CustomOverlayImpl::create(overlay);
+        if (!overlay_expected.has_value())
+        {
+            LOGGER__ERROR("Failed to set custom overlay {}", id);
+            return overlay_expected.error();
+        }
+
+        return set_overlay(id, overlay_expected.value());
+    }
+
+    media_library_return Blender::Impl::set_overlay(const std::string &id, const OverlayImplPtr overlay)
+    {
+        m_mutex.lock();
+
+        if (!m_overlays.contains(id))
+        {
+            LOGGER__ERROR("No overlay with id {}", id);
             m_mutex.unlock();
-            return overlays_expected.error();
+            return MEDIA_LIBRARY_INVALID_ARGUMENT;
         }
+
+        if (remove_overlay(id) != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__ERROR("Failed to remove overlay with id {}", id);
+            m_mutex.unlock();
+            return MEDIA_LIBRARY_ERROR;
+        }
+
+        media_library_return ret = add_overlay(id, overlay);
+
+        m_mutex.unlock();
+
+        return ret;
     }
 
-    m_mutex.unlock();
+    media_library_return Blender::Impl::blend(dsp_image_properties_t &input_image_properties)
+    {
+        m_mutex.lock();
 
-    return MEDIA_LIBRARY_SUCCESS;
-}
+        // We prepare to blend all overlays at once
+        std::vector<dsp_overlay_properties_t> all_overlays_to_blend;
+        all_overlays_to_blend.reserve(m_overlays.size());
+        for (const auto &overlay : m_prioritized_overlays)
+        {
+            if (overlay->get_ready_to_blend())
+            {
+                auto dsp_overlays_expected = overlay->create_dsp_overlays(input_image_properties.width, input_image_properties.height);
+                if (!dsp_overlays_expected.has_value())
+                {
+                    LOGGER__ERROR("Failed to get DSP compatible overlays ({})", dsp_overlays_expected.error());
+                    m_mutex.unlock();
+                    return dsp_overlays_expected.error();
+                }
+                auto dsp_overlays = dsp_overlays_expected.value();
+                all_overlays_to_blend.insert(all_overlays_to_blend.end(), dsp_overlays.begin(), dsp_overlays.end());
+            }
+        }
+
+        m_mutex.unlock();
+
+        // Perform blending for all overlays
+        for (unsigned int i = 0; i < all_overlays_to_blend.size(); i += dsp_utils::max_blend_overlays)
+        {
+            auto first = all_overlays_to_blend.begin() + i;
+            auto last = all_overlays_to_blend.end();
+
+            if (i + dsp_utils::max_blend_overlays < all_overlays_to_blend.size())
+            {
+                last = first + dsp_utils::max_blend_overlays;
+            }
+
+            std::vector blend_chuck(first, last);
+
+            dsp_status status = dsp_utils::perform_dsp_multiblend(&input_image_properties, blend_chuck.data(), blend_chuck.size());
+            if (status != DSP_SUCCESS)
+            {
+                LOGGER__ERROR("DSP blend failed with {}", status);
+                return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
+            }
+        }
+
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    media_library_return Blender::Impl::set_frame_size(int frame_width, int frame_height)
+    {
+        m_mutex.lock();
+
+        // Initialize static images
+        std::vector<dsp_overlay_properties_t> overlays;
+        overlays.reserve(m_overlays.size());
+        for (const auto &overlay : m_prioritized_overlays)
+        {
+            if (overlay->get_ready_to_blend())
+            {
+                auto overlays_expected = overlay->create_dsp_overlays(frame_width, frame_height);
+                if (!overlays_expected.has_value())
+                {
+                    LOGGER__ERROR("Failed to prepare overlays ({})", overlays_expected.error());
+                    m_mutex.unlock();
+                    return overlays_expected.error();
+                }
+            }
+        }
+
+        m_mutex.unlock();
+
+        return MEDIA_LIBRARY_SUCCESS;
+    }
 
 }

@@ -27,71 +27,74 @@
 
 #pragma once
 #include <stdint.h>
-#include <vector>
 #include <string>
+#include <vector>
 
 #include "media_library_types.hpp"
 
 enum ConfigSchema
 {
-    CONFIG_SCHEMA_VISION,
-    CONFIG_SCHEMA_ENCODER
+  CONFIG_SCHEMA_VISION,
+  CONFIG_SCHEMA_ENCODER
 };
 
 class ConfigManager
 {
 public:
-    /**
-     * @brief Constructor for the ConfigManager module
-     *
-     */
-    ConfigManager(ConfigSchema schema);
+  /**
+   * @brief Constructor for the ConfigManager module
+   *
+   */
+  ConfigManager(ConfigSchema schema);
 
-    /**
-     * @brief Destructor for the ConfigManager module
-     */
-    ~ConfigManager();
+  /**
+   * @brief Destructor for the ConfigManager module
+   */
+  ~ConfigManager();
 
-    /**
-     * @brief Copy constructor (deleted)
-     */
-    ConfigManager(const ConfigManager &) = delete;
+  /**
+   * @brief Copy constructor (deleted)
+   */
+  ConfigManager(const ConfigManager &) = delete;
 
-    /**
-     * @brief Copy assignment operator (deleted)
-     */
-    ConfigManager &operator=(const ConfigManager &) = delete;
+  /**
+   * @brief Copy assignment operator (deleted)
+   */
+  ConfigManager &operator=(const ConfigManager &) = delete;
 
-    /**
-     * @brief Move constructor
-     */
-    ConfigManager(ConfigManager &&) = delete;
+  /**
+   * @brief Move constructor
+   */
+  ConfigManager(ConfigManager &&) = delete;
 
-    /**
-     * @brief Move assignment
-     */
-    ConfigManager &operator=(ConfigManager &&) = delete;
+  /**
+   * @brief Move assignment
+   */
+  ConfigManager &operator=(ConfigManager &&) = delete;
 
-    /**
-     * @brief Validate the user's configuration json string against internal schema
-     *
-     * @param[in] user_config_string - the user's configuration (as a json string)
-     * @return media_library_return
-     */
-    media_library_return validate_configuration(const std::string &user_config_string);
+  /**
+   * @brief Validate the user's configuration json string against internal
+   * schema
+   *
+   * @param[in] user_config_string - the user's configuration (as a json
+   * string)
+   * @return media_library_return
+   */
+  media_library_return
+  validate_configuration(const std::string &user_config_string);
 
-    /**
-     * @brief Validate a json string and populate a configuration struct
-     *
-     * @param[in] user_config - the user's configuration (as a json string)
-     * @param[out] conf - the user's configuration (as a json string)
-     * @return media_library_return
-     */
-    template <typename TConf>
-    media_library_return config_string_to_struct(const std::string &user_config_string,
-                                                 TConf &conf);
+  /**
+   * @brief Validate a json string and populate a configuration struct
+   *
+   * @param[in] user_config - the user's configuration (as a json string)
+   * @param[out] conf - the user's configuration (as a json string)
+   * @return media_library_return
+   */
+  template <typename TConf>
+  media_library_return
+  config_string_to_struct(const std::string &user_config_string, TConf &conf);
 
 private:
-    class ConfigManagerImpl; // internal implementation class
-    std::unique_ptr<ConfigManagerImpl> m_config_manager_impl;
+  class ConfigManagerImpl; // internal implementation class
+  std::unique_ptr<ConfigManagerImpl> m_config_manager_impl;
 };

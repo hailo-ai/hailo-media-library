@@ -26,9 +26,9 @@
 #include <vector>
 
 // Open source includes
-#include <nlohmann/json.hpp>
-#include <nlohmann/json-schema.hpp>
 #include "config_manager.hpp"
+#include <nlohmann/json-schema.hpp>
+#include <nlohmann/json.hpp>
 
 enum codec_t
 {
@@ -53,13 +53,13 @@ struct output_config_t
 
 class EncoderConfig
 {
-private:
+  private:
     std::shared_ptr<ConfigManager> m_config_manager;
     std::string m_json_string;
     nlohmann::json m_doc;
     // SchemaDocument m_schema_doc;
     // SchemaValidator m_validator;
-public:
+  public:
     EncoderConfig(const std::string &config_path);
     const nlohmann::json &get_doc() const;
     const nlohmann::json &get_input_stream() const;
