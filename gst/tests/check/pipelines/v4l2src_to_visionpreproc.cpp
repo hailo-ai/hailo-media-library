@@ -1,5 +1,5 @@
-#include "v4l2_vsm/hailo_vsm.h"
-#include "v4l2_vsm/hailo_vsm_meta.h"
+#include "hailo_v4l2/hailo_vsm.h"
+#include "hailo_v4l2/hailo_v4l2_meta.h"
 #include <gst/check/check.h>
 #include <gst/check/gstcheck.h>
 #include <gst/gst.h>
@@ -33,15 +33,17 @@ buffer_callback(GstObject *pad, GstPadProbeInfo *info, gpointer data)
     GstBuffer *buffer;
     struct hailo15_vsm vsm;
     uint index;
+    gint isp_ae_fps;
 
     buffer = GST_PAD_PROBE_INFO_BUFFER(info);
     // Verify buffer contains VSM metadata
-    GstHailoVsmMeta *meta = reinterpret_cast<GstHailoVsmMeta *>(gst_buffer_get_meta(buffer, g_type_from_name(HAILO_VSM_META_API_NAME)));
+    GstHailoV4l2Meta *meta = reinterpret_cast<GstHailoV4l2Meta *>(gst_buffer_get_meta(buffer, g_type_from_name(HAILO_V4L2_META_API_NAME)));
     fail_unless(meta != NULL);
 
     vsm = meta->vsm;
     index = meta->v4l2_index;
-    GST_DEBUG("VSM metadata: index=%d, dx=%d, dy=%d\n", index, vsm.dx, vsm.dy);
+    isp_ae_fps = meta->isp_ae_fps;
+    GST_DEBUG("VSM metadata: index=%d, dx=%d, dy=%d isp_ae_fps=%d\n", index, vsm.dx, vsm.dy, isp_ae_fps);
     fail_unless(expected_index == index);
 
     expected_index = (expected_index + 1) % MAX_V4L_BUFFERS;

@@ -1,8 +1,8 @@
 #include "buffer_utils.hpp"
 #include "media_library/encoder.hpp"
 #include "media_library/vision_pre_proc.hpp"
-#include "v4l2_vsm/hailo_vsm.h"
-#include "v4l2_vsm/hailo_vsm_meta.h"
+#include "hailo_v4l2/hailo_vsm.h"
+#include "hailo_v4l2/hailo_v4l2_meta.h"
 #include <algorithm>
 #include <fstream>
 #include <gst/app/gstappsink.h>
@@ -196,6 +196,8 @@ static void update_custom_overlay(std::shared_ptr<osd::Blender> blender,
     }
 }
 
+std::shared_future<media_library_return> running_osd_task;
+
 /**
  * Appsink's new_sample callback
  *
@@ -211,7 +213,6 @@ static GstFlowReturn appsink_new_sample(GstAppSink *appsink, gpointer user_data)
     GstVideoFrame frame;
     hailo_media_library_buffer buffer;
     std::vector<hailo_media_library_buffer> outputs;
-    hailo15_vsm vsm;
     GstVideoInfo *info = gst_video_info_new();
     MediaLibrary *media_lib = static_cast<MediaLibrary *>(user_data);
     GstFlowReturn return_status = GST_FLOW_OK;
@@ -224,15 +225,14 @@ static GstFlowReturn appsink_new_sample(GstAppSink *appsink, gpointer user_data)
     gst_buffer = gst_sample_get_buffer(sample);
     if (gst_buffer)
     {
-        // Verify buffer contains VSM metadata
-        GstHailoVsmMeta *meta =
-            reinterpret_cast<GstHailoVsmMeta *>(gst_buffer_get_meta(
-                gst_buffer, g_type_from_name(HAILO_VSM_META_API_NAME)));
-        vsm = meta->vsm;
+        // Verify buffer contains hailo v4l2 metadata
+        GstHailoV4l2Meta *hailo_v4l2_meta =
+            reinterpret_cast<GstHailoV4l2Meta *>(gst_buffer_get_meta(
+                gst_buffer, g_type_from_name(HAILO_V4L2_META_API_NAME)));
 
         // frame map
         gst_video_frame_map(&frame, info, gst_buffer, GST_MAP_READ);
-        create_hailo_buffer_from_video_frame(&frame, buffer, vsm);
+        create_hailo_buffer_from_video_frame(&frame, buffer, hailo_v4l2_meta);
         // frame unmap
         gst_video_frame_unmap(&frame);
 
@@ -240,13 +240,11 @@ static GstFlowReturn appsink_new_sample(GstAppSink *appsink, gpointer user_data)
         // add new overlay after 50 frames
         if (GST_BUFFER_OFFSET(gst_buffer) == 50)
         {
-
-            osd::TextOverlay new_text = osd::TextOverlay(
-                0.1, 0.3, "Camera Stream", osd::RGBColor(0, 0, 255), 100.0, 1,
-                1, FONT_1_PATH);
-            blender->add_overlay("e1", new_text);
+            osd::TextOverlay new_text = osd::TextOverlay("e1",
+                                                         0.1, 0.3, "Camera Stream", osd::rgb_color_t(0, 0, 255), 100.0, 1,
+                                                         1, FONT_1_PATH, 0, osd::rotation_alignment_policy_t::CENTER);
+            blender->add_overlay(new_text);
         }
-        // add new overlay after 50 frames
 
         if (GST_BUFFER_OFFSET(gst_buffer) == 100)
         {
@@ -254,7 +252,7 @@ static GstFlowReturn appsink_new_sample(GstAppSink *appsink, gpointer user_data)
             auto txt = std::static_pointer_cast<osd::TextOverlay>(
                 txt_expected.value());
             txt->y += 0.1;
-            blender->set_overlay("example_text1", *txt);
+            blender->set_overlay(*txt);
         }
         if (GST_BUFFER_OFFSET(gst_buffer) == 150)
         {
@@ -267,8 +265,8 @@ static GstFlowReturn appsink_new_sample(GstAppSink *appsink, gpointer user_data)
                     auto overlay = overlay_expected.value();
                     auto text_overlay =
                         std::static_pointer_cast<osd::TextOverlay>(overlay);
-                    text_overlay->rgb = osd::RGBColor(102, 0, 51);
-                    blender->set_overlay("e1", *text_overlay);
+                    text_overlay->rgb = osd::rgb_color_t(102, 0, 51);
+                    blender->set_overlay(*text_overlay);
                 }
             }
 
@@ -277,7 +275,7 @@ static GstFlowReturn appsink_new_sample(GstAppSink *appsink, gpointer user_data)
                 auto txt = std::static_pointer_cast<osd::TextOverlay>(
                     txt_expected.value());
                 txt->font_path = FONT_2_PATH;
-                blender->set_overlay("example_text2", *txt);
+                blender->set_overlay(*txt);
             }
         }
 
@@ -291,18 +289,28 @@ static GstFlowReturn appsink_new_sample(GstAppSink *appsink, gpointer user_data)
                 value = 200;
             update_custom_overlay(blender, "custom", value);
         }
+
+        if (GST_BUFFER_OFFSET(gst_buffer) % 50 == 0 && GST_BUFFER_OFFSET(gst_buffer) != 0)
+        {
+            // rotate image
+            if (running_osd_task.valid())
+                running_osd_task.wait();
+
+            auto img_expected = blender->get_overlay("example_image");
+            auto img = std::static_pointer_cast<osd::ImageOverlay>(img_expected.value());
+            img->angle += 10;
+            running_osd_task = blender->set_overlay_async(*img); // save future to a variable, because destructor blocks until finished
+        }
     }
     gst_video_info_free(info);
 
     // perform vision_preproc logic
-    media_library_return preproc_status =
-        media_lib->vision_preproc->handle_frame(buffer, outputs);
+    media_library_return preproc_status = media_lib->vision_preproc->handle_frame(buffer, outputs);
     if (preproc_status != MEDIA_LIBRARY_SUCCESS)
         return_status = GST_FLOW_ERROR;
 
     // encode
-    HailoMediaLibraryBufferPtr hailo_buffer =
-        std::make_shared<hailo_media_library_buffer>(std::move(outputs[0]));
+    HailoMediaLibraryBufferPtr hailo_buffer = std::make_shared<hailo_media_library_buffer>(std::move(outputs[0]));
     media_lib->encoder->add_buffer(hailo_buffer);
 
     gst_sample_unref(sample);
@@ -315,7 +323,7 @@ static GstFlowReturn appsink_new_sample(GstAppSink *appsink, gpointer user_data)
  * @return A string containing the gstreamer pipeline.
  * @note prints the return value to the stdout.
  */
-std::string create_pipeline_string()
+std::string create_src_pipeline_string()
 {
     std::string pipeline = "";
 
@@ -387,7 +395,7 @@ std::string read_string_from_file(const char *file_path)
 
 void delete_output_file()
 {
-    std::ofstream fp("vision_preproc_example.h264",
+    std::ofstream fp("/var/volatile/tmp/vision_preproc_example.h264",
                      std::ios::out | std::ios::binary);
     if (!fp.good())
     {
@@ -399,18 +407,14 @@ void delete_output_file()
 
 int main(int argc, char *argv[])
 {
-    std::string src_pipeline_string;
     GstFlowReturn ret;
     MediaLibrary *media_lib = new MediaLibrary();
     add_sigint_handler();
     delete_output_file();
 
     // Create and configure vision_pre_proc
-    std::string preproc_config_string =
-        read_string_from_file(VISION_PREPROC_CONFIG_FILE);
-    tl::expected<MediaLibraryVisionPreProcPtr, media_library_return>
-        vision_preproc_expected =
-            MediaLibraryVisionPreProc::create(preproc_config_string);
+    std::string preproc_config_string = read_string_from_file(VISION_PREPROC_CONFIG_FILE);
+    tl::expected<MediaLibraryVisionPreProcPtr, media_library_return> vision_preproc_expected = MediaLibraryVisionPreProc::create(preproc_config_string);
     if (!vision_preproc_expected.has_value())
     {
         std::cout << "Failed to create vision_preproc" << std::endl;
@@ -419,11 +423,8 @@ int main(int argc, char *argv[])
     media_lib->vision_preproc = vision_preproc_expected.value();
 
     // Create and configure encoder
-    std::string encoderosd_config_string =
-        read_string_from_file(ENCODER_OSD_CONFIG_FILE);
-    tl::expected<MediaLibraryEncoderPtr, media_library_return>
-        encoder_expected =
-            MediaLibraryEncoder::create(std::move(encoderosd_config_string));
+    std::string encoderosd_config_string = read_string_from_file(ENCODER_OSD_CONFIG_FILE);
+    tl::expected<MediaLibraryEncoderPtr, media_library_return> encoder_expected = MediaLibraryEncoder::create(std::move(encoderosd_config_string));
     if (!encoder_expected.has_value())
     {
         std::cout << "Failed to create encoder osd" << std::endl;
@@ -433,9 +434,9 @@ int main(int argc, char *argv[])
     media_lib->encoder = encoder_expected.value();
 
     gst_init(&argc, &argv);
-    std::string pipeline_string = create_pipeline_string();
+    std::string src_pipeline_string = create_src_pipeline_string();
     std::cout << "Created pipeline string." << std::endl;
-    GstElement *pipeline = gst_parse_launch(pipeline_string.c_str(), NULL);
+    GstElement *pipeline = gst_parse_launch(src_pipeline_string.c_str(), NULL);
     std::cout << "Parsed pipeline." << std::endl;
     set_callbacks(pipeline, media_lib);
     std::cout << "Set probes and callbacks." << std::endl;
@@ -455,7 +456,8 @@ int main(int argc, char *argv[])
     custom_overlay.y = 0.01;
     custom_overlay.width = 0.1;
     custom_overlay.height = 0.1;
-    blender->add_overlay("custom", custom_overlay);
+    custom_overlay.id = "custom";
+    blender->add_overlay(custom_overlay);
     blender->set_frame_size(1920, 1080);
 
     update_custom_overlay(blender, "custom", 0);

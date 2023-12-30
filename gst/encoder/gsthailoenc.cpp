@@ -22,7 +22,6 @@
  */
 #include <assert.h>
 #include <string.h>
-/* for stats file handling */
 #include "gsthailoenc.hpp"
 #include <errno.h>
 #include <stdio.h>
@@ -436,6 +435,16 @@ gst_hailoenc_set_property(GObject *object,
   case PROP_GOP_SIZE:
     GST_OBJECT_LOCK(hailoenc);
     hailoenc->enc_params.gopSize = g_value_get_uint(value);
+    if (hailoenc->enc_params.gopSize > MAX_GOP_SIZE)
+    {
+      GST_WARNING_OBJECT(hailoenc, "GOP size %d is too large, setting to max %d", hailoenc->enc_params.gopSize, MAX_GOP_SIZE);
+      hailoenc->enc_params.gopSize = MAX_GOP_SIZE;
+    }
+    else if (hailoenc->enc_params.gopSize < MIN_GOP_SIZE)
+    {
+      GST_WARNING_OBJECT(hailoenc, "GOP size %d is too small, setting to min %d", hailoenc->enc_params.gopSize, MIN_GOP_SIZE);
+      hailoenc->enc_params.gopSize = MIN_GOP_SIZE;
+    }
     hailoenc->update_gop_size = TRUE;
     GST_OBJECT_UNLOCK(hailoenc);
     break;
@@ -666,6 +675,13 @@ static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc *hailoenc,
   size_t luma_size = 0;
   size_t chroma_size = 0;
   int ewl_ret;
+  GstVideoMeta *meta = gst_buffer_get_video_meta(frame->input_buffer);
+
+  if (meta)
+  {
+    enc_params->padding_to_crop = meta->stride[0] - GST_VIDEO_INFO_WIDTH(&(hailoenc->input_state->info));
+    InitEncoderPreProcConfig(enc_params, &(hailoenc->encoder_instance));
+  }
 
   switch (gst_buffer_n_memory(frame->input_buffer))
   {

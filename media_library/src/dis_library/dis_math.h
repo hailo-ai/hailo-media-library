@@ -34,6 +34,32 @@
 #include <array>
 #include <stdint.h>
 
+/// @brief radians to degrees
+///
+/// @param rad angle in radians
+static inline float DEGREES(float rad)
+{
+    return rad * (180.f / float(M_PI));
+}
+/// @brief degrees to radians
+///
+/// @param rad angle in degrees
+static inline float RADIANS(float deg)
+{
+    return deg * (float(M_PI) / 180.f);
+}
+
+/// @brief clamping function
+///
+/// @param val value to be clamped
+/// @param min minimal possible value
+/// @param max maximal possible value
+template <typename val_t>
+static inline val_t clamp(val_t val, val_t min, val_t max)
+{
+    return std::min(std::max(val, min), max);
+}
+
 typedef Vec3T<float> vec3;
 typedef Vec2T<float> vec2;
 

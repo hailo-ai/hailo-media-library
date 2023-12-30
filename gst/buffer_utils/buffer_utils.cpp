@@ -20,16 +20,40 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+
 #include "buffer_utils.hpp"
+#include "gsthailobuffermeta.hpp"
 #include <gst/gst.h>
 #include <stdio.h>
 #include <string.h>
 
+GstVideoMeta *add_video_meta_to_buffer(GstBuffer *buffer,
+                                       GstVideoInfo *video_info,
+                                       HailoMediaLibraryBufferPtr hailo_buffer)
+{
+  GstVideoAlignment alignment;
+  gst_video_alignment_reset(&alignment);
+  alignment.padding_right = hailo_buffer->hailo_pix_buffer->planes[0].bytesperline - GST_VIDEO_INFO_PLANE_STRIDE(video_info, 0);
+  if (!gst_video_info_align(video_info, &alignment))
+  {
+    return NULL;
+  }
+  GstVideoMeta *meta = gst_buffer_add_video_meta_full(buffer,
+                                                      GST_VIDEO_FRAME_FLAG_NONE,
+                                                      GST_VIDEO_INFO_FORMAT(video_info),
+                                                      GST_VIDEO_INFO_WIDTH(video_info),
+                                                      GST_VIDEO_INFO_HEIGHT(video_info),
+                                                      GST_VIDEO_INFO_N_PLANES(video_info),
+                                                      video_info->offset,
+                                                      video_info->stride);
+  return meta;
+}
+
 /**
- * Creates a GstBuffer from a dsp_image_properties_t
- * Create GstMemory for each plane and set the destroy notify to release_hailo_dsp_buffer
+ * Creates a GstBuffer from a HailoMediaLibraryBufferPtr
+ * Create GstMemory for each plane and set the destroy notify to hailo_media_library_plane_unref
  *
- * @param[in] dsp_image_props dsp_image_properties_t
+ * @param[in] hailo_buffer HailoMediaLibraryBufferPtr
  * @return GstBuffer
  */
 GstBuffer *create_gst_buffer_from_hailo_buffer(HailoMediaLibraryBufferPtr hailo_buffer)
@@ -49,19 +73,41 @@ GstBuffer *create_gst_buffer_from_hailo_buffer(HailoMediaLibraryBufferPtr hailo_
                                  gst_memory_new_wrapped(GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS, plane.userptr, plane.bytesused, 0, plane.bytesused,
                                                         hailo_plane, GDestroyNotify(hailo_media_library_plane_unref)));
     }
+    gst_buffer_add_hailo_buffer_meta(gst_outbuf, hailo_buffer, gst_buffer_get_size(gst_outbuf));
     return gst_outbuf;
 }
 
-bool create_hailo_buffer_from_video_frame(GstVideoFrame *video_frame, hailo_media_library_buffer &hailo_buffer, hailo15_vsm &hailo15_vsm)
+bool create_hailo_buffer_from_video_frame(GstVideoFrame *video_frame, hailo_media_library_buffer &hailo_buffer, GstHailoV4l2Meta *hailo_v4l2_meta)
 {
     DspImagePropertiesPtr input_dsp_image_props_ptr = std::make_shared<dsp_image_properties_t>();
     if (!create_dsp_buffer_from_video_frame(video_frame, *input_dsp_image_props_ptr))
         return false;
 
     hailo_buffer.create(nullptr, input_dsp_image_props_ptr);
-    hailo_buffer.vsm = hailo15_vsm;
+    if (hailo_v4l2_meta)
+    {
+        hailo_buffer.vsm = hailo_v4l2_meta->vsm;
+        hailo_buffer.isp_ae_fps = hailo_v4l2_meta->isp_ae_fps;
+        hailo_buffer.video_fd = hailo_v4l2_meta->video_fd;
+    }
     hailo_media_library_buffer_ref(&hailo_buffer);
     return true;
+}
+
+void update_video_info_from_meta(GstBuffer *buffer, GstVideoInfo *video_info)
+{
+    GstVideoMeta *meta = gst_buffer_get_video_meta(buffer);
+    if (meta)
+    {
+        video_info->finfo = gst_video_format_get_info (meta->format);
+        video_info->width = meta->width;
+        video_info->height = meta->height;
+        for (guint i = 0; i < meta->n_planes; i++)
+        {
+            video_info->offset[i] = meta->offset[i];
+            video_info->stride[i] = meta->stride[i];
+        }
+    }
 }
 
 /**
@@ -74,6 +120,7 @@ bool create_hailo_buffer_from_video_frame(GstVideoFrame *video_frame, hailo_medi
 bool create_dsp_buffer_from_video_info(GstBuffer *buffer, GstVideoInfo *video_info, dsp_image_properties_t &dsp_image_props)
 {
     bool ret = false;
+    update_video_info_from_meta(buffer, video_info);
     GstVideoFormat format = GST_VIDEO_INFO_FORMAT(video_info);
     size_t image_width = GST_VIDEO_INFO_WIDTH(video_info);
     size_t image_height = GST_VIDEO_INFO_HEIGHT(video_info);

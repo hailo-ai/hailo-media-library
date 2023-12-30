@@ -39,7 +39,10 @@ subdir('./src/dis_library')
 
 frontend_sources = [
     'src/vision_pre_proc/vision_pre_proc.cpp',
-    'src/vision_pre_proc/generate_mesh.cpp'
+    'src/vision_pre_proc/dewarp_mesh_context.cpp',
+    'src/front_end/multi_resize.cpp',
+    'src/front_end/dewarp.cpp',
+    'src/front_end/ldc_mesh_context.cpp'
 ]
 
 if get_option('hailort_4_16')
@@ -53,7 +56,7 @@ media_library_frontend_lib = shared_library('hailo_media_library_frontend',
     frontend_sources,
     cpp_args: common_args,
     include_directories: [incdir, dis_incdir, utils_incdir],
-    dependencies : [dsp_dep, dis_library_dep, spdlog_dep, json_dep, expected_dep, media_library_common_dep],
+    dependencies : [opencv_dep,  dsp_dep, dis_library_dep, spdlog_dep, json_dep, expected_dep, media_library_common_dep],
     version: meson.project_version(),
     install: true,
     install_dir: get_option('libdir'),

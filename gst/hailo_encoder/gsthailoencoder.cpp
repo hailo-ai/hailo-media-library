@@ -416,6 +416,13 @@ gst_hailo_encoder_get_input_buffer(GstHailoEncoder *hailoencoder,
   size_t luma_size = 0;
   size_t chroma_size = 0;
 
+  GstVideoMeta *meta = gst_buffer_get_video_meta(frame->input_buffer);
+
+  if (meta)
+  {
+    hailoencoder->encoder->update_stride(meta->stride[0]);
+  }
+
   switch (gst_buffer_n_memory(frame->input_buffer))
   {
   case 1:

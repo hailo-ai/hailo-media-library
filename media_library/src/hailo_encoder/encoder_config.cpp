@@ -24,7 +24,6 @@
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
-
 #include "config_manager.hpp"
 #include "encoder_class.hpp"
 #include "encoder_config.hpp"
@@ -318,7 +317,7 @@ VCEncRet Encoder::Impl::init_preprocessing_config()
     // No Rotation
     m_vc_pre_proc_cfg.rotation = (VCEncPictureRotation)0;
 
-    m_vc_pre_proc_cfg.origWidth = input_stream["width"];
+    m_vc_pre_proc_cfg.origWidth = m_input_stride;
     m_vc_pre_proc_cfg.origHeight = input_stream["height"];
 
     m_vc_pre_proc_cfg.xOffset = 0;
@@ -380,26 +379,23 @@ VCEncRet Encoder::Impl::init_encoder_config()
     auto input_stream = m_config->get_input_stream();
     auto output_stream = m_config->get_output_stream();
 
+    m_input_stride = input_stream["width"];
+
     m_vc_cfg.width = input_stream["width"];
     m_vc_cfg.height = input_stream["height"];
     m_vc_cfg.frameRateNum = input_stream["framerate"];
     m_vc_cfg.frameRateDenom = 1;
-
     /* intra tools in sps and pps */
     m_vc_cfg.strongIntraSmoothing = 1;
     m_vc_cfg.streamType = VCENC_BYTE_STREAM;
-
     m_vc_cfg.codecH264 = get_codec();
     m_vc_cfg.profile = get_profile();
-    std::string level = std::string(output_stream["level"]);
-    m_vc_cfg.level = get_level(level, m_vc_cfg.codecH264);
-
+    m_vc_cfg.level = get_level(std::string(output_stream["level"]), m_vc_cfg.codecH264);
     m_vc_cfg.bitDepthLuma = 8;
     m_vc_cfg.bitDepthChroma = 8;
 
     // default maxTLayer
     m_vc_cfg.maxTLayers = 1;
-
     m_vc_cfg.interlacedFrame = 0;
     /* Find the max number of reference frame */
     u32 maxRefPics = 0;
@@ -425,9 +421,8 @@ VCEncRet Encoder::Impl::init_encoder_config()
     m_vc_cfg.exp_of_alignment = 0;
     m_vc_cfg.refAlignmentExp = 0;
     m_vc_cfg.AXIAlignment = 0;
-    m_vc_cfg.AXIreadOutstandingNum = 64; // ENCH2_ASIC_AXI_READ_OUTSTANDING_NUM;
-    m_vc_cfg.AXIwriteOutstandingNum =
-        64; // ENCH2_ASIC_AXI_WRITE_OUTSTANDING_NUM;
+    m_vc_cfg.AXIreadOutstandingNum = 64;  // ENCH2_ASIC_AXI_READ_OUTSTANDING_NUM;
+    m_vc_cfg.AXIwriteOutstandingNum = 64; // ENCH2_ASIC_AXI_WRITE_OUTSTANDING_NUM;
     if ((ret = VCEncInit(&m_vc_cfg, &m_inst)) != VCENC_OK)
     {
         // PrintErrorValue("VCEncInit() failed.", ret);

@@ -65,6 +65,7 @@ private:
   VCEncCodingCtrl m_vc_coding_cfg;
   VCEncRateCtrl m_vc_rate_cfg;
   VCEncPreProcessingCfg m_vc_pre_proc_cfg;
+  uint32_t m_input_stride;
 
   // const char * const m_json_schema = load_json_schema();
   VCEncInst m_inst;
@@ -87,6 +88,7 @@ public:
   ~Impl();
   std::vector<EncoderOutputBuffer> handle_frame(EncoderInputBuffer buf);
   void force_keyframe();
+  void update_stride(uint32_t stride);
   int get_gop_size();
   std::shared_ptr<EncoderConfig> get_config();
   EncoderOutputBuffer start();

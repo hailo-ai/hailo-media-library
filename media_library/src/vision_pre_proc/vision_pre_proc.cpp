@@ -21,38 +21,30 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include "vision_pre_proc.hpp"
+#include "buffer_pool.hpp"
+#include "config_manager.hpp"
+#include "dewarp_mesh_context.hpp"
+#include "dsp_utils.hpp"
+#include "media_library_logger.hpp"
+#include "media_library_utils.hpp"
 #include <iostream>
+#include <linux/v4l2-controls.h>
+#include <linux/v4l2-subdev.h>
 #include <stdint.h>
 #include <string>
+#include <sys/ioctl.h>
 #include <time.h>
 #include <tl/expected.hpp>
 #include <vector>
 
-#include "buffer_pool.hpp"
-#include "config_manager.hpp"
-#include "dsp_utils.hpp"
-#include "generate_mesh.hpp"
-#include "media_library_logger.hpp"
-#include "vision_pre_proc.hpp"
-
-/**
- * Gets the time difference between 2 time specs in milliseconds.
- * @param[in] after     The second time spec.
- * @param[in] before    The first time spec.\
- * @returns The time differnece in milliseconds.
- */
-int64_t media_library_difftimespec_ms(const struct timespec after,
-                                      const struct timespec before)
-{
-    return ((int64_t)after.tv_sec - (int64_t)before.tv_sec) * (int64_t)1000 +
-           ((int64_t)after.tv_nsec - (int64_t)before.tv_nsec) / 1000000;
-}
+#define HAILO15_ISP_CID_LSC_BASE (V4L2_CID_USER_BASE + 0x3200)
+#define HAILO15_ISP_CID_LSC_OPTICAL_ZOOM (HAILO15_ISP_CID_LSC_BASE + 0x0009)
 
 class MediaLibraryVisionPreProc::Impl final
 {
 public:
-    static tl::expected<std::shared_ptr<MediaLibraryVisionPreProc::Impl>,
-                        media_library_return>
+    static tl::expected<std::shared_ptr<MediaLibraryVisionPreProc::Impl>, media_library_return>
     create(std::string config_string);
     // Constructor
     Impl(media_library_return &status, std::string config_string);
@@ -66,15 +58,11 @@ public:
     // Configure the pre-processing module with new json string
     media_library_return configure(std::string config_string);
 
-    // Configure the pre-processing module with pre_proc_op_configurations
-    // object
-    media_library_return
-    configure(pre_proc_op_configurations &pre_proc_op_configs);
+    // Configure the pre-processing module with pre_proc_op_configurations object
+    media_library_return configure(pre_proc_op_configurations &pre_proc_op_configs);
 
     // Perform pre-processing on the input frame and return the output frames
-    media_library_return
-    handle_frame(hailo_media_library_buffer &input_frame,
-                 std::vector<hailo_media_library_buffer> &output_frames);
+    media_library_return handle_frame(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames);
 
     // get the pre-processing configurations object
     pre_proc_op_configurations &get_pre_proc_configs();
@@ -82,18 +70,15 @@ public:
     // get the output video configurations object
     output_video_config_t &get_output_video_config();
 
+    // set magnification level of optical zoom
+    media_library_return set_optical_zoom(float magnification);
+
 private:
-    // Pointer to internally allocated DIS instance. used for DIS library mesh
-    // generation
-    void *m_dis_ctx;
-    // dewarp mesh object
-    dsp_dewarp_mesh_t m_dewarp_mesh;
+    std::unique_ptr<DewarpMeshContext> m_dewarp_mesh_ctx;
     // configured flag - to determine if first configuration was done
     bool m_configured;
     // frame counter - used internally for matching requested framerate
     uint m_frame_counter;
-    size_t m_dewarp_output_width;
-    size_t m_dewarp_output_height;
     // configuration manager
     std::shared_ptr<ConfigManager> m_config_manager;
     // operation configurations
@@ -102,67 +87,45 @@ private:
     MediaLibraryBufferPoolPtr m_input_buffer_pool;
     // output buffer pools
     std::vector<MediaLibraryBufferPoolPtr> m_buffer_pools;
-    media_library_return
-    validate_configurations(pre_proc_op_configurations &pre_proc_configs);
-    media_library_return
-    decode_config_json_string(pre_proc_op_configurations &pre_proc_configs,
-                              std::string config_string);
-    media_library_return
-    acquire_output_buffers(std::vector<hailo_media_library_buffer> &buffers,
-                           output_video_config_t &output_video_config);
+    // video fd
+    int m_video_fd;
+    media_library_return validate_configurations(pre_proc_op_configurations &pre_proc_configs);
+    media_library_return decode_config_json_string(pre_proc_op_configurations &pre_proc_configs, std::string config_string);
+    media_library_return acquire_output_buffers(std::vector<hailo_media_library_buffer> &buffers, output_video_config_t &output_video_config);
     media_library_return create_and_initialize_buffer_pools();
-    media_library_return initialize_dewarp_mesh();
-    media_library_return validate_input_and_output_frames(
-        hailo_media_library_buffer &input_frame,
-        std::vector<hailo_media_library_buffer> &output_frames);
-    media_library_return
-    perform_dewarp(hailo_media_library_buffer &input_buffer,
-                   hailo_media_library_buffer &dewarp_output_buffer);
-    media_library_return perform_multi_resize(
-        hailo_media_library_buffer &input_buffer,
-        std::vector<hailo_media_library_buffer> &output_frames);
-    media_library_return perform_dewarp_and_multi_resize(
-        hailo_media_library_buffer &input_frame,
-        std::vector<hailo_media_library_buffer> &output_frames);
+    media_library_return validate_input_and_output_frames(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames);
+    media_library_return perform_dewarp(hailo_media_library_buffer &input_buffer, hailo_media_library_buffer &dewarp_output_buffer);
+    media_library_return perform_multi_resize(hailo_media_library_buffer &input_buffer, std::vector<hailo_media_library_buffer> &output_frames);
+    media_library_return perform_dewarp_and_multi_resize(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames);
     void stamp_time_and_log_fps(timespec &start_handle, timespec &end_handle);
     void increase_frame_counter();
 };
 
 //------------------------ MediaLibraryVisionPreProc ------------------------
-tl::expected<std::shared_ptr<MediaLibraryVisionPreProc>, media_library_return>
-MediaLibraryVisionPreProc::create(std::string config_string)
+tl::expected<std::shared_ptr<MediaLibraryVisionPreProc>, media_library_return> MediaLibraryVisionPreProc::create(std::string config_string)
 {
     auto impl_expected = Impl::create(config_string);
     if (impl_expected.has_value())
-        return std::make_shared<MediaLibraryVisionPreProc>(
-            impl_expected.value());
+        return std::make_shared<MediaLibraryVisionPreProc>(impl_expected.value());
     else
         return tl::make_unexpected(impl_expected.error());
 }
 
-MediaLibraryVisionPreProc::MediaLibraryVisionPreProc(
-    std::shared_ptr<MediaLibraryVisionPreProc::Impl> impl)
-    : m_impl(impl)
-{
-}
+MediaLibraryVisionPreProc::MediaLibraryVisionPreProc(std::shared_ptr<MediaLibraryVisionPreProc::Impl> impl) : m_impl(impl) {}
 
 MediaLibraryVisionPreProc::~MediaLibraryVisionPreProc() = default;
 
-media_library_return
-MediaLibraryVisionPreProc::configure(std::string config_string)
+media_library_return MediaLibraryVisionPreProc::configure(std::string config_string)
 {
     return m_impl->configure(config_string);
 }
 
-media_library_return MediaLibraryVisionPreProc::configure(
-    pre_proc_op_configurations &pre_proc_op_configs)
+media_library_return MediaLibraryVisionPreProc::configure(pre_proc_op_configurations &pre_proc_op_configs)
 {
     return m_impl->configure(pre_proc_op_configs);
 }
 
-media_library_return MediaLibraryVisionPreProc::handle_frame(
-    hailo_media_library_buffer &input_frame,
-    std::vector<hailo_media_library_buffer> &output_frames)
+media_library_return MediaLibraryVisionPreProc::handle_frame(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames)
 {
     return m_impl->handle_frame(input_frame, output_frames);
 }
@@ -177,18 +140,17 @@ output_video_config_t &MediaLibraryVisionPreProc::get_output_video_config()
     return m_impl->get_output_video_config();
 }
 
-//------------------------ MediaLibraryVisionPreProc::Impl
-//------------------------
+media_library_return MediaLibraryVisionPreProc::set_optical_zoom(float magnification)
+{
+    return m_impl->set_optical_zoom(magnification);
+}
 
-tl::expected<std::shared_ptr<MediaLibraryVisionPreProc::Impl>,
-             media_library_return>
-MediaLibraryVisionPreProc::Impl::create(std::string config_string)
+//------------------------ MediaLibraryVisionPreProc::Impl ------------------------
+
+tl::expected<std::shared_ptr<MediaLibraryVisionPreProc::Impl>, media_library_return> MediaLibraryVisionPreProc::Impl::create(std::string config_string)
 {
     media_library_return status = MEDIA_LIBRARY_UNINITIALIZED;
-    // MediaLibraryVisionPreProc::Impl vision_preproc(status, config_string);
-    std::shared_ptr<MediaLibraryVisionPreProc::Impl> vision_preproc =
-        std::make_shared<MediaLibraryVisionPreProc::Impl>(status,
-                                                          config_string);
+    std::shared_ptr<MediaLibraryVisionPreProc::Impl> vision_preproc = std::make_shared<MediaLibraryVisionPreProc::Impl>(status, config_string);
     if (status != MEDIA_LIBRARY_SUCCESS)
     {
         return tl::make_unexpected(status);
@@ -196,21 +158,17 @@ MediaLibraryVisionPreProc::Impl::create(std::string config_string)
     return vision_preproc;
 }
 
-MediaLibraryVisionPreProc::Impl::Impl(media_library_return &status,
-                                      std::string config_string)
+MediaLibraryVisionPreProc::Impl::Impl(media_library_return &status, std::string config_string)
 {
-    m_dis_ctx = nullptr;
     m_configured = false;
+    m_video_fd = -1;
 
-    // Start frame count from 0 - to make sure we always handle the first frame
-    // even if framerate is set to 0
+    // Start frame count from 0 - to make sure we always handle the first frame even if framerate is set to 0
     m_frame_counter = 0;
     m_buffer_pools.reserve(5);
-    m_config_manager =
-        std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_VISION);
+    m_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_VISION);
     m_pre_proc_configs.output_video_config.resolutions.reserve(5);
-    if (decode_config_json_string(m_pre_proc_configs, config_string) !=
-        MEDIA_LIBRARY_SUCCESS)
+    if (decode_config_json_string(m_pre_proc_configs, config_string) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to decode json string");
         status = MEDIA_LIBRARY_INVALID_ARGUMENT;
@@ -225,6 +183,7 @@ MediaLibraryVisionPreProc::Impl::Impl(media_library_return &status,
         return;
     }
 
+    m_dewarp_mesh_ctx = std::make_unique<DewarpMeshContext>(m_pre_proc_configs);
     if (configure(m_pre_proc_configs) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to configure vision pre proc");
@@ -238,15 +197,7 @@ MediaLibraryVisionPreProc::Impl::Impl(media_library_return &status,
 MediaLibraryVisionPreProc::Impl::~Impl()
 {
     m_pre_proc_configs.output_video_config.resolutions.clear();
-    if (m_configured && m_pre_proc_configs.dewarp_config.enabled)
-    {
-        media_library_return ret = free_mesh(&m_dis_ctx, m_dewarp_mesh);
-        if (ret != MEDIA_LIBRARY_SUCCESS)
-        {
-            LOGGER__ERROR("Failed to free mesh, status: {}", ret);
-        }
-    }
-
+    m_dewarp_mesh_ctx = nullptr;
     dsp_status status = dsp_utils::release_device();
     if (status != DSP_SUCCESS)
     {
@@ -254,20 +205,16 @@ MediaLibraryVisionPreProc::Impl::~Impl()
     }
 }
 
-media_library_return MediaLibraryVisionPreProc::Impl::decode_config_json_string(
-    pre_proc_op_configurations &pre_proc_configs, std::string config_string)
+media_library_return MediaLibraryVisionPreProc::Impl::decode_config_json_string(pre_proc_op_configurations &pre_proc_configs, std::string config_string)
 {
-    return m_config_manager
-        ->config_string_to_struct<pre_proc_op_configurations>(config_string,
-                                                              pre_proc_configs);
+    return m_config_manager->config_string_to_struct<pre_proc_op_configurations>(config_string, pre_proc_configs);
 }
 
-media_library_return
-MediaLibraryVisionPreProc::Impl::configure(std::string config_string)
+media_library_return MediaLibraryVisionPreProc::Impl::configure(std::string config_string)
 {
     pre_proc_op_configurations pre_proc_configs;
-    if (decode_config_json_string(pre_proc_configs, config_string) !=
-        MEDIA_LIBRARY_SUCCESS)
+    LOGGER__INFO("Configuring vision pre proc Decoding json string");
+    if (decode_config_json_string(pre_proc_configs, config_string) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to decode json string: {}", config_string);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
@@ -275,22 +222,15 @@ MediaLibraryVisionPreProc::Impl::configure(std::string config_string)
     return configure(pre_proc_configs);
 }
 
-media_library_return MediaLibraryVisionPreProc::Impl::validate_configurations(
-    pre_proc_op_configurations &pre_proc_op_configs)
+media_library_return MediaLibraryVisionPreProc::Impl::validate_configurations(pre_proc_op_configurations &pre_proc_op_configs)
 {
-    // Make sure that the output fps of each stream is divided by the input fps
-    // with no reminder
-    output_resolution_t &input_res =
-        pre_proc_op_configs.input_video_config.resolution;
-    for (output_resolution_t &output_res :
-         pre_proc_op_configs.output_video_config.resolutions)
+    // Make sure that the output fps of each stream is divided by the input fps with no reminder
+    output_resolution_t &input_res = pre_proc_op_configs.input_video_config.resolution;
+    for (output_resolution_t &output_res : pre_proc_op_configs.output_video_config.resolutions)
     {
-        if (output_res.framerate != 0 &&
-            input_res.framerate % output_res.framerate != 0)
+        if (output_res.framerate != 0 && input_res.framerate % output_res.framerate != 0)
         {
-            LOGGER__ERROR("Invalid output framerate {} - must be a divider of "
-                          "the input framerate {}",
-                          output_res.framerate, input_res.framerate);
+            LOGGER__ERROR("Invalid output framerate {} - must be a divider of the input framerate {}", output_res.framerate, input_res.framerate);
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
     }
@@ -298,155 +238,91 @@ media_library_return MediaLibraryVisionPreProc::Impl::validate_configurations(
     if (m_pre_proc_configs.dewarp_config.enabled)
     {
         // Validate dewarp configurations
-        if (m_pre_proc_configs.dewarp_config.camera_fov > 160.f &&
-            m_pre_proc_configs.dewarp_config.camera_type == CAMERA_TYPE_PINHOLE)
+        if (m_pre_proc_configs.dewarp_config.camera_fov > 160.f && m_pre_proc_configs.dewarp_config.camera_type == CAMERA_TYPE_PINHOLE)
         {
-            LOGGER__ERROR("Invalid value for camera_fov ({}) for a pin-hole "
-                          "camera type, must be lower than 160",
-                          m_pre_proc_configs.dewarp_config.camera_fov);
+            LOGGER__ERROR("Invalid value for camera_fov ({}) for a pin-hole camera type, must be lower than 160", m_pre_proc_configs.dewarp_config.camera_fov);
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
     }
     else
     {
         if (m_pre_proc_configs.dis_config.enabled)
-            LOGGER__WARNING("DIS feature is enabled in the configuration, but "
-                            "dewarp is disabled. DIS will not be performed");
+            LOGGER__WARNING("DIS feature is enabled in the configuration, but dewarp is disabled. DIS will not be performed");
         if (m_pre_proc_configs.flip_config.enabled)
-            LOGGER__WARNING("Flip feature is enabled in the configuration, but "
-                            "dewarp is disabled. Flip will not be performed");
+            LOGGER__WARNING("Flip feature is enabled in the configuration, but dewarp is disabled. Flip will not be performed");
         if (m_pre_proc_configs.rotation_config.enabled)
-            LOGGER__WARNING(
-                "Rotation feature is enabled in the configuration, but dewarp "
-                "is disabled. Rotation will not be performed");
+            LOGGER__WARNING("Rotation feature is enabled in the configuration, but dewarp is disabled. Rotation will not be performed");
     }
 
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryVisionPreProc::Impl::configure(
-    pre_proc_op_configurations &pre_proc_op_configs)
+media_library_return MediaLibraryVisionPreProc::Impl::configure(pre_proc_op_configurations &pre_proc_op_configs)
 {
+    LOGGER__INFO("Configuring vision pre proc");
     if (validate_configurations(pre_proc_op_configs) != MEDIA_LIBRARY_SUCCESS)
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
 
+    media_library_return ret = m_pre_proc_configs.update(pre_proc_op_configs);
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to update pre proc configurations (prohibited) {}", ret);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    m_dewarp_mesh_ctx->configure(pre_proc_op_configs);
     if (m_pre_proc_configs.dewarp_config.enabled &&
         m_pre_proc_configs.rotation_config.enabled &&
         (m_pre_proc_configs.rotation_config.angle == ROTATION_ANGLE_90 ||
          m_pre_proc_configs.rotation_config.angle == ROTATION_ANGLE_270))
     {
-        // Swap width and height for rotation 90 or 270
-        m_dewarp_output_width = pre_proc_op_configs.input_video_config
-                                    .resolution.dimensions.destination_height;
-        m_dewarp_output_height = pre_proc_op_configs.input_video_config
-                                     .resolution.dimensions.destination_width;
-
-        for (output_resolution_t &output_res :
-             pre_proc_op_configs.output_video_config.resolutions)
+        for (output_resolution_t &output_res : pre_proc_op_configs.output_video_config.resolutions)
         {
-            size_t outp_height = output_res.dimensions.destination_height;
-            output_res.dimensions.destination_height =
-                output_res.dimensions.destination_width;
-            output_res.dimensions.destination_width = outp_height;
+            auto w = output_res.dimensions.destination_width;
+            auto h = output_res.dimensions.destination_height;
+            output_res.dimensions.destination_height = w;
+            output_res.dimensions.destination_width = h;
         }
-    }
-    else
-    {
-        m_dewarp_output_width = pre_proc_op_configs.input_video_config
-                                    .resolution.dimensions.destination_width;
-        m_dewarp_output_height = pre_proc_op_configs.input_video_config
-                                     .resolution.dimensions.destination_height;
-    }
-
-    // Is it first time configuration?
-    if (m_configured)
-    {
-        // No - update configurations and validate that no prohibited changes
-        // were made
-        return m_pre_proc_configs.update(pre_proc_op_configs);
     }
 
     // Create and initialize buffer pools
-    media_library_return ret = create_and_initialize_buffer_pools();
+    ret = create_and_initialize_buffer_pools();
     if (ret != MEDIA_LIBRARY_SUCCESS)
         return ret;
-
-    if (m_pre_proc_configs.dewarp_config.enabled)
-    {
-        // Yes - initialize mesh
-        ret = initialize_dewarp_mesh();
-        if (ret != MEDIA_LIBRARY_SUCCESS)
-            return ret;
-    }
 
     m_configured = true;
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryVisionPreProc::Impl::initialize_dewarp_mesh()
+media_library_return MediaLibraryVisionPreProc::Impl::create_and_initialize_buffer_pools()
 {
-    output_resolution_t &input_res =
-        m_pre_proc_configs.input_video_config.resolution;
-    media_library_return ret = init_mesh(
-        &m_dis_ctx, m_dewarp_mesh, m_pre_proc_configs.dewarp_config,
-        m_pre_proc_configs.dis_config, input_res.dimensions.destination_width,
-        input_res.dimensions.destination_height);
-
-    if (ret != MEDIA_LIBRARY_SUCCESS)
-        return ret;
-
-    LOGGER__INFO("Generating mesh");
-    flip_direction_t flip_direction = FLIP_DIRECTION_NONE;
-    if (m_pre_proc_configs.flip_config.enabled)
-        flip_direction = m_pre_proc_configs.flip_config.direction;
-
-    rotation_angle_t rotation_angle = ROTATION_ANGLE_0;
-    if (m_pre_proc_configs.rotation_config.enabled)
-        rotation_angle = m_pre_proc_configs.rotation_config.angle;
-
-    // Generate dewarp mesh
-    ret = generate_dewarp_only_mesh(m_dis_ctx, m_dewarp_mesh,
-                                    input_res.dimensions.destination_width,
-                                    input_res.dimensions.destination_height,
-                                    flip_direction, rotation_angle);
-    if (ret != MEDIA_LIBRARY_SUCCESS)
+    m_buffer_pools.clear();
+    m_buffer_pools.reserve(5);
+    uint width, height;
+    if (m_pre_proc_configs.dewarp_config.enabled) // if dewarp is enabled, use dewarp output dimensions
     {
-        LOGGER__ERROR("Failed to generate mesh, status: {}", ret);
-        return ret;
+        width = (uint)m_dewarp_mesh_ctx->m_dewarp_output_width;
+        height = (uint)m_dewarp_mesh_ctx->m_dewarp_output_height;
+    }
+    else // else use input dimensions
+    {
+        width = (uint)m_pre_proc_configs.input_video_config.resolution.dimensions.destination_width;
+        height = (uint)m_pre_proc_configs.input_video_config.resolution.dimensions.destination_height;
     }
 
-    return ret;
-}
-
-media_library_return
-MediaLibraryVisionPreProc::Impl::create_and_initialize_buffer_pools()
-{
-    output_resolution_t &input_res =
-        m_pre_proc_configs.input_video_config.resolution;
-    m_input_buffer_pool = std::make_shared<MediaLibraryBufferPool>(
-        (uint)m_dewarp_output_width, (uint)m_dewarp_output_height,
-        m_pre_proc_configs.input_video_config.format,
-        (uint)input_res.pool_max_buffers, CMA);
+    auto bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width(width);
+    m_input_buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, m_pre_proc_configs.input_video_config.format, (uint)m_pre_proc_configs.input_video_config.resolution.pool_max_buffers, CMA, bytes_per_line);
     if (m_input_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to init buffer pool");
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
-
-    for (output_resolution_t &output_res :
-         m_pre_proc_configs.output_video_config.resolutions)
+    for (output_resolution_t &output_res : m_pre_proc_configs.output_video_config.resolutions)
     {
-        LOGGER__INFO("Creating buffer pool for output resolution: width {} "
-                     "height {} in buffers size of {}",
-                     output_res.dimensions.destination_width,
-                     output_res.dimensions.destination_height,
-                     output_res.pool_max_buffers);
-        MediaLibraryBufferPoolPtr buffer_pool =
-            std::make_shared<MediaLibraryBufferPool>(
-                (uint)output_res.dimensions.destination_width,
-                (uint)output_res.dimensions.destination_height,
-                m_pre_proc_configs.output_video_config.format,
-                output_res.pool_max_buffers, CMA);
+        LOGGER__INFO("Creating buffer pool for output resolution: width {} height {} in buffers size of {}", output_res.dimensions.destination_width, output_res.dimensions.destination_height, output_res.pool_max_buffers);
+        width = (uint)output_res.dimensions.destination_width;
+        bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width(width);
+        MediaLibraryBufferPoolPtr buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, (uint)output_res.dimensions.destination_height, m_pre_proc_configs.output_video_config.format, output_res.pool_max_buffers, CMA, bytes_per_line);
         if (buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR("Failed to init buffer pool");
@@ -454,6 +330,7 @@ MediaLibraryVisionPreProc::Impl::create_and_initialize_buffer_pools()
         }
         m_buffer_pools.emplace_back(buffer_pool);
     }
+    LOGGER__DEBUG("vision_pre_proc holding {} buffer pools", m_buffer_pools.size());
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -464,32 +341,25 @@ MediaLibraryVisionPreProc::Impl::create_and_initialize_buffer_pools()
  * @param[in] buffers - vector of output buffers
  * @param[in] output_video_config - output video configuration
  */
-media_library_return MediaLibraryVisionPreProc::Impl::acquire_output_buffers(
-    std::vector<hailo_media_library_buffer> &buffers,
-    output_video_config_t &output_video_config)
+media_library_return MediaLibraryVisionPreProc::Impl::acquire_output_buffers(std::vector<hailo_media_library_buffer> &buffers, output_video_config_t &output_video_config)
 {
     // Acquire output buffers
     uint8_t output_size = output_video_config.resolutions.size();
     for (uint8_t i = 0; i < output_size; i++)
     {
         uint32_t framerate = output_video_config.resolutions[i].framerate;
-        LOGGER__INFO("Acquiring buffer {}, target framerate is {}", i,
-                     framerate);
+        LOGGER__DEBUG("Acquiring buffer {}, target framerate is {}", i, framerate);
 
         // TODO: Change from const 30 to the configurable value
         uint stream_period = (30 / framerate);
         bool should_acquire_buffer = (m_frame_counter % stream_period == 0);
-        LOGGER__DEBUG("frame counter is {}, stream period is {}, should "
-                      "acquire buffer is {}",
-                      m_frame_counter, stream_period, should_acquire_buffer);
+        LOGGER__DEBUG("frame counter is {}, stream period is {}, should acquire buffer is {}", m_frame_counter, stream_period, should_acquire_buffer);
 
         hailo_media_library_buffer buffer;
 
         if (!should_acquire_buffer)
         {
-            LOGGER__INFO("Skipping current frame to match framerate {}, no "
-                         "need to acquire buffer {}, counter is {}",
-                         framerate, i, m_frame_counter);
+            LOGGER__DEBUG("Skipping current frame to match framerate {}, no need to acquire buffer {}, counter is {}", framerate, i, m_frame_counter);
             buffers.emplace_back(std::move(buffer));
 
             continue;
@@ -521,29 +391,6 @@ media_library_return MediaLibraryVisionPreProc::Impl::perform_dewarp(
     hailo_media_library_buffer &dewarp_output_buffer)
 {
     struct timespec start_dewarp, end_dewarp;
-    if (m_pre_proc_configs.dis_config.enabled)
-    {
-        // Update dewarp mesh with the VSM data to perform DIS
-        LOGGER__INFO("Updating mesh with VSM");
-        flip_direction_t flip_direction = FLIP_DIRECTION_NONE;
-        if (m_pre_proc_configs.flip_config.enabled)
-            flip_direction = m_pre_proc_configs.flip_config.direction;
-
-        rotation_angle_t rotation_angle = ROTATION_ANGLE_0;
-        if (m_pre_proc_configs.rotation_config.enabled)
-            rotation_angle = m_pre_proc_configs.rotation_config.angle;
-
-        media_library_return media_lib_ret = generate_mesh(
-            m_dis_ctx, m_dewarp_mesh, input_buffer.hailo_pix_buffer->width,
-            input_buffer.hailo_pix_buffer->height, input_buffer.vsm,
-            flip_direction, rotation_angle);
-        if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
-        {
-            LOGGER__ERROR("Failed to update mesh with VSM, status: {}",
-                          media_lib_ret);
-            return media_lib_ret;
-        }
-    }
 
     // Acquire buffer for dewarp output
     if (m_input_buffer_pool->acquire_buffer(dewarp_output_buffer) !=
@@ -554,18 +401,16 @@ media_library_return MediaLibraryVisionPreProc::Impl::perform_dewarp(
     }
 
     // Perform dewarp
-    LOGGER__INFO("Performing dewarp with interpolation type {}",
-                 m_pre_proc_configs.dewarp_config.interpolation_type);
+    dsp_dewarp_mesh_t *mesh = m_dewarp_mesh_ctx->get();
+    LOGGER__TRACE("Performing dewarp with mesh (w={}, h={}) interpolation type {}", mesh->mesh_width, mesh->mesh_height, m_pre_proc_configs.dewarp_config.interpolation_type);
     clock_gettime(CLOCK_MONOTONIC, &start_dewarp);
     dsp_status ret = dsp_utils::perform_dsp_dewarp(
         input_buffer.hailo_pix_buffer.get(),
-        dewarp_output_buffer.hailo_pix_buffer.get(), &m_dewarp_mesh,
+        dewarp_output_buffer.hailo_pix_buffer.get(), mesh,
         m_pre_proc_configs.dewarp_config.interpolation_type);
     clock_gettime(CLOCK_MONOTONIC, &end_dewarp);
-    long ms = (long)media_library_difftimespec_ms(end_dewarp, start_dewarp);
-    uint framerate = 1000 / ms;
-    LOGGER__DEBUG("perform_dsp_dewarp took {} milliseconds ({} fps)", ms,
-                  framerate);
+    [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_dewarp, start_dewarp);
+    LOGGER__TRACE("perform_dsp_dewarp took {} milliseconds ({} fps)", ms, (1000 / ms));
 
     if (ret != DSP_SUCCESS)
         return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
@@ -585,20 +430,16 @@ media_library_return MediaLibraryVisionPreProc::Impl::perform_multi_resize(
 {
     struct timespec start_resize, end_resize;
     size_t output_frames_size = output_frames.size();
-    size_t num_of_output_resolutions =
-        m_pre_proc_configs.output_video_config.resolutions.size();
+    size_t num_of_output_resolutions = m_pre_proc_configs.output_video_config.resolutions.size();
     if (num_of_output_resolutions != output_frames_size)
     {
-        LOGGER__ERROR("Number of output resolutions ({}) does not match number "
-                      "of output frames ({})",
-                      num_of_output_resolutions, output_frames_size);
+        LOGGER__ERROR("Number of output resolutions ({}) does not match number of output frames ({})", num_of_output_resolutions, output_frames_size);
         return MEDIA_LIBRARY_ERROR;
     }
 
     dsp_multi_resize_params_t multi_resize_params = {
         .src = input_buffer.hailo_pix_buffer.get(),
-        .interpolation =
-            m_pre_proc_configs.output_video_config.interpolation_type,
+        .interpolation = m_pre_proc_configs.output_video_config.interpolation_type,
     };
 
     uint num_bufs_to_resize = 0;
@@ -607,55 +448,50 @@ media_library_return MediaLibraryVisionPreProc::Impl::perform_multi_resize(
         // TODO: Handle cases where its nullptr
         if (output_frames[i].hailo_pix_buffer == nullptr)
         {
-            LOGGER__INFO(
-                "Skipping resize for output frame {} to match target framerate",
-                i);
+            LOGGER__DEBUG("Skipping resize for output frame {} to match target framerate", i);
             continue;
         }
-        dsp_image_properties_t *output_frame =
-            output_frames[i].hailo_pix_buffer.get();
-        output_resolution_t &output_res =
-            m_pre_proc_configs.output_video_config.resolutions[i];
+        dsp_image_properties_t *output_frame = output_frames[i].hailo_pix_buffer.get();
+        output_resolution_t &output_res = m_pre_proc_configs.output_video_config.resolutions[i];
 
         if (output_res != *output_frame)
         {
-            LOGGER__ERROR(
-                "Invalid output frame width {} output frame height {}",
-                output_frame->width, output_frame->height);
+            LOGGER__ERROR("Invalid output frame width {} output frame height {}", output_frame->width, output_frame->height);
             return MEDIA_LIBRARY_ERROR;
         }
 
         multi_resize_params.dst[num_bufs_to_resize] = output_frame;
-        LOGGER__DEBUG("Multi resize output frame ({}) - y_ptr = {}, uv_ptr = "
-                      "{}. dims: width {} output frame height {}",
-                      i, fmt::ptr(output_frame->planes[0].userptr),
-                      fmt::ptr(output_frame->planes[1].userptr),
-                      output_frame->width, output_frame->height);
+        LOGGER__DEBUG("Multi resize output frame ({}) - y_ptr = {}, uv_ptr = {}. dims: width {} output frame height {}", i, fmt::ptr(output_frame->planes[0].userptr), fmt::ptr(output_frame->planes[1].userptr), output_frame->width, output_frame->height);
         num_bufs_to_resize++;
     }
 
     if (num_bufs_to_resize == 0)
     {
-        LOGGER__INFO("No need to perform multi resize");
+        LOGGER__DEBUG("No need to perform multi resize");
         return MEDIA_LIBRARY_SUCCESS;
     }
 
     uint start_x = 0;
     uint start_y = 0;
-    uint end_x = m_dewarp_output_width;
-    uint end_y = m_dewarp_output_height;
+    uint end_x = (uint)m_pre_proc_configs.input_video_config.resolution.dimensions.destination_width;
+    uint end_y = (uint)m_pre_proc_configs.input_video_config.resolution.dimensions.destination_height;
+
+    // if dewarp is enabled, resulotion may change, use dewarp output dimensions
+    if (m_pre_proc_configs.dewarp_config.enabled)
+    {
+        end_x = (uint)m_dewarp_mesh_ctx->m_dewarp_output_width;
+        end_y = (uint)m_dewarp_mesh_ctx->m_dewarp_output_height;
+    }
 
     if (m_pre_proc_configs.digital_zoom_config.enabled)
     {
         if (m_pre_proc_configs.digital_zoom_config.mode ==
             DIGITAL_ZOOM_MODE_MAGNIFICATION)
         {
-            uint center_x = m_dewarp_output_width / 2;
-            uint center_y = m_dewarp_output_height / 2;
-            uint zoom_width =
-                center_x / m_pre_proc_configs.digital_zoom_config.magnification;
-            uint zoom_height =
-                center_y / m_pre_proc_configs.digital_zoom_config.magnification;
+            uint center_x = end_x / 2;
+            uint center_y = end_y / 2;
+            uint zoom_width = center_x / m_pre_proc_configs.digital_zoom_config.magnification;
+            uint zoom_height = center_y / m_pre_proc_configs.digital_zoom_config.magnification;
             start_x = center_x - zoom_width;
             start_y = center_y - zoom_height;
             end_x = center_x + zoom_width;
@@ -663,45 +499,34 @@ media_library_return MediaLibraryVisionPreProc::Impl::perform_multi_resize(
         }
         else
         {
-            roi_t &digital_zoom_roi =
-                m_pre_proc_configs.digital_zoom_config.roi;
+            roi_t &digital_zoom_roi = m_pre_proc_configs.digital_zoom_config.roi;
             start_x = digital_zoom_roi.x;
             start_y = digital_zoom_roi.y;
             end_x = start_x + digital_zoom_roi.width;
             end_y = start_y + digital_zoom_roi.height;
 
             // Validate digital zoom ROI values with the input frame dimensions
-            if (end_x > m_dewarp_output_width)
+            if (end_x > m_dewarp_mesh_ctx->m_dewarp_output_width)
             {
-                LOGGER__ERROR("Invalid digital zoom ROI. X ({}) and width ({}) "
-                              "coordinates exceed input frame width ({})",
-                              start_x, digital_zoom_roi.width,
-                              m_dewarp_output_width);
+                LOGGER__ERROR("Invalid digital zoom ROI. X ({}) and width ({}) coordinates exceed input frame width ({})", start_x, digital_zoom_roi.width, m_dewarp_mesh_ctx->m_dewarp_output_width);
                 return MEDIA_LIBRARY_ERROR;
             }
 
-            if (end_y > m_dewarp_output_height)
+            if (end_y > m_dewarp_mesh_ctx->m_dewarp_output_height)
             {
-                LOGGER__ERROR("Invalid digital zoom ROI. Y ({}) and height "
-                              "({}) coordinates exceed input frame height ({})",
-                              start_y, digital_zoom_roi.height,
-                              m_dewarp_output_height);
+                LOGGER__ERROR("Invalid digital zoom ROI. Y ({}) and height ({}) coordinates exceed input frame height ({})", start_y, digital_zoom_roi.height, m_dewarp_mesh_ctx->m_dewarp_output_height);
                 return MEDIA_LIBRARY_ERROR;
             }
         }
     }
 
     // Perform multi resize
-    LOGGER__INFO("Performing multi resize on the DSP with digital zoom ROI: "
-                 "start_x {} start_y {} end_x {} end_y {}",
-                 start_x, start_y, end_x, end_y);
+    LOGGER__DEBUG("Performing multi resize on the DSP with digital zoom ROI: start_x {} start_y {} end_x {} end_y {}", start_x, start_y, end_x, end_y);
     clock_gettime(CLOCK_MONOTONIC, &start_resize);
-    dsp_status ret = dsp_utils::perform_dsp_multi_resize(
-        &multi_resize_params, start_x, start_y, end_x, end_y);
+    dsp_status ret = dsp_utils::perform_dsp_multi_resize(&multi_resize_params, start_x, start_y, end_x, end_y);
     clock_gettime(CLOCK_MONOTONIC, &end_resize);
-    long ms = (long)media_library_difftimespec_ms(end_resize, start_resize);
-    uint framerate = 1000 / ms;
-    LOGGER__DEBUG("perform_multi_resize took {} milliseconds ({} fps)", ms, framerate);
+    [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_resize, start_resize);
+    LOGGER__TRACE("perform_multi_resize took {} milliseconds ({} fps)", ms, 1000 / ms);
 
     if (ret != DSP_SUCCESS)
         return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
@@ -709,8 +534,7 @@ media_library_return MediaLibraryVisionPreProc::Impl::perform_multi_resize(
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-void MediaLibraryVisionPreProc::Impl::stamp_time_and_log_fps(
-    timespec &start_handle, timespec &end_handle)
+void MediaLibraryVisionPreProc::Impl::stamp_time_and_log_fps(timespec &start_handle, timespec &end_handle)
 {
     clock_gettime(CLOCK_MONOTONIC, &end_handle);
     long ms = (long)media_library_difftimespec_ms(end_handle, start_handle);
@@ -775,9 +599,7 @@ MediaLibraryVisionPreProc::Impl::validate_input_and_output_frames(
 
     if (input_res != *input_image_properties)
     {
-        LOGGER__ERROR("Invalid input frame width {} input frame height {}",
-                      input_image_properties->width,
-                      input_image_properties->height);
+        LOGGER__ERROR("Invalid input frame width {} input frame height {}", input_image_properties->width, input_image_properties->height);
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
@@ -788,26 +610,18 @@ MediaLibraryVisionPreProc::Impl::validate_input_and_output_frames(
             LOGGER__ERROR("Saturate to gray is enabled only for NV12 format");
             return MEDIA_LIBRARY_INVALID_ARGUMENT;
         }
-        if (!m_pre_proc_configs.dewarp_config.enabled)
-        {
-            LOGGER__ERROR("Saturate to gray is not supported without dewarp");
-            return MEDIA_LIBRARY_INVALID_ARGUMENT;
-        }
     }
 
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryVisionPreProc::Impl::handle_frame(
-    hailo_media_library_buffer &input_frame,
-    std::vector<hailo_media_library_buffer> &output_frames)
+media_library_return MediaLibraryVisionPreProc::Impl::handle_frame(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames)
 {
     // Stamp start time
     struct timespec start_handle, end_handle;
     clock_gettime(CLOCK_MONOTONIC, &start_handle);
 
-    if (validate_input_and_output_frames(input_frame, output_frames) !=
-        MEDIA_LIBRARY_SUCCESS)
+    if (validate_input_and_output_frames(input_frame, output_frames) != MEDIA_LIBRARY_SUCCESS)
     {
         input_frame.decrease_ref_count();
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
@@ -815,19 +629,32 @@ media_library_return MediaLibraryVisionPreProc::Impl::handle_frame(
 
     // Acquire output buffers
     media_library_return media_lib_ret = MEDIA_LIBRARY_SUCCESS;
-    media_lib_ret = acquire_output_buffers(
-        output_frames, m_pre_proc_configs.output_video_config);
+    media_lib_ret = acquire_output_buffers(output_frames, m_pre_proc_configs.output_video_config);
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
     {
         input_frame.decrease_ref_count();
         return media_lib_ret;
     }
 
+    m_video_fd = input_frame.video_fd;
+
     // Dewarp and multi resize
     if (m_pre_proc_configs.dewarp_config.enabled)
+    {
+        if (m_pre_proc_configs.dis_config.enabled && (input_frame.isp_ae_fps > MIN_ISP_AE_FPS_FOR_DIS || input_frame.isp_ae_fps == -1))
+            m_dewarp_mesh_ctx->on_frame_vsm_update(input_frame.vsm);
         media_lib_ret = perform_dewarp_and_multi_resize(input_frame, output_frames);
+    }
     else
+    {
+        if (m_pre_proc_configs.output_video_config.grayscale)
+        {
+            // Saturate UV plane to value of 128 - to get a grayscale image
+            dsp_data_plane_t &uv_plane = input_frame.hailo_pix_buffer->planes[1];
+            memset(uv_plane.userptr, 128, uv_plane.bytesused);
+        }
         media_lib_ret = perform_multi_resize(input_frame, output_frames);
+    }
 
     // Unref the input frame
     input_frame.decrease_ref_count();
@@ -842,14 +669,43 @@ media_library_return MediaLibraryVisionPreProc::Impl::handle_frame(
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-pre_proc_op_configurations &
-MediaLibraryVisionPreProc::Impl::get_pre_proc_configs()
+pre_proc_op_configurations &MediaLibraryVisionPreProc::Impl::get_pre_proc_configs()
 {
     return m_pre_proc_configs;
 }
 
-output_video_config_t &
-MediaLibraryVisionPreProc::Impl::get_output_video_config()
+output_video_config_t &MediaLibraryVisionPreProc::Impl::get_output_video_config()
 {
     return m_pre_proc_configs.output_video_config;
+}
+
+media_library_return MediaLibraryVisionPreProc::Impl::set_optical_zoom(float magnification)
+{
+    struct v4l2_control ctrl;
+
+    if (!m_pre_proc_configs.optical_zoom_config.enabled)
+    {
+        LOGGER__ERROR("optical zoom is disabled in configuration");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    m_dewarp_mesh_ctx->set_optical_zoom(magnification);
+
+    if (m_video_fd != -1)
+    {
+        memset(&ctrl, 0, sizeof(ctrl));
+        ctrl.id = HAILO15_ISP_CID_LSC_OPTICAL_ZOOM;
+        ctrl.value = static_cast<int>(magnification * 100);
+        if (ioctl(m_video_fd, VIDIOC_S_CTRL, &ctrl))
+        {
+            LOGGER__ERROR("Could not update v4l2-ctl about new optical zoom");
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+        }
+    }
+    else
+    {
+        LOGGER__WARNING("video fd is not initialized, skipping v4l2-ctl update");
+    }
+
+    return MEDIA_LIBRARY_SUCCESS;
 }

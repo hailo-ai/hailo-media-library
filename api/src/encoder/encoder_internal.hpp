@@ -22,17 +22,19 @@
  */
 #pragma once
 #include "media_library/encoder.hpp"
-#include <condition_variable>
-#include <functional>
+#include <gst/gst.h>
 #include <gst/app/gstappsink.h>
 #include <gst/app/gstappsrc.h>
-#include <gst/gst.h>
 #include <gst/video/video.h>
+#include <condition_variable>
+#include <functional>
 #include <iostream>
 #include <mutex>
 #include <queue>
 #include <thread>
 #include <vector>
+
+#define MIN_QUEUE_SIZE 5
 
 struct InputParams
 {
@@ -46,26 +48,24 @@ class MediaLibraryEncoder::Impl final
 private:
     InputParams m_input_params;
     std::shared_ptr<std::mutex> m_mutex;
+    std::unique_ptr<std::condition_variable> m_condvar;
+    uint8_t m_queue_size;
     std::vector<AppWrapperCallback> m_callbacks;
     std::queue<GstBuffer *> m_queue;
     GstAppSrc *m_appsrc;
+    GstCaps *m_appsrc_caps;
     GMainLoop *m_main_loop;
     std::shared_ptr<std::thread> m_main_loop_thread;
     GstElement *m_pipeline;
     guint m_send_buffer_id;
-    std::string m_json_config; // this should be const
+    std::string m_json_config; // TODO: this should be const
     std::shared_ptr<osd::Blender> m_blender;
 
 public:
-    static tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>,
-                        media_library_return>
-    create(std::string json_config);
+    static tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>,media_library_return> create(std::string json_config);
 
-    // static tl::expected<MediaLibraryEncoder::Impl, media_library_return>
-    // create(nlohmann::json encoder_config);
     ~Impl();
     Impl(std::string json_config, media_library_return &status);
-    // Impl(nlohmann::json encoder_config, media_library_return &status);
 
 public:
     media_library_return subscribe(AppWrapperCallback callback);

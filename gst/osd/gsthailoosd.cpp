@@ -201,7 +201,14 @@ static gboolean gst_hailoosd_start(GstBaseTransform *trans)
     if (config_str != "" && config_path == "")
     {
         // Load overlays from json string
-        tl::expected<std::shared_ptr<osd::Blender>, media_library_return> blender_expected = osd::Blender::create(nlohmann::json::parse(config_str));
+        std::string clean_config = config_str;
+        // in case there are quotes around the string, remove them - they were added to enable spaces in the string
+        if (clean_config[0] == '\'' && clean_config[clean_config.size() - 1] == '\'')
+        {
+            clean_config = clean_config.substr(1, config_str.size() - 2);
+        }
+        tl::expected<std::shared_ptr<osd::Blender>, media_library_return> blender_expected = osd::Blender::create(config_str);
+
         if (!blender_expected.has_value())
         {
             GST_ERROR_OBJECT(hailoosd, "Failed to create OSD from config str");
@@ -212,8 +219,19 @@ static gboolean gst_hailoosd_start(GstBaseTransform *trans)
     else if (config_str == "" && config_path != "")
     {
         // Load overlays from json file
+        if (!std::ifstream(config_path))
+        {
+            GST_ERROR_OBJECT(hailoosd, "Config file does not exist");
+            return FALSE;
+        }
         std::ifstream config_file(config_path);
-        tl::expected<std::shared_ptr<osd::Blender>, media_library_return> blender_expected = osd::Blender::create(nlohmann::json::parse(config_file));
+        std::stringstream buffer;
+        if (config_file.is_open())
+        {
+            buffer << config_file.rdbuf();
+            config_file.close();
+        }
+        tl::expected<std::shared_ptr<osd::Blender>, media_library_return> blender_expected = osd::Blender::create(buffer.str());
         if (!blender_expected.has_value())
         {
             GST_ERROR_OBJECT(hailoosd, "Failed to create OSD from config file");

@@ -29,13 +29,17 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include <memory>
 
 #include "media_library_types.hpp"
 
 enum ConfigSchema
 {
   CONFIG_SCHEMA_VISION,
-  CONFIG_SCHEMA_ENCODER
+  CONFIG_SCHEMA_OSD,
+  CONFIG_SCHEMA_ENCODER,
+  CONFIG_SCHEMA_MULTI_RESIZE,
+  CONFIG_SCHEMA_LDC
 };
 
 class ConfigManager

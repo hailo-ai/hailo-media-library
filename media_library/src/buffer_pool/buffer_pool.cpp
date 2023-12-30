@@ -23,11 +23,18 @@
 #include "buffer_pool.hpp"
 #include "media_library_logger.hpp"
 
+#define PAGE_ALIGN_OFFSET 4032
+
 HailoBucket::HailoBucket(size_t buffer_size, size_t num_buffers,
                          HailoMemoryType memory_type)
     : m_buffer_size(buffer_size), m_num_buffers(num_buffers),
       m_memory_type(memory_type)
 {
+    // Add PAGE_ALIGN_OFFSET to buffer size to make sure that the buffer is page aligned.
+    // This is because DSP allocates buffers with a 64 byte header, therefore adding an extra
+    // 4032 bytes as offset at the start of a buffer will make sure that the buffer
+    // is page aligned.
+    m_buffer_size += PAGE_ALIGN_OFFSET;
     m_bucket_mutex = std::make_shared<std::mutex>();
     m_used_buffers.reserve(m_num_buffers);
 }
@@ -95,7 +102,7 @@ media_library_return HailoBucket::acquire(intptr_t *buffer_ptr)
     if (m_available_buffers.empty())
     {
         LOGGER__ERROR("Buffer acquire failed - no available buffers remaining, "
-                      "please valdiate the max buffers size you set ({})",
+                      "please validate the max buffers size you set ({})",
                       m_num_buffers);
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
@@ -118,8 +125,8 @@ media_library_return HailoBucket::release(intptr_t buffer_ptr)
 MediaLibraryBufferPool::MediaLibraryBufferPool(uint width, uint height,
                                                dsp_image_format_t format,
                                                size_t max_buffers,
-                                               HailoMemoryType memory_type)
-    : m_width(width), m_height(height), m_format(format)
+                                               HailoMemoryType memory_type, uint bytes_per_line)
+    : m_width(width), m_height(height), m_bytes_per_line(bytes_per_line), m_format(format)
 {
     m_name = "";
     if (m_name.empty())
@@ -130,22 +137,30 @@ MediaLibraryBufferPool::MediaLibraryBufferPool(uint width, uint height,
     {
     case DSP_IMAGE_FORMAT_NV12:
         m_buckets.emplace_back(std::make_shared<HailoBucket>(
-            width * height, max_buffers, memory_type));
+            bytes_per_line * height, max_buffers, memory_type));
         m_buckets.emplace_back(std::make_shared<HailoBucket>(
-            width * (height / 2), max_buffers, memory_type));
+            bytes_per_line * (height / 2), max_buffers, memory_type));
         break;
     case DSP_IMAGE_FORMAT_RGB:
         m_buckets.emplace_back(std::make_shared<HailoBucket>(
-            width * height * 3, max_buffers, memory_type));
+            bytes_per_line * height * 3, max_buffers, memory_type));
         break;
     case DSP_IMAGE_FORMAT_GRAY8:
         m_buckets.emplace_back(std::make_shared<HailoBucket>(
-            width * height, max_buffers, memory_type));
+            bytes_per_line * height, max_buffers, memory_type));
         break;
     default:
         // TODO: error
         break;
     }
+}
+
+MediaLibraryBufferPool::MediaLibraryBufferPool(uint width, uint height,
+                                               dsp_image_format_t format,
+                                               size_t max_buffers,
+                                               HailoMemoryType memory_type)
+    : MediaLibraryBufferPool(width, height, format, max_buffers, memory_type, width)
+{
 }
 
 MediaLibraryBufferPool::~MediaLibraryBufferPool() { free(); }
@@ -202,9 +217,9 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
     {
     case DSP_IMAGE_FORMAT_NV12:
     {
-        size_t y_channel_stride = m_width;
+        size_t y_channel_stride = m_bytes_per_line;
         size_t y_channel_size = y_channel_stride * m_height;
-        size_t uv_channel_stride = m_width;
+        size_t uv_channel_stride = m_bytes_per_line;
         size_t uv_channel_size = uv_channel_stride * m_height / 2;
         intptr_t y_channel_ptr;
 
@@ -216,7 +231,7 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
         }
 
         dsp_data_plane_t y_plane_data = {
-            .userptr = (void *)y_channel_ptr,
+            .userptr = (void *)(y_channel_ptr + PAGE_ALIGN_OFFSET),
             .bytesperline = y_channel_stride,
             .bytesused = y_channel_size,
         };
@@ -231,7 +246,7 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
         }
 
         dsp_data_plane_t uv_plane_data = {
-            .userptr = (void *)uv_channel_ptr,
+            .userptr = (void *)(uv_channel_ptr + PAGE_ALIGN_OFFSET),
             .bytesperline = uv_channel_stride,
             .bytesused = uv_channel_size,
         };
@@ -271,7 +286,7 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
     }
     case DSP_IMAGE_FORMAT_GRAY8:
     {
-        size_t image_stride = m_width;
+        size_t image_stride = m_bytes_per_line;
         size_t image_size = image_stride * m_height;
         intptr_t data_ptr;
 
@@ -282,7 +297,7 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
         }
 
         dsp_data_plane_t plane_data = {
-            .userptr = (void *)data_ptr,
+            .userptr = (void *)(data_ptr + PAGE_ALIGN_OFFSET),
             .bytesperline = image_stride,
             .bytesused = image_size,
         };
@@ -316,7 +331,7 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
     }
     }
     return ret;
-}    
+}
 
 media_library_return
 MediaLibraryBufferPool::release_plane(hailo_media_library_buffer *buffer,
@@ -328,7 +343,7 @@ MediaLibraryBufferPool::release_plane(hailo_media_library_buffer *buffer,
                   plane_index, bucket->m_buffer_size, bucket->m_num_buffers,
                   bucket->m_used_buffers.size() - 1);
     return bucket->release(
-        (intptr_t)buffer->hailo_pix_buffer->planes[plane_index].userptr);
+        (intptr_t)buffer->hailo_pix_buffer->planes[plane_index].userptr - PAGE_ALIGN_OFFSET);
 }
 
 media_library_return

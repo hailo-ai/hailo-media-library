@@ -1,0 +1,5 @@
+{
+    "C_Cpp.clang_format_style": "Visual Studio",
+    "C_Cpp.clang_format_fallbackStyle": "Visual Studio",
+    "C_Cpp.clang_format_sortIncludes": false
+}

@@ -31,6 +31,8 @@
 #include <stdint.h>
 #include <vector>
 
+#define MIN_ISP_AE_FPS_FOR_DIS (20)
+
 /** @defgroup dsp_utils_definitions MediaLibrary DSP utilities CPP API
  * definitions
  *  @{
@@ -81,6 +83,8 @@ namespace dsp_utils
                                     size_t overlays_count);
   void free_overlay_property_planes(dsp_overlay_properties_t *overlay_properties);
   void free_image_property_planes(dsp_image_properties_t *image_properties);
+
+  size_t get_dsp_desired_stride_from_width(size_t width);
 
   static constexpr int max_blend_overlays = 50;
 } // namespace dsp_utils

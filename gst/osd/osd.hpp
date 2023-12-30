@@ -30,6 +30,7 @@
 #include "media_library/buffer_pool.hpp"
 #include "media_library/dsp_utils.hpp"
 #include "media_library/media_library_types.hpp"
+#include <future>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -39,8 +40,13 @@
 
 namespace osd
 {
+    enum rotation_alignment_policy_t
+    {
+        CENTER,
+        TOP_LEFT
+    };
 
-    struct RGBColor
+    struct rgb_color_t
     {
         int red;
         int green;
@@ -56,6 +62,11 @@ namespace osd
     struct Overlay
     {
         /**
+         * Unique string identifier for the overlay
+         * This id is used for all future operations on the overlay
+         */
+        std::string id;
+        /**
          * Horizontal position in frame.
          * Position is relative and denoted with a decimal number between [0, 1]
          */
@@ -70,9 +81,18 @@ namespace osd
          * Overlays with higher :z_index value are blender on top of overlays with lower :z_index value
          */
         unsigned int z_index;
+        /**
+         * Blend angle to rotate the overlay.
+         */
+        unsigned int angle;
+        /**
+         * Rotation alignment policy.
+         * Defines the rotation center of the overlay.
+         */
+        rotation_alignment_policy_t rotation_alignment_policy;
 
         Overlay() = default;
-        Overlay(float x, float y, unsigned int z_index);
+        Overlay(std::string id, float x, float y, unsigned int z_index, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
     };
 
     /** Overlay containing an image (from a file) */
@@ -92,7 +112,7 @@ namespace osd
         std::string image_path;
 
         ImageOverlay() = default;
-        ImageOverlay(float x, float y, float width, float height, std::string image_path, unsigned int z_index);
+        ImageOverlay(std::string id, float x, float y, float width, float height, std::string image_path, unsigned int z_index, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
     };
 
     /** Overlay containing text */
@@ -101,14 +121,23 @@ namespace osd
         /** Text content */
         std::string label;
         /** Text color */
-        RGBColor rgb;
+        rgb_color_t rgb;
+        /**
+         * Font size
+         */
         float font_size;
+        /**
+         * line thickness
+         */
         int line_thickness;
+        /**
+         * Path to load font from. The font will be scaled to match the given font_size
+         */
         std::string font_path;
 
         TextOverlay();
-        TextOverlay(float x, float y, std::string label, RGBColor rgb, float font_size, int line_thickness, unsigned int z_index);
-        TextOverlay(float x, float y, std::string label, RGBColor rgb, float font_size, int line_thickness, unsigned int z_index, std::string font_path);
+        TextOverlay(std::string id, float x, float y, std::string label, rgb_color_t rgb, float font_size, int line_thickness, unsigned int z_index, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
+        TextOverlay(std::string id, float x, float y, std::string label, rgb_color_t rgb, float font_size, int line_thickness, unsigned int z_index, std::string font_path, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
     };
 
     /**
@@ -118,13 +147,13 @@ namespace osd
     struct DateTimeOverlay : Overlay
     {
         /** Text color */
-        RGBColor rgb;
+        rgb_color_t rgb;
         float font_size;
         int line_thickness;
         std::string font_path;
 
         DateTimeOverlay();
-        DateTimeOverlay(float x, float y, RGBColor rgb, float font_size, int line_thickness, unsigned int z_index);
+        DateTimeOverlay(std::string id, float x, float y, rgb_color_t rgb, float font_size, int line_thickness, unsigned int z_index, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
     };
 
     /** Overlay containing custom buffer ptr */
@@ -135,7 +164,7 @@ namespace osd
 
         DspImagePropertiesPtr get_buffer() const { return m_buffer; }
         CustomOverlay() = default;
-        CustomOverlay(float x, float y, float width, float height, DspImagePropertiesPtr buffer, unsigned int z_index);
+        CustomOverlay(std::string id, float x, float y, float width, float height, DspImagePropertiesPtr buffer, unsigned int z_index);
 
     private:
         DspImagePropertiesPtr m_buffer;
@@ -161,7 +190,9 @@ namespace osd
     {
     public:
         static tl::expected<std::shared_ptr<Blender>, media_library_return> create();
-        static tl::expected<std::shared_ptr<Blender>, media_library_return> create(const nlohmann::json &config);
+        static tl::expected<std::shared_ptr<Blender>, media_library_return> create(const std::string &config);
+        std::shared_future<tl::expected<std::shared_ptr<Blender>, media_library_return>> create_async();
+        std::shared_future<tl::expected<std::shared_ptr<Blender>, media_library_return>> create_async(const std::string &config);
 
         /**
          * @brief Add a new overlay
@@ -171,10 +202,14 @@ namespace osd
          * @param[in] overlay Overlay to add
          * @return :MEDIA_LIBRARY_SUCCESS if successful, otherwise a :media_library_return error
          */
-        media_library_return add_overlay(const std::string &id, const ImageOverlay &overlay);
-        media_library_return add_overlay(const std::string &id, const TextOverlay &overlay);
-        media_library_return add_overlay(const std::string &id, const DateTimeOverlay &overlay);
-        media_library_return add_overlay(const std::string &id, const CustomOverlay &overlay);
+        media_library_return add_overlay(const ImageOverlay &overlay);
+        media_library_return add_overlay(const TextOverlay &overlay);
+        media_library_return add_overlay(const DateTimeOverlay &overlay);
+        media_library_return add_overlay(const CustomOverlay &overlay);
+        std::shared_future<media_library_return> add_overlay_async(const ImageOverlay &overlay);
+        std::shared_future<media_library_return> add_overlay_async(const TextOverlay &overlay);
+        std::shared_future<media_library_return> add_overlay_async(const DateTimeOverlay &overlay);
+        std::shared_future<media_library_return> add_overlay_async(const CustomOverlay &overlay);
 
         /**
          * @brief Retrieve info of an existing overlay.
@@ -196,10 +231,14 @@ namespace osd
          *       fields which aree to remain unchanged must also be filled
          *       Use :get_overlay function to the current overlay state and perform changes
          */
-        media_library_return set_overlay(const std::string &id, const ImageOverlay &overlay);
-        media_library_return set_overlay(const std::string &id, const TextOverlay &overlay);
-        media_library_return set_overlay(const std::string &id, const DateTimeOverlay &overlay);
-        media_library_return set_overlay(const std::string &id, const CustomOverlay &overlay);
+        media_library_return set_overlay(const ImageOverlay &overlay);
+        media_library_return set_overlay(const TextOverlay &overlay);
+        media_library_return set_overlay(const DateTimeOverlay &overlay);
+        media_library_return set_overlay(const CustomOverlay &overlay);
+        std::shared_future<media_library_return> set_overlay_async(const ImageOverlay &overlay);
+        std::shared_future<media_library_return> set_overlay_async(const TextOverlay &overlay);
+        std::shared_future<media_library_return> set_overlay_async(const DateTimeOverlay &overlay);
+        std::shared_future<media_library_return> set_overlay_async(const CustomOverlay &overlay);
 
         /**
          * @brief Remove an exiting overlay
@@ -208,6 +247,7 @@ namespace osd
          * @return :MEDIA_LIBRARY_SUCCESS if successful, otherwise a :media_library_return error
          */
         media_library_return remove_overlay(const std::string &id);
+        std::shared_future<media_library_return> remove_overlay_async(const std::string &id);
 
         media_library_return set_frame_size(int frame_width, int frame_height);
         media_library_return blend(dsp_image_properties_t &input_image_properties);

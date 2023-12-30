@@ -31,9 +31,12 @@
 DisFileLog disFileLog;
 #endif // LOG_TO_FILE
 
-RetCodes dis_init(void **ctx, dis_config_t &cfg, const char *calib,
-                  int32_t calib_bytes, int32_t out_width, int32_t out_height,
-                  camera_type_t camera_type, float camera_fov, DewarpT *grid)
+RetCodes dis_init(void **ctx,
+                  dis_config_t &cfg,
+                  dis_calibration_t calib,
+                  int32_t out_width, int32_t out_height,
+                  camera_type_t camera_type, float camera_fov,
+                  DewarpT *grid)
 {
     if (grid == nullptr)
     {
@@ -41,9 +44,9 @@ RetCodes dis_init(void **ctx, dis_config_t &cfg, const char *calib,
         return ERROR_INPUT_DATA;
     }
     // if ( grid->mesh_table != nullptr ) {
-    //    LOGE("dis_init: grid->mesh_table already points to something");
-    //    return ERROR_INPUT_DATA;
-    //}
+    //     LOGE("dis_init: grid->mesh_table already points to something");
+    //     return ERROR_INPUT_DATA;
+    // }
     if (*ctx != nullptr)
     {
         return ERROR_CTX; //*ctx alreay points to something
@@ -57,15 +60,8 @@ RetCodes dis_init(void **ctx, dis_config_t &cfg, const char *calib,
     DIS &dis = *reinterpret_cast<DIS *>(*ctx);
     dis.cfg = cfg;
 
-    LOG("dis_init calib %d bytes, out resolution  %dx%d", calib_bytes,
-        out_width, out_height);
+    LOG("dis_init out resolution  %dx%d", out_width, out_height);
 
-    if (calib[calib_bytes - 1] != 0)
-    {
-        LOGE("dis_init: Calib string not terminated by 0 or improper "
-             "calib_bytes");
-        return ERROR_CALIB;
-    }
     if (dis.init_in_cam(calib))
         return ERROR_CALIB; // creates dis.in_cam
 
@@ -74,13 +70,10 @@ RetCodes dis_init(void **ctx, dis_config_t &cfg, const char *calib,
         return ret;
 
     // init grid structure: it tells the outer world what the grid will be
-    grid->mesh_width = 1 + (out_width + MESH_CELL_SIZE_PIX - 1) /
-                               MESH_CELL_SIZE_PIX; // ceil(width/cell)
-    grid->mesh_height = 1 + (out_height + MESH_CELL_SIZE_PIX - 1) /
-                                MESH_CELL_SIZE_PIX; // ceil(width/cell)
+    grid->mesh_width = 1 + (out_width + MESH_CELL_SIZE_PIX - 1) / MESH_CELL_SIZE_PIX;   // ceil(width/cell)
+    grid->mesh_height = 1 + (out_height + MESH_CELL_SIZE_PIX - 1) / MESH_CELL_SIZE_PIX; // ceil(width/cell)
 
-    dis.calc_out_rays(grid->mesh_width, grid->mesh_height, MESH_CELL_SIZE_PIX,
-                      NATURAL);
+    dis.calc_out_rays(grid->mesh_width, grid->mesh_height, MESH_CELL_SIZE_PIX, NATURAL);
 
     return DIS_OK;
 }
@@ -100,9 +93,12 @@ RetCodes dis_deinit(void **ctx)
     return DIS_OK;
 }
 
-RetCodes dis_generate_grid(void *ctx, int in_width, int in_height,
-                           float motion_x, float motion_y, int32_t panning,
-                           FlipMirrorRot flip_mirror_rot, DewarpT *grid)
+RetCodes dis_generate_grid(void *ctx,
+                           int in_width, int in_height,
+                           float motion_x, float motion_y,
+                           int32_t panning,
+                           FlipMirrorRot flip_mirror_rot,
+                           DewarpT *grid)
 {
     if (ctx == nullptr)
         return ERROR_CTX; //*ctx alreay points to something
@@ -114,20 +110,20 @@ RetCodes dis_generate_grid(void *ctx, int in_width, int in_height,
         return ERROR_INIT;
     if ((in_width != dis.in_cam.res.x) || (in_height != dis.in_cam.res.y))
     {
-        LOGE("dis_generateGrid: INput image resolutiuon differs from the one "
-             "in the calibration");
+        LOGE("dis_generateGrid: INput image resolutiuon differs from the one in the calibration");
         return ERROR_INPUT_DATA;
     }
 
-    RetCodes ret =
-        dis.generate_grid(vec2{motion_x, motion_y}, panning, flip_mirror_rot,
-                          *grid); // output in grid->mesh_table[]
+    RetCodes ret = dis.generate_grid(vec2{motion_x, motion_y}, panning, flip_mirror_rot,
+                                     *grid); // output in grid->mesh_table[]
 
     return ret;
 }
 
-RetCodes dis_dewarp_only_grid(void *ctx, int in_width, int in_height,
-                              FlipMirrorRot flip_mirror_rot, DewarpT *grid)
+RetCodes dis_dewarp_only_grid(void *ctx,
+                              int in_width, int in_height,
+                              FlipMirrorRot flip_mirror_rot,
+                              DewarpT *grid)
 {
     if (ctx == nullptr)
         return ERROR_CTX; //*ctx alreay points to something
@@ -139,8 +135,7 @@ RetCodes dis_dewarp_only_grid(void *ctx, int in_width, int in_height,
         return ERROR_INIT;
     if ((in_width != dis.in_cam.res.x) || (in_height != dis.in_cam.res.y))
     {
-        LOGE("dis_generateGrid: INput image resolutiuon differs from the one "
-             "in the calibration");
+        LOGE("dis_generateGrid: INput image resolutiuon differs from the one in the calibration");
         return ERROR_INPUT_DATA;
     }
 

@@ -22,12 +22,12 @@
  */
 /**
  * @file interface_types.h
- * @brief Contains interface types for digital image stabilization and comments
- *about their usage.
+ * @brief Contains interface types for digital image stabilization and comments about their usage.
  **/
 #ifndef _DIS_INTERFACE_TYPES_H_
 #define _DIS_INTERFACE_TYPES_H_
 
+#include "dis_math.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -65,22 +65,25 @@ enum FlipMirrorRot
 };
 
 /// Return codes of interface functions.
-/// Error code are returned whenever an error occurs during the use of the
-/// corresponding functionality of the DIS class (more info about the error is
-/// printed in the log), otherwise DIS_OK signals that everything is running as
-/// expected.
+/// Error code are returned whenever an error occurs during the use of the corresponding functionality of the DIS class
+/// (more info about the error is printed in the log), otherwise DIS_OK signals that everything is running as expected.
 enum RetCodes
 {
     DIS_OK,           // 0 no error
-    ERROR_CTX,        // 1 ctx is NULL or *ctx already points to something in
-                      // dis_init()
+    ERROR_CTX,        // 1 ctx is NULL or *ctx already points to something in dis_init()
     ERROR_CONFIG,     // 2 error in config file; more info is printed in the log
     ERROR_CALIB,      // 3 error in calibration file; more info is printed in the log
     ERROR_INIT,       // 4 error in dis_init()
     ERROR_GRID,       // 5 error during grid calculation
-    ERROR_INPUT_DATA, // 6 error regarding input data. more info is printed in
-                      // the log
+    ERROR_INPUT_DATA, // 6 error regarding input data. more info is printed in the log
     ERROR_INTERNAL    // 7 internal error. more info is printed in the log
+};
+
+struct dis_calibration_t
+{
+    ivec2 res;
+    vec2 oc;
+    std::vector<float> theta2radius;
 };
 
 #endif // _DIS_INTERFACE_TYPES_H_

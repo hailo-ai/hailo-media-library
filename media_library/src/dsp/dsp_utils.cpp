@@ -299,6 +299,33 @@ namespace dsp_utils
     {
         free(image_properties->planes);
     }
+
+    /**
+     * get_dsp_desired_stride_from_width will return the appropriate buffer stride for each resolution
+     * DSP operation with these strides are more efficient
+     *
+     * @param[in] width the width of the frame
+     * @return size_t the desired stride
+     */
+    size_t get_dsp_desired_stride_from_width(size_t width)
+    {
+        switch (width)
+        {
+        case 2160:
+            return 2304;
+        case 1080:
+            return 1152;
+        case 720:
+            return 768;
+        case 480:
+            return 512;
+        case 240:
+            return 256;
+        default:
+            return width;
+        }
+    }
+
 } // namespace dsp_utils
 
 /** @} */ // end of dsp_utils_definitions

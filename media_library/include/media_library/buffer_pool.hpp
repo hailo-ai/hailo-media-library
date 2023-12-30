@@ -37,7 +37,7 @@
 
 #include "dsp_utils.hpp"
 #include "media_library_types.hpp"
-#include "v4l2_vsm/hailo_vsm.h"
+#include "hailo_v4l2/hailo_vsm.h"
 
 /** @defgroup media_library_buffer_pool_definitions MediaLibrary BufferPool CPP
  * API definitions
@@ -98,6 +98,7 @@ private:
     std::vector<HailoBucketPtr> m_buckets;
     uint m_width;
     uint m_height;
+    uint m_bytes_per_line;
     dsp_image_format_t m_format;
 
 public:
@@ -112,6 +113,18 @@ public:
      */
     MediaLibraryBufferPool(uint width, uint height, dsp_image_format_t format,
                            size_t max_buffers, HailoMemoryType memory_type);
+    /**
+     * @brief Constructor of MediaLibraryBufferPool
+     *
+     * @param[in] width - buffer width
+     * @param[in] height - buffer height
+     * @param[in] format - buffer format
+     * @param[in] max_buffers - number of buffers to allocate
+     * @param[in] memory_type - memory type
+     * @param[in] bytes_per_line - bytes per line if the buffer stride is padded (when padding=0, bytes_per_line=width)
+     */
+    MediaLibraryBufferPool(uint width, uint height, dsp_image_format_t format,
+                           size_t max_buffers, HailoMemoryType memory_type, uint bytes_per_line);
     ~MediaLibraryBufferPool();
     // Copy constructor - delete
     MediaLibraryBufferPool(const MediaLibraryBufferPool &) = delete;
@@ -206,11 +219,13 @@ public:
     DspImagePropertiesPtr hailo_pix_buffer;
     MediaLibraryBufferPoolPtr owner;
     hailo15_vsm vsm;
+    int32_t isp_ae_fps;
+    int32_t video_fd;
 
     hailo_media_library_buffer()
         : m_buffer_mutex(std::make_shared<std::mutex>()),
           m_plane_mutex(std::make_shared<std::mutex>()),
-          hailo_pix_buffer(nullptr), owner(nullptr)
+          hailo_pix_buffer(nullptr), owner(nullptr), isp_ae_fps(-1), video_fd(-1)
     {
     }
     // Move constructor

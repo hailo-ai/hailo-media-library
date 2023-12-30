@@ -75,7 +75,6 @@ class MediaLibraryEncoder
 private:
   class Impl;
   std::shared_ptr<Impl> m_impl;
-  void parse_config_str();
 
 public:
   /**

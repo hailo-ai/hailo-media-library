@@ -22,102 +22,89 @@
  */
 
 #pragma once
-#include "media_library_logger.hpp"
-#include "media_library_types.hpp"
 #include <iostream>
 #include <nlohmann/json-schema.hpp>
+#include "media_library_types.hpp"
+#include "media_library_logger.hpp"
 
-#define MEDIALIB_JSON_SERIALIZE_ENUM(ENUM_TYPE, ...)                           \
-    template <typename BasicJsonType>                                          \
-    inline void to_json(BasicJsonType &j, const ENUM_TYPE &e)                  \
-    {                                                                          \
-        static_assert(std::is_enum<ENUM_TYPE>::value,                          \
-                      #ENUM_TYPE " must be an enum!");                         \
-        static const std::pair<ENUM_TYPE, BasicJsonType> m[] = __VA_ARGS__;    \
-        auto it = std::find_if(                                                \
-            std::begin(m), std::end(m),                                        \
-            [e](const std::pair<ENUM_TYPE, BasicJsonType> &ej_pair) -> bool {  \
-                return ej_pair.first == e;                                     \
-            });                                                                \
-        if (it == std::end(m))                                                 \
-        {                                                                      \
-            LOGGER__ERROR("Unknown enum value received for " #ENUM_TYPE);      \
-            throw std::invalid_argument(                                       \
-                "Unknown enum value received for " #ENUM_TYPE);                \
-        }                                                                      \
-        j = it->second;                                                        \
-    }                                                                          \
-    template <typename BasicJsonType>                                          \
-    inline void from_json(const BasicJsonType &j, ENUM_TYPE &e)                \
-    {                                                                          \
-        static_assert(std::is_enum<ENUM_TYPE>::value,                          \
-                      #ENUM_TYPE " must be an enum!");                         \
-        static const std::pair<ENUM_TYPE, BasicJsonType> m[] = __VA_ARGS__;    \
-        auto it = std::find_if(                                                \
-            std::begin(m), std::end(m),                                        \
-            [&j](const std::pair<ENUM_TYPE, BasicJsonType> &ej_pair) -> bool { \
-                return ej_pair.second == j;                                    \
-            });                                                                \
-        if (it == std::end(m))                                                 \
-        {                                                                      \
-            LOGGER__ERROR("Unknown enum value received for " #ENUM_TYPE);      \
-            throw std::invalid_argument(                                       \
-                "Unknown enum value received for " #ENUM_TYPE);                \
-        }                                                                      \
-        e = it->first;                                                         \
+#define MEDIALIB_JSON_SERIALIZE_ENUM(ENUM_TYPE, ...)                                    \
+    template <typename BasicJsonType>                                                   \
+    inline void to_json(BasicJsonType &j, const ENUM_TYPE &e)                           \
+    {                                                                                   \
+        static_assert(std::is_enum<ENUM_TYPE>::value,                                   \
+                      #ENUM_TYPE " must be an enum!");                                  \
+        static const std::pair<ENUM_TYPE, BasicJsonType> m[] = __VA_ARGS__;             \
+        auto it = std::find_if(                                                         \
+            std::begin(m), std::end(m),                                                 \
+            [e](const std::pair<ENUM_TYPE, BasicJsonType> &ej_pair) -> bool {           \
+                return ej_pair.first == e;                                              \
+            });                                                                         \
+        if (it == std::end(m))                                                          \
+        {                                                                               \
+            LOGGER__ERROR("Unknown enum value received for " #ENUM_TYPE);               \
+            throw std::invalid_argument("Unknown enum value received for " #ENUM_TYPE); \
+        }                                                                               \
+        j = it->second;                                                                 \
+    }                                                                                   \
+    template <typename BasicJsonType>                                                   \
+    inline void from_json(const BasicJsonType &j, ENUM_TYPE &e)                         \
+    {                                                                                   \
+        static_assert(std::is_enum<ENUM_TYPE>::value,                                   \
+                      #ENUM_TYPE " must be an enum!");                                  \
+        static const std::pair<ENUM_TYPE, BasicJsonType> m[] = __VA_ARGS__;             \
+        auto it = std::find_if(                                                         \
+            std::begin(m), std::end(m),                                                 \
+            [&j](const std::pair<ENUM_TYPE, BasicJsonType> &ej_pair) -> bool {          \
+                return ej_pair.second == j;                                             \
+            });                                                                         \
+        if (it == std::end(m))                                                          \
+        {                                                                               \
+            LOGGER__ERROR("Unknown enum value received for " #ENUM_TYPE);               \
+            throw std::invalid_argument("Unknown enum value received for " #ENUM_TYPE); \
+        }                                                                               \
+        e = it->first;                                                                  \
     }
 
 //------------------------ enums ------------------------
 
-MEDIALIB_JSON_SERIALIZE_ENUM(
-    dsp_interpolation_type_t,
-    {
-        {INTERPOLATION_TYPE_NEAREST_NEIGHBOR,
-         "INTERPOLATION_TYPE_NEAREST_NEIGHBOR"},
-        {INTERPOLATION_TYPE_BILINEAR, "INTERPOLATION_TYPE_BILINEAR"},
-        {INTERPOLATION_TYPE_AREA, "INTERPOLATION_TYPE_AREA"},
-        {INTERPOLATION_TYPE_BICUBIC, "INTERPOLATION_TYPE_BICUBIC"},
-    })
+MEDIALIB_JSON_SERIALIZE_ENUM(dsp_interpolation_type_t, {
+                                                           {INTERPOLATION_TYPE_NEAREST_NEIGHBOR, "INTERPOLATION_TYPE_NEAREST_NEIGHBOR"},
+                                                           {INTERPOLATION_TYPE_BILINEAR, "INTERPOLATION_TYPE_BILINEAR"},
+                                                           {INTERPOLATION_TYPE_AREA, "INTERPOLATION_TYPE_AREA"},
+                                                           {INTERPOLATION_TYPE_BICUBIC, "INTERPOLATION_TYPE_BICUBIC"},
+                                                       })
 
-MEDIALIB_JSON_SERIALIZE_ENUM(
-    flip_direction_t,
-    {
-        {FLIP_DIRECTION_NONE, "FLIP_DIRECTION_NONE"},
-        {FLIP_DIRECTION_HORIZONTAL, "FLIP_DIRECTION_HORIZONTAL"},
-        {FLIP_DIRECTION_VERTICAL, "FLIP_DIRECTION_VERTICAL"},
-        {FLIP_DIRECTION_BOTH, "FLIP_DIRECTION_BOTH"},
-    })
+MEDIALIB_JSON_SERIALIZE_ENUM(flip_direction_t, {
+                                                   {FLIP_DIRECTION_NONE, "FLIP_DIRECTION_NONE"},
+                                                   {FLIP_DIRECTION_HORIZONTAL, "FLIP_DIRECTION_HORIZONTAL"},
+                                                   {FLIP_DIRECTION_VERTICAL, "FLIP_DIRECTION_VERTICAL"},
+                                                   {FLIP_DIRECTION_BOTH, "FLIP_DIRECTION_BOTH"},
+                                               })
 
-MEDIALIB_JSON_SERIALIZE_ENUM(dsp_image_format_t,
-                             {
-                                 {DSP_IMAGE_FORMAT_GRAY8, "IMAGE_FORMAT_GRAY8"},
-                                 {DSP_IMAGE_FORMAT_RGB, "IMAGE_FORMAT_RGB"},
-                                 {DSP_IMAGE_FORMAT_NV12, "IMAGE_FORMAT_NV12"},
-                                 {DSP_IMAGE_FORMAT_A420, "IMAGE_FORMAT_A420"},
-                             })
+MEDIALIB_JSON_SERIALIZE_ENUM(dsp_image_format_t, {
+                                                     {DSP_IMAGE_FORMAT_GRAY8, "IMAGE_FORMAT_GRAY8"},
+                                                     {DSP_IMAGE_FORMAT_RGB, "IMAGE_FORMAT_RGB"},
+                                                     {DSP_IMAGE_FORMAT_NV12, "IMAGE_FORMAT_NV12"},
+                                                     {DSP_IMAGE_FORMAT_A420, "IMAGE_FORMAT_A420"},
+                                                 })
 
-MEDIALIB_JSON_SERIALIZE_ENUM(rotation_angle_t,
-                             {
-                                 {ROTATION_ANGLE_0, "ROTATION_ANGLE_0"},
-                                 {ROTATION_ANGLE_90, "ROTATION_ANGLE_90"},
-                                 {ROTATION_ANGLE_180, "ROTATION_ANGLE_180"},
-                                 {ROTATION_ANGLE_270, "ROTATION_ANGLE_270"},
-                             })
+MEDIALIB_JSON_SERIALIZE_ENUM(rotation_angle_t, {
+                                                   {ROTATION_ANGLE_0, "ROTATION_ANGLE_0"},
+                                                   {ROTATION_ANGLE_90, "ROTATION_ANGLE_90"},
+                                                   {ROTATION_ANGLE_180, "ROTATION_ANGLE_180"},
+                                                   {ROTATION_ANGLE_270, "ROTATION_ANGLE_270"},
+                                               })
 
-MEDIALIB_JSON_SERIALIZE_ENUM(camera_type_t,
-                             {
-                                 {CAMERA_TYPE_FISHEYE, "CAMERA_TYPE_FISHEYE"},
-                                 {CAMERA_TYPE_PINHOLE, "CAMERA_TYPE_PINHOLE"},
-                                 {CAMERA_TYPE_INPUT_DISTORTIONS,
-                                  "CAMERA_TYPE_INPUT_DISTORTIONS"},
-                             })
+MEDIALIB_JSON_SERIALIZE_ENUM(camera_type_t, {
+                                                {CAMERA_TYPE_FISHEYE, "CAMERA_TYPE_FISHEYE"},
+                                                {CAMERA_TYPE_PINHOLE, "CAMERA_TYPE_PINHOLE"},
+                                                {CAMERA_TYPE_INPUT_DISTORTIONS, "CAMERA_TYPE_INPUT_DISTORTIONS"},
+                                            })
 
-MEDIALIB_JSON_SERIALIZE_ENUM(
-    digital_zoom_mode_t,
-    {
-        {DIGITAL_ZOOM_MODE_ROI, "DIGITAL_ZOOM_MODE_ROI"},
-        {DIGITAL_ZOOM_MODE_MAGNIFICATION, "DIGITAL_ZOOM_MODE_MAGNIFICATION"},
-    })
+MEDIALIB_JSON_SERIALIZE_ENUM(digital_zoom_mode_t, {
+                                                      {DIGITAL_ZOOM_MODE_ROI, "DIGITAL_ZOOM_MODE_ROI"},
+                                                      {DIGITAL_ZOOM_MODE_MAGNIFICATION, "DIGITAL_ZOOM_MODE_MAGNIFICATION"},
+                                                  })
 
 //------------------------ roi_t ------------------------
 
@@ -177,10 +164,8 @@ void from_json(const nlohmann::json &j, dis_debug_config_t &dis_debug)
 {
     j.at("generate_resize_grid").get_to(dis_debug.generate_resize_grid);
     j.at("fix_stabilization").get_to(dis_debug.fix_stabilization);
-    j.at("fix_stabilization_longitude")
-        .get_to(dis_debug.fix_stabilization_longitude);
-    j.at("fix_stabilization_latitude")
-        .get_to(dis_debug.fix_stabilization_latitude);
+    j.at("fix_stabilization_longitude").get_to(dis_debug.fix_stabilization_longitude);
+    j.at("fix_stabilization_latitude").get_to(dis_debug.fix_stabilization_latitude);
 }
 
 //------------------------ dis_config_t ------------------------
@@ -190,14 +175,11 @@ void to_json(nlohmann::json &j, const dis_config_t &dis)
     j = nlohmann::json{
         {"enabled", dis.enabled},
         {"minimun_coefficient_filter", dis.minimun_coefficient_filter},
-        {"decrement_coefficient_threshold",
-         dis.decrement_coefficient_threshold},
-        {"increment_coefficient_threshold",
-         dis.increment_coefficient_threshold},
+        {"decrement_coefficient_threshold", dis.decrement_coefficient_threshold},
+        {"increment_coefficient_threshold", dis.increment_coefficient_threshold},
         {"running_average_coefficient", dis.running_average_coefficient},
         {"std_multiplier", dis.std_multiplier},
-        {"black_corners_correction_enabled",
-         dis.black_corners_correction_enabled},
+        {"black_corners_correction_enabled", dis.black_corners_correction_enabled},
         {"black_corners_threshold", dis.black_corners_threshold},
         {"debug", dis.debug},
     };
@@ -207,16 +189,29 @@ void from_json(const nlohmann::json &j, dis_config_t &dis)
 {
     j.at("enabled").get_to(dis.enabled);
     j.at("minimun_coefficient_filter").get_to(dis.minimun_coefficient_filter);
-    j.at("decrement_coefficient_threshold")
-        .get_to(dis.decrement_coefficient_threshold);
-    j.at("increment_coefficient_threshold")
-        .get_to(dis.increment_coefficient_threshold);
+    j.at("decrement_coefficient_threshold").get_to(dis.decrement_coefficient_threshold);
+    j.at("increment_coefficient_threshold").get_to(dis.increment_coefficient_threshold);
     j.at("running_average_coefficient").get_to(dis.running_average_coefficient);
     j.at("std_multiplier").get_to(dis.std_multiplier);
-    j.at("black_corners_correction_enabled")
-        .get_to(dis.black_corners_correction_enabled);
+    j.at("black_corners_correction_enabled").get_to(dis.black_corners_correction_enabled);
     j.at("black_corners_threshold").get_to(dis.black_corners_threshold);
     j.at("debug").get_to(dis.debug);
+}
+
+//------------------------ optical_zoom_config_t ------------------------
+
+void to_json(nlohmann::json &j, const optical_zoom_config_t &oz_conf)
+{
+    j = nlohmann::json{
+        {"enabled", oz_conf.enabled},
+        {"magnification", oz_conf.magnification},
+    };
+}
+
+void from_json(const nlohmann::json &j, optical_zoom_config_t &oz_conf)
+{
+    j.at("enabled").get_to(oz_conf.enabled);
+    j.at("magnification").get_to(oz_conf.magnification);
 }
 
 //------------------------ digital_zoom_config_t ------------------------
@@ -339,6 +334,7 @@ void to_json(nlohmann::json &j, const pre_proc_op_configurations &pp_conf)
         {"output_video", pp_conf.output_video_config},
         {"dewarp", pp_conf.dewarp_config},
         {"dis", pp_conf.dis_config},
+        {"optical_zoom", pp_conf.optical_zoom_config},
         {"digital_zoom", pp_conf.digital_zoom_config},
         {"rotation", pp_conf.rotation_config},
         {"flip", pp_conf.flip_config},
@@ -351,7 +347,54 @@ void from_json(const nlohmann::json &j, pre_proc_op_configurations &pp_conf)
     j.at("output_video").get_to(pp_conf.output_video_config);
     j.at("dewarp").get_to(pp_conf.dewarp_config);
     j.at("dis").get_to(pp_conf.dis_config);
+    j.at("optical_zoom").get_to(pp_conf.optical_zoom_config);
     j.at("digital_zoom").get_to(pp_conf.digital_zoom_config);
     j.at("rotation").get_to(pp_conf.rotation_config);
     j.at("flip").get_to(pp_conf.flip_config);
+}
+
+//------------------------ multi_resize_config_t ------------------------
+
+void to_json(nlohmann::json &j, const multi_resize_config_t &mresize_conf)
+{
+    // Although multi_resize_config_t has an input_video_config member, it is 
+    // not to be set/changed from json. It is set by the application.
+    j = nlohmann::json{
+        {"output_video", mresize_conf.output_video_config},
+        {"digital_zoom", mresize_conf.digital_zoom_config},
+    };
+}
+
+void from_json(const nlohmann::json &j, multi_resize_config_t &mresize_conf)
+{
+    // Although multi_resize_config_t has an input_video_config member, it is 
+    // not to be set/changed from json. It is set by the application.
+    j.at("output_video").get_to(mresize_conf.output_video_config);
+    j.at("digital_zoom").get_to(mresize_conf.digital_zoom_config);
+}
+
+//------------------------ ldc_config_t ------------------------
+
+void to_json(nlohmann::json &j, const ldc_config_t &ldc_conf)
+{
+    // Although ldc_config_t has an output_video_config member, it is 
+    // not to be set/changed from json. It is set by the application.
+    j = nlohmann::json{
+        {"dewarp", ldc_conf.dewarp_config},
+        {"dis", ldc_conf.dis_config},
+        {"optical_zoom", ldc_conf.optical_zoom_config},
+        {"rotation", ldc_conf.rotation_config},
+        {"flip", ldc_conf.flip_config},
+    };
+}
+
+void from_json(const nlohmann::json &j, ldc_config_t &ldc_conf)
+{
+    // Although ldc_config_t has an output_video_config member, it is 
+    // not to be set/changed from json. It is set by the application.
+    j.at("dewarp").get_to(ldc_conf.dewarp_config);
+    j.at("dis").get_to(ldc_conf.dis_config);
+    j.at("optical_zoom").get_to(ldc_conf.optical_zoom_config);
+    j.at("rotation").get_to(ldc_conf.rotation_config);
+    j.at("flip").get_to(ldc_conf.flip_config);
 }

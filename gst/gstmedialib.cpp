@@ -29,7 +29,11 @@
 #include "encoder/gsthailoh265enc.hpp"
 #include "hailo_encoder/gsthailoencoder.hpp"
 #include "osd/gsthailoosd.hpp"
+#include "jpeg/gsthailojpeg.hpp"
 #include "visionpreproc/gsthailovisionpreproc.hpp"
+#include "multi_resize/gsthailomultiresize.hpp"
+#include "dewarp/gsthailodewarp.hpp"
+#include "frontend/gsthailofrontend.hpp"
 #include <gst/gst.h>
 
 static gboolean
@@ -40,6 +44,10 @@ media_library_plugin_init(GstPlugin *plugin)
     gst_element_register(plugin, "hailoh264enc", GST_RANK_PRIMARY, GST_TYPE_HAILO_H264_ENC);
     gst_element_register(plugin, "hailoosd", GST_RANK_PRIMARY, GST_TYPE_HAILO_OSD);
     gst_element_register(plugin, "hailoencoder", GST_RANK_PRIMARY, GST_TYPE_HAILO_ENCODER);
+    gst_element_register(plugin, "hailojpegenc", GST_RANK_PRIMARY, GST_TYPE_HAILOJPEGENC);
+    gst_element_register(plugin, "hailomultiresize", GST_RANK_PRIMARY, GST_TYPE_HAILO_MULTI_RESIZE);
+    gst_element_register(plugin, "hailodewarp", GST_RANK_PRIMARY, GST_TYPE_HAILO_DEWARP);
+    gst_element_register(plugin, "hailofrontend", GST_RANK_PRIMARY, GST_TYPE_HAILO_FRONTEND);
     gst_hailo_buffer_meta_get_info();
     gst_hailo_buffer_meta_api_get_type();
     return TRUE;

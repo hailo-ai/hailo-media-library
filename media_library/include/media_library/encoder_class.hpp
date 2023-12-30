@@ -59,6 +59,7 @@ public:
     ~Encoder();
     int get_gop_size();
     void force_keyframe();
+    void update_stride(uint32_t stride);
     std::shared_ptr<EncoderConfig> get_config();
     std::vector<EncoderOutputBuffer> handle_frame(EncoderInputBuffer buf);
     EncoderOutputBuffer start();

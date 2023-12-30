@@ -101,6 +101,14 @@ Encoder::Impl::Impl(std::string json_string)
     init_rate_control_config();
 }
 
+void Encoder::update_stride(uint32_t stride) { m_impl->update_stride(stride); }
+
+void Encoder::Impl::update_stride(uint32_t stride)
+{
+    m_input_stride = stride;
+    init_preprocessing_config();
+}
+
 int Encoder::get_gop_size() { return m_impl->get_gop_size(); }
 
 int Encoder::Impl::get_gop_size() { return m_gop_cfg->get_gop_size(); }

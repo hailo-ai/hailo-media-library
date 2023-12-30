@@ -22,8 +22,8 @@
  */
 #include "gsthailovisionpreproc.hpp"
 #include "buffer_utils/buffer_utils.hpp"
-#include "v4l2_vsm/hailo_vsm.h"
-#include "v4l2_vsm/hailo_vsm_meta.h"
+#include "hailo_v4l2/hailo_vsm.h"
+#include "hailo_v4l2/hailo_v4l2_meta.h"
 #include <gst/video/video.h>
 #include <tl/expected.hpp>
 
@@ -190,6 +190,16 @@ static GstFlowReturn gst_hailo_vision_preproc_push_output_frames(GstHailoVisionP
       GST_DEBUG_OBJECT(self, "Creating GstBuffer from dsp buffer");
       GstBuffer *gst_outbuf = create_gst_buffer_from_hailo_buffer(hailo_buffer);
 
+      if (!add_video_meta_to_buffer(gst_outbuf, video_info, hailo_buffer))
+      {
+        GST_ERROR_OBJECT(self, "Failed to add video meta to buffer");
+        gst_buffer_unref(gst_outbuf);
+        hailo_buffer->decrease_ref_count();
+        gst_video_info_free(video_info);
+        ret = GST_FLOW_ERROR;
+        continue;
+      }
+
       GST_DEBUG_OBJECT(self, "Pushing buffer to srcpad name %s", gst_pad_get_name(srcpad));
       gst_outbuf->pts = GST_BUFFER_PTS(buffer);
       gst_pad_push(srcpad, gst_outbuf);
@@ -211,25 +221,23 @@ static GstFlowReturn gst_hailo_vision_preproc_chain(GstPad *pad, GstObject *pare
 {
   GstHailoVisionPreProc *self = GST_HAILO_VISION_PREPROC(parent);
   GstFlowReturn ret = GST_FLOW_OK;
+  GstHailoV4l2Meta *meta = nullptr;
 
   GST_DEBUG_OBJECT(self, "Chain - Received buffer from sinkpad");
 
-  hailo15_vsm vsm = {0, 0};
   // If DIS is enabled
   if (self->medialib_vision_pre_proc->get_pre_proc_configs().dis_config.enabled)
   {
     // Get the vsm from the buffer
-    GstHailoVsmMeta *meta = reinterpret_cast<GstHailoVsmMeta *>(gst_buffer_get_meta(buffer, g_type_from_name(HAILO_VSM_META_API_NAME)));
-    if (meta == NULL)
+    meta = reinterpret_cast<GstHailoV4l2Meta *>(gst_buffer_get_meta(buffer, g_type_from_name(HAILO_V4L2_META_API_NAME)));
+    if (meta == nullptr)
     {
-      GST_ERROR_OBJECT(self, "Cannot get VSM metadata from buffer, check that source provides VSM (V4L2) or disable DIS");
+      GST_ERROR_OBJECT(self, "Cannot get hailo v4l2 metadata from buffer, check that source provides VSM (V4L2) or disable DIS");
       return GST_FLOW_ERROR;
     }
     else
     {
-      uint index = meta->v4l2_index;
-      vsm = meta->vsm;
-      GST_DEBUG_OBJECT(self, "Got VSM metadata, index: %d vsm x: %d vsm y: %d", index, vsm.dx, vsm.dy);
+      GST_DEBUG_OBJECT(self, "Got VSM metadata, index: %d vsm x: %d vsm y: %d current fps: %d", meta->v4l2_index, meta->vsm.dx, meta->vsm.dy, meta->isp_ae_fps);
     }
   }
 
@@ -246,7 +254,7 @@ static GstFlowReturn gst_hailo_vision_preproc_chain(GstPad *pad, GstObject *pare
   if (gst_video_frame_map(&input_video_frame, input_video_info, buffer, GST_MAP_READ))
   {
     GST_DEBUG_OBJECT(self, "Creating dsp buffer from video frame width: %d height: %d", input_video_info->width, input_video_info->height);
-    if (!create_hailo_buffer_from_video_frame(&input_video_frame, hailo_buffer, vsm))
+    if (!create_hailo_buffer_from_video_frame(&input_video_frame, hailo_buffer, meta))
     {
       GST_ERROR_OBJECT(self, "Cannot create hailo buffer from video frame");
       ret = GST_FLOW_ERROR;

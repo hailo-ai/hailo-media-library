@@ -39,6 +39,7 @@ int InitEncoderRateConfig(EncoderParams *enc_params, VCEncInst *pEnc);
 int UpdateEncoderROIArea(EncoderParams *enc_params, VCEncInst *pEnc);
 int OpenEncoder(VCEncInst *encoder, EncoderParams *enc_params);
 int UpdateEncoderConfig(VCEncInst *encoder, EncoderParams *enc_params);
+int InitEncoderPreProcConfig(EncoderParams *enc_params, VCEncInst *pEnc);
 void CloseEncoder(VCEncInst encoder);
 int AllocRes(EncoderParams *enc_params);
 void FreeRes(EncoderParams *enc_params);

@@ -22,17 +22,20 @@
  */
 
 #pragma once
+#include "media_library/config_manager.hpp"
 #include "media_library/media_library_logger.hpp"
 #include "osd.hpp"
 #include <gst/gst.h>
 #include <gst/video/video.h>
-#include <mutex>
+#include <shared_mutex>
 #include <opencv2/opencv.hpp>
 #include <opencv2/core/utils/filesystem.hpp>
 #include <opencv2/freetype.hpp>
 #include <set>
 #include <unordered_map>
 #include <vector>
+#include <functional>
+#include <future>
 
 class OverlayImpl;
 using OverlayImplPtr = std::shared_ptr<OverlayImpl>;
@@ -40,10 +43,11 @@ using OverlayImplPtr = std::shared_ptr<OverlayImpl>;
 class OverlayImpl
 {
 public:
-    OverlayImpl(float x, float y, float width, float height, unsigned int z_index, bool ready_to_blend);
+    OverlayImpl(std::string id, float x, float y, float width, float height, unsigned int z_index, unsigned int angle, osd::rotation_alignment_policy_t rotation_policy, bool ready_to_blend);
     virtual ~OverlayImpl();
 
     virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(int frame_width, int frame_height);
+    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> get_dsp_overlays();
 
     bool operator<(const OverlayImpl &other);
 
@@ -52,27 +56,30 @@ public:
 
     virtual std::shared_ptr<osd::Overlay> get_metadata() = 0;
     bool get_ready_to_blend();
+    std::string get_id() { return m_id; }
 
 protected:
-    static tl::expected<std::tuple<int, int>, media_library_return> calc_xy_offsets(
-        float x_norm, float y_norm, int overlay_width, int overlay_height, int image_width, int image_height);
+    static tl::expected<std::tuple<int, int>, media_library_return> calc_xy_offsets(std::string id, float x_norm, float y_norm, int overlay_width, int overlay_height, int image_width, int image_height, int x_drift, int y_drift);
     static GstVideoFrame gst_video_frame_from_mat_bgra(cv::Mat mat);
     static media_library_return convert_2_dsp_video_frame(GstVideoFrame *src_frame, GstVideoFrame *dest_frame, GstVideoFormat dest_format);
     static media_library_return create_gst_video_frame(uint width, uint height, std::string format, GstVideoFrame *frame);
     static cv::Mat resize_mat(cv::Mat mat, int width, int height);
+    static cv::Mat rotate_mat(cv::Mat mat, uint angle, osd::rotation_alignment_policy_t alignment_policy, cv::Point *center_drift);
     void free_resources();
 
     cv::Mat m_image_mat;
     std::vector<GstVideoFrame> m_video_frames;
     std::vector<dsp_overlay_properties_t> m_dsp_overlays;
-
     std::set<OverlayImplPtr>::iterator m_priority_iterator;
 
+    std::string m_id;
     float m_x;
     float m_y;
     float m_width;
     float m_height;
     unsigned int m_z_index;
+    unsigned int m_angle;
+    osd::rotation_alignment_policy_t m_rotation_policy;
     bool m_ready_to_blend;
 };
 
@@ -83,6 +90,7 @@ class CustomOverlayImpl : public OverlayImpl
 {
 public:
     static tl::expected<CustomOverlayImplPtr, media_library_return> create(const osd::CustomOverlay &overlay);
+    static std::shared_future<tl::expected<CustomOverlayImplPtr, media_library_return>> create_async(const osd::CustomOverlay &overlay);
     CustomOverlayImpl(const osd::CustomOverlay &overlay, media_library_return &status);
     virtual ~CustomOverlayImpl() = default;
 
@@ -98,6 +106,7 @@ class ImageOverlayImpl : public OverlayImpl
 {
 public:
     static tl::expected<ImageOverlayImplPtr, media_library_return> create(const osd::ImageOverlay &overlay);
+    static std::shared_future<tl::expected<ImageOverlayImplPtr, media_library_return>> create_async(const osd::ImageOverlay &overlay);
     ImageOverlayImpl(const osd::ImageOverlay &overlay, media_library_return &status);
     virtual ~ImageOverlayImpl() = default;
 
@@ -116,8 +125,8 @@ class TextOverlayImpl : public OverlayImpl
 {
 public:
     static tl::expected<TextOverlayImplPtr, media_library_return> create(const osd::TextOverlay &overlay);
+    static std::shared_future<tl::expected<TextOverlayImplPtr, media_library_return>> create_async(const osd::TextOverlay &overlay);
     TextOverlayImpl(const osd::TextOverlay &overlay, media_library_return &status);
-    void create_text_mat(const osd::TextOverlay &overlay);
     virtual ~TextOverlayImpl() = default;
 
     virtual std::shared_ptr<osd::Overlay> get_metadata();
@@ -140,9 +149,11 @@ class DateTimeOverlayImpl : public OverlayImpl
     */
 public:
     static tl::expected<DateTimeOverlayImplPtr, media_library_return> create(const osd::DateTimeOverlay &overlay);
+    static std::shared_future<tl::expected<DateTimeOverlayImplPtr, media_library_return>> create_async(const osd::DateTimeOverlay &overlay);
     DateTimeOverlayImpl(const osd::DateTimeOverlay &overlay, media_library_return &status);
     virtual ~DateTimeOverlayImpl() = default;
 
+    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> get_dsp_overlays();
     virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(int frame_width, int frame_height);
     virtual std::shared_ptr<osd::Overlay> get_metadata();
 
@@ -153,51 +164,67 @@ private:
     float m_font_size;
     int m_line_thickness;
     std::string m_datetime_str;
+    int m_frame_width;
+    int m_frame_height;
 };
 
 namespace osd
 {
-
     class Blender::Impl final
     {
     public:
-        static tl::expected<std::unique_ptr<Blender::Impl>, media_library_return> create(const nlohmann::json &config);
+        static tl::expected<std::unique_ptr<Blender::Impl>, media_library_return> create(const std::string &config);
+        static std::shared_future<tl::expected<std::unique_ptr<Blender::Impl>, media_library_return>> create_async(const std::string &config);
 
         Impl(const nlohmann::json &config, media_library_return &status);
         ~Impl();
-
         media_library_return set_frame_size(int frame_width, int frame_height);
 
-        media_library_return add_overlay(const std::string &id, const ImageOverlay &overlay);
-        media_library_return add_overlay(const std::string &id, const TextOverlay &overlay);
-        media_library_return add_overlay(const std::string &id, const DateTimeOverlay &overlay);
-        media_library_return add_overlay(const std::string &id, const CustomOverlay &overlay);
+        media_library_return add_overlay(const ImageOverlay &overlay);
+        media_library_return add_overlay(const TextOverlay &overlay);
+        media_library_return add_overlay(const DateTimeOverlay &overlay);
+        media_library_return add_overlay(const CustomOverlay &overlay);
+        std::shared_future<media_library_return> add_overlay_async(const ImageOverlay &overlay);
+        std::shared_future<media_library_return> add_overlay_async(const TextOverlay &overlay);
+        std::shared_future<media_library_return> add_overlay_async(const DateTimeOverlay &overlay);
+        std::shared_future<media_library_return> add_overlay_async(const CustomOverlay &overlay);
 
         media_library_return remove_overlay(const std::string &id);
+        std::shared_future<media_library_return> remove_overlay_async(const std::string &id);
 
         tl::expected<std::shared_ptr<osd::Overlay>, media_library_return> get_overlay(const std::string &id);
 
-        media_library_return set_overlay(const std::string &id, const ImageOverlay &overlay);
-        media_library_return set_overlay(const std::string &id, const TextOverlay &overlay);
-        media_library_return set_overlay(const std::string &id, const DateTimeOverlay &overlay);
-        media_library_return set_overlay(const std::string &id, const CustomOverlay &overlay);
+        media_library_return set_overlay(const ImageOverlay &overlay);
+        media_library_return set_overlay(const TextOverlay &overlay);
+        media_library_return set_overlay(const DateTimeOverlay &overlay);
+        media_library_return set_overlay(const CustomOverlay &overlay);
+        std::shared_future<media_library_return> set_overlay_async(const ImageOverlay &overlay);
+        std::shared_future<media_library_return> set_overlay_async(const TextOverlay &overlay);
+        std::shared_future<media_library_return> set_overlay_async(const DateTimeOverlay &overlay);
+        std::shared_future<media_library_return> set_overlay_async(const CustomOverlay &overlay);
 
         media_library_return blend(dsp_image_properties_t &input_image_properties);
 
     private:
-        media_library_return add_overlay(const std::string &id, const OverlayImplPtr overlay);
-        media_library_return set_overlay(const std::string &id, const OverlayImplPtr overlay);
+        Impl(const std::string &config, media_library_return &status);
+        media_library_return set_overlay(const OverlayImplPtr overlay);
+        media_library_return add_overlay(const OverlayImplPtr overlay);
+        media_library_return remove_overlay_internal(const std::string &id);
+        media_library_return add_overlay_internal(const OverlayImplPtr overlay);
 
         void initialize_overlay_images();
 
         std::unordered_map<std::string, OverlayImplPtr> m_overlays;
         std::set<OverlayImplPtr> m_prioritized_overlays;
 
-        const nlohmann::json m_config;
-        std::recursive_mutex m_mutex;
+        std::shared_mutex m_mutex;
+
+        nlohmann::json m_config;
+        std::shared_ptr<ConfigManager> m_config_manager;
 
         int m_frame_width;
         int m_frame_height;
+        bool m_frame_size_set;
     };
 
 }

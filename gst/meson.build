@@ -55,7 +55,11 @@ plugin_sources = [
     'encoder/gsthailoenc.cpp',
     'encoder/gsthailoh265enc.cpp',
     'encoder/gsthailoh264enc.cpp',
-    'hailo_encoder/gsthailoencoder.cpp'
+    'hailo_encoder/gsthailoencoder.cpp',
+    'jpeg/gsthailojpeg.cpp',
+    'multi_resize/gsthailomultiresize.cpp',
+    'dewarp/gsthailodewarp.cpp',
+    'frontend/gsthailofrontend.cpp'
     ]
 
 if get_option('hailort_4_16')
