@@ -30,17 +30,12 @@
 
 #include "media_library/buffer_pool.hpp"
 #include "media_library/dsp_utils.hpp"
-#include "hailo_v4l2/hailo_vsm.h"
-#include "hailo_v4l2/hailo_v4l2_meta.h"
 #include <gst/video/video.h>
 #include <stdint.h>
 G_BEGIN_DECLS
 
-GstBuffer *create_gst_buffer_from_hailo_buffer(HailoMediaLibraryBufferPtr hailo_buffer);
-GstVideoMeta *add_video_meta_to_buffer(GstBuffer *buffer, GstVideoInfo *video_info, HailoMediaLibraryBufferPtr hailo_buffer);
-bool create_hailo_buffer_from_video_frame(GstVideoFrame *video_frame, hailo_media_library_buffer &hailo_buffer, GstHailoV4l2Meta *meta = nullptr);
+HailoMediaLibraryBufferPtr hailo_buffer_from_gst_buffer(GstBuffer *buffer, GstCaps *caps);
+GstBuffer *gst_buffer_from_hailo_buffer(HailoMediaLibraryBufferPtr hailo_buffer, GstCaps *caps);
 bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_properties_t &dsp_image_props);
-bool create_dsp_buffer_from_video_info(GstBuffer *buffer, GstVideoInfo *video_info, dsp_image_properties_t &dsp_image_props);
-void update_video_info_from_meta(GstBuffer *buffer, GstVideoInfo *video_info);
 
 G_END_DECLS

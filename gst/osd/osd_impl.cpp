@@ -24,8 +24,8 @@
 #include "osd_impl.hpp"
 #include "buffer_utils/buffer_utils.hpp"
 #include <algorithm>
-#include <chrono>
 #include <thread>
+#include <iomanip>
 
 #define WIDTH_PADDING 10
 
@@ -172,7 +172,8 @@ media_library_return OverlayImpl::convert_2_dsp_video_frame(GstVideoFrame *src_f
     }
 
     gst_video_converter_free(converter);
-
+    gst_video_info_free(dest_info);
+    
     return ret;
 }
 
@@ -269,7 +270,7 @@ ImageOverlayImpl::ImageOverlayImpl(const osd::ImageOverlay &overlay, media_libra
 }
 
 TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay &overlay, media_library_return &status) : OverlayImpl(overlay.id, overlay.x, overlay.y, 0, 0, overlay.z_index, overlay.angle, overlay.rotation_alignment_policy, false),
-                                                                                                  m_label(overlay.label), m_rgb{overlay.rgb.red, overlay.rgb.green, overlay.rgb.blue}, m_font_size(overlay.font_size), m_line_thickness(overlay.line_thickness), m_font_path(overlay.font_path)
+                                                                                                  m_label(overlay.label), m_rgb_text_color{overlay.rgb.red, overlay.rgb.green, overlay.rgb.blue}, m_rgb_text_background_color{overlay.rgb_background.red, overlay.rgb_background.green, overlay.rgb_background.blue}, m_font_size(overlay.font_size), m_line_thickness(overlay.line_thickness), m_font_path(overlay.font_path)
 {
     if (m_label.empty())
     {
@@ -305,14 +306,31 @@ TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay &overlay, media_library_
     m_width = text_size.width;
     m_height = text_size.height + baseline;
 
-    cv::Scalar background_color_rgb(255, 255, 255);
-    cv::Scalar background_color_rgba(255, 255, 255, 0); // transparent background
+    cv::Scalar background_color_rgb;
+    cv::Scalar background_color_rgba;
 
-    // check if the desired font color is black, if so, use white background
-    if (m_rgb[0] == 255 && m_rgb[1] == 255 && m_rgb[2] == 255)
+    bool transparent_background = (m_rgb_text_background_color[0] < 0 || m_rgb_text_background_color[1] < 0 || m_rgb_text_background_color[2] < 0); // transparent background
+
+    if (transparent_background)
     {
-        background_color_rgb = cv::Scalar(0, 0, 0);
-        background_color_rgba = cv::Scalar(0, 0, 0, 0);
+        LOGGER__DEBUG("transparent background");
+        cv::Scalar tmp_background_color_rgb(255, 255, 255);
+        cv::Scalar tmp_background_color_rgba(255, 255, 255, 0); // transparent background
+
+        // check if the desired font color is black, if so, use white background
+        if (m_rgb_text_color[0] == 255 && m_rgb_text_color[1] == 255 && m_rgb_text_color[2] == 255)
+        {
+            tmp_background_color_rgb = cv::Scalar(0, 0, 0);
+            tmp_background_color_rgba = cv::Scalar(0, 0, 0, 0);
+        }
+        background_color_rgb = tmp_background_color_rgb;
+        background_color_rgba = tmp_background_color_rgba;
+    }
+
+    else
+    {
+        background_color_rgb = cv::Scalar(m_rgb_text_background_color[0], m_rgb_text_background_color[1], m_rgb_text_background_color[2]);
+        background_color_rgba = cv::Scalar(m_rgb_text_background_color[0], m_rgb_text_background_color[1], m_rgb_text_background_color[2], 255);
     }
 
     cv::Mat rgb_mat = cv::Mat(text_size.height + baseline, text_size.width + WIDTH_PADDING, CV_8UC3, background_color_rgb);
@@ -320,30 +338,36 @@ TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay &overlay, media_library_
     m_image_mat = cv::Mat(text_size.height + baseline, text_size.width + WIDTH_PADDING, CV_8UC4, background_color_rgba);
 
     auto text_position = cv::Point(0, text_size.height);
-    cv::Scalar text_color(m_rgb[2], m_rgb[1], m_rgb[0], 255); // The input is expected RGB, but we draw as BGRA
-    cv::Scalar rgb_text_color(m_rgb[0], m_rgb[1], m_rgb[2]);  // The input is expected RGB, but we draw as BGRA
+    cv::Scalar rgb_text_color(m_rgb_text_color[0], m_rgb_text_color[1], m_rgb_text_color[2]); // The input is expected RGB, but we draw as BGRA
 
     ft2->putText(rgb_mat, m_label, text_position, m_font_size, rgb_text_color, cv::FILLED, 8, true);
 
-    for (int i = 0; i < rgb_mat.rows; i++)
+    if (transparent_background)
     {
-        for (int j = 0; j < rgb_mat.cols; j++)
+        for (int i = 0; i < rgb_mat.rows; i++)
         {
-            if (rgb_mat.at<cv::Vec3b>(i, j)[0] != background_color_rgb[0] || rgb_mat.at<cv::Vec3b>(i, j)[1] != background_color_rgb[1] || rgb_mat.at<cv::Vec3b>(i, j)[2] != background_color_rgb[2])
+            for (int j = 0; j < rgb_mat.cols; j++)
             {
-                m_image_mat.at<cv::Vec4b>(i, j)[0] = rgb_mat.at<cv::Vec3b>(i, j)[2];
-                m_image_mat.at<cv::Vec4b>(i, j)[1] = rgb_mat.at<cv::Vec3b>(i, j)[1];
-                m_image_mat.at<cv::Vec4b>(i, j)[2] = rgb_mat.at<cv::Vec3b>(i, j)[0];
-                m_image_mat.at<cv::Vec4b>(i, j)[3] = 255;
+                if (rgb_mat.at<cv::Vec3b>(i, j)[0] != background_color_rgb[0] || rgb_mat.at<cv::Vec3b>(i, j)[1] != background_color_rgb[1] || rgb_mat.at<cv::Vec3b>(i, j)[2] != background_color_rgb[2])
+                {
+                    m_image_mat.at<cv::Vec4b>(i, j)[0] = rgb_mat.at<cv::Vec3b>(i, j)[2];
+                    m_image_mat.at<cv::Vec4b>(i, j)[1] = rgb_mat.at<cv::Vec3b>(i, j)[1];
+                    m_image_mat.at<cv::Vec4b>(i, j)[2] = rgb_mat.at<cv::Vec3b>(i, j)[0];
+                    m_image_mat.at<cv::Vec4b>(i, j)[3] = 255;
+                }
             }
         }
+    }
+    else
+    {
+        cv::cvtColor(rgb_mat, m_image_mat, cv::COLOR_RGB2BGRA);
     }
 
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
 DateTimeOverlayImpl::DateTimeOverlayImpl(const osd::DateTimeOverlay &overlay, media_library_return &status) : OverlayImpl(overlay.id, overlay.x, overlay.y, 0, 0, overlay.z_index, overlay.angle, overlay.rotation_alignment_policy, false),
-                                                                                                              m_rgb{overlay.rgb.red, overlay.rgb.green, overlay.rgb.blue}, m_font_size(overlay.font_size), m_line_thickness(overlay.line_thickness)
+                                                                                                              m_rgb_text_color{overlay.rgb.red, overlay.rgb.green, overlay.rgb.blue}, m_font_size(overlay.font_size), m_line_thickness(overlay.line_thickness)
 {
     status = MEDIA_LIBRARY_SUCCESS;
 }
@@ -599,7 +623,7 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> DateTi
     m_image_mat = cv::Mat(text_size.height + baseline, text_size.width, CV_8UC4, cv::Scalar(0, 0, 0, 0));
 
     auto text_position = cv::Point(0, text_size.height);
-    cv::Scalar text_color(m_rgb[2], m_rgb[1], m_rgb[0], 255); // The input is expected RGB, but we draw as BGRA
+    cv::Scalar text_color(m_rgb_text_color[2], m_rgb_text_color[1], m_rgb_text_color[0], 255); // The input is expected RGB, but we draw as BGRA
 
     // draw the text
     cv::putText(m_image_mat, m_datetime_str, text_position, cv::FONT_HERSHEY_SIMPLEX, m_font_size, text_color, m_line_thickness);
@@ -634,27 +658,11 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> DateTi
 
 std::string DateTimeOverlayImpl::select_chars_for_timestamp()
 {
-    auto system_time = std::chrono::system_clock::now();
-    std::time_t ttime = std::chrono::system_clock::to_time_t(system_time);
-    std::tm *time_now = std::gmtime(&ttime);
-
-    // std::vector<char> char_indices(11);
-
-    std::string chars;
-
-    chars += std::to_string(time_now->tm_mday);
-    chars += '-';
-    chars += std::to_string(time_now->tm_mon);
-    chars += '-';
-    chars += std::to_string(1900 + time_now->tm_year);
-    chars += ' ';
-    chars += std::to_string(time_now->tm_hour);
-    chars += ':';
-    chars += std::to_string(time_now->tm_min);
-    chars += ':';
-    chars += std::to_string(time_now->tm_sec);
-
-    return chars;
+    auto t = std::time(nullptr);
+    auto tm = *std::localtime(&t);
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%d-%m-%Y %H:%M:%S");
+    return oss.str();
 }
 
 std::shared_ptr<osd::Overlay> ImageOverlayImpl::get_metadata()
@@ -664,12 +672,12 @@ std::shared_ptr<osd::Overlay> ImageOverlayImpl::get_metadata()
 
 std::shared_ptr<osd::Overlay> TextOverlayImpl::get_metadata()
 {
-    return std::make_shared<osd::TextOverlay>(m_id, m_x, m_y, m_label, osd::rgb_color_t{m_rgb[0], m_rgb[1], m_rgb[2]}, m_font_size, m_line_thickness, m_z_index, m_font_path, m_angle, m_rotation_policy);
+    return std::make_shared<osd::TextOverlay>(m_id, m_x, m_y, m_label, osd::rgb_color_t{m_rgb_text_color[0], m_rgb_text_color[1], m_rgb_text_color[2]}, osd::rgb_color_t{m_rgb_text_background_color[0], m_rgb_text_background_color[1], m_rgb_text_background_color[2]}, m_font_size, m_line_thickness, m_z_index, m_font_path, m_angle, m_rotation_policy);
 }
 
 std::shared_ptr<osd::Overlay> DateTimeOverlayImpl::get_metadata()
 {
-    return std::make_shared<osd::DateTimeOverlay>(m_id, m_x, m_y, osd::rgb_color_t{m_rgb[0], m_rgb[1], m_rgb[2]}, m_font_size, m_line_thickness, m_z_index, m_angle, m_rotation_policy);
+    return std::make_shared<osd::DateTimeOverlay>(m_id, m_x, m_y, osd::rgb_color_t{m_rgb_text_color[0], m_rgb_text_color[1], m_rgb_text_color[2]}, m_font_size, m_line_thickness, m_z_index, m_angle, m_rotation_policy);
 }
 
 std::shared_ptr<osd::Overlay> CustomOverlayImpl::get_metadata()
@@ -711,7 +719,14 @@ namespace osd
         {
             clean_config = clean_config.substr(1, config.size() - 2);
         }
-        m_config_manager->validate_configuration(clean_config);
+
+        auto ret = m_config_manager->validate_configuration(clean_config);
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__ERROR("Failed to validate configuration: {}", ret);
+            status = MEDIA_LIBRARY_CONFIGURATION_ERROR;
+            return;
+        }
         m_config = nlohmann::json::parse(clean_config);
 
         // Acquire DSP device

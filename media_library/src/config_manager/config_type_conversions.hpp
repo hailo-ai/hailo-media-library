@@ -106,6 +106,12 @@ MEDIALIB_JSON_SERIALIZE_ENUM(digital_zoom_mode_t, {
                                                       {DIGITAL_ZOOM_MODE_MAGNIFICATION, "DIGITAL_ZOOM_MODE_MAGNIFICATION"},
                                                   })
 
+MEDIALIB_JSON_SERIALIZE_ENUM(denoise_method_t, {
+                                                   {DENOISE_METHOD_VD1, "HIGH_QUALITY"},
+                                                   {DENOISE_METHOD_VD2, "BALANCED"},
+                                                   {DENOISE_METHOD_VD3, "HIGH_PERFORMANCE"},
+                                               })
+
 //------------------------ roi_t ------------------------
 
 void to_json(nlohmann::json &j, const roi_t &roi)
@@ -397,4 +403,72 @@ void from_json(const nlohmann::json &j, ldc_config_t &ldc_conf)
     j.at("optical_zoom").get_to(ldc_conf.optical_zoom_config);
     j.at("rotation").get_to(ldc_conf.rotation_config);
     j.at("flip").get_to(ldc_conf.flip_config);
+}
+
+//------------------------ hailort_t ------------------------
+
+void to_json(nlohmann::json &j, const hailort_t &hrt_conf)
+{
+    j = nlohmann::json{
+        {"hailort", {
+            {"device-id", hrt_conf.device_id},
+        }},
+    };
+}
+
+void from_json(const nlohmann::json &j, hailort_t &hrt_conf)
+{
+    const auto &hailort = j.at("hailort");
+    hailort.at("device-id").get_to(hrt_conf.device_id);
+}
+
+//------------------------ feedback_network_config_t ------------------------
+
+void to_json(nlohmann::json &j, const feedback_network_config_t &net_conf)
+{
+    j = nlohmann::json{
+        {"network_path", net_conf.network_path},
+        {"y_channel", net_conf.y_channel},
+        {"uv_channel", net_conf.uv_channel},
+        {"feedback_y_channel", net_conf.feedback_y_channel},
+        {"feedback_uv_channel", net_conf.feedback_uv_channel},
+        {"output_y_channel", net_conf.output_y_channel},
+        {"output_uv_channel", net_conf.output_uv_channel},
+    };
+}
+
+void from_json(const nlohmann::json &j, feedback_network_config_t &net_conf)
+{
+    j.at("network_path").get_to(net_conf.network_path);
+    j.at("y_channel").get_to(net_conf.y_channel);
+    j.at("uv_channel").get_to(net_conf.uv_channel);
+    j.at("feedback_y_channel").get_to(net_conf.feedback_y_channel);
+    j.at("feedback_uv_channel").get_to(net_conf.feedback_uv_channel);
+    j.at("output_y_channel").get_to(net_conf.output_y_channel);
+    j.at("output_uv_channel").get_to(net_conf.output_uv_channel);
+}
+
+//------------------------ denoise_config_t ------------------------
+
+void to_json(nlohmann::json &j, const denoise_config_t &d_conf)
+{
+    j = nlohmann::json{
+        {"denoise", {
+            {"enabled", d_conf.enabled},
+            {"sensor", d_conf.sensor},
+            {"method", d_conf.denoising_quality},
+            {"loopback-count", d_conf.loopback_count},
+            {"network", d_conf.network_config},
+        }},
+    };
+}
+
+void from_json(const nlohmann::json &j, denoise_config_t &d_conf)
+{
+    const auto &denoise = j.at("denoise");
+    denoise.at("enabled").get_to(d_conf.enabled);
+    denoise.at("sensor").get_to(d_conf.sensor);
+    denoise.at("method").get_to(d_conf.denoising_quality);
+    denoise.at("loopback-count").get_to(d_conf.loopback_count);
+    denoise.at("network").get_to(d_conf.network_config);
 }

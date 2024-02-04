@@ -27,6 +27,7 @@
 #pragma once
 #include "media_library/buffer_pool.hpp"
 #include "media_library/media_library_types.hpp"
+#include "media_library/privacy_mask.hpp"
 #include <climits>
 #include <functional>
 #include <nlohmann/json.hpp>
@@ -146,6 +147,13 @@ public:
      * @warning can be called only when the MediaLibraryFrontend module is configured with FRONTEND_SRC_ELEMENT_APPSRC.
      */
     media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
+
+    /**
+     * @brief Get a privacy mask manager object
+     * @return :pointer containing the privacy mask blender object
+     * @ref PrivacyMaskBlender*
+     */
+    PrivacyMaskBlender* get_privacy_mask_blender();
 
     /**
      * @brief Retrieves the IDs of the output streams.

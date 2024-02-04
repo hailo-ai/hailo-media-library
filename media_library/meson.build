@@ -42,7 +42,10 @@ frontend_sources = [
     'src/vision_pre_proc/dewarp_mesh_context.cpp',
     'src/front_end/multi_resize.cpp',
     'src/front_end/dewarp.cpp',
-    'src/front_end/ldc_mesh_context.cpp'
+    'src/front_end/ldc_mesh_context.cpp',
+    'src/front_end/privacy_mask.cpp',
+    'src/front_end/polygon_math.cpp',
+    'src/front_end/denoise.cpp'
 ]
 
 if get_option('hailort_4_16')

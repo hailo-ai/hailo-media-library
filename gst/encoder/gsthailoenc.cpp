@@ -22,10 +22,11 @@
  */
 #include <assert.h>
 #include <string.h>
-#include "gsthailoenc.hpp"
 #include <errno.h>
 #include <stdio.h>
 #include <time.h>
+#include "gsthailoenc.hpp"
+#include "buffer_utils/buffer_utils.hpp"
 
 /*******************
 Property Definitions
@@ -57,8 +58,15 @@ enum
   PROP_COMPRESSOR,
   PROP_BLOCK_RC_SIZE,
   PROP_HRD_CPB_SIZE,
+  PROP_ADAPT_FRAMERATE,
+  PROP_FRAMERATE_TOLERANCE,
   NUM_OF_PROPS,
 };
+
+#define MIN_FRAMERATE_TOLERANCE (0)
+#define MAX_FRAMERATE_TOLERANCE (500)
+#define DEFAULT_FRAMERATE_TOLERANCE (15)
+
 
 #define GST_TYPE_HAILOENC_COMPRESSOR (gst_hailoenc_compressor_get_type())
 static GType
@@ -205,13 +213,13 @@ gst_hailoenc_class_init(GstHailoEncClass *klass)
                                                     MIN_BITRATE_VARIABLE_RANGE, MAX_BITRATE_VARIABLE_RANGE, (guint)DEFAULT_BITVAR_RANGE_B,
                                                     (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_PICTURE_RC,
-                                  g_param_spec_boolean("picture-rc", "Picture Rate Control", "Adjust QP between pictures", true,
+                                  g_param_spec_boolean("picture-rc", "Picture Rate Control", "Adjust QP between pictures", TRUE,
                                                        (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_CTB_RC,
-                                  g_param_spec_boolean("ctb-rc", "Block Rate Control", "Adaptive adjustment of QP inside frame", false,
+                                  g_param_spec_boolean("ctb-rc", "Block Rate Control", "Adaptive adjustment of QP inside frame", FALSE,
                                                        (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_PICTURE_SKIP,
-                                  g_param_spec_boolean("picture-skip", "Picture Skip", "Allow rate control to skip pictures", false,
+                                  g_param_spec_boolean("picture-skip", "Picture Skip", "Allow rate control to skip pictures", FALSE,
                                                        (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_HRD,
                                   g_param_spec_boolean("hrd", "Picture Rate Control", "Restricts the instantaneous bitrate and total bit amount of every coded picture.", false,
@@ -240,6 +248,13 @@ gst_hailoenc_class_init(GstHailoEncClass *klass)
                                   g_param_spec_uint("hrd-cpb-size", "HRD Coded Picture Buffer size", "Buffer size used by the HRD model in bits",
                                                     MIN_HRD_CPB_SIZE, MAX_HRD_CPB_SIZE, (guint)DEFAULT_HRD_CPB_SIZE,
                                                     (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+  g_object_class_install_property(gobject_class, PROP_ADAPT_FRAMERATE,
+                                  g_param_spec_boolean("adapt-framerate", "Adapt Framerate", "Adapt encoder to real framerate", FALSE,
+                                                       (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+  g_object_class_install_property(gobject_class, PROP_FRAMERATE_TOLERANCE,
+                                  g_param_spec_uint("framerate-tolerance", "Framerate Tolerance", "Framerate tolerance in percent. Relevant only if adapt-framerate is enabled",
+                                                    MIN_FRAMERATE_TOLERANCE, MAX_FRAMERATE_TOLERANCE, (guint)DEFAULT_FRAMERATE_TOLERANCE,
+                                                    (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 
   venc_class->start = gst_hailoenc_start;
   venc_class->stop = gst_hailoenc_stop;
@@ -264,6 +279,8 @@ gst_hailoenc_init(GstHailoEnc *hailoenc)
   memset(hailoenc->gopPicCfg, 0, sizeof(hailoenc->gopPicCfg));
   hailoenc->encoder_instance = NULL;
   enc_params->encIn.gopConfig.pGopPicCfg = hailoenc->gopPicCfg;
+  hailoenc->adapt_framerate = FALSE;
+  hailoenc->framerate_tolerance = 1.15f;
   hailoenc->dts_queue = g_queue_new();
   g_queue_init(hailoenc->dts_queue);
 }
@@ -412,6 +429,16 @@ gst_hailoenc_get_property(GObject *object,
     g_value_set_uint(value, (guint)hailoenc->enc_params.hrdCpbSize);
     GST_OBJECT_UNLOCK(hailoenc);
     break;
+  case PROP_ADAPT_FRAMERATE:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_boolean(value, hailoenc->adapt_framerate);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_FRAMERATE_TOLERANCE:
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_uint(value, (guint)((hailoenc->framerate_tolerance - 1.0f) * 100.0f));
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
   default:
     G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
     break;
@@ -558,6 +585,18 @@ gst_hailoenc_set_property(GObject *object,
     hailoenc->enc_params.hrdCpbSize = g_value_get_uint(value);
     GST_OBJECT_UNLOCK(hailoenc);
     break;
+  case PROP_ADAPT_FRAMERATE:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->adapt_framerate = g_value_get_boolean(value);
+    hailoenc->update_config = FALSE;
+    GST_OBJECT_UNLOCK(hailoenc);
+  case PROP_FRAMERATE_TOLERANCE:
+    GST_OBJECT_LOCK(hailoenc);
+    GST_WARNING_OBJECT(hailoenc, "Setting framerate tolerance to %d", g_value_get_uint(value));
+    hailoenc->framerate_tolerance = (float)((float)g_value_get_uint(value) / 100.0f + 1.0f);
+    hailoenc->update_config = FALSE;
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
   default:
     hailoenc->update_config = FALSE;
     G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
@@ -627,6 +666,7 @@ gst_hailoenc_update_params(GstHailoEnc *hailoenc, GstVideoInfo *info)
       enc_params->height != GST_VIDEO_INFO_HEIGHT(info))
   {
     enc_params->width = GST_VIDEO_INFO_WIDTH(info);
+    enc_params->stride = GST_VIDEO_INFO_PLANE_STRIDE(info, 0);
     enc_params->height = GST_VIDEO_INFO_HEIGHT(info);
     updated_params = TRUE;
   }
@@ -669,66 +709,38 @@ static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc *hailoenc,
                                                       GstVideoCodecFrame *frame)
 {
   EncoderParams *enc_params = &(hailoenc->enc_params);
-  GstFlowReturn ret = GST_FLOW_OK;
   uint32_t *luma = nullptr;
   uint32_t *chroma = nullptr;
   size_t luma_size = 0;
   size_t chroma_size = 0;
+  uint32_t stride = 0;
   int ewl_ret;
-  GstVideoMeta *meta = gst_buffer_get_video_meta(frame->input_buffer);
 
-  if (meta)
+  HailoMediaLibraryBufferPtr hailo_buffer = hailo_buffer_from_gst_buffer(frame->input_buffer, hailoenc->input_state->caps);
+
+  if (!hailo_buffer)
   {
-    enc_params->padding_to_crop = meta->stride[0] - GST_VIDEO_INFO_WIDTH(&(hailoenc->input_state->info));
-    InitEncoderPreProcConfig(enc_params, &(hailoenc->encoder_instance));
+    GST_ERROR_OBJECT(hailoenc, "Could not get hailo buffer");
+    return GST_FLOW_ERROR;
   }
 
-  switch (gst_buffer_n_memory(frame->input_buffer))
-  {
-  case 1:
-  {
-    GST_DEBUG_OBJECT(hailoenc, "Input buffer has 1 memory");
-    GstVideoFrame vframe;
-    gst_video_frame_map(&vframe, &(hailoenc->input_state->info), frame->input_buffer, GST_MAP_READ);
-    luma = (uint32_t *)GST_VIDEO_FRAME_PLANE_DATA(&vframe, 0);
-    chroma = (uint32_t *)GST_VIDEO_FRAME_PLANE_DATA(&vframe, 1);
-    luma_size = GST_VIDEO_FRAME_HEIGHT(&vframe) * GST_VIDEO_FRAME_PLANE_STRIDE(&vframe, 0);
-    chroma_size = GST_VIDEO_FRAME_HEIGHT(&vframe) * GST_VIDEO_FRAME_PLANE_STRIDE(&vframe, 1) / 2;
-    gst_video_frame_unmap(&vframe);
-    break;
-  }
-  case 2:
-  {
-    GST_DEBUG_OBJECT(hailoenc, "Input buffer has 2 memories");
-    GstMapInfo map_info0;
-    GstMapInfo map_info1;
-    GstMemory *mem0 = gst_buffer_peek_memory(frame->input_buffer, 0);
-    GstMemory *mem1 = gst_buffer_peek_memory(frame->input_buffer, 1);
-    gst_memory_map(mem0, &map_info0, GST_MAP_READ);
-    gst_memory_map(mem1, &map_info1, GST_MAP_READ);
-    luma = (uint32_t *)map_info0.data;
-    chroma = (uint32_t *)map_info1.data;
-    luma_size = map_info0.size;
-    chroma_size = map_info1.size;
-    gst_memory_unmap(mem0, &map_info0);
-    gst_memory_unmap(mem1, &map_info1);
-    break;
-  }
-  default:
-  {
-    GST_ERROR_OBJECT(hailoenc, "Input buffer has %d memories", gst_buffer_n_memory(frame->input_buffer));
-    ret = GST_FLOW_ERROR;
-    break;
-  }
-  }
-  if (ret != GST_FLOW_OK)
-  {
-    return ret;
-  }
+  luma = static_cast<uint32_t *>(hailo_buffer->get_plane(0));
+  chroma = static_cast<uint32_t *>(hailo_buffer->get_plane(1));
+  luma_size = hailo_buffer->get_plane_size(0);
+  chroma_size = hailo_buffer->get_plane_size(1);
+  stride = hailo_buffer->get_plane_stride(0);
+
   if (luma == nullptr || chroma == nullptr || luma_size == 0 || chroma_size == 0)
   {
     GST_ERROR_OBJECT(hailoenc, "Could not get input buffer luma and chroma");
     return GST_FLOW_ERROR;
+  }
+
+  if (stride != enc_params->stride)
+  {
+    GST_WARNING_OBJECT(hailoenc, "Stride changed from %u to %u", enc_params->stride, stride);
+    enc_params->stride = stride;
+    InitEncoderPreProcConfig(enc_params, &(hailoenc->encoder_instance));
   }
 
   // Get the physical Addresses of input buffer luma and chroma.
@@ -900,6 +912,7 @@ gst_hailoenc_stream_restart(GstVideoEncoder *encoder, GstVideoCodecFrame *frame)
     return GST_FLOW_ERROR;
   }
 
+  hailoenc->update_config = FALSE;
   hailoenc->stream_restart = FALSE;
   return GST_FLOW_OK;
 }
@@ -1019,6 +1032,7 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
       {
         // Get the encoded output buffer.
         frame->dts = GPOINTER_TO_UINT(g_queue_pop_head(hailoenc->dts_queue));
+        frame->duration = GST_SECOND / enc_params->frameRateNumer * enc_params->frameRateDenom;
         frame->output_buffer = gst_hailoenc_get_encoded_buffer(hailoenc);
         if (hailoenc->header_buffer)
         {
@@ -1097,7 +1111,6 @@ gst_hailoenc_encode_frames(GstVideoEncoder *encoder)
   {
     GST_INFO_OBJECT(hailoenc, "Finished GOP, restarting encoder in order to update config");
     hailoenc->stream_restart = TRUE;
-    hailoenc->update_config = FALSE;
   }
 
   return ret;
@@ -1258,32 +1271,18 @@ gst_hailoenc_finish(GstVideoEncoder *encoder)
   return gst_pad_push(encoder->srcpad, eos_buf);
 }
 
-static GstFlowReturn
-gst_hailoenc_handle_frame(GstVideoEncoder *encoder,
-                          GstVideoCodecFrame *frame)
+static void gst_hailoenc_handle_timestamps(GstHailoEnc *hailoenc, GstVideoCodecFrame *frame)
 {
-  GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
-  GstFlowReturn ret = GST_FLOW_ERROR;
   EncoderParams *enc_params = &(hailoenc->enc_params);
-  GList *frames;
-  guint delayed_frames;
-  GstVideoCodecFrame *oldest_frame;
-  struct timespec start_handle, end_handle;
-  clock_gettime(CLOCK_MONOTONIC, &start_handle);
-  GST_DEBUG_OBJECT(hailoenc, "Received frame number %u", frame->system_frame_number);
-
-  if (hailoenc->stream_restart)
-  {
-    ret = gst_hailoenc_stream_restart(encoder, frame);
-    if (ret != GST_FLOW_OK)
-    {
-      GST_ERROR_OBJECT(hailoenc, "Failed to restart encoder");
-      return ret;
-    }
-  }
+  struct timespec timestamp;
+  clock_gettime(CLOCK_MONOTONIC, &timestamp);
   if (enc_params->picture_enc_cnt == 0)
   {
-
+    if (hailoenc->adapt_framerate)
+    {
+      hailoenc->framerate_counter=1;
+      hailoenc->last_timestamp = timestamp;
+    }
     switch (enc_params->gopSize)
     {
     case 1:
@@ -1298,8 +1297,57 @@ gst_hailoenc_handle_frame(GstVideoEncoder *encoder,
       break;
     }
   }
-
+  else if (hailoenc->adapt_framerate)
+  {
+    hailoenc->framerate_counter++;
+    auto timediff_ms = gst_hailoenc_difftimespec_ms(timestamp, hailoenc->last_timestamp);
+    if (timediff_ms > 1000 || hailoenc->framerate_counter == 10)
+    {
+      float avg_duration_s = (float)timediff_ms / (float)hailoenc->framerate_counter / 1000.0f;
+      float new_framerate = 1.0f / avg_duration_s;
+      float current_framerate = (float)enc_params->frameRateNumer / (float)enc_params->frameRateDenom;
+      if (std::max(new_framerate, current_framerate) / std::min(new_framerate, current_framerate) >= hailoenc->framerate_tolerance)
+      {
+        GST_WARNING_OBJECT(hailoenc, "Framerate changed from %d to %d", (int)current_framerate, (int)std::round(new_framerate));
+        enc_params->frameRateNumer = (u32)std::round(new_framerate);
+        enc_params->frameRateDenom = 1;
+        hailoenc->update_config = TRUE;
+        hailoenc->hard_restart = TRUE;
+      }
+      hailoenc->framerate_counter = 0;
+      hailoenc->last_timestamp = timestamp;
+    }
+  }
   g_queue_push_tail(hailoenc->dts_queue, GUINT_TO_POINTER(frame->pts));
+
+}
+
+static GstFlowReturn
+gst_hailoenc_handle_frame(GstVideoEncoder *encoder,
+                          GstVideoCodecFrame *frame)
+{
+  GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
+  GstFlowReturn ret = GST_FLOW_ERROR;
+  EncoderParams *enc_params = &(hailoenc->enc_params);
+  GList *frames;
+  guint delayed_frames;
+  GstVideoCodecFrame *oldest_frame;
+  struct timespec start_handle, end_handle;
+  clock_gettime(CLOCK_MONOTONIC, &start_handle);
+  GST_DEBUG_OBJECT(hailoenc, "Received frame number %u", frame->system_frame_number);
+
+  gst_hailoenc_handle_timestamps(hailoenc, frame);
+
+  if (hailoenc->stream_restart)
+  {
+    ret = gst_hailoenc_stream_restart(encoder, frame);
+    if (ret != GST_FLOW_OK)
+    {
+      GST_ERROR_OBJECT(hailoenc, "Failed to restart encoder");
+      return ret;
+    }
+  }
+
 
   // Update Slice Encoding parameters
   enc_params->multislice_encoding = 0;

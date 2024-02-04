@@ -88,6 +88,8 @@ void Encoder::Impl::init_buffer_pool()
 Encoder::Impl::Impl(std::string json_string)
     : m_config(std::make_unique<EncoderConfig>(json_string))
 {
+    memset(&m_enc_out, 0, sizeof(VCEncOut));
+    memset(&m_enc_in, 0, sizeof(VCEncIn));
     m_multislice_encoding = false;
     m_encoder_version = VCEncGetApiVersion();
     m_encoder_build = VCEncGetBuild();
@@ -95,6 +97,9 @@ Encoder::Impl::Impl(std::string json_string)
     allocate_output_memory();
     init_encoder_config();
     init_buffer_pool();
+
+    // Update timescale to be framerate denom (must happen after init_encoder_config)
+    m_enc_in.timeIncrement = m_vc_cfg.frameRateDenom;
 
     init_preprocessing_config();
     init_coding_control_config();
@@ -105,8 +110,11 @@ void Encoder::update_stride(uint32_t stride) { m_impl->update_stride(stride); }
 
 void Encoder::Impl::update_stride(uint32_t stride)
 {
-    m_input_stride = stride;
-    init_preprocessing_config();
+    if (stride != m_input_stride)
+    {
+        m_input_stride = stride;
+        init_preprocessing_config();
+    }
 }
 
 int Encoder::get_gop_size() { return m_impl->get_gop_size(); }
@@ -135,23 +143,32 @@ EncoderOutputBuffer Encoder::start() { return m_impl->start(); }
 EncoderOutputBuffer Encoder::Impl::start()
 {
     LOGGER__INFO("Encoder - Start the stream");
-    VCEncStrmStart(m_inst, &m_enc_in, &m_enc_out);
-    EncoderOutputBuffer output;
-    auto ret = create_output_buffer(output);
-    if (ret != MEDIA_LIBRARY_SUCCESS)
+    if (VCENC_OK != VCEncStrmStart(m_inst, &m_enc_in, &m_enc_out))
     {
-        LOGGER__ERROR("Failed to create output buffer");
-        output.buffer = nullptr;
-        output.size = 0;
-        return output;
+        LOGGER__ERROR("Failed to start stream");
+        m_header.buffer = nullptr;
+        m_header.size = 0;
     }
-    // Default gop size as IPPP
-    m_enc_in.poc = 0;
-    // m_enc_in.gopSize =  m_next_gop_size = ((enc_params->gopSize == 0) ? 1 :
-    // enc_params->gopSize);
-    m_enc_in.gopSize = m_next_gop_size = get_gop_size();
-    m_next_coding_type = VCENC_INTRA_FRAME;
-    return output;
+    else
+    {
+        auto ret = create_output_buffer(m_header);
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__ERROR("Failed to create output buffer");
+            m_header.buffer = nullptr;
+            m_header.size = 0;
+        }
+        else
+        {
+            // Default gop size as IPPP
+            m_enc_in.poc = 0;
+            // m_enc_in.gopSize =  m_next_gop_size = ((enc_params->gopSize == 0) ? 1 :
+            // enc_params->gopSize);
+            m_enc_in.gopSize = m_next_gop_size = get_gop_size();
+            m_next_coding_type = VCENC_INTRA_FRAME;
+        }
+    }
+    return m_header;
 }
 
 EncoderOutputBuffer Encoder::stop() { return m_impl->stop(); }
@@ -171,58 +188,66 @@ EncoderOutputBuffer Encoder::Impl::stop()
     return output;
 }
 
-media_library_return Encoder::Impl::update_input_buffer(EncoderInputBuffer &buf)
+media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferPtr buf)
 {
     int ret;
-    u32 *luma = (u32 *)buf.m_planes[0].data;
-    u32 luma_size = buf.m_planes[0].size;
-    ret = EWLGetBusAddress(m_ewl, luma, (u32 *)&(m_enc_in.busLuma), luma_size);
-    if (ret != EWL_OK)
+    uint32_t num_of_planes = buf->get_num_of_planes();
+    u32 *plane_ptr = nullptr;
+    u32 plane_size = 0;
+    std::array<u32 *, 3> bus_addresses = {&(m_enc_in.busLuma),
+                                          &(m_enc_in.busChromaU),
+                                          &(m_enc_in.busChromaV)};
+
+    if (num_of_planes == 0 || num_of_planes > 3)
     {
-        LOGGER__ERROR("Could not get physical address of luma");
+        LOGGER__ERROR("Could not get number of planes of buffer - Invalid number of planes {}",
+                      num_of_planes);
         return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
     }
-    if (buf.m_planes.size() > 1)
+
+    for (uint32_t i = 0; i < num_of_planes; i++)
     {
-        u32 *chroma = (u32 *)buf.m_planes[1].data;
-        u32 chroma_size = buf.m_planes[1].size;
-        ret = EWLGetBusAddress(m_ewl, chroma, (u32 *)&(m_enc_in.busChromaU),
-                               chroma_size);
-        if (ret != EWL_OK)
+        plane_ptr = static_cast<u32 *>(buf->get_plane(i));
+        plane_size = buf->get_plane_size(i);
+        if (plane_ptr == nullptr || plane_size == 0)
         {
-            LOGGER__ERROR("Could not get physical address of chroma");
+            LOGGER__ERROR("Could not get plane {} of buffer", i);
             return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
         }
-
-        if (buf.m_planes.size() > 2)
+        ret = EWLGetBusAddress(m_ewl, plane_ptr, bus_addresses[i], plane_size);
+        if (ret != EWL_OK)
         {
-            u32 *chroma_v = (u32 *)buf.m_planes[2].data;
-            u32 chroma_v_size = buf.m_planes[2].size;
-            ret = EWLGetBusAddress(
-                m_ewl, chroma_v, (u32 *)&(m_enc_in.busChromaV), chroma_v_size);
-            if (ret != EWL_OK)
-            {
-                LOGGER__ERROR("Could not get physical address of chroma v");
-                return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
-            }
+            LOGGER__ERROR("Could not get physical address of plane {}", i);
+            return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
         }
     }
+    update_stride(buf->get_plane_stride(0));
     return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return
 Encoder::Impl::create_output_buffer(EncoderOutputBuffer &output_buf)
 {
-    hailo_media_library_buffer buffer;
-    if (m_buffer_pool->acquire_buffer(buffer) != MEDIA_LIBRARY_SUCCESS)
+    HailoMediaLibraryBufferPtr buffer_ptr;
+    uint32_t offset = 0;
+    if (output_buf.buffer != nullptr)
     {
-        LOGGER__ERROR("Failed to acquire buffer");
-        return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+        buffer_ptr = output_buf.buffer;
+        offset = output_buf.size;
     }
-    memcpy(buffer.get_plane(0), m_enc_in.pOutBuf, m_enc_out.streamSize);
-    output_buf.buffer =
-        std::make_shared<hailo_media_library_buffer>(std::move(buffer));
-    output_buf.size = m_enc_out.streamSize;
+    else
+    {
+        hailo_media_library_buffer buffer;
+        if (m_buffer_pool->acquire_buffer(buffer) != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__ERROR("Failed to acquire buffer");
+            return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+        }
+        buffer_ptr = std::make_shared<hailo_media_library_buffer>(std::move(buffer));
+    }
+    memcpy(static_cast<char *>(buffer_ptr->get_plane(0)) + offset, m_enc_in.pOutBuf, m_enc_out.streamSize);
+    output_buf.buffer = buffer_ptr;
+    output_buf.size = m_enc_out.streamSize + offset;
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -257,7 +282,7 @@ static int64_t time_diff(const struct timespec after,
 }
 
 media_library_return
-Encoder::Impl::encode_frame(EncoderInputBuffer &buf,
+Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
                             std::vector<EncoderOutputBuffer> &outputs)
 {
     LOGGER__DEBUG("Encoder - encode_frame");
@@ -297,6 +322,11 @@ Encoder::Impl::encode_frame(EncoderInputBuffer &buf,
             if (!m_multislice_encoding)
             {
                 EncoderOutputBuffer output;
+                if (m_enc_in.codingType == VCENC_INTRA_FRAME)
+                {
+                    output = m_header;
+                    output.buffer->increase_ref_count();
+                }
                 ret = create_output_buffer(output);
                 if (ret != MEDIA_LIBRARY_SUCCESS)
                 {
@@ -306,7 +336,6 @@ Encoder::Impl::encode_frame(EncoderInputBuffer &buf,
                 }
                 outputs.emplace_back(std::move(output));
             }
-            // pEncIn->timeIncrement = enc_params->frameRateDenom;
             m_counters.validencodedframenumber++;
             m_next_coding_type = find_next_pic();
         }
@@ -321,13 +350,13 @@ Encoder::Impl::encode_frame(EncoderInputBuffer &buf,
     return ret;
 }
 
-std::vector<EncoderOutputBuffer> Encoder::handle_frame(EncoderInputBuffer buf)
+std::vector<EncoderOutputBuffer> Encoder::handle_frame(HailoMediaLibraryBufferPtr buf)
 {
     return m_impl->handle_frame(buf);
 }
 
 std::vector<EncoderOutputBuffer>
-Encoder::Impl::handle_frame(EncoderInputBuffer buf)
+Encoder::Impl::handle_frame(HailoMediaLibraryBufferPtr buf)
 {
     LOGGER__DEBUG("Start Handling Frame");
     std::vector<EncoderOutputBuffer> outputs;
@@ -344,13 +373,13 @@ Encoder::Impl::handle_frame(EncoderInputBuffer buf)
     {
         if (m_inputs.size() == (size_t)m_enc_in.gopSize - 1)
         {
-            m_inputs.emplace_back(std::move(buf));
+            m_inputs.emplace_back(buf);
             ret = encode_multiple_frames(outputs);
             m_inputs.clear();
         }
         else if (m_inputs.size() < (size_t)m_enc_in.gopSize - 1)
         {
-            m_inputs.emplace_back(std::move(buf));
+            m_inputs.emplace_back(buf);
         }
         else
         {

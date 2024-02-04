@@ -37,6 +37,7 @@
 #include <time.h>
 #include <tl/expected.hpp>
 #include <vector>
+#include <shared_mutex>
 
 #define HAILO15_ISP_CID_LSC_BASE (V4L2_CID_USER_BASE + 0x3200)
 #define HAILO15_ISP_CID_LSC_OPTICAL_ZOOM (HAILO15_ISP_CID_LSC_BASE + 0x0009)
@@ -59,7 +60,7 @@ public:
     media_library_return configure(std::string config_string);
 
     // Configure the pre-processing module with ldc_config_t object
-    media_library_return configure(ldc_config_t &ldc_configs, bool update = true);
+    media_library_return configure(ldc_config_t &ldc_configs);
 
     // Perform pre-processing on the input frame and return the output frames
     media_library_return handle_frame(hailo_media_library_buffer &input_frame, hailo_media_library_buffer &output_frame);
@@ -79,6 +80,9 @@ public:
     // set the input video configurations
     media_library_return set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate, dsp_image_format_t format);
 
+    // set the callbacks object
+    media_library_return observe(const MediaLibraryDewarp::callbacks_t &callbacks);
+
 private:
     std::unique_ptr<LdcMeshContext> m_dewarp_mesh_ctx;
     // configured flag - to determine if first configuration was done
@@ -93,10 +97,11 @@ private:
     MediaLibraryBufferPoolPtr m_output_buffer_pool;
     // video fd
     int m_video_fd;
-    media_library_return reconfigure();
-    media_library_return validate_configurations(ldc_config_t &ldc_configs);
+    // configuration mutex
+    std::shared_mutex rw_lock;
+
+    std::vector<MediaLibraryDewarp::callbacks_t> m_callbacks;
     media_library_return decode_config_json_string(ldc_config_t &ldc_configs, std::string config_string);
-    media_library_return acquire_output_buffers(std::vector<hailo_media_library_buffer> &buffers, output_video_config_t &output_video_config);
     media_library_return create_and_initialize_buffer_pools();
     media_library_return validate_input_frame(hailo_media_library_buffer &input_frame);
     media_library_return perform_dewarp(hailo_media_library_buffer &input_buffer, hailo_media_library_buffer &dewarp_output_buffer);
@@ -158,6 +163,11 @@ media_library_return MediaLibraryDewarp::set_input_video_config(uint32_t width, 
     return m_impl->set_input_video_config(width, height, framerate, format);
 }
 
+media_library_return MediaLibraryDewarp::observe(const MediaLibraryDewarp::callbacks_t &callbacks)
+{
+    return m_impl->observe(callbacks);
+}
+
 //------------------------ MediaLibraryDewarp::Impl ------------------------
 
 tl::expected<std::shared_ptr<MediaLibraryDewarp::Impl>, media_library_return> MediaLibraryDewarp::Impl::create(std::string config_string)
@@ -211,7 +221,7 @@ MediaLibraryDewarp::Impl::~Impl()
     dsp_status status = dsp_utils::release_device();
     if (status != DSP_SUCCESS)
     {
-        LOGGER__ERROR("Failed to acquire DSP device, status: {}", status);
+        LOGGER__ERROR("Failed to release DSP device, status: {}", status);
     }
 }
 
@@ -232,8 +242,29 @@ media_library_return MediaLibraryDewarp::Impl::configure(std::string config_stri
     return configure(ldc_configs);
 }
 
-media_library_return MediaLibraryDewarp::Impl::validate_configurations(ldc_config_t &ldc_configs)
+media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_configs)
 {
+    LOGGER__INFO("Configuring dewarp");
+
+    std::unique_lock<std::shared_mutex> lock(rw_lock);
+
+    auto prev_out_config = m_ldc_configs.output_video_config;
+    auto prev_rot_config = m_ldc_configs.rotation_config;
+    // update if requested
+    media_library_return ret = m_ldc_configs.update(ldc_configs);
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to update dewarp configurations (prohibited) {}", ret);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    // skip mesh context configure if caps not set yet
+    if (m_ldc_configs.output_video_config.dimensions.destination_width == 0 || m_ldc_configs.output_video_config.dimensions.destination_height == 0)
+    {
+        LOGGER__INFO("Skipping dewarp mesh configuration since input_video_config not set yet");
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
     if (m_ldc_configs.dewarp_config.enabled)
     {
         // Validate dewarp configurations
@@ -245,75 +276,55 @@ media_library_return MediaLibraryDewarp::Impl::validate_configurations(ldc_confi
     }
     else
     {
-        if (m_ldc_configs.dis_config.enabled)
-            LOGGER__WARNING("DIS feature is enabled in the configuration, but dewarp is disabled. DIS will not be performed");
-        if (m_ldc_configs.flip_config.enabled)
-            LOGGER__WARNING("Flip feature is enabled in the configuration, but dewarp is disabled. Flip will not be performed");
-        if (m_ldc_configs.rotation_config.enabled)
-            LOGGER__WARNING("Rotation feature is enabled in the configuration, but dewarp is disabled. Rotation will not be performed");
-    }
-
-    return MEDIA_LIBRARY_SUCCESS;
-}
-
-media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_configs, bool update)
-{
-    LOGGER__INFO("Configuring dewarp");
-    if (validate_configurations(ldc_configs) != MEDIA_LIBRARY_SUCCESS)
-        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-
-    media_library_return ret = MEDIA_LIBRARY_SUCCESS;
-    // update if requested
-    if (update)
-    {
-        ret = m_ldc_configs.update(ldc_configs);
-        if (ret != MEDIA_LIBRARY_SUCCESS)
+        if (m_ldc_configs.dis_config.enabled || m_ldc_configs.flip_config.enabled || m_ldc_configs.rotation_config.enabled)
         {
-            LOGGER__ERROR("Failed to update dewarp configurations (prohibited) {}", ret);
-            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+            LOGGER__INFO("Dewarp is disabled, but other features are enabled. Enabling dewarp in identity mode (ldc will not be performed).");
+            m_ldc_configs.dewarp_config.enabled = true;
+            m_ldc_configs.dewarp_config.camera_type = CAMERA_TYPE_INPUT_DISTORTIONS;
         }
     }
 
-    // skip mesh context configure if caps not set yet
-    if (m_ldc_configs.output_video_config.dimensions.destination_width == 0 || m_ldc_configs.output_video_config.dimensions.destination_height == 0)
-    {
-        LOGGER__INFO("Skipping dewarp mesh configuration since input_video_config not set yet");
-        return MEDIA_LIBRARY_SUCCESS;
-    }
-
     m_dewarp_mesh_ctx->configure(m_ldc_configs);
-    if (m_ldc_configs.dewarp_config.enabled &&
-        m_ldc_configs.rotation_config.enabled &&
-        (m_ldc_configs.rotation_config.angle == ROTATION_ANGLE_90 ||
-         m_ldc_configs.rotation_config.angle == ROTATION_ANGLE_270))
-    {
-        auto w = m_ldc_configs.output_video_config.dimensions.destination_width;
-        auto h = m_ldc_configs.output_video_config.dimensions.destination_height;
-        m_ldc_configs.output_video_config.dimensions.destination_height = w;
-        m_ldc_configs.output_video_config.dimensions.destination_width = h;
-    }
 
     // Create and initialize buffer pools
     ret = create_and_initialize_buffer_pools();
     if (ret != MEDIA_LIBRARY_SUCCESS)
         return ret;
 
+    // if output config has changed, call callback
+    bool rot_changed = m_ldc_configs.rotation_config != prev_rot_config;
+    bool out_changed = !m_ldc_configs.output_video_config.dimensions_equal(prev_out_config);
+
+    for (auto &callbacks : m_callbacks)
+    {
+        if (out_changed && callbacks.on_output_resolution_change)
+            callbacks.on_output_resolution_change(m_ldc_configs.output_video_config);
+        if (rot_changed && callbacks.on_rotation_change)
+        {
+            auto rot_val = m_ldc_configs.rotation_config.effective_value();
+            callbacks.on_rotation_change(rot_val);
+        }
+    }
+
     m_configured = true;
     return MEDIA_LIBRARY_SUCCESS;
-}
-
-media_library_return MediaLibraryDewarp::Impl::reconfigure()
-{
-    return configure(m_ldc_configs, true);
 }
 
 media_library_return MediaLibraryDewarp::Impl::create_and_initialize_buffer_pools()
 {
     uint width, height;
-    width = (uint)m_dewarp_mesh_ctx->m_dewarp_output_width;
-    height = (uint)m_dewarp_mesh_ctx->m_dewarp_output_height;
+    width = m_ldc_configs.output_video_config.dimensions.destination_width;
+    height = m_ldc_configs.output_video_config.dimensions.destination_height;
 
-    m_output_buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, m_ldc_configs.input_video_config.format, (uint)m_ldc_configs.output_video_config.pool_max_buffers, CMA);
+    if (m_output_buffer_pool != nullptr && width == m_output_buffer_pool->get_width() && height == m_output_buffer_pool->get_height())
+    {
+        LOGGER__DEBUG("Buffer pool already exists, skipping creation");
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    auto bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width(width);
+    LOGGER__INFO("Creating buffer pool for output resolution: width {} height {} in buffers size of {} and bytes per line {}", width, height, m_ldc_configs.output_video_config.pool_max_buffers, bytes_per_line);
+    m_output_buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, m_ldc_configs.input_video_config.format, (uint)m_ldc_configs.output_video_config.pool_max_buffers, CMA, bytes_per_line);
     if (m_output_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to init buffer pool");
@@ -348,11 +359,12 @@ media_library_return MediaLibraryDewarp::Impl::perform_dewarp(
 
     // Perform dewarp
     dsp_dewarp_mesh_t *mesh = m_dewarp_mesh_ctx->get();
+    dsp_image_properties_t *image = dewarp_output_buffer.hailo_pix_buffer.get();
     LOGGER__TRACE("Performing dewarp with mesh (w={}, h={}) interpolation type {}", mesh->mesh_width, mesh->mesh_height, m_ldc_configs.dewarp_config.interpolation_type);
     clock_gettime(CLOCK_MONOTONIC, &start_dewarp);
     dsp_status ret = dsp_utils::perform_dsp_dewarp(
         input_buffer.hailo_pix_buffer.get(),
-        dewarp_output_buffer.hailo_pix_buffer.get(), mesh,
+        image, mesh,
         m_ldc_configs.dewarp_config.interpolation_type);
     clock_gettime(CLOCK_MONOTONIC, &end_dewarp);
     [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_dewarp, start_dewarp);
@@ -396,6 +408,8 @@ MediaLibraryDewarp::Impl::validate_input_frame(
 
 media_library_return MediaLibraryDewarp::Impl::handle_frame(hailo_media_library_buffer &input_frame, hailo_media_library_buffer &output_frame)
 {
+    std::shared_lock<std::shared_mutex> lock(rw_lock);
+
     // Stamp start time
     struct timespec start_handle, end_handle;
     clock_gettime(CLOCK_MONOTONIC, &start_handle);
@@ -485,6 +499,18 @@ media_library_return MediaLibraryDewarp::Impl::set_input_video_config(uint32_t w
     m_ldc_configs.output_video_config.dimensions.destination_height = height;
     m_ldc_configs.output_video_config.framerate = framerate;
 
+    // after setting output video config, we need to make sure rotation will take place, because we set the dimensions as if we are with rotation 0
+    // so set the current rotation to 0, and then run configure() with the actual rotation value, this will force the configuration to have correct rotation
+    ldc_config_t new_conf = m_ldc_configs;
+    new_conf.rotation_config.angle = m_ldc_configs.rotation_config.angle;
+    m_ldc_configs.rotation_config.angle = rotation_angle_t::ROTATION_ANGLE_0;
+
     // reconfigure ldc_mesh_context and buffer pool since we updated the config
-    return reconfigure();
+    return configure(new_conf);
+}
+
+media_library_return MediaLibraryDewarp::Impl::observe(const MediaLibraryDewarp::callbacks_t &callbacks)
+{
+    m_callbacks.push_back(callbacks);
+    return MEDIA_LIBRARY_SUCCESS;
 }

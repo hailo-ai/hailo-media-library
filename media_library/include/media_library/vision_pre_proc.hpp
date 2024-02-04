@@ -33,7 +33,6 @@
 #include <memory>
 #include <tl/expected.hpp>
 
-#include "hailo_v4l2/hailo_vsm.h"
 #include "dsp_utils.hpp"
 #include "buffer_pool.hpp"
 #include "media_library_types.hpp"

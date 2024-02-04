@@ -52,7 +52,6 @@ public:
      */
     ConfigManagerImpl(ConfigSchema schema)
     {
-
         switch (schema)
         {
         case ConfigSchema::CONFIG_SCHEMA_VISION:
@@ -65,12 +64,16 @@ public:
             m_config_validator.set_root_schema(config_schemas::multi_resize_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_OSD:
-        {
             m_config_validator.set_root_schema(config_schemas::osd_config_schema);
             break;
-        }
         case ConfigSchema::CONFIG_SCHEMA_LDC:
             m_config_validator.set_root_schema(config_schemas::ldc_config_schema);
+            break;
+        case ConfigSchema::CONFIG_SCHEMA_HAILORT:
+            m_config_validator.set_root_schema(config_schemas::hailort_config_schema);
+            break;
+        case ConfigSchema::CONFIG_SCHEMA_DENOISE:
+            m_config_validator.set_root_schema(config_schemas::denoise_config_schema);
             break;
         default:
             m_config_validator.set_root_schema(config_schemas::vision_config_schema); // Default to the vision_config schema
@@ -121,6 +124,15 @@ public:
     media_library_return config_string_to_struct(const std::string &user_config_string,
                                                  TConf &conf);
 
+    /**
+     * @brief Retrieve an entry from an input JSON string
+     *
+     * @param[in] config_string - the user's configuration (as a json string)
+     * @param[out] entry - the entry name to retrieve
+     * @return tl::expected<std::string, media_library_return>
+     */
+    static tl::expected<std::string, media_library_return> parse_config(std::string config_string, std::string entry);
+
 private:
     nlohmann::json_schema::json_validator m_config_validator;
 
@@ -160,6 +172,13 @@ media_library_return ConfigManager::config_string_to_struct(const std::string &u
 template media_library_return ConfigManager::config_string_to_struct<pre_proc_op_configurations>(const std::string &user_config_string, pre_proc_op_configurations &conf);
 template media_library_return ConfigManager::config_string_to_struct<multi_resize_config_t>(const std::string &user_config_string, multi_resize_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<ldc_config_t>(const std::string &user_config_string, ldc_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<denoise_config_t>(const std::string &user_config_string, denoise_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<hailort_t>(const std::string &user_config_string, hailort_t &conf);
+
+tl::expected<std::string, media_library_return> ConfigManager::parse_config(std::string config_string, std::string entry)
+{
+    return ConfigManager::ConfigManagerImpl::parse_config(config_string, entry);
+}
 
 //------------------------ ConfigManagerImpl ------------------------
 
@@ -218,4 +237,25 @@ media_library_return ConfigManager::ConfigManagerImpl::config_string_to_struct(c
     }
 
     return MEDIA_LIBRARY_SUCCESS;
+}
+
+tl::expected<std::string, media_library_return> ConfigManager::ConfigManagerImpl::parse_config(std::string config_string, std::string entry)
+{
+    // Convert string to JSON
+    const nlohmann::json user_config_json = nlohmann::json::parse(config_string, nullptr, false);
+    if (user_config_json.is_discarded())
+    {
+        LOGGER__ERROR("Config Manager failed to parse string as JSON");
+        return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
+    }
+
+    // Check that the key exists
+    if (!user_config_json.contains(entry))
+    {
+        LOGGER__ERROR("Config Manager failed to find requested entry in JSON string");
+        return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
+    }
+
+    // return as a string
+    return user_config_json[entry].dump();
 }

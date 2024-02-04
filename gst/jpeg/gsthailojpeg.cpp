@@ -15,7 +15,6 @@ GST_DEBUG_CATEGORY_STATIC(gst_hailojpegenc_debug_category);
 #define DEFAULT_MIN_FORCE_KEY_UNIT_INTERVAL 0
 #define JPEG_DEFAULT_QUALITY 85
 #define JPEG_DEFAULT_IDCT_METHOD JDCT_FASTEST
-#define JPEG_DEFAULT_USE_GPDMA FALSE
 
 #define gst_hailojpegenc_parent_class parent_class
 
@@ -50,7 +49,6 @@ enum
     PROP_MIN_FORCE_KEY_UNIT_INTERVAL,
     PROP_QUALITY,
     PROP_IDCT_METHOD,
-    PROP_USE_GPDMA
 };
 
 G_DEFINE_TYPE(GstHailoJpegEnc, gst_hailojpegenc, GST_TYPE_BIN);
@@ -105,10 +103,6 @@ static void gst_hailojpegenc_class_init(GstHailoJpegEncClass *klass)
                                                       "The IDCT algorithm to use", GST_TYPE_IDCT_METHOD,
                                                       JPEG_DEFAULT_IDCT_METHOD,
                                                       (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
-    g_object_class_install_property(gobject_class, PROP_USE_GPDMA,
-                                    g_param_spec_boolean("use-gpdma", "Use GPDMA",
-                                                         "Use GPDMA for memory copy", JPEG_DEFAULT_USE_GPDMA,
-                                                         (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
 }
 
 static void gst_hailojpegenc_set_property(GObject *object, guint prop_id,
@@ -164,12 +158,6 @@ static void gst_hailojpegenc_set_property(GObject *object, guint prop_id,
         }
         break;
     }
-    case PROP_USE_GPDMA:
-    {
-        hailojpegenc->use_gpdma = g_value_get_boolean(value);
-        g_object_set(hailojpegenc->m_hailoupload, "use-gpdma", hailojpegenc->use_gpdma, NULL);
-        break;
-    }
     }
 }
 
@@ -206,11 +194,6 @@ static void gst_hailojpegenc_get_property(GObject *object, guint property_id, GV
         g_value_set_enum(value, hailojpegenc->jpeg_idct_method);
         break;
     }
-    case PROP_USE_GPDMA:
-    {
-        g_value_set_boolean(value, hailojpegenc->use_gpdma);
-        break;
-    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
@@ -220,7 +203,7 @@ static void gst_hailojpegenc_get_property(GObject *object, guint property_id, GV
 void init_ghost_sink(GstHailoJpegEnc *hailojpegenc)
 {
     const gchar *pad_name = "sink";
-    GstPad *pad = gst_element_get_static_pad(hailojpegenc->m_hailoupload, pad_name);
+    GstPad *pad = gst_element_get_static_pad(hailojpegenc->m_roundrobin, pad_name);
 
     GstPadTemplate *pad_tmpl = gst_static_pad_template_get(&sink_template);
 
@@ -328,16 +311,6 @@ static void gst_hailojpegenc_init(GstHailoJpegEnc *hailojpegenc)
     hailojpegenc->jpegenc_min_force_key_unit_interval = DEFAULT_MIN_FORCE_KEY_UNIT_INTERVAL;
     hailojpegenc->jpeg_quality = JPEG_DEFAULT_QUALITY;
     hailojpegenc->jpeg_idct_method = JPEG_DEFAULT_IDCT_METHOD;
-    hailojpegenc->use_gpdma = JPEG_DEFAULT_USE_GPDMA;
-
-    GstElement *hailoupload = gst_element_factory_make("hailoupload", "hailoupload");
-    g_object_set(hailoupload, "use-gpdma", JPEG_DEFAULT_USE_GPDMA, NULL);
-
-    hailojpegenc->m_hailoupload = hailoupload;
-    if (!gst_bin_add(GST_BIN(hailojpegenc), hailojpegenc->m_hailoupload))
-    {
-        GST_ERROR_OBJECT(hailojpegenc, "Could not add hailoupload to bin");
-    }
 
     GstElement *roundrobin = gst_element_factory_make("roundrobin", "roundrobin");
     hailojpegenc->m_roundrobin = roundrobin;
@@ -355,11 +328,6 @@ static void gst_hailojpegenc_init(GstHailoJpegEnc *hailojpegenc)
         GST_ERROR_OBJECT(hailojpegenc, "Could not add hailoroundrobin to bin");
     }
 
-    if (!gst_element_link(hailojpegenc->m_hailoupload, hailojpegenc->m_roundrobin))
-    {
-        GST_ERROR_OBJECT(hailojpegenc, "Could not add link hailoupload element and roundrobin element in bin");
-    }
-
     construct_internal_pipeline(hailojpegenc);
 
     init_ghost_sink(hailojpegenc);
@@ -370,6 +338,4 @@ static void
 gst_hailojpegenc_dispose(GObject *object)
 {
     G_OBJECT_CLASS(parent_class)->dispose(object);
-
-    GstHailoJpegEnc *hailojpegenc = GST_HAILOJPEGENC(object);
 }

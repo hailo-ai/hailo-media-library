@@ -49,4 +49,14 @@ executable('frontend_example',
   install_dir: get_option('bindir'),
 )
 
+polygon_example_src = ['examples/polygon_example.cpp']
+
+executable('polygon_example',
+  polygon_example_src,
+  dependencies : gstreamer_deps + [media_library_frontend_dep, gstmedialibrary_utils_dep, encoder_dep, opencv_dep],
+  gnu_symbol_visibility : 'default',
+  install: true,
+  install_dir: get_option('bindir'),
+)
+
 install_subdir('include/media_library', install_dir: get_option('includedir') + '/hailo')

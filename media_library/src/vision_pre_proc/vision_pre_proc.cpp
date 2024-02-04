@@ -40,6 +40,7 @@
 
 #define HAILO15_ISP_CID_LSC_BASE (V4L2_CID_USER_BASE + 0x3200)
 #define HAILO15_ISP_CID_LSC_OPTICAL_ZOOM (HAILO15_ISP_CID_LSC_BASE + 0x0009)
+#define MAKE_EVEN(value) ((value) % 2 != 0 ? (value) + 1 : (value))
 
 class MediaLibraryVisionPreProc::Impl final
 {
@@ -89,9 +90,12 @@ private:
     std::vector<MediaLibraryBufferPoolPtr> m_buffer_pools;
     // video fd
     int m_video_fd;
+    // configuration mutex
+    std::shared_ptr<std::mutex> m_configuration_mutex;
+
     media_library_return validate_configurations(pre_proc_op_configurations &pre_proc_configs);
     media_library_return decode_config_json_string(pre_proc_op_configurations &pre_proc_configs, std::string config_string);
-    media_library_return acquire_output_buffers(std::vector<hailo_media_library_buffer> &buffers, output_video_config_t &output_video_config);
+    media_library_return acquire_output_buffers(hailo_media_library_buffer &input_buffer, std::vector<hailo_media_library_buffer> &buffers);
     media_library_return create_and_initialize_buffer_pools();
     media_library_return validate_input_and_output_frames(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames);
     media_library_return perform_dewarp(hailo_media_library_buffer &input_buffer, hailo_media_library_buffer &dewarp_output_buffer);
@@ -162,6 +166,7 @@ MediaLibraryVisionPreProc::Impl::Impl(media_library_return &status, std::string 
 {
     m_configured = false;
     m_video_fd = -1;
+    m_configuration_mutex = std::make_shared<std::mutex>();
 
     // Start frame count from 0 - to make sure we always handle the first frame even if framerate is set to 0
     m_frame_counter = 0;
@@ -190,7 +195,6 @@ MediaLibraryVisionPreProc::Impl::Impl(media_library_return &status, std::string 
         status = MEDIA_LIBRARY_CONFIGURATION_ERROR;
         return;
     }
-
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -201,7 +205,7 @@ MediaLibraryVisionPreProc::Impl::~Impl()
     dsp_status status = dsp_utils::release_device();
     if (status != DSP_SUCCESS)
     {
-        LOGGER__ERROR("Failed to acquire DSP device, status: {}", status);
+        LOGGER__ERROR("Failed to release DSP device, status: {}", status);
     }
 }
 
@@ -263,6 +267,8 @@ media_library_return MediaLibraryVisionPreProc::Impl::configure(pre_proc_op_conf
     if (validate_configurations(pre_proc_op_configs) != MEDIA_LIBRARY_SUCCESS)
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
 
+    std::unique_lock<std::mutex> lock(*m_configuration_mutex);
+
     media_library_return ret = m_pre_proc_configs.update(pre_proc_op_configs);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
@@ -296,8 +302,6 @@ media_library_return MediaLibraryVisionPreProc::Impl::configure(pre_proc_op_conf
 
 media_library_return MediaLibraryVisionPreProc::Impl::create_and_initialize_buffer_pools()
 {
-    m_buffer_pools.clear();
-    m_buffer_pools.reserve(5);
     uint width, height;
     if (m_pre_proc_configs.dewarp_config.enabled) // if dewarp is enabled, use dewarp output dimensions
     {
@@ -309,6 +313,25 @@ media_library_return MediaLibraryVisionPreProc::Impl::create_and_initialize_buff
         width = (uint)m_pre_proc_configs.input_video_config.resolution.dimensions.destination_width;
         height = (uint)m_pre_proc_configs.input_video_config.resolution.dimensions.destination_height;
     }
+
+    bool configured_already = m_buffer_pools.size() > 0;
+
+    if (configured_already)
+    {
+        if (m_buffer_pools[0]->get_width() != width ||
+            m_buffer_pools[0]->get_height() != height)
+        {
+            for (MediaLibraryBufferPoolPtr &buffer_pool : m_buffer_pools)
+            {
+                buffer_pool->swap_width_and_height();   
+            }
+        }
+        
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    m_buffer_pools.clear();
+    m_buffer_pools.reserve(5);
 
     auto bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width(width);
     m_input_buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, m_pre_proc_configs.input_video_config.format, (uint)m_pre_proc_configs.input_video_config.resolution.pool_max_buffers, CMA, bytes_per_line);
@@ -338,28 +361,29 @@ media_library_return MediaLibraryVisionPreProc::Impl::create_and_initialize_buff
 /**
  * @brief Acquire output buffers from buffer pools
  *
+ * @param[in] input_frame - pointer to the input frame
  * @param[in] buffers - vector of output buffers
- * @param[in] output_video_config - output video configuration
  */
-media_library_return MediaLibraryVisionPreProc::Impl::acquire_output_buffers(std::vector<hailo_media_library_buffer> &buffers, output_video_config_t &output_video_config)
+media_library_return MediaLibraryVisionPreProc::Impl::acquire_output_buffers(hailo_media_library_buffer &input_buffer, std::vector<hailo_media_library_buffer> &buffers)
 {
     // Acquire output buffers
-    uint8_t output_size = output_video_config.resolutions.size();
+    int32_t isp_ae_fps = input_buffer.isp_ae_fps;
+    uint8_t output_size = m_pre_proc_configs.output_video_config.resolutions.size();
     for (uint8_t i = 0; i < output_size; i++)
     {
-        uint32_t framerate = output_video_config.resolutions[i].framerate;
-        LOGGER__DEBUG("Acquiring buffer {}, target framerate is {}", i, framerate);
+        uint32_t input_framerate = m_pre_proc_configs.input_video_config.resolution.framerate;
+        uint32_t output_framerate = m_pre_proc_configs.output_video_config.resolutions[i].framerate;
+        LOGGER__DEBUG("Acquiring buffer {}, target framerate is {}", i, output_framerate);
 
-        // TODO: Change from const 30 to the configurable value
-        uint stream_period = (30 / framerate);
-        bool should_acquire_buffer = (m_frame_counter % stream_period == 0);
+        uint stream_period = output_framerate == 0 ? 0 : input_framerate / output_framerate;
+        bool should_acquire_buffer = stream_period == 0 ? false : (m_frame_counter % stream_period == 0) || (isp_ae_fps != -1 && output_framerate >= static_cast<uint32_t>(isp_ae_fps));
         LOGGER__DEBUG("frame counter is {}, stream period is {}, should acquire buffer is {}", m_frame_counter, stream_period, should_acquire_buffer);
 
         hailo_media_library_buffer buffer;
 
         if (!should_acquire_buffer)
         {
-            LOGGER__DEBUG("Skipping current frame to match framerate {}, no need to acquire buffer {}, counter is {}", framerate, i, m_frame_counter);
+            LOGGER__DEBUG("Skipping current frame to match framerate {}, no need to acquire buffer {}, counter is {}", output_framerate, i, m_frame_counter);
             buffers.emplace_back(std::move(buffer));
 
             continue;
@@ -492,18 +516,18 @@ media_library_return MediaLibraryVisionPreProc::Impl::perform_multi_resize(
             uint center_y = end_y / 2;
             uint zoom_width = center_x / m_pre_proc_configs.digital_zoom_config.magnification;
             uint zoom_height = center_y / m_pre_proc_configs.digital_zoom_config.magnification;
-            start_x = center_x - zoom_width;
-            start_y = center_y - zoom_height;
-            end_x = center_x + zoom_width;
-            end_y = center_y + zoom_height;
+            start_x = MAKE_EVEN(center_x - zoom_width);
+            start_y = MAKE_EVEN(center_y - zoom_height);
+            end_x = MAKE_EVEN(center_x + zoom_width);
+            end_y = MAKE_EVEN(center_y + zoom_height);
         }
         else
         {
             roi_t &digital_zoom_roi = m_pre_proc_configs.digital_zoom_config.roi;
-            start_x = digital_zoom_roi.x;
-            start_y = digital_zoom_roi.y;
-            end_x = start_x + digital_zoom_roi.width;
-            end_y = start_y + digital_zoom_roi.height;
+            start_x = MAKE_EVEN(digital_zoom_roi.x);
+            start_y = MAKE_EVEN(digital_zoom_roi.y);
+            end_x = MAKE_EVEN(start_x + digital_zoom_roi.width);
+            end_y = MAKE_EVEN(start_y + digital_zoom_roi.height);
 
             // Validate digital zoom ROI values with the input frame dimensions
             if (end_x > m_dewarp_mesh_ctx->m_dewarp_output_width)
@@ -617,6 +641,8 @@ MediaLibraryVisionPreProc::Impl::validate_input_and_output_frames(
 
 media_library_return MediaLibraryVisionPreProc::Impl::handle_frame(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames)
 {
+    std::unique_lock<std::mutex> lock(*m_configuration_mutex);
+
     // Stamp start time
     struct timespec start_handle, end_handle;
     clock_gettime(CLOCK_MONOTONIC, &start_handle);
@@ -629,7 +655,7 @@ media_library_return MediaLibraryVisionPreProc::Impl::handle_frame(hailo_media_l
 
     // Acquire output buffers
     media_library_return media_lib_ret = MEDIA_LIBRARY_SUCCESS;
-    media_lib_ret = acquire_output_buffers(output_frames, m_pre_proc_configs.output_video_config);
+    media_lib_ret = acquire_output_buffers(input_frame, output_frames);
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
     {
         input_frame.decrease_ref_count();

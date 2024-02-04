@@ -28,6 +28,7 @@
 #pragma once
 #include <stdint.h>
 #include <string>
+#include <tl/expected.hpp>
 #include <vector>
 #include <memory>
 
@@ -39,7 +40,9 @@ enum ConfigSchema
   CONFIG_SCHEMA_OSD,
   CONFIG_SCHEMA_ENCODER,
   CONFIG_SCHEMA_MULTI_RESIZE,
-  CONFIG_SCHEMA_LDC
+  CONFIG_SCHEMA_LDC,
+  CONFIG_SCHEMA_HAILORT,
+  CONFIG_SCHEMA_DENOISE
 };
 
 class ConfigManager
@@ -97,6 +100,16 @@ public:
   template <typename TConf>
   media_library_return
   config_string_to_struct(const std::string &user_config_string, TConf &conf);
+
+  /**
+   * @brief Retrieve an entry from an input JSON string
+   *
+   * @param[in] config_string - the user's configuration (as a json string)
+   * @param[out] entry - the entry name to retrieve
+   * @return tl::expected<std::string, media_library_return>
+   */
+  static tl::expected<std::string, media_library_return>
+  parse_config(std::string config_string, std::string entry);
 
 private:
   class ConfigManagerImpl; // internal implementation class

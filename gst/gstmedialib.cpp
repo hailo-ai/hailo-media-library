@@ -33,7 +33,9 @@
 #include "visionpreproc/gsthailovisionpreproc.hpp"
 #include "multi_resize/gsthailomultiresize.hpp"
 #include "dewarp/gsthailodewarp.hpp"
+#include "denoise/gsthailodenoise.hpp"
 #include "frontend/gsthailofrontend.hpp"
+#include "upload/gsthailoupload.hpp"
 #include <gst/gst.h>
 
 static gboolean
@@ -47,7 +49,9 @@ media_library_plugin_init(GstPlugin *plugin)
     gst_element_register(plugin, "hailojpegenc", GST_RANK_PRIMARY, GST_TYPE_HAILOJPEGENC);
     gst_element_register(plugin, "hailomultiresize", GST_RANK_PRIMARY, GST_TYPE_HAILO_MULTI_RESIZE);
     gst_element_register(plugin, "hailodewarp", GST_RANK_PRIMARY, GST_TYPE_HAILO_DEWARP);
+    gst_element_register(plugin, "hailodenoise", GST_RANK_PRIMARY, GST_TYPE_HAILO_DENOISE);
     gst_element_register(plugin, "hailofrontend", GST_RANK_PRIMARY, GST_TYPE_HAILO_FRONTEND);
+    gst_element_register(plugin, "hailoupload", GST_RANK_PRIMARY, GST_TYPE_HAILO_UPLOAD);
     gst_hailo_buffer_meta_get_info();
     gst_hailo_buffer_meta_api_get_type();
     return TRUE;

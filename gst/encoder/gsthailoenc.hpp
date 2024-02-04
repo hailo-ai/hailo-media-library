@@ -57,6 +57,10 @@ struct _GstHailoEnc
   gboolean update_config;
   gboolean update_gop_size;
   GQueue *dts_queue;
+  struct timespec last_timestamp;
+  gboolean adapt_framerate;
+  guint8 framerate_counter;
+  float framerate_tolerance;
 };
 
 struct _GstHailoEncClass

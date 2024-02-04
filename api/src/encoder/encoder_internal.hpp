@@ -43,6 +43,12 @@ struct InputParams
     uint32_t height;
     uint32_t framerate;
 };
+enum appsrc_state
+{
+    APPSRC_STATE_UNINITIALIZED = 0,
+    APPSRC_STATE_NEED_DATA,
+    APPSRC_STATE_ENOUGH_DATA
+};
 class MediaLibraryEncoder::Impl final
 {
 private:
@@ -60,9 +66,10 @@ private:
     guint m_send_buffer_id;
     std::string m_json_config; // TODO: this should be const
     std::shared_ptr<osd::Blender> m_blender;
+    appsrc_state m_appsrc_state;
 
 public:
-    static tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>,media_library_return> create(std::string json_config);
+    static tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>, media_library_return> create(std::string json_config);
 
     ~Impl();
     Impl(std::string json_config, media_library_return &status);

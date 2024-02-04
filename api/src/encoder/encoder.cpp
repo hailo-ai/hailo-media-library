@@ -75,7 +75,8 @@ MediaLibraryEncoder::Impl::Impl(std::string json_config,
     gst_bus_add_watch(gst_element_get_bus(m_pipeline), (GstBusFunc)bus_call, this);
     m_main_loop = g_main_loop_new(NULL, FALSE);
     this->set_gst_callbacks(m_pipeline);
-
+    m_appsrc_state = APPSRC_STATE_UNINITIALIZED;
+    
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -194,7 +195,7 @@ std::string MediaLibraryEncoder::Impl::create_pipeline_string(
         std::string(ENCODER_QUEUE_NAME) + " leaky=no max-size-buffers=5 max-size-bytes=0 max-size-time=0 ! "
                                           "hailoencoder config-str=" +
         std::string(json_encoder_config) +
-        " name=enco ! h264parse config-interval=-1 ! " + caps2.str() + " ! "
+        " name=enco ! " + caps2.str() + " ! "
                                                                        "queue leaky=no max-size-buffers=5 max-size-bytes=0 max-size-time=0 ! "
                                                                        "fpsdisplaysink signal-fps-measurements=true name=fpsdisplaysink "
                                                                        "text-overlay=false sync=false video-sink=\"appsink "
@@ -331,11 +332,11 @@ gboolean MediaLibraryEncoder::Impl::on_bus_call(GstBus *bus, GstMessage *msg)
 media_library_return
 MediaLibraryEncoder::Impl::add_buffer(HailoMediaLibraryBufferPtr ptr)
 {
-    GstBuffer *gst_buffer = create_gst_buffer_from_hailo_buffer(ptr);
-    GstVideoInfo *video_info = gst_video_info_new();
-    gst_video_info_from_caps(video_info, m_appsrc_caps);
-    add_video_meta_to_buffer(gst_buffer, video_info, ptr);
-    gst_video_info_free(video_info);
+    GstBuffer *gst_buffer = gst_buffer_from_hailo_buffer(ptr, m_appsrc_caps);
+    if (!gst_buffer)
+    {
+        return MEDIA_LIBRARY_ERROR;
+    }
     this->add_buffer_internal(gst_buffer);
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -351,6 +352,10 @@ void MediaLibraryEncoder::Impl::add_buffer_internal(GstBuffer *buffer)
     m_condvar->wait(lock, [this]
                     { return m_queue.size() < m_queue_size; });
     m_queue.push(buffer);
+    if ((m_appsrc_state == APPSRC_STATE_NEED_DATA) && (m_send_buffer_id == 0))
+    {
+        this->m_send_buffer_id = g_idle_add((GSourceFunc)idle_callback, this);
+    }
 }
 
 gboolean MediaLibraryEncoder::Impl::on_idle_callback()
@@ -383,6 +388,14 @@ gboolean MediaLibraryEncoder::Impl::send_buffer()
             m_send_buffer_id = 0;
         }
     }
+    else
+    {
+        if (m_send_buffer_id != 0)
+        {
+            g_source_remove(m_send_buffer_id);
+            m_send_buffer_id = 0;
+        }
+    }
     return ret;
 }
 
@@ -397,6 +410,7 @@ GstBuffer *MediaLibraryEncoder::Impl::dequeue_buffer()
 
 void MediaLibraryEncoder::Impl::on_need_data(GstAppSrc *appsrc, guint size)
 {
+    m_appsrc_state = APPSRC_STATE_NEED_DATA;
     if (m_send_buffer_id == 0)
     {
         this->m_send_buffer_id = g_idle_add((GSourceFunc)idle_callback, this);
@@ -405,6 +419,7 @@ void MediaLibraryEncoder::Impl::on_need_data(GstAppSrc *appsrc, guint size)
 
 void MediaLibraryEncoder::Impl::on_enough_data(GstAppSrc *appsrc)
 {
+    m_appsrc_state = APPSRC_STATE_ENOUGH_DATA;
     if (m_send_buffer_id != 0)
     {
         g_source_remove(m_send_buffer_id);
@@ -434,13 +449,13 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
         gst_sample_unref(sample);
         return GST_FLOW_ERROR;
     }
-    buffer_ptr->increase_ref_count();
 
     if (gst_buffer_is_writable(buffer))
         gst_buffer_remove_meta(buffer, &buffer_meta->meta);
 
     for (auto &callback : m_callbacks)
     {
+        buffer_ptr->increase_ref_count();
         callback(buffer_ptr, used_size);
     }
 

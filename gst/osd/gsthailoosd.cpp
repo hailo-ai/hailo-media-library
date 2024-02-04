@@ -345,70 +345,22 @@ static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans,
 {
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
-    GST_DEBUG_OBJECT(hailoosd, "transform_ip");
-    // print the config string
-
-    // acquire caps and metas
     GstCaps *caps;
-    dsp_image_properties_t input_image_properties;
+    HailoMediaLibraryBufferPtr media_library_buffer=nullptr;
+    GST_DEBUG_OBJECT(hailoosd, "transform_ip");
 
     caps = gst_pad_get_current_caps(trans->sinkpad);
-    GstVideoInfo *info = gst_video_info_new();
-    gst_video_info_from_caps(info, caps);
 
-    switch (gst_buffer_n_memory(buffer))
+    media_library_buffer = hailo_buffer_from_gst_buffer(buffer, caps);
+
+    // perform blending
+    ret = hailoosd->blender->blend(*media_library_buffer->hailo_pix_buffer.get());
+    if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-    case 1:
-    {
-        GST_DEBUG_OBJECT(trans, "Input buffer has 1 memory");
-        GstVideoFrame video_frame;
-        gst_video_frame_map(&video_frame, info, buffer, GST_MAP_READ);
-
-        // build image_properties from the input image and overlay
-        create_dsp_buffer_from_video_frame(&video_frame, input_image_properties);
-
-        // perform blending
-        ret = hailoosd->blender->blend(input_image_properties);
-        if (ret != MEDIA_LIBRARY_SUCCESS)
-        {
-            GST_ERROR_OBJECT(trans, "Failed to do blend (%d)", ret);
-        }
-
-        // cleanup
-        gst_video_frame_unmap(&video_frame);
-        break;
+        GST_ERROR_OBJECT(trans, "Failed to do blend (%d)", ret);
     }
-    case 2:
-    {
-        GST_DEBUG_OBJECT(trans, "Input buffer has 2 memory");
+    GST_DEBUG_OBJECT(trans, "blend done");
 
-        // build image_properties from the input image and overlay
-        create_dsp_buffer_from_video_info(buffer, info, input_image_properties);
-
-        GST_DEBUG_OBJECT(trans, "dsp buffer created, performing blend...");
-
-        // perform blending
-        ret = hailoosd->blender->blend(input_image_properties);
-        if (ret != MEDIA_LIBRARY_SUCCESS)
-        {
-            GST_ERROR_OBJECT(trans, "Failed to do blend %d", ret);
-        }
-
-        GST_DEBUG_OBJECT(trans, "blend done");
-
-        break;
-    }
-    default:
-    {
-        GST_ERROR_OBJECT(trans, "Input buffer has %d memories", gst_buffer_n_memory(buffer));
-        break;
-    }
-    }
-
-    // free the struct
-    dsp_utils::free_image_property_planes(&input_image_properties);
-
-    gst_video_info_free(info);
     gst_caps_unref(caps);
 
     // check success status

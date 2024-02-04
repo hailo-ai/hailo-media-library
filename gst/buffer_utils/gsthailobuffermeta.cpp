@@ -36,7 +36,7 @@ static gboolean gst_hailo_buffer_meta_transform(GstBuffer *transbuf, GstMeta *me
 GType gst_hailo_buffer_meta_api_get_type(void)
 {
     static const gchar *tags[] = {NULL};
-    static volatile GType type;
+    static GType type;
     if (g_once_init_enter(const_cast<GType *>(&type)))
     {
         GType _type = gst_meta_api_type_register(GST_HAILO_BUFFER_META_API_NAME, tags);

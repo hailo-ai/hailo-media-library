@@ -107,7 +107,7 @@ typedef struct
     u32 idr_interval;
     i32 last_idr_picture_cnt;
     u32 validencodedframenumber;
-    u32 padding_to_crop; /* Used for padded buffers, and specify the pad size to crop in each buffer line*/
+    u32 stride; /* Used for padded buffers, and specify the pad size to crop in each buffer line*/
 
     i32 max_cu_size;    /* Max coding unit size in pixels */
     i32 min_cu_size;    /* Min coding unit size in pixels */

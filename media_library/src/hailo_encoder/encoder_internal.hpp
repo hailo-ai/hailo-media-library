@@ -77,7 +77,8 @@ private:
   void *m_ewl;
   bool m_multislice_encoding;
   EWLLinearMem_t m_output_memory;
-  std::vector<EncoderInputBuffer> m_inputs;
+  std::vector<HailoMediaLibraryBufferPtr> m_inputs;
+  EncoderOutputBuffer m_header;
   std::shared_ptr<EncoderConfig> m_config;
   class gopConfig;
   std::unique_ptr<gopConfig> m_gop_cfg;
@@ -86,7 +87,7 @@ private:
 public:
   Impl(std::string json_string);
   ~Impl();
-  std::vector<EncoderOutputBuffer> handle_frame(EncoderInputBuffer buf);
+  std::vector<EncoderOutputBuffer> handle_frame(HailoMediaLibraryBufferPtr buf);
   void force_keyframe();
   void update_stride(uint32_t stride);
   int get_gop_size();
@@ -107,11 +108,11 @@ private:
   VCEncLevel get_level(std::string level, bool codecH264);
   VCEncPictureType get_input_format(std::string format);
   VCEncPictureCodingType find_next_pic();
-  media_library_return update_input_buffer(EncoderInputBuffer &buf);
+  media_library_return update_input_buffer(HailoMediaLibraryBufferPtr buf);
   media_library_return create_output_buffer(EncoderOutputBuffer &output_buf);
   int allocate_output_memory();
   media_library_return
-  encode_frame(EncoderInputBuffer &buf,
+  encode_frame(HailoMediaLibraryBufferPtr buf,
                std::vector<EncoderOutputBuffer> &outputs);
   media_library_return
   encode_multiple_frames(std::vector<EncoderOutputBuffer> &outputs);

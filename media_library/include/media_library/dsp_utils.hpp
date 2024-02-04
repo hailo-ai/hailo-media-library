@@ -73,7 +73,13 @@ namespace dsp_utils
                            uint crop_start_x, uint crop_start_y, uint crop_end_x,
                            uint crop_end_y);
 
-  dsp_status perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
+  dsp_status 
+  perform_dsp_multi_resize(dsp_multi_resize_params_t *multi_resize_params,
+                             uint crop_start_x, uint crop_start_y, uint crop_end_x,
+                             uint crop_end_y, dsp_privacy_mask_t *privacy_mask_params);
+
+  dsp_status 
+  perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
                                 dsp_image_properties_t *output_image_properties,
                                 dsp_dewarp_mesh_t *mesh,
                                 dsp_interpolation_type_t interpolation);

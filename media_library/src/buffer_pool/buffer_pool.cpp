@@ -51,6 +51,7 @@ media_library_return HailoBucket::allocate()
     }
 
     size_t buffers_to_allocate = m_num_buffers - m_available_buffers.size();
+
     for (size_t i = 0; i < buffers_to_allocate; i++)
     {
         void *buffer = NULL;
@@ -58,8 +59,7 @@ media_library_return HailoBucket::allocate()
             dsp_utils::create_hailo_dsp_buffer(m_buffer_size, &buffer);
         if (result != DSP_SUCCESS)
         {
-            LOGGER__ERROR("Failed to create buffer with status code {}",
-                          result);
+            LOGGER__ERROR("Failed to create buffer with DSP status code {}", result);
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
 
@@ -74,24 +74,26 @@ media_library_return HailoBucket::free()
     std::unique_lock<std::mutex> lock(*m_bucket_mutex);
     if (!m_used_buffers.empty())
     {
-        LOGGER__ERROR("There are still {} in the bucket",
-                      m_used_buffers.size());
+        LOGGER__ERROR("There are still {} in the bucket, free are {}", m_used_buffers.size(), m_available_buffers.size());
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
     while (!m_available_buffers.empty())
     {
         uintptr_t buffer_ptr = m_available_buffers.front();
-        dsp_status result =
-            dsp_utils::release_hailo_dsp_buffer((void *)buffer_ptr);
+        dsp_status result = dsp_utils::release_hailo_dsp_buffer((void *)buffer_ptr);
+
         if (result != DSP_SUCCESS)
         {
-            LOGGER__ERROR("Failed to release buffer. status code {}", result);
+            LOGGER__ERROR("Failed to release buffer. DSP status code {}", result);
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
 
         m_available_buffers.pop_front();
     }
+
+    LOGGER__DEBUG("After freeing bucket of size {} num of buffers {}, used buffers {} available buffers {}",
+                 m_buffer_size, m_num_buffers, m_used_buffers.size(), m_available_buffers.size());
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -99,26 +101,35 @@ media_library_return HailoBucket::free()
 media_library_return HailoBucket::acquire(intptr_t *buffer_ptr)
 {
     std::unique_lock<std::mutex> lock(*m_bucket_mutex);
+
     if (m_available_buffers.empty())
     {
         LOGGER__ERROR("Buffer acquire failed - no available buffers remaining, "
-                      "please validate the max buffers size you set ({})",
-                      m_num_buffers);
+                      "please validate the max buffers size you set ({})", m_num_buffers);
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
     *buffer_ptr = m_available_buffers.front();
     m_available_buffers.pop_front();
     m_used_buffers.insert(*buffer_ptr);
+
+    LOGGER__DEBUG("After acquiring buffer, available_buffers={} used_buffers={}",
+                 m_available_buffers.size(), m_used_buffers.size());
+
     return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return HailoBucket::release(intptr_t buffer_ptr)
 {
     std::unique_lock<std::mutex> lock(*m_bucket_mutex);
+
     // TODO: validate that buffer_ptr is in m_used_buffers?
     m_used_buffers.erase(buffer_ptr);
     m_available_buffers.push_front(buffer_ptr);
+
+    LOGGER__DEBUG("After release buffer, available_buffers={} used_buffers={}",
+                 m_available_buffers.size(), m_used_buffers.size());
+
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -132,6 +143,8 @@ MediaLibraryBufferPool::MediaLibraryBufferPool(uint width, uint height,
     if (m_name.empty())
         m_name = "pool" + std::to_string(width) + "x" + std::to_string(height) +
                  "_" + std::to_string(max_buffers);
+
+    m_buffer_pool_mutex = std::make_shared<std::mutex>();
 
     switch (format)
     {
@@ -170,8 +183,7 @@ media_library_return MediaLibraryBufferPool::free()
     for (uint8_t i = 0; i < m_buckets.size(); i++)
     {
         HailoBucketPtr &bucket = m_buckets[i];
-        LOGGER__DEBUG("Freeing bucket {} of size {} num of buffers {}", i,
-                      bucket->m_buffer_size, bucket->m_num_buffers);
+        LOGGER__DEBUG("Freeing bucket {} of size {} num of buffers {}", i, bucket->m_buffer_size, bucket->m_num_buffers);
         if (bucket->free() != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR("failed to free bucket {}", i);
@@ -209,9 +221,22 @@ media_library_return MediaLibraryBufferPool::init()
     return MEDIA_LIBRARY_SUCCESS;
 }
 
+media_library_return MediaLibraryBufferPool::swap_width_and_height()
+{
+    std::unique_lock<std::mutex> lock(*m_buffer_pool_mutex);
+
+    uint temp = m_width;
+    m_width = m_height;
+    m_height = temp;
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
 media_library_return
 MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
 {
+    std::unique_lock<std::mutex> lock(*m_buffer_pool_mutex);
+
     media_library_return ret = MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     switch (m_format)
     {
@@ -338,8 +363,7 @@ MediaLibraryBufferPool::release_plane(hailo_media_library_buffer *buffer,
                                       uint32_t plane_index)
 {
     auto bucket = m_buckets[plane_index];
-    LOGGER__DEBUG("Releasing plane {} of bucket of size {} num buffers {} used "
-                  "buffers {}",
+    LOGGER__DEBUG("Releasing plane {} of bucket of size {} num buffers {} used buffers {}",
                   plane_index, bucket->m_buffer_size, bucket->m_num_buffers,
                   bucket->m_used_buffers.size() - 1);
     return bucket->release(

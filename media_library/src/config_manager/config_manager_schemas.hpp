@@ -1230,4 +1230,103 @@ namespace config_schemas
   }
   )"_json;
 
+  static nlohmann::json hailort_config_schema = R"(
+  {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Media Library schema for HailoRT configuration",
+    "type": "object",
+    "properties": {
+      "hailort": {
+        "type": "object",
+        "properties": {
+          "device-id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "device-id"
+        ]
+      }
+    },
+    "required": [
+      "hailort"
+    ]
+  }
+  )"_json;
+
+  static nlohmann::json denoise_config_schema = R"(
+  {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Media Library schema for denoise configuration",
+    "type": "object",
+    "properties": {
+      "denoise": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "sensor": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "loopback-count": {
+            "type": "number"
+          },
+          "network": {
+            "type": "object",
+            "properties": {
+              "network_path": {
+                "type": "string"
+              },
+              "y_channel": {
+                "type": "string"
+              },
+              "uv_channel": {
+                "type": "string"
+              },
+              "feedback_y_channel": {
+                "type": "string"
+              },
+              "feedback_uv_channel": {
+                "type": "string"
+              },
+              "output_y_channel": {
+                "type": "string"
+              },
+              "output_uv_channel": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "network_path",
+              "y_channel",
+              "uv_channel",
+              "feedback_y_channel",
+              "feedback_uv_channel",
+              "output_y_channel",
+              "output_uv_channel"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "sensor",
+          "method",
+          "loopback-count",
+          "network"
+        ]
+      }
+    },
+    "required": [
+      "denoise"
+    ]
+  }
+  )"_json;
+
 } // namespace config_schemas

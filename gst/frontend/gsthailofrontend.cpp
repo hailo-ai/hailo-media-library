@@ -22,6 +22,8 @@
  */
 
 #include "gsthailofrontend.hpp"
+#include "multi_resize/gsthailomultiresize.hpp"
+#include "media_library/privacy_mask.hpp"
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <dlfcn.h>
@@ -47,6 +49,7 @@ enum
     PROP_0,
     PROP_CONFIG_FILE_PATH,
     PROP_CONFIG_STRING,
+    PROP_PRIVACY_MASK,
 };
 
 // Pad Templates
@@ -92,6 +95,11 @@ gst_hailofrontend_class_init(GstHailoFrontendClass *klass)
                                                       "JSON config string to load",
                                                       "",
                                                       (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+
+    g_object_class_install_property(gobject_class, PROP_PRIVACY_MASK,
+                                  g_param_spec_pointer("privacy-mask", "Privacy Mask",
+                                                      "Pointer to privacy mask blender",
+                                                      (GParamFlags)(G_PARAM_READABLE | GST_PARAM_MUTABLE_PLAYING)));
     
     element_class->change_state = GST_DEBUG_FUNCPTR(gst_hailofrontend_change_state);
     element_class->request_new_pad = GST_DEBUG_FUNCPTR(gst_hailofrontend_request_new_pad);
@@ -198,6 +206,12 @@ void gst_hailofrontend_get_property(GObject *object, guint property_id,
     case PROP_CONFIG_STRING:
     {
         g_value_set_string(value, hailofrontend->config_string.c_str());
+        break;
+    }
+    case PROP_PRIVACY_MASK:
+    {
+        PrivacyMaskBlenderPtr privacy_mask_blender_ptr = gst_hailo_multi_resize_get_privacy_mask_blender(hailofrontend->m_multi_resize);
+        g_value_set_pointer(value, privacy_mask_blender_ptr.get());
         break;
     }
     default:

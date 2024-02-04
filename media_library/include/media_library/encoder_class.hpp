@@ -29,27 +29,10 @@
 #include "encoder_config.hpp"
 #include "media_library_types.hpp"
 
-struct EncoderInputPlane
-{
-    void *data;
-    uint32_t size;
-    EncoderInputPlane(void *data, uint32_t size) : data(data), size(size){};
-};
-
 struct EncoderOutputBuffer
 {
     HailoMediaLibraryBufferPtr buffer;
     uint32_t size;
-};
-
-struct EncoderInputBuffer
-{
-    std::vector<EncoderInputPlane> m_planes;
-    EncoderInputBuffer(){};
-    void add_plane(EncoderInputPlane plane)
-    {
-        m_planes.emplace_back(std::move(plane));
-    }
 };
 
 class Encoder
@@ -61,7 +44,7 @@ public:
     void force_keyframe();
     void update_stride(uint32_t stride);
     std::shared_ptr<EncoderConfig> get_config();
-    std::vector<EncoderOutputBuffer> handle_frame(EncoderInputBuffer buf);
+    std::vector<EncoderOutputBuffer> handle_frame(HailoMediaLibraryBufferPtr buf);
     EncoderOutputBuffer start();
     EncoderOutputBuffer stop();
 

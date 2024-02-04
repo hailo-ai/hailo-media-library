@@ -30,13 +30,10 @@ private:
     tl::expected<dis_calibration_t, media_library_return> read_calibration_file(const char *name);
 
 public:
-    size_t m_dewarp_output_width;
-    size_t m_dewarp_output_height;
-
     LdcMeshContext(ldc_config_t &config);
     ~LdcMeshContext();
     media_library_return configure(ldc_config_t &pre_proc_op_configs);
-    media_library_return on_frame_vsm_update(hailo15_vsm &vsm);
+    media_library_return on_frame_vsm_update(struct hailo15_vsm &vsm);
     media_library_return set_optical_zoom(float magnification);
     dsp_dewarp_mesh_t *get();
 };

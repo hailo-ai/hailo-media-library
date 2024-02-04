@@ -22,17 +22,17 @@
  */
 #include <assert.h>
 #include <string.h>
-/* for stats file handling */
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
-
-#include "gsthailobuffermeta.hpp"
-#include "gsthailoencoder.hpp"
 #include <errno.h>
 #include <stdio.h>
 #include <time.h>
+
+#include "gsthailobuffermeta.hpp"
+#include "gsthailoencoder.hpp"
+#include "buffer_utils/buffer_utils.hpp"
 
 /*******************
 Property Definitions
@@ -407,76 +407,6 @@ gst_hailo_encoder_finish(GstVideoEncoder *encoder)
 }
 
 static GstFlowReturn
-gst_hailo_encoder_get_input_buffer(GstHailoEncoder *hailoencoder,
-                                   GstVideoCodecFrame *frame, EncoderInputBuffer &input_buffer)
-{
-  GstFlowReturn ret = GST_FLOW_OK;
-  uint32_t *luma = nullptr;
-  uint32_t *chroma = nullptr;
-  size_t luma_size = 0;
-  size_t chroma_size = 0;
-
-  GstVideoMeta *meta = gst_buffer_get_video_meta(frame->input_buffer);
-
-  if (meta)
-  {
-    hailoencoder->encoder->update_stride(meta->stride[0]);
-  }
-
-  switch (gst_buffer_n_memory(frame->input_buffer))
-  {
-  case 1:
-  {
-    GST_DEBUG_OBJECT(hailoencoder, "Input buffer has 1 memory");
-    GstVideoFrame vframe;
-    gst_video_frame_map(&vframe, &(hailoencoder->input_state->info), frame->input_buffer, GST_MAP_READ);
-    luma = (uint32_t *)GST_VIDEO_FRAME_PLANE_DATA(&vframe, 0);
-    chroma = (uint32_t *)GST_VIDEO_FRAME_PLANE_DATA(&vframe, 1);
-    luma_size = GST_VIDEO_FRAME_HEIGHT(&vframe) * GST_VIDEO_FRAME_PLANE_STRIDE(&vframe, 0);
-    chroma_size = GST_VIDEO_FRAME_HEIGHT(&vframe) * GST_VIDEO_FRAME_PLANE_STRIDE(&vframe, 1) / 2;
-    gst_video_frame_unmap(&vframe);
-    break;
-  }
-  case 2:
-  {
-    GST_DEBUG_OBJECT(hailoencoder, "Input buffer has 2 memories");
-    GstMapInfo map_info0;
-    GstMapInfo map_info1;
-    GstMemory *mem0 = gst_buffer_peek_memory(frame->input_buffer, 0);
-    GstMemory *mem1 = gst_buffer_peek_memory(frame->input_buffer, 1);
-    gst_memory_map(mem0, &map_info0, GST_MAP_READ);
-    gst_memory_map(mem1, &map_info1, GST_MAP_READ);
-    luma = (uint32_t *)map_info0.data;
-    chroma = (uint32_t *)map_info1.data;
-    luma_size = map_info0.size;
-    chroma_size = map_info1.size;
-    gst_memory_unmap(mem0, &map_info0);
-    gst_memory_unmap(mem1, &map_info1);
-    break;
-  }
-  default:
-  {
-    GST_ERROR_OBJECT(hailoencoder, "Input buffer has %d memories", gst_buffer_n_memory(frame->input_buffer));
-    ret = GST_FLOW_ERROR;
-    break;
-  }
-  }
-  if (ret != GST_FLOW_OK)
-  {
-    return ret;
-  }
-  if (luma == nullptr || chroma == nullptr || luma_size == 0 || chroma_size == 0)
-  {
-    GST_ERROR_OBJECT(hailoencoder, "Could not get input buffer luma and chroma");
-    return GST_FLOW_ERROR;
-  }
-
-  input_buffer.add_plane(EncoderInputPlane(luma, luma_size));
-  input_buffer.add_plane(EncoderInputPlane(chroma, chroma_size));
-  return GST_FLOW_OK;
-}
-
-static GstFlowReturn
 gst_hailo_encoder_handle_frame(GstVideoEncoder *encoder,
                                GstVideoCodecFrame *frame)
 {
@@ -521,9 +451,13 @@ gst_hailo_encoder_handle_frame(GstVideoEncoder *encoder,
     input_frame = frame;
   }
 
-  EncoderInputBuffer input_buffer;
-  gst_hailo_encoder_get_input_buffer(hailoencoder, input_frame, input_buffer);
-  auto outputs = hailoencoder->encoder->handle_frame(input_buffer);
+  HailoMediaLibraryBufferPtr hailo_buffer_ptr = hailo_buffer_from_gst_buffer(frame->input_buffer, hailoencoder->input_state->caps);
+  if (!hailo_buffer_ptr)
+  {
+    GST_ERROR_OBJECT(hailoencoder, "Could not get hailo buffer");
+    return GST_FLOW_ERROR;
+  }
+  auto outputs = hailoencoder->encoder->handle_frame(hailo_buffer_ptr);
   gst_video_codec_frame_unref(input_frame);
 
   for (EncoderOutputBuffer output : outputs)

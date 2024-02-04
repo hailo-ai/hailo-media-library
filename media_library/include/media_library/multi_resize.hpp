@@ -33,10 +33,10 @@
 #include <memory>
 #include <tl/expected.hpp>
 
-#include "hailo_v4l2/hailo_vsm.h"
 #include "dsp_utils.hpp"
 #include "buffer_pool.hpp"
 #include "media_library_types.hpp"
+#include "privacy_mask.hpp"
 
 /** @defgroup multi_resize_type_definitions MediaLibrary Multiple Resize CPP API definitions
  *  @{
@@ -47,84 +47,116 @@ using MediaLibraryMultiResizePtr = std::shared_ptr<MediaLibraryMultiResize>;
 class MediaLibraryMultiResize
 {
 protected:
-  class Impl;
-  std::shared_ptr<Impl> m_impl;
+    class Impl;
+    std::shared_ptr<Impl> m_impl;
 
 public:
-  /**
-   * @brief Create the multi-resize module
-   *
-   * @param[in] config_string - json configuration string
-   * @return tl::expected<MediaLibraryMultiResizePtr, media_library_return> -
-   * An expected object that holds either a shared pointer
-   * to an MediaLibraryMultiResize object, or a error code.
-   */
-  static tl::expected<std::shared_ptr<MediaLibraryMultiResize>, media_library_return> create(std::string config_string);
+   class callbacks_t
+    {
+    public:
+        std::function<void(std::vector<output_resolution_t> &)> on_output_resolutions_change = nullptr;
+    };
 
-  /**
-   * @brief Constructor for the multi-resize module
-   *
-   * @param[in] impl - shared pointer to the implementation object
-   * @note This constructor is used internally by the create function.
-   */
-  MediaLibraryMultiResize(std::shared_ptr<MediaLibraryMultiResize::Impl> impl);
+    /**
+     * @brief Observes the media library by registering the provided callbacks.
+     *
+     * This function allows the user to observe the media library element by registering
+     * callbacks that will be called when certain events occur.
+     *
+     * @param callbacks The callbacks to be registered for observation.
+     * @return media_library_return - status of the observation operation
+     */
+    media_library_return observe(const callbacks_t &callbacks);
 
-  /**
-   * @brief Destructor for the multi-resize module
-   */
-  ~MediaLibraryMultiResize();
+    /**
+     * @brief Create the multi-resize module
+     *
+     * @param[in] config_string - json configuration string
+     * @return tl::expected<MediaLibraryMultiResizePtr, media_library_return> -
+     * An expected object that holds either a shared pointer
+     * to an MediaLibraryMultiResize object, or a error code.
+     */
+    static tl::expected<std::shared_ptr<MediaLibraryMultiResize>, media_library_return> create(std::string config_string);
 
-  /**
-   * @brief Configure the multi-resize module with new json string
-   *
-   * Read the json string and decode it to create the multi_resize_config_t object
-   * @param[in] config_string - configuration json as string
-   * @return media_library_return - status of the configuration operation
-   */
-  media_library_return configure(std::string config_string);
+    /**
+     * @brief Constructor for the multi-resize module
+     *
+     * @param[in] impl - shared pointer to the implementation object
+     * @note This constructor is used internally by the create function.
+     */
+    MediaLibraryMultiResize(std::shared_ptr<MediaLibraryMultiResize::Impl> impl);
 
-  /**
-   * @brief Configure the multi-resize module with multi_resize_config_t object
-   *
-   * Update the multi_resize_config_t object
-   * @param[in] multi_resize_config_t - multi_resize_config_t object
-   * @return media_library_return - status of the configuration operation
-   */
-  media_library_return configure(multi_resize_config_t &mresize_config);
+    /**
+     * @brief Destructor for the multi-resize module
+     */
+    ~MediaLibraryMultiResize();
 
-  /**
-   * @brief Perform multi-resize on the input frame and return the output frames
-   *
-   * @param[in] input_frame - pointer to the input frame to be resized
-   * @param[out] output_frames - vector of output frames after multi-resize
-   *
-   * @return media_library_return - status of the multi-resize operation
-   */
-  media_library_return handle_frame(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames);
+    /**
+     * @brief Configure the multi-resize module with new json string
+     *
+     * Read the json string and decode it to create the multi_resize_config_t object
+     * @param[in] config_string - configuration json as string
+     * @return media_library_return - status of the configuration operation
+     */
+    media_library_return configure(std::string config_string);
 
-  /**
-   * @brief get the multi-resize configurations object
-   *
-   * @return multi_resize_config_t - multi-resize configurations
-   */
-  multi_resize_config_t &get_multi_resize_configs();
+    /**
+     * @brief Configure the multi-resize module with multi_resize_config_t object
+     *
+     * Update the multi_resize_config_t object
+     * @param[in] multi_resize_config_t - multi_resize_config_t object
+     * @return media_library_return - status of the configuration operation
+     */
+    media_library_return configure(multi_resize_config_t &mresize_config);
 
-  /**
-   * @brief get the output video configurations object
-   *
-   * @return output_video_config_t - output video configurations
-   */
-  output_video_config_t &get_output_video_config();
+    /**
+     * @brief Perform multi-resize on the input frame and return the output frames
+     *
+     * @param[in] input_frame - pointer to the input frame to be resized
+     * @param[out] output_frames - vector of output frames after multi-resize
+     *
+     * @return media_library_return - status of the multi-resize operation
+     */
+    media_library_return handle_frame(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames);
 
-  /**
-   * @brief set the input video configurations object
-   *
-   * @param[in] width - the new width of the input video
-   * @param[in] height - the new height of the input video
-   * @param[in] framerate - the new framerate of the input video
-   * @return media_library_return - status of the configuration operation
-   */
-  media_library_return set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate);
+    /**
+     * @brief get the multi-resize configurations object
+     *
+     * @return multi_resize_config_t - multi-resize configurations
+     */
+    multi_resize_config_t &get_multi_resize_configs();
+
+    /**
+     * @brief get the output video configurations object
+     *
+     * @return output_video_config_t - output video configurations
+     */
+    output_video_config_t &get_output_video_config();
+
+    /**
+     * @brief set the input video configurations object
+     *
+     * @param[in] width - the new width of the input video
+     * @param[in] height - the new height of the input video
+     * @param[in] framerate - the new framerate of the input video
+     * @return media_library_return - status of the configuration operation
+     */
+    media_library_return set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate);
+
+    /**
+     * @brief get the privacy mask blender object
+     * 
+     * @return PrivacyMaskBlenderPtr - privacy mask blender object
+    */
+    PrivacyMaskBlenderPtr get_privacy_mask_blender();
+
+    /**
+     * @brief Sets the rotation angle for the media library.
+     *
+     * @param rotation The rotation angle to be set.
+     * @return The status of the operation.
+     */
+    media_library_return set_output_rotation(const rotation_angle_t &rotation);
 };
 
 /** @} */ // end of multi_resize_type_definitions

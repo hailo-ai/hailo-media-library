@@ -27,12 +27,15 @@
 #include "dsp_utils.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_utils.hpp"
+#include "privacy_mask.hpp"
 #include <iostream>
 #include <stdint.h>
 #include <string>
 #include <time.h>
 #include <tl/expected.hpp>
 #include <vector>
+#include <shared_mutex>
+#define MAKE_EVEN(value) ((value) % 2 != 0 ? (value) + 1 : (value))
 
 class MediaLibraryMultiResize::Impl final
 {
@@ -66,6 +69,14 @@ public:
     // set the input video configurations object
     media_library_return set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate);
 
+    PrivacyMaskBlenderPtr get_privacy_mask_blender();
+
+    // set the output video rotation
+    media_library_return set_output_rotation(const rotation_angle_t &rotation);
+
+    // set the callbacks object
+    media_library_return observe(const MediaLibraryMultiResize::callbacks_t &callbacks);
+
 private:
     // configured flag - to determine if first configuration was done
     bool m_configured;
@@ -77,14 +88,21 @@ private:
     multi_resize_config_t m_multi_resize_config;
     // input buffer pools
     MediaLibraryBufferPoolPtr m_input_buffer_pool;
+    PrivacyMaskBlenderPtr m_privacy_mask_blender;
+    // callbacks
+    std::vector<MediaLibraryMultiResize::callbacks_t> m_callbacks;
     // output buffer pools
     std::vector<MediaLibraryBufferPoolPtr> m_buffer_pools;
+    // read/write lock for configuration manipulation/reading
+    std::shared_mutex rw_lock;
+
     media_library_return validate_configurations(multi_resize_config_t &mresize_config);
     media_library_return decode_config_json_string(multi_resize_config_t &mresize_config, std::string config_string);
-    media_library_return acquire_output_buffers(std::vector<hailo_media_library_buffer> &buffers, output_video_config_t &output_video_config);
+    media_library_return acquire_output_buffers(hailo_media_library_buffer &input_buffer, std::vector<hailo_media_library_buffer> &buffers);
     media_library_return create_and_initialize_buffer_pools();
     media_library_return validate_input_and_output_frames(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames);
     media_library_return perform_multi_resize(hailo_media_library_buffer &input_buffer, std::vector<hailo_media_library_buffer> &output_frames);
+    media_library_return configure_internal(multi_resize_config_t &mresize_config);
     void stamp_time_and_log_fps(timespec &start_handle, timespec &end_handle);
     void increase_frame_counter();
 };
@@ -128,9 +146,24 @@ output_video_config_t &MediaLibraryMultiResize::get_output_video_config()
     return m_impl->get_output_video_config();
 }
 
+PrivacyMaskBlenderPtr MediaLibraryMultiResize::get_privacy_mask_blender()
+{
+    return m_impl->get_privacy_mask_blender();
+}
+
 media_library_return MediaLibraryMultiResize::set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate)
 {
     return m_impl->set_input_video_config(width, height, framerate);
+}
+
+media_library_return MediaLibraryMultiResize::set_output_rotation(const rotation_angle_t &rotation)
+{
+    return m_impl->set_output_rotation(rotation);
+}
+
+media_library_return MediaLibraryMultiResize::observe(const MediaLibraryMultiResize::callbacks_t &callbacks)
+{
+    return m_impl->observe(callbacks);
 }
 
 //------------------------ MediaLibraryMultiResize::Impl ------------------------
@@ -177,6 +210,17 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
         return;
     }
 
+    tl::expected<std::shared_ptr<PrivacyMaskBlender>, media_library_return> blender_expected = PrivacyMaskBlender::create();
+    if (blender_expected.has_value())
+    {
+        m_privacy_mask_blender = blender_expected.value();
+    }
+    else
+    {
+        LOGGER__ERROR("Failed to create privacy mask blender");
+        status = blender_expected.error();
+    }
+
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -186,7 +230,7 @@ MediaLibraryMultiResize::Impl::~Impl()
     dsp_status status = dsp_utils::release_device();
     if (status != DSP_SUCCESS)
     {
-        LOGGER__ERROR("Failed to acquire DSP device, status: {}", status);
+        LOGGER__ERROR("Failed to release DSP device, status: {}", status);
     }
 }
 
@@ -222,12 +266,49 @@ media_library_return MediaLibraryMultiResize::Impl::validate_configurations(mult
     return MEDIA_LIBRARY_SUCCESS;
 }
 
+media_library_return MediaLibraryMultiResize::Impl::set_output_rotation(const rotation_angle_t &rotation)
+{
+    rotation_angle_t current_rotation = m_multi_resize_config.rotation_config;
+    if (current_rotation == rotation)
+    {
+        LOGGER__INFO("Output rotation is already set to {}", rotation);
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+    LOGGER__INFO("Setting output rotation to {} from {}", rotation, m_multi_resize_config.rotation_config);
+
+    std::unique_lock<std::shared_mutex> lock(rw_lock);
+
+    m_multi_resize_config.set_output_dimensions_rotation(rotation);
+
+    // recreate buffer pools if needed
+    media_library_return ret = create_and_initialize_buffer_pools();
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+        return ret;
+
+    lock.unlock();
+
+    for (auto &callbacks : m_callbacks)
+    {
+        if (callbacks.on_output_resolutions_change)
+            callbacks.on_output_resolutions_change(m_multi_resize_config.output_video_config.resolutions);
+    }
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
 media_library_return MediaLibraryMultiResize::Impl::configure(multi_resize_config_t &mresize_config)
 {
-    if (validate_configurations(mresize_config) != MEDIA_LIBRARY_SUCCESS)
+    auto ret = validate_configurations(mresize_config);
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to configure multi-resize {}", ret);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
 
-    media_library_return ret = m_multi_resize_config.update(mresize_config);
+    LOGGER__INFO("Configuring multi-resize with new configurations");
+    std::unique_lock<std::shared_mutex> lock(rw_lock);
+
+    // Create and initialize buffer pools
+    ret = m_multi_resize_config.update(mresize_config);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to update multi-resize configurations (prohibited) {}", ret);
@@ -238,25 +319,69 @@ media_library_return MediaLibraryMultiResize::Impl::configure(multi_resize_confi
     ret = create_and_initialize_buffer_pools();
     if (ret != MEDIA_LIBRARY_SUCCESS)
         return ret;
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+        return ret;
 
     m_configured = true;
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return MediaLibraryMultiResize::Impl::configure_internal(multi_resize_config_t &mresize_config)
+{
+    media_library_return ret = m_multi_resize_config.update(mresize_config);
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to update multi-resize configurations (prohibited) {}", ret);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    // recreate buffer pools if needed
+    ret = create_and_initialize_buffer_pools();
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+        return ret;
+
     return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer_pools()
 {
-    m_buffer_pools.clear();
-    m_buffer_pools.reserve(5);
-    for (output_resolution_t &output_res : m_multi_resize_config.output_video_config.resolutions)
+    bool first = false;
+    if (m_buffer_pools.empty())
     {
-        LOGGER__INFO("Creating buffer pool for output resolution: width {} height {} in buffers size of {}", output_res.dimensions.destination_width, output_res.dimensions.destination_height, output_res.pool_max_buffers);
-        MediaLibraryBufferPoolPtr buffer_pool = std::make_shared<MediaLibraryBufferPool>((uint)output_res.dimensions.destination_width, (uint)output_res.dimensions.destination_height, m_multi_resize_config.output_video_config.format, output_res.pool_max_buffers, CMA);
+        m_buffer_pools.reserve(m_multi_resize_config.output_video_config.resolutions.size());
+        first = true;
+    }
+
+    for (uint i = 0; i < m_multi_resize_config.output_video_config.resolutions.size(); i++)
+    {
+        output_resolution_t &output_res = m_multi_resize_config.output_video_config.resolutions[i];
+        uint width, height;
+        width = output_res.dimensions.destination_width;
+        height = output_res.dimensions.destination_height;
+
+        if (!first && m_buffer_pools[i] != nullptr && width == m_buffer_pools[i]->get_width() && height == m_buffer_pools[i]->get_height())
+        {
+            LOGGER__DEBUG("Buffer pool already exists, skipping creation");
+            return MEDIA_LIBRARY_SUCCESS;
+        }
+
+        auto bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width((uint)output_res.dimensions.destination_width);
+        LOGGER__INFO("Creating buffer pool for output resolution: width {} height {} in buffers size of {} and bytes per line {}", output_res.dimensions.destination_width, output_res.dimensions.destination_height, output_res.pool_max_buffers, bytes_per_line);
+        MediaLibraryBufferPoolPtr buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, m_multi_resize_config.output_video_config.format, output_res.pool_max_buffers, CMA, bytes_per_line);
         if (buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR("Failed to init buffer pool");
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
-        m_buffer_pools.emplace_back(buffer_pool);
+        if (first)
+        {
+            m_buffer_pools.emplace_back(buffer_pool);
+        }
+        else
+        {
+            m_buffer_pools[i] = buffer_pool;
+        }
     }
     LOGGER__DEBUG("multi-resize holding {} buffer pools", m_buffer_pools.size());
 
@@ -266,28 +391,29 @@ media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer
 /**
  * @brief Acquire output buffers from buffer pools
  *
+ * @param[in] input_frame - pointer to the input frame
  * @param[in] buffers - vector of output buffers
- * @param[in] output_video_config - output video configuration
  */
-media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(std::vector<hailo_media_library_buffer> &buffers, output_video_config_t &output_video_config)
+media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(hailo_media_library_buffer &input_buffer, std::vector<hailo_media_library_buffer> &buffers)
 {
     // Acquire output buffers
-    uint8_t output_size = output_video_config.resolutions.size();
+    int32_t isp_ae_fps = input_buffer.isp_ae_fps;
+    uint8_t output_size = m_multi_resize_config.output_video_config.resolutions.size();
     for (uint8_t i = 0; i < output_size; i++)
     {
-        uint32_t framerate = output_video_config.resolutions[i].framerate;
-        LOGGER__DEBUG("Acquiring buffer {}, target framerate is {}", i, framerate);
+        uint32_t input_framerate = m_multi_resize_config.input_video_config.framerate;
+        uint32_t output_framerate = m_multi_resize_config.output_video_config.resolutions[i].framerate;
+        LOGGER__DEBUG("Acquiring buffer {}, target framerate is {}", i, output_framerate);
 
-        // TODO (MSW-4092): Change from const 30 to the configurable value
-        uint stream_period = (30 / framerate);
-        bool should_acquire_buffer = (m_frame_counter % stream_period == 0);
+        uint stream_period = (output_framerate == 0) ? 0 : input_framerate / output_framerate;
+        bool should_acquire_buffer = stream_period == 0 ? false : (m_frame_counter % stream_period == 0) || (isp_ae_fps != -1 && output_framerate >= static_cast<uint32_t>(isp_ae_fps));
         LOGGER__DEBUG("frame counter is {}, stream period is {}, should acquire buffer is {}", m_frame_counter, stream_period, should_acquire_buffer);
 
         hailo_media_library_buffer buffer;
 
         if (!should_acquire_buffer)
         {
-            LOGGER__DEBUG("Skipping current frame to match framerate {}, no need to acquire buffer {}, counter is {}", framerate, i, m_frame_counter);
+            LOGGER__DEBUG("Skipping current frame to match framerate {}, no need to acquire buffer {}, counter is {}", output_framerate, i, m_frame_counter);
             buffers.emplace_back(std::move(buffer));
 
             continue;
@@ -298,6 +424,7 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(std::
             LOGGER__ERROR("Failed to acquire buffer");
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
+        buffer.isp_ae_fps = isp_ae_fps;
         buffers.emplace_back(std::move(buffer));
         LOGGER__DEBUG("buffer acquired successfully");
     }
@@ -369,18 +496,18 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(hailo_m
             uint center_y = end_y / 2;
             uint zoom_width = center_x / m_multi_resize_config.digital_zoom_config.magnification;
             uint zoom_height = center_y / m_multi_resize_config.digital_zoom_config.magnification;
-            start_x = center_x - zoom_width;
-            start_y = center_y - zoom_height;
-            end_x = center_x + zoom_width;
-            end_y = center_y + zoom_height;
+            start_x = MAKE_EVEN(center_x - zoom_width);
+            start_y = MAKE_EVEN(center_y - zoom_height);
+            end_x = MAKE_EVEN(center_x + zoom_width);
+            end_y = MAKE_EVEN(center_y + zoom_height);
         }
         else
         {
             roi_t &digital_zoom_roi = m_multi_resize_config.digital_zoom_config.roi;
-            start_x = digital_zoom_roi.x;
-            start_y = digital_zoom_roi.y;
-            end_x = start_x + digital_zoom_roi.width;
-            end_y = start_y + digital_zoom_roi.height;
+            start_x = MAKE_EVEN(digital_zoom_roi.x);
+            start_y = MAKE_EVEN(digital_zoom_roi.y);
+            end_x = MAKE_EVEN(start_x + digital_zoom_roi.width);
+            end_y = MAKE_EVEN(start_y + digital_zoom_roi.height);
 
             // Validate digital zoom ROI values with the input frame dimensions
             if (end_x > m_multi_resize_config.input_video_config.dimensions.destination_width)
@@ -397,10 +524,52 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(hailo_m
         }
     }
 
+    // Blend privacy mask
+    auto blender_expected = m_privacy_mask_blender->blend();
+    if (!blender_expected.has_value())
+    {
+        LOGGER__ERROR("Failed to blend privacy mask");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    PrivacyMaskDataPtr privacy_mask_data = blender_expected.value();
+
     // Perform multi resize
-    LOGGER__DEBUG("Performing multi resize on the DSP with digital zoom ROI: start_x {} start_y {} end_x {} end_y {}", start_x, start_y, end_x, end_y);
     clock_gettime(CLOCK_MONOTONIC, &start_resize);
-    dsp_status ret = dsp_utils::perform_dsp_multi_resize(&multi_resize_params, start_x, start_y, end_x, end_y);
+    dsp_status ret = DSP_SUCCESS;
+    if(privacy_mask_data->rois_count==0)
+    {
+        LOGGER__DEBUG("Performing multi resize on the DSP with digital zoom ROI: start_x {} start_y {} end_x {} end_y {}", start_x, start_y, end_x, end_y);
+        ret = dsp_utils::perform_dsp_multi_resize(&multi_resize_params, start_x, start_y, end_x, end_y);
+    }
+    else
+    {
+        dsp_image_properties_t *dsp_image_props = privacy_mask_data->bitmask.hailo_pix_buffer.get();
+        dsp_roi_t dsp_rois[privacy_mask_data->rois_count];
+        dsp_privacy_mask_t dsp_privacy_mask = {
+            .bitmask = (uint8_t *)dsp_image_props->planes[0].userptr,
+            .y_color = privacy_mask_data->color.y,
+            .u_color = privacy_mask_data->color.u,
+            .v_color = privacy_mask_data->color.v,
+            .rois = dsp_rois,
+            .rois_count = privacy_mask_data->rois_count,
+        };
+
+        for(uint i = 0; i < privacy_mask_data->rois_count; i++)
+        {
+            dsp_privacy_mask.rois[i] = {
+                .start_x = privacy_mask_data->rois[i].x,
+                .start_y = privacy_mask_data->rois[i].y,
+                .end_x = privacy_mask_data->rois[i].x + privacy_mask_data->rois[i].width,
+                .end_y = privacy_mask_data->rois[i].y + privacy_mask_data->rois[i].height
+            };
+        }
+
+        LOGGER__DEBUG("Performing multi resize on the DSP with digital zoom ROI: start_x {} start_y {} end_x {} end_y {} and {} privacy masks", start_x, start_y, end_x, end_y, privacy_mask_data->rois_count);
+        ret = dsp_utils::perform_dsp_multi_resize(&multi_resize_params, start_x, start_y, end_x, end_y, &dsp_privacy_mask);
+
+    }
+
     clock_gettime(CLOCK_MONOTONIC, &end_resize);
     [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_resize, start_resize);
     LOGGER__TRACE("perform_multi_resize took {} milliseconds ({} fps)", ms, 1000 / ms);
@@ -425,10 +594,7 @@ void MediaLibraryMultiResize::Impl::increase_frame_counter()
     m_frame_counter = (m_frame_counter == 60) ? 1 : m_frame_counter + 1;
 }
 
-media_library_return
-MediaLibraryMultiResize::Impl::validate_input_and_output_frames(
-    hailo_media_library_buffer &input_frame,
-    std::vector<hailo_media_library_buffer> &output_frames)
+media_library_return MediaLibraryMultiResize::Impl::validate_input_and_output_frames(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames)
 {
     // Check if vector of output buffers is not empty
     if (!output_frames.empty())
@@ -463,9 +629,11 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(hailo_media_lib
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
+    std::shared_lock<std::shared_mutex> lock(rw_lock);
+
     // Acquire output buffers
     media_library_return media_lib_ret = MEDIA_LIBRARY_SUCCESS;
-    media_lib_ret = acquire_output_buffers(output_frames, m_multi_resize_config.output_video_config);
+    media_lib_ret = acquire_output_buffers(input_frame, output_frames);
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
     {
         input_frame.decrease_ref_count();
@@ -497,16 +665,24 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(hailo_media_lib
 
 multi_resize_config_t &MediaLibraryMultiResize::Impl::get_multi_resize_configs()
 {
+    std::shared_lock<std::shared_mutex> lock(rw_lock);
     return m_multi_resize_config;
 }
 
 output_video_config_t &MediaLibraryMultiResize::Impl::get_output_video_config()
 {
+    std::shared_lock<std::shared_mutex> lock(rw_lock);
     return m_multi_resize_config.output_video_config;
+}
+
+PrivacyMaskBlenderPtr MediaLibraryMultiResize::Impl::get_privacy_mask_blender()
+{
+    return m_privacy_mask_blender;
 }
 
 media_library_return MediaLibraryMultiResize::Impl::set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate)
 {
+    std::unique_lock<std::shared_mutex> lock(rw_lock);
     m_multi_resize_config.input_video_config.dimensions.destination_width = width;
     m_multi_resize_config.input_video_config.dimensions.destination_height = height;
     m_multi_resize_config.input_video_config.framerate = framerate;
@@ -521,5 +697,19 @@ media_library_return MediaLibraryMultiResize::Impl::set_input_video_config(uint3
         }
     }
 
+    media_library_return blender_config_status = m_privacy_mask_blender->set_frame_size(m_multi_resize_config.input_video_config.dimensions.destination_width,
+                                                                m_multi_resize_config.input_video_config.dimensions.destination_height);
+    if (blender_config_status != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to set privacy mask blender frame size");
+        return blender_config_status;
+    }
+
+    return blender_config_status;
+}
+
+media_library_return MediaLibraryMultiResize::Impl::observe(const MediaLibraryMultiResize::callbacks_t &callbacks)
+{
+    m_callbacks.push_back(callbacks);
     return MEDIA_LIBRARY_SUCCESS;
 }

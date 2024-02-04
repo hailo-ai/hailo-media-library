@@ -36,7 +36,7 @@ public:
     DewarpMeshContext(pre_proc_op_configurations &config);
     ~DewarpMeshContext();
     media_library_return configure(pre_proc_op_configurations &pre_proc_op_configs);
-    media_library_return on_frame_vsm_update(hailo15_vsm &vsm);
+    media_library_return on_frame_vsm_update(struct hailo15_vsm &vsm);
     media_library_return set_optical_zoom(float magnification);
     dsp_dewarp_mesh_t *get();
 };

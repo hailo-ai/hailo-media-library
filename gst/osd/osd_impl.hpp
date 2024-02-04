@@ -133,7 +133,8 @@ public:
 
 protected:
     std::string m_label;
-    std::array<int, 3> m_rgb;
+    std::array<int, 3> m_rgb_text_color;
+    std::array<int, 3> m_rgb_text_background_color;
     float m_font_size;
     int m_line_thickness;
     std::string m_font_path;
@@ -160,7 +161,7 @@ public:
     static std::string select_chars_for_timestamp();
 
 private:
-    std::array<int, 3> m_rgb;
+    std::array<int, 3> m_rgb_text_color;
     float m_font_size;
     int m_line_thickness;
     std::string m_datetime_str;

@@ -21,7 +21,6 @@ struct GstHailoJpegEnc
     GstPad *sinkpad;
     GstElement *m_roundrobin;
     GstElement *m_hailoroundrobin;
-    GstElement *m_hailoupload;
     std::vector<GstElement *> m_jpegencs;
     std::vector<GstElement *> m_queues;
     guint64 jpegenc_min_force_key_unit_interval;

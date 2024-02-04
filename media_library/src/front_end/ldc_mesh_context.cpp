@@ -13,8 +13,8 @@
 
 LdcMeshContext::LdcMeshContext(ldc_config_t &config)
 {
-    if (!config.dewarp_config.enabled || 
-        config.output_video_config.dimensions.destination_width == 0 || 
+    if (!config.dewarp_config.enabled ||
+        config.output_video_config.dimensions.destination_width == 0 ||
         config.output_video_config.dimensions.destination_height == 0)
         return;
 
@@ -319,22 +319,6 @@ media_library_return LdcMeshContext::configure(ldc_config_t &ldc_configs)
     std::unique_lock<std::shared_mutex> lock(m_mutex);
     m_ldc_configs = ldc_configs;
 
-    if (ldc_configs.dewarp_config.enabled &&
-        ldc_configs.rotation_config.enabled &&
-        (ldc_configs.rotation_config.angle == ROTATION_ANGLE_90 ||
-         ldc_configs.rotation_config.angle == ROTATION_ANGLE_270))
-    {
-        // Swap width and height for rotation 90 or 270
-        m_dewarp_output_width = ldc_configs.input_video_config.resolution.dimensions.destination_height;
-        m_dewarp_output_height = ldc_configs.input_video_config.resolution.dimensions.destination_width;
-        LOGGER__INFO("LdcMeshContext::configure - ROTATION ANGLE {}", ldc_configs.rotation_config.angle);
-    }
-    else
-    {
-        m_dewarp_output_width = ldc_configs.input_video_config.resolution.dimensions.destination_width;
-        m_dewarp_output_height = ldc_configs.input_video_config.resolution.dimensions.destination_height;
-    }
-
     m_ldc_configs = ldc_configs;
     m_input_width = m_ldc_configs.input_video_config.resolution.dimensions.destination_width;
     m_input_height = m_ldc_configs.input_video_config.resolution.dimensions.destination_height;
@@ -367,7 +351,7 @@ media_library_return LdcMeshContext::configure(ldc_config_t &ldc_configs)
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return LdcMeshContext::on_frame_vsm_update(hailo15_vsm &vsm)
+media_library_return LdcMeshContext::on_frame_vsm_update(struct hailo15_vsm &vsm)
 {
     if (!m_ldc_configs.dis_config.enabled)
         return MEDIA_LIBRARY_SUCCESS;

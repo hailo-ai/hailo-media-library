@@ -367,7 +367,7 @@ media_library_return DewarpMeshContext::configure(pre_proc_op_configurations &pr
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return DewarpMeshContext::on_frame_vsm_update(hailo15_vsm &vsm)
+media_library_return DewarpMeshContext::on_frame_vsm_update(struct hailo15_vsm &vsm)
 {
     if (!m_pre_proc_configs.dis_config.enabled)
         return MEDIA_LIBRARY_SUCCESS;

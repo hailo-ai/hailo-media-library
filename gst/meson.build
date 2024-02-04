@@ -9,12 +9,41 @@ configure_file(output : 'config.h', configuration : core_conf)
 # Gstreamer Media Library
 ################################################
 
+# Hailort Arguments
+sysroot_arg = []
+if meson.is_cross_build()
+    cmd_array = meson.get_compiler('cpp').cmd_array()
+    foreach arg : cmd_array
+        if arg.startswith('--sysroot=')
+            sysroot = arg.split('=')[1]
+            break
+        endif
+    endforeach
+    message('Cross building using sysroot: ' + sysroot)
+    if sysroot != ''
+        sysroot_arg += '--sysroot=' + sysroot
+    endif
+endif
+
+hailort_dep = [
+    meson.get_compiler('cpp').find_library('hailort', required: true),
+    meson.get_compiler('cpp').find_library('libgsthailo', required: true, dirs: sysroot + '/usr/lib/gstreamer-1.0/')
+]
+hailort_inc_dirs = [
+    sysroot + '/usr/include/hailort',
+    sysroot + '/usr/include/gst-hailo/metadata'
+]
+
 utils_sources = [
     'buffer_utils/buffer_utils.cpp',
     'buffer_utils/gsthailobuffermeta.cpp',
     'osd/gsthailoosd.cpp',
     'osd/osd.cpp',
-    'osd/osd_impl.cpp'
+    'osd/osd_impl.cpp',
+    'dsp/gsthailodsp.c',
+    'dsp/gsthailodspbufferpool.cpp',
+    'dsp/gsthailodspbufferpoolutils.cpp',
+    'dsp/gsthailodspbasetransform.cpp',
 ]
 
 opencv_freetype_lib_dep = meson.get_compiler('cpp').find_library('opencv_freetype', required: true, dirs: '/usr/lib/')
@@ -22,7 +51,7 @@ opencv_freetype_lib_dep = meson.get_compiler('cpp').find_library('opencv_freetyp
 gstmedialibutils_lib = shared_library('gstmedialibutils',
     utils_sources,
     cpp_args : common_args,
-    dependencies : gstreamer_deps +
+    dependencies : gstreamer_deps + 
                    [dsp_dep, media_library_common_dep, opencv_dep, spdlog_dep, opencv_freetype_lib_dep],
     gnu_symbol_visibility : 'default',
     version: meson.project_version(),
@@ -44,10 +73,18 @@ pkgc.generate(
     description : 'Gstreamer Media Library Utils',
 )
 
+install_headers('common/gstmedialibcommon.hpp')
 install_headers('buffer_utils/buffer_utils.hpp')
 install_headers('buffer_utils/gsthailobuffermeta.hpp')
 install_headers('osd/osd_utils.hpp')
 install_headers('osd/osd.hpp')
+
+# These headers are used in TAPPAS
+headers_to_install = ['dsp/gsthailodsp.h', 'dsp/gsthailodspbasetransform.hpp',
+                      'dsp/gsthailodspbufferpool.hpp', 'dsp/gsthailodspbufferpoolutils.hpp']
+# install_headers(headers_to_install, install_dir: get_option('includedir') + '/hailo/media_library/gstreamer')
+install_headers(headers_to_install)
+
 
 plugin_sources = [
     'gstmedialib.cpp',
@@ -59,8 +96,10 @@ plugin_sources = [
     'jpeg/gsthailojpeg.cpp',
     'multi_resize/gsthailomultiresize.cpp',
     'dewarp/gsthailodewarp.cpp',
-    'frontend/gsthailofrontend.cpp'
-    ]
+    'denoise/gsthailodenoise.cpp',
+    'frontend/gsthailofrontend.cpp',
+    'upload/gsthailoupload.cpp'
+]
 
 if get_option('hailort_4_16')
     message('Building gstmedialib with Hailort 4.16')
@@ -69,18 +108,19 @@ if get_option('hailort_4_16')
     common_args += ['-DHAILORT_4_16']
 endif
 
-
 shared_library('gstmedialib',
     plugin_sources,
     cpp_args : common_args,
     link_args: ['-lhantro_vc8000e', '-lm'],
-    dependencies : gstreamer_deps + [opencv_dep, opencv_freetype_lib_dep, rapidjson_dep] +
+    include_directories: hailort_inc_dirs,
+    dependencies : gstreamer_deps + [opencv_dep, opencv_freetype_lib_dep, rapidjson_dep] + hailort_dep +
                    [dsp_dep, gstmedialibrary_utils_dep, encoder_dep,
                    media_library_common_dep, media_library_frontend_dep, media_library_encoder_dep],
     gnu_symbol_visibility : 'default',
     version: meson.project_version(),
     install: true,
-    install_dir: get_option('libdir') + '/gstreamer-1.0/',
+    install_dir: get_option('libdir') / 'gstreamer-1.0',
+    install_rpath: '/usr/lib/gstreamer-1.0',
 )
 
 if get_option('include_unit_tests')

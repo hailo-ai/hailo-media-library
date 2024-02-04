@@ -111,6 +111,21 @@ media_library_return MediaLibraryFrontend::Impl::start()
         [this]()
         { g_main_loop_run(m_main_loop); });
 
+    GstElement *frontend = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
+    if (frontend == nullptr)
+    {
+        std::cout << "got null frontend element" << std::endl;
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    // Get privacy mask blender from frontend bin
+    GValue val = G_VALUE_INIT;
+    g_object_get_property(G_OBJECT(frontend), "privacy-mask", &val);
+    void *value_ptr = g_value_get_pointer(&val);
+    m_privacy_blender = (PrivacyMaskBlender *)value_ptr;
+    g_value_unset(&val);
+    gst_object_unref(frontend);
+
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -187,7 +202,6 @@ std::string MediaLibraryFrontend::Impl::create_pipeline_string()
     {
         pipeline << "frontend. ! ";
         pipeline << "queue leaky=no max-size-buffers=5 max-size-time=0 max-size-bytes=0 ! ";
-        pipeline << "video/x-raw,format=NV12,width=" << s.width << ",height=" << s.height << ",framerate=" << s.framerate << "/1 ! ";
         pipeline << "fpsdisplaysink signal-fps-measurements=true name=fpsdisplay" << s.id << " text-overlay=false sync=false video-sink=\"appsink wait-on-eos=false name=" << s.id << "\" ";
     }
 
@@ -286,7 +300,6 @@ GstFlowReturn MediaLibraryFrontend::Impl::on_new_sample(output_stream_id_t id, G
         return GST_FLOW_ERROR;
     }
 
-    // buffer_ptr->increase_ref_count();
     auto cb_iter = m_callbacks.find(id);
     if (cb_iter == m_callbacks.end()) // id does not exist as a key
     {
@@ -295,9 +308,20 @@ GstFlowReturn MediaLibraryFrontend::Impl::on_new_sample(output_stream_id_t id, G
     }
     for (auto cb : cb_iter->second)
     {
+        buffer_ptr->increase_ref_count();
         cb(buffer_ptr, used_size);
     }
 
     gst_sample_unref(sample);
     return GST_FLOW_OK;
+}
+
+PrivacyMaskBlender* MediaLibraryFrontend::Impl::get_privacy_mask_blender()
+{
+    return m_privacy_blender;
+}
+
+PrivacyMaskBlender* MediaLibraryFrontend::get_privacy_mask_blender()
+{
+    return m_impl->get_privacy_mask_blender();
 }

@@ -1,6 +1,8 @@
 #include "buffer_utils.hpp"
 #include "media_library/encoder.hpp"
 #include "media_library/frontend.hpp"
+#include "media_library/privacy_mask.hpp"
+#include "media_library/privacy_mask_types.hpp"
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -77,7 +79,6 @@ void subscribe_elements(std::shared_ptr<MediaLibrary> media_lib)
         fe_callbacks[s.id] = [s, media_lib](HailoMediaLibraryBufferPtr buffer, size_t size)
         {
             media_lib->encoders[s.id]->add_buffer(buffer);
-	    buffer->decrease_ref_count();
         };
     }
     media_lib->frontend->subscribe(fe_callbacks);
@@ -94,6 +95,45 @@ void subscribe_elements(std::shared_ptr<MediaLibrary> media_lib)
                 buffer->decrease_ref_count();
             });
     }
+}
+
+void add_privacy_masks(PrivacyMaskBlender* privacy_mask_blender)
+{
+    polygon example_polygon;
+    example_polygon.id = "privacy_mask1";
+    example_polygon.vertices.push_back(vertex(125, 40));
+    example_polygon.vertices.push_back(vertex(980, 40));
+    example_polygon.vertices.push_back(vertex(1020, 600));
+    example_polygon.vertices.push_back(vertex(1350, 920));
+    example_polygon.vertices.push_back(vertex(750, 750));
+    example_polygon.vertices.push_back(vertex(125, 920));
+    example_polygon.vertices.push_back(vertex(250, 600));
+    privacy_mask_blender->add_privacy_mask(example_polygon);
+
+    polygon example_polygon2;
+    example_polygon2.id = "privacy_mask2";
+    example_polygon2.vertices.push_back(vertex(2500, 70));
+    example_polygon2.vertices.push_back(vertex(2980, 70));
+    example_polygon2.vertices.push_back(vertex(2900, 550));
+    example_polygon2.vertices.push_back(vertex(2723, 550));
+    example_polygon2.vertices.push_back(vertex(2600, 120));
+    privacy_mask_blender->add_privacy_mask(example_polygon2);
+}
+
+int update_privacy_masks(PrivacyMaskBlender* privacy_mask_blender)
+{
+    auto polygon_exp = privacy_mask_blender->get_privacy_mask("privacy_mask1");
+    if (!polygon_exp.has_value())
+    {
+        std::cout << "Failed to get privacy mask with id 'privacy_mask1'" << std::endl;
+        return 1;
+    }
+
+    polygon polygon1 = polygon_exp.value();
+    polygon1.vertices[0].x = 600;
+    polygon1.vertices[0].y = 120;
+    privacy_mask_blender->set_privacy_mask(polygon1);
+    return 0;
 }
 
 int main(int argc, char *argv[])
@@ -150,9 +190,18 @@ int main(int argc, char *argv[])
         encoder->start();
     }
     media_lib->frontend->start();
+    PrivacyMaskBlender* privacy_blender = media_lib->frontend->get_privacy_mask_blender();
+    add_privacy_masks(privacy_blender);
 
     std::cout << "Started playing for 30 seconds." << std::endl;
-    std::this_thread::sleep_for(std::chrono::seconds(30)); // sleep for 30 seconds
+
+    std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
+    
+    // Update privacy mask
+    if (update_privacy_masks(privacy_blender) != 0)
+        return 1;
+
+    std::this_thread::sleep_for(std::chrono::seconds(20)); // sleep for 20 seconds
 
     std::cout << "Stopping." << std::endl;
     media_lib->frontend->stop();

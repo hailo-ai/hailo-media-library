@@ -29,7 +29,7 @@ void SetDefaultParameters(EncoderParams *enc_params, bool codecH264)
 
     enc_params->width = DEFAULT_UNCHANGED;
     enc_params->height = DEFAULT_UNCHANGED;
-    enc_params->padding_to_crop = 0;
+    enc_params->stride = 0;
 
     enc_params->codecH264 = codecH264;
     enc_params->inputFormat = DEFAULT_INPUT_FORMAT;
@@ -358,8 +358,7 @@ int InitEncoderPreProcConfig(EncoderParams *enc_params, VCEncInst *pEnc)
     // No Rotation
     preProcCfg.rotation = (VCEncPictureRotation)0;
 
-    // TODO change width and height
-    preProcCfg.origWidth = enc_params->width + enc_params->padding_to_crop; // set origWidth to the padded width
+    preProcCfg.origWidth = enc_params->stride; // set origWidth to the padded width
     preProcCfg.origHeight = enc_params->height;
     preProcCfg.xOffset = 0;
     preProcCfg.yOffset = 0;

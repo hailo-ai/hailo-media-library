@@ -1,4 +1,5 @@
 #include "media_library/frontend.hpp"
+#include "media_library/privacy_mask.hpp"
 #include <gst/app/gstappsink.h>
 #include <gst/app/gstappsrc.h>
 #include <gst/gst.h>
@@ -23,6 +24,8 @@ public:
     void on_enough_data(GstAppSrc *appsrc);
     GstFlowReturn on_new_sample(output_stream_id_t id, GstAppSink *appsink);
     void on_fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps);
+
+    PrivacyMaskBlender* get_privacy_mask_blender();
 
 private:
     static void fps_measurement(GstElement *fpssink, gdouble fps,
@@ -62,6 +65,7 @@ private:
     guint m_send_buffer_id;
     GstElement *m_pipeline;
     std::map<output_stream_id_t, std::vector<FrontendWrapperCallback>> m_callbacks;
+    PrivacyMaskBlender* m_privacy_blender;
 
     // std::queue<GstBuffer *> m_queue;
     GstAppSrc *m_appsrc;

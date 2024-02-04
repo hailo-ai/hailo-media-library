@@ -1,8 +1,6 @@
 #include "buffer_utils.hpp"
 #include "media_library/encoder.hpp"
 #include "media_library/vision_pre_proc.hpp"
-#include "hailo_v4l2/hailo_vsm.h"
-#include "hailo_v4l2/hailo_v4l2_meta.h"
 #include <algorithm>
 #include <fstream>
 #include <gst/app/gstappsink.h>
@@ -24,6 +22,7 @@ struct MediaLibrary
 
 const char *VISION_PREPROC_CONFIG_FILE = "/usr/bin/preproc_config_example.json";
 const char *ENCODER_OSD_CONFIG_FILE = "/usr/bin/encoder_config_example.json";
+const char *OUTPUT_FILE = "/var/volatile/tmp/vision_preproc_example.h264";
 
 static gboolean waiting_eos = FALSE;
 static gboolean caught_sigint = FALSE;
@@ -197,6 +196,7 @@ static void update_custom_overlay(std::shared_ptr<osd::Blender> blender,
 }
 
 std::shared_future<media_library_return> running_osd_task;
+std::shared_future<media_library_return> add_text_task;
 
 /**
  * Appsink's new_sample callback
@@ -210,40 +210,27 @@ static GstFlowReturn appsink_new_sample(GstAppSink *appsink, gpointer user_data)
 {
     GstSample *sample;
     GstBuffer *gst_buffer;
-    GstVideoFrame frame;
-    hailo_media_library_buffer buffer;
+    HailoMediaLibraryBufferPtr buffer = nullptr;
     std::vector<hailo_media_library_buffer> outputs;
-    GstVideoInfo *info = gst_video_info_new();
     MediaLibrary *media_lib = static_cast<MediaLibrary *>(user_data);
     GstFlowReturn return_status = GST_FLOW_OK;
 
     // get the incoming sample
     sample = gst_app_sink_pull_sample(appsink);
     GstCaps *caps = gst_sample_get_caps(sample);
-    gst_video_info_from_caps(info, caps);
 
     gst_buffer = gst_sample_get_buffer(sample);
     if (gst_buffer)
     {
-        // Verify buffer contains hailo v4l2 metadata
-        GstHailoV4l2Meta *hailo_v4l2_meta =
-            reinterpret_cast<GstHailoV4l2Meta *>(gst_buffer_get_meta(
-                gst_buffer, g_type_from_name(HAILO_V4L2_META_API_NAME)));
-
-        // frame map
-        gst_video_frame_map(&frame, info, gst_buffer, GST_MAP_READ);
-        create_hailo_buffer_from_video_frame(&frame, buffer, hailo_v4l2_meta);
-        // frame unmap
-        gst_video_frame_unmap(&frame);
-
+        buffer = hailo_buffer_from_gst_buffer(gst_buffer, caps);
         auto blender = media_lib->encoder->get_blender();
         // add new overlay after 50 frames
         if (GST_BUFFER_OFFSET(gst_buffer) == 50)
         {
             osd::TextOverlay new_text = osd::TextOverlay("e1",
-                                                         0.1, 0.3, "Camera Stream", osd::rgb_color_t(0, 0, 255), 100.0, 1,
+                                                         0.1, 0.3, "Camera Stream", osd::rgb_color_t(0, 0, 255), osd::rgb_color_t(255, 255, 255), 100.0, 1,
                                                          1, FONT_1_PATH, 0, osd::rotation_alignment_policy_t::CENTER);
-            blender->add_overlay(new_text);
+            add_text_task = blender->add_overlay_async(new_text);
         }
 
         if (GST_BUFFER_OFFSET(gst_buffer) == 100)
@@ -300,12 +287,12 @@ static GstFlowReturn appsink_new_sample(GstAppSink *appsink, gpointer user_data)
             auto img = std::static_pointer_cast<osd::ImageOverlay>(img_expected.value());
             img->angle += 10;
             running_osd_task = blender->set_overlay_async(*img); // save future to a variable, because destructor blocks until finished
+            
         }
     }
-    gst_video_info_free(info);
 
     // perform vision_preproc logic
-    media_library_return preproc_status = media_lib->vision_preproc->handle_frame(buffer, outputs);
+    media_library_return preproc_status = media_lib->vision_preproc->handle_frame(*buffer.get(), outputs);
     if (preproc_status != MEDIA_LIBRARY_SUCCESS)
         return_status = GST_FLOW_ERROR;
 
@@ -363,8 +350,7 @@ void set_callbacks(GstElement *pipeline, MediaLibrary *media_lib)
 void write_encoded_data(HailoMediaLibraryBufferPtr buffer, uint32_t size)
 {
     char *data = (char *)buffer->get_plane(0);
-    std::ofstream fp("vision_preproc_example.h264",
-                     std::ios::out | std::ios::binary | std::ios::app);
+    std::ofstream fp(OUTPUT_FILE, std::ios::out | std::ios::binary | std::ios::app);
     if (!fp.good())
     {
         std::cout << "Error occurred at writing time!" << std::endl;
@@ -395,8 +381,7 @@ std::string read_string_from_file(const char *file_path)
 
 void delete_output_file()
 {
-    std::ofstream fp("/var/volatile/tmp/vision_preproc_example.h264",
-                     std::ios::out | std::ios::binary);
+    std::ofstream fp(OUTPUT_FILE, std::ios::out | std::ios::binary);
     if (!fp.good())
     {
         std::cout << "Error occurred at writing time!" << std::endl;

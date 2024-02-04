@@ -251,6 +251,21 @@ namespace dsp_utils
         return dsp_multi_crop_and_resize(device, multi_resize_params, &crop_params);
     }
 
+    dsp_status
+    perform_dsp_multi_resize(dsp_multi_resize_params_t *multi_resize_params,
+                             uint crop_start_x, uint crop_start_y, uint crop_end_x,
+                             uint crop_end_y, dsp_privacy_mask_t *privacy_mask_params)
+    {
+        dsp_crop_api_t crop_params = {
+            .start_x = crop_start_x,
+            .start_y = crop_start_y,
+            .end_x = crop_end_x,
+            .end_y = crop_end_y,
+        };
+
+        return dsp_multi_crop_and_resize_privacy_mask(device, multi_resize_params, &crop_params, privacy_mask_params);
+    }
+
     dsp_status perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
                                   dsp_image_properties_t *output_image_properties,
                                   dsp_dewarp_mesh_t *mesh,

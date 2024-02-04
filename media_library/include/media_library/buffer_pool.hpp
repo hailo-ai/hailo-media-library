@@ -100,6 +100,7 @@ private:
     uint m_height;
     uint m_bytes_per_line;
     dsp_image_format_t m_format;
+    std::shared_ptr<std::mutex> m_buffer_pool_mutex;
 
 public:
     /**
@@ -166,6 +167,24 @@ public:
      * @return media_library_return
      */
     media_library_return release_buffer(hailo_media_library_buffer *buffer);
+
+    /**
+     * @brief Swaps the width and height of the buffer.
+     * @return The return status of the swap operation.
+    */
+    media_library_return swap_width_and_height();
+    /**
+     * @brief Gets the width of the buffer pool.
+     * 
+     * @return The width of the buffer pool as an unsigned integer.
+     */
+    uint get_width() { return m_width; }
+    /**
+     * @brief Gets the height of the buffer pool.
+     * 
+     * @return The height of the buffer pool as an unsigned integer.
+     */
+    uint get_height() { return m_height; }
 };
 
 struct hailo_media_library_buffer
@@ -218,7 +237,7 @@ private:
 public:
     DspImagePropertiesPtr hailo_pix_buffer;
     MediaLibraryBufferPoolPtr owner;
-    hailo15_vsm vsm;
+    struct hailo15_vsm vsm;
     int32_t isp_ae_fps;
     int32_t video_fd;
 
@@ -227,6 +246,8 @@ public:
           m_plane_mutex(std::make_shared<std::mutex>()),
           hailo_pix_buffer(nullptr), owner(nullptr), isp_ae_fps(-1), video_fd(-1)
     {
+        vsm.dx = 0;
+        vsm.dy = 0;
     }
     // Move constructor
     hailo_media_library_buffer(hailo_media_library_buffer &&other) noexcept
@@ -236,11 +257,18 @@ public:
         hailo_pix_buffer = other.hailo_pix_buffer;
         owner = other.owner;
         planes_reference_count = other.planes_reference_count;
+        vsm = other.vsm;
+        isp_ae_fps = other.isp_ae_fps;
+        video_fd = other.video_fd;
         other.hailo_pix_buffer = nullptr;
         other.owner = nullptr;
         other.m_buffer_mutex = nullptr;
         other.m_plane_mutex = nullptr;
         other.planes_reference_count.clear();
+        other.isp_ae_fps = -1;
+        other.video_fd = -1;
+        other.vsm.dx = 0;
+        other.vsm.dy = 0;
     }
 
     // Move assignment
@@ -254,11 +282,18 @@ public:
             hailo_pix_buffer = other.hailo_pix_buffer;
             owner = other.owner;
             planes_reference_count = other.planes_reference_count;
+            vsm = other.vsm;
+            isp_ae_fps = other.isp_ae_fps;
+            video_fd = other.video_fd;
             other.hailo_pix_buffer = nullptr;
             other.owner = nullptr;
             other.m_buffer_mutex = nullptr;
             other.m_plane_mutex = nullptr;
             other.planes_reference_count.clear();
+            other.isp_ae_fps = -1;
+            other.video_fd = -1;
+            other.vsm.dx = 0;
+            other.vsm.dy = 0;
         }
         return *this;
     }
@@ -282,6 +317,13 @@ public:
         if (index >= hailo_pix_buffer->planes_count)
             return 0;
         return hailo_pix_buffer->planes[index].bytesused;
+    }
+
+    uint32_t get_plane_stride(uint32_t index)
+    {
+        if (index >= hailo_pix_buffer->planes_count)
+            return 0;
+        return hailo_pix_buffer->planes[index].bytesperline;
     }
 
     uint32_t get_num_of_planes() { return hailo_pix_buffer->planes_count; }

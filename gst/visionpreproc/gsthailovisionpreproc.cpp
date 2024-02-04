@@ -160,58 +160,31 @@ static GstFlowReturn gst_hailo_vision_preproc_push_output_frames(GstHailoVisionP
     }
 
     HailoMediaLibraryBufferPtr hailo_buffer = std::make_shared<hailo_media_library_buffer>(std::move(output_frames[i]));
-    DspImagePropertiesPtr output_dsp_image_props = hailo_buffer->hailo_pix_buffer;
     GstPad *srcpad = self->srcpads[i];
     // Get caps from srcpad
     GstCaps *caps = gst_pad_get_current_caps(srcpad);
-    if (caps)
+    if (!caps)
     {
-      GstVideoInfo *video_info = gst_video_info_new();
-      bool caps_status = gst_video_info_from_caps(video_info, caps);
-      gst_caps_unref(caps);
-      if (!caps_status)
-      {
-        GST_ERROR_OBJECT(self, "Failed to parse video info from caps for srcpad: %d", i);
-        hailo_buffer->decrease_ref_count();
-        gst_video_info_free(video_info);
-        ret = GST_FLOW_ERROR;
-        continue;
-      }
-
-      if (output_dsp_image_props->width != (guint)video_info->width || output_dsp_image_props->height != (guint)video_info->height)
-      {
-        GST_ERROR_OBJECT(self, "Output frame size (%ld, %ld) does not match srcpad size (%d, %d)", output_dsp_image_props->width, output_dsp_image_props->height, video_info->width, video_info->height);
-        hailo_buffer->decrease_ref_count();
-        gst_video_info_free(video_info);
-        ret = GST_FLOW_ERROR;
-        continue;
-      }
-
-      GST_DEBUG_OBJECT(self, "Creating GstBuffer from dsp buffer");
-      GstBuffer *gst_outbuf = create_gst_buffer_from_hailo_buffer(hailo_buffer);
-
-      if (!add_video_meta_to_buffer(gst_outbuf, video_info, hailo_buffer))
-      {
-        GST_ERROR_OBJECT(self, "Failed to add video meta to buffer");
-        gst_buffer_unref(gst_outbuf);
-        hailo_buffer->decrease_ref_count();
-        gst_video_info_free(video_info);
-        ret = GST_FLOW_ERROR;
-        continue;
-      }
-
-      GST_DEBUG_OBJECT(self, "Pushing buffer to srcpad name %s", gst_pad_get_name(srcpad));
-      gst_outbuf->pts = GST_BUFFER_PTS(buffer);
-      gst_pad_push(srcpad, gst_outbuf);
-      gst_video_info_free(video_info);
-    }
-    else
-    {
-      GST_WARNING_OBJECT(self, "Failed to get caps from srcpad name %s", gst_pad_get_name(srcpad));
+      GST_ERROR_OBJECT(self, "Failed to get caps from srcpad name %s", gst_pad_get_name(srcpad));
       hailo_buffer->decrease_ref_count();
       ret = GST_FLOW_ERROR;
       continue;
     }
+
+    GST_DEBUG_OBJECT(self, "Creating GstBuffer from dsp buffer");
+    GstBuffer *gst_outbuf = gst_buffer_from_hailo_buffer(hailo_buffer, caps);
+    gst_caps_unref(caps);
+    if (!gst_outbuf)
+    {
+      GST_ERROR_OBJECT(self, "Failed to create GstBuffer from dsp buffer");
+      hailo_buffer->decrease_ref_count();
+      ret = GST_FLOW_ERROR;
+      continue;
+    }
+
+    GST_DEBUG_OBJECT(self, "Pushing buffer to srcpad name %s", gst_pad_get_name(srcpad));
+    gst_outbuf->pts = GST_BUFFER_PTS(buffer);
+    gst_pad_push(srcpad, gst_outbuf);
   }
 
   return ret;
@@ -241,44 +214,21 @@ static GstFlowReturn gst_hailo_vision_preproc_chain(GstPad *pad, GstObject *pare
     }
   }
 
+  
   GstCaps *input_caps = gst_pad_get_current_caps(pad);
 
-  GstVideoInfo *input_video_info = gst_video_info_new();
-  gst_video_info_from_caps(input_video_info, input_caps);
-
+  HailoMediaLibraryBufferPtr input_frame_ptr = hailo_buffer_from_gst_buffer(buffer, input_caps);
+  if (!input_frame_ptr)
+  {
+    GST_ERROR_OBJECT(self, "Cannot create hailo buffer from GstBuffer");
+    return GST_FLOW_ERROR;
+  }
   gst_caps_unref(input_caps);
-  hailo_media_library_buffer hailo_buffer;
-
-  // Map input and output buffers to GstVideoFrame
-  GstVideoFrame input_video_frame;
-  if (gst_video_frame_map(&input_video_frame, input_video_info, buffer, GST_MAP_READ))
-  {
-    GST_DEBUG_OBJECT(self, "Creating dsp buffer from video frame width: %d height: %d", input_video_info->width, input_video_info->height);
-    if (!create_hailo_buffer_from_video_frame(&input_video_frame, hailo_buffer, meta))
-    {
-      GST_ERROR_OBJECT(self, "Cannot create hailo buffer from video frame");
-      ret = GST_FLOW_ERROR;
-    }
-  }
-  else
-  {
-    GST_ERROR_OBJECT(self, "Cannot map input buffer to frame");
-    ret = GST_FLOW_ERROR;
-  }
-
-  gst_video_frame_unmap(&input_video_frame);
-  gst_video_info_free(input_video_info);
-  if (ret == GST_FLOW_ERROR)
-  {
-    GST_ERROR_OBJECT(self, "Failed to create dsp buffer from video frame");
-    gst_buffer_unref(buffer);
-    return ret;
-  }
 
   std::vector<hailo_media_library_buffer> output_frames;
 
   GST_DEBUG_OBJECT(self, "Call media library handle frame - GstBuffer offset %ld", GST_BUFFER_OFFSET(buffer));
-  media_library_return media_lib_ret = self->medialib_vision_pre_proc->handle_frame(hailo_buffer, output_frames);
+  media_library_return media_lib_ret = self->medialib_vision_pre_proc->handle_frame(*input_frame_ptr.get(), output_frames);
 
   if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
   {

@@ -82,17 +82,17 @@ namespace osd
     }
 
     TextOverlay::TextOverlay() : Overlay("", 0, 0, 1, 0, rotation_alignment_policy_t::CENTER),
-                                 label(""), rgb(rgb_color_t()), font_size(20), line_thickness(1), font_path(DEFAULT_FONT_PATH)
+                                 label(""), rgb(rgb_color_t()), rgb_background({-1, -1, -1}), font_size(20), line_thickness(1), font_path(DEFAULT_FONT_PATH)
     {
     }
 
-    TextOverlay::TextOverlay(std::string _id, float _x, float _y, std::string _label, rgb_color_t _rgb, float _font_size, int _line_thickness, unsigned int _z_index, std::string font_path, unsigned int _angle, rotation_alignment_policy_t _rotation_policy) : Overlay(_id, _x, _y, _z_index, _angle, _rotation_policy),
-                                                                                                                                                                                                                                                                  label(_label), rgb(_rgb), font_size(_font_size), line_thickness(_line_thickness), font_path(font_path)
+    TextOverlay::TextOverlay(std::string _id, float _x, float _y, std::string _label, rgb_color_t _rgb, rgb_color_t _rgb_background, float _font_size, int _line_thickness, unsigned int _z_index, std::string font_path, unsigned int _angle, rotation_alignment_policy_t _rotation_policy) : Overlay(_id, _x, _y, _z_index, _angle, _rotation_policy),
+                                                                                                                                                                                                                                                                                               label(_label), rgb(_rgb), rgb_background(_rgb_background), font_size(_font_size), line_thickness(_line_thickness), font_path(font_path)
     {
     }
 
-    TextOverlay::TextOverlay(std::string _id, float _x, float _y, std::string _label, rgb_color_t _rgb, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy) : Overlay(_id, _x, _y, _z_index, _angle, _rotation_policy),
-                                                                                                                                                                                                                                           label(_label), rgb(_rgb), font_size(_font_size), line_thickness(_line_thickness), font_path(DEFAULT_FONT_PATH)
+    TextOverlay::TextOverlay(std::string _id, float _x, float _y, std::string _label, rgb_color_t _rgb, rgb_color_t _rgb_background, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy) : Overlay(_id, _x, _y, _z_index, _angle, _rotation_policy),
+                                                                                                                                                                                                                                                                        label(_label), rgb(_rgb), rgb_background(_rgb_background), font_size(_font_size), line_thickness(_line_thickness), font_path(DEFAULT_FONT_PATH)
     {
     }
 
@@ -154,6 +154,10 @@ namespace osd
         json.at("y").get_to(overlay.y);
         json.at("label").get_to(overlay.label);
         json.at("rgb").get_to(overlay.rgb);
+        if (json.find("rgb_background") != json.end())
+        {
+            json.at("rgb_background").get_to(overlay.rgb_background);
+        }
         json.at("font_size").get_to(overlay.font_size);
         json.at("line_thickness").get_to(overlay.line_thickness);
         json.at("z-index").get_to(overlay.z_index);

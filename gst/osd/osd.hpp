@@ -122,6 +122,8 @@ namespace osd
         std::string label;
         /** Text color */
         rgb_color_t rgb;
+        rgb_color_t rgb_background;
+
         /**
          * Font size
          */
@@ -136,8 +138,8 @@ namespace osd
         std::string font_path;
 
         TextOverlay();
-        TextOverlay(std::string id, float x, float y, std::string label, rgb_color_t rgb, float font_size, int line_thickness, unsigned int z_index, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
-        TextOverlay(std::string id, float x, float y, std::string label, rgb_color_t rgb, float font_size, int line_thickness, unsigned int z_index, std::string font_path, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
+        TextOverlay(std::string id, float x, float y, std::string label, rgb_color_t rgb, rgb_color_t rgb_background, float font_size, int line_thickness, unsigned int z_index, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
+        TextOverlay(std::string id, float x, float y, std::string label, rgb_color_t rgb, rgb_color_t rgb_background, float font_size, int line_thickness, unsigned int z_index, std::string font_path, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
     };
 
     /**
