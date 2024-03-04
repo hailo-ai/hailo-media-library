@@ -27,7 +27,28 @@
 #include <thread>
 #include <iomanip>
 
-#define WIDTH_PADDING 10
+mat_dims internal_calculate_text_size(const std::string &label, const std::string &font_path, int font_size, int line_thickness)
+{
+    if (!cv::utils::fs::exists(font_path))
+    {
+        LOGGER__ERROR("Error: file {} does not exist", font_path);
+        return {0, 0};
+    }
+
+    cv::Ptr<cv::freetype::FreeType2> ft2;
+    ft2 = cv::freetype::createFreeType2();
+    ft2->loadFontData(font_path, 0);
+
+    int baseline = 0;
+    cv::Size text_size = ft2->getTextSize(label, font_size, line_thickness, &baseline);
+
+    text_size.width += text_size.width % 2;
+    text_size.height += text_size.height % 2;
+
+    baseline += baseline % 2;
+
+    return {text_size.width + WIDTH_PADDING, text_size.height + baseline, baseline};
+}
 
 cv::Mat OverlayImpl::resize_mat(cv::Mat mat, int width, int height)
 {
@@ -173,7 +194,7 @@ media_library_return OverlayImpl::convert_2_dsp_video_frame(GstVideoFrame *src_f
 
     gst_video_converter_free(converter);
     gst_video_info_free(dest_info);
-    
+
     return ret;
 }
 
@@ -269,42 +290,25 @@ ImageOverlayImpl::ImageOverlayImpl(const osd::ImageOverlay &overlay, media_libra
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
-TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay &overlay, media_library_return &status) : OverlayImpl(overlay.id, overlay.x, overlay.y, 0, 0, overlay.z_index, overlay.angle, overlay.rotation_alignment_policy, false),
-                                                                                                  m_label(overlay.label), m_rgb_text_color{overlay.rgb.red, overlay.rgb.green, overlay.rgb.blue}, m_rgb_text_background_color{overlay.rgb_background.red, overlay.rgb_background.green, overlay.rgb_background.blue}, m_font_size(overlay.font_size), m_line_thickness(overlay.line_thickness), m_font_path(overlay.font_path)
+BaseTextOverlayImpl::BaseTextOverlayImpl(const osd::BaseTextOverlay &overlay, media_library_return &status) : OverlayImpl(overlay.id, overlay.x, overlay.y, 0, 0, overlay.z_index, overlay.angle, overlay.rotation_alignment_policy, false),
+                                                                                                              m_label(overlay.label), m_rgb_text_color{overlay.rgb.red, overlay.rgb.green, overlay.rgb.blue}, m_rgb_text_background_color{overlay.rgb_background.red, overlay.rgb_background.green, overlay.rgb_background.blue},m_font_size(overlay.font_size), m_line_thickness(overlay.line_thickness), m_font_path(overlay.font_path)
 {
-    if (m_label.empty())
-    {
-        LOGGER__ERROR("m_label is empty");
-        status = MEDIA_LIBRARY_ERROR;
-        return;
-    }
+    status = MEDIA_LIBRARY_SUCCESS;
+}
 
-    // check if the font file exists
+media_library_return BaseTextOverlayImpl::create_text_m_mat(std::string label)
+{
     if (!cv::utils::fs::exists(m_font_path))
     {
         LOGGER__ERROR("Error: file {} does not exist", m_font_path);
-        status = MEDIA_LIBRARY_INVALID_ARGUMENT;
-        return;
+        return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
     cv::Ptr<cv::freetype::FreeType2> ft2;
     ft2 = cv::freetype::createFreeType2();
     ft2->loadFontData(m_font_path, 0);
 
-    // calculate the size of the text
-    int baseline = 0;
-    cv::Size text_size = ft2->getTextSize(m_label,
-                                          m_font_size,
-                                          m_line_thickness,
-                                          &baseline);
-
-    // ensure even dimensions, round up not to clip text
-    text_size.width += text_size.width % 2;
-    text_size.height += text_size.height % 2;
-
-    baseline += baseline % 2;
-    m_width = text_size.width;
-    m_height = text_size.height + baseline;
+    mat_dims text_dims = internal_calculate_text_size(label, m_font_path, m_font_size, m_line_thickness);
 
     cv::Scalar background_color_rgb;
     cv::Scalar background_color_rgba;
@@ -333,14 +337,14 @@ TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay &overlay, media_library_
         background_color_rgba = cv::Scalar(m_rgb_text_background_color[0], m_rgb_text_background_color[1], m_rgb_text_background_color[2], 255);
     }
 
-    cv::Mat rgb_mat = cv::Mat(text_size.height + baseline, text_size.width + WIDTH_PADDING, CV_8UC3, background_color_rgb);
+    cv::Mat rgb_mat = cv::Mat(text_dims.height, text_dims.width, CV_8UC3, background_color_rgb);
 
-    m_image_mat = cv::Mat(text_size.height + baseline, text_size.width + WIDTH_PADDING, CV_8UC4, background_color_rgba);
+    m_image_mat = cv::Mat(text_dims.height, text_dims.width, CV_8UC4, background_color_rgba);
 
-    auto text_position = cv::Point(0, text_size.height);
+    auto text_position = cv::Point(0, text_dims.height - text_dims.baseline);
     cv::Scalar rgb_text_color(m_rgb_text_color[0], m_rgb_text_color[1], m_rgb_text_color[2]); // The input is expected RGB, but we draw as BGRA
 
-    ft2->putText(rgb_mat, m_label, text_position, m_font_size, rgb_text_color, cv::FILLED, 8, true);
+    ft2->putText(rgb_mat, label, text_position, m_font_size, rgb_text_color, cv::FILLED, 8, true);
 
     if (transparent_background)
     {
@@ -363,11 +367,24 @@ TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay &overlay, media_library_
         cv::cvtColor(rgb_mat, m_image_mat, cv::COLOR_RGB2BGRA);
     }
 
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay &overlay, media_library_return &status) : BaseTextOverlayImpl(overlay, status)
+{
+    if (m_label.empty())
+    {
+        LOGGER__ERROR("m_label is empty");
+        status = MEDIA_LIBRARY_ERROR;
+        return;
+    }
+
+    create_text_m_mat(m_label);
+
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
-DateTimeOverlayImpl::DateTimeOverlayImpl(const osd::DateTimeOverlay &overlay, media_library_return &status) : OverlayImpl(overlay.id, overlay.x, overlay.y, 0, 0, overlay.z_index, overlay.angle, overlay.rotation_alignment_policy, false),
-                                                                                                              m_rgb_text_color{overlay.rgb.red, overlay.rgb.green, overlay.rgb.blue}, m_font_size(overlay.font_size), m_line_thickness(overlay.line_thickness)
+DateTimeOverlayImpl::DateTimeOverlayImpl(const osd::DateTimeOverlay &overlay, media_library_return &status) : BaseTextOverlayImpl(overlay, status)
 {
     status = MEDIA_LIBRARY_SUCCESS;
 }
@@ -608,25 +625,7 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> DateTi
 
     OverlayImpl::free_resources();
 
-    // calculate the size of the text
-    int baseline = 0;
-    cv::Size text_size = cv::getTextSize(m_datetime_str, cv::FONT_HERSHEY_SIMPLEX, m_font_size, m_line_thickness, &baseline);
-
-    // ensure even dimensions, round up not to clip text
-    text_size.width += text_size.width % 2;
-    text_size.height += text_size.height % 2;
-
-    m_width = text_size.width;
-    m_height = text_size.height + baseline;
-
-    // create a transparent BGRA image
-    m_image_mat = cv::Mat(text_size.height + baseline, text_size.width, CV_8UC4, cv::Scalar(0, 0, 0, 0));
-
-    auto text_position = cv::Point(0, text_size.height);
-    cv::Scalar text_color(m_rgb_text_color[2], m_rgb_text_color[1], m_rgb_text_color[0], 255); // The input is expected RGB, but we draw as BGRA
-
-    // draw the text
-    cv::putText(m_image_mat, m_datetime_str, text_position, cv::FONT_HERSHEY_SIMPLEX, m_font_size, text_color, m_line_thickness);
+    create_text_m_mat(m_datetime_str);
 
     return OverlayImpl::create_dsp_overlays(frame_width, frame_height);
 }
@@ -677,7 +676,7 @@ std::shared_ptr<osd::Overlay> TextOverlayImpl::get_metadata()
 
 std::shared_ptr<osd::Overlay> DateTimeOverlayImpl::get_metadata()
 {
-    return std::make_shared<osd::DateTimeOverlay>(m_id, m_x, m_y, osd::rgb_color_t{m_rgb_text_color[0], m_rgb_text_color[1], m_rgb_text_color[2]}, m_font_size, m_line_thickness, m_z_index, m_angle, m_rotation_policy);
+    return std::make_shared<osd::DateTimeOverlay>(m_id, m_x, m_y, osd::rgb_color_t{m_rgb_text_color[0], m_rgb_text_color[1], m_rgb_text_color[2]}, osd::rgb_color_t{m_rgb_text_background_color[0], m_rgb_text_background_color[1], m_rgb_text_background_color[2]}, m_font_path, m_font_size, m_line_thickness, m_z_index, m_angle, m_rotation_policy);
 }
 
 std::shared_ptr<osd::Overlay> CustomOverlayImpl::get_metadata()
@@ -727,7 +726,7 @@ namespace osd
             status = MEDIA_LIBRARY_CONFIGURATION_ERROR;
             return;
         }
-        m_config = nlohmann::json::parse(clean_config);
+        m_config = nlohmann::json::parse(clean_config)["osd"];
 
         // Acquire DSP device
         dsp_status dsp_result = dsp_utils::acquire_device();

@@ -33,50 +33,102 @@
 #define MIN_MONITOR_FRAMES (10)
 #define MAX_MONITOR_FRAMES (120)
 
+inline void strip_string_syntax(std::string &pipeline_input)
+{
+    if (pipeline_input.front() == '\'' && pipeline_input.back() == '\'')
+    {
+        pipeline_input.erase(0, 1);
+        pipeline_input.pop_back();
+    }
+}
+
 EncoderConfig::EncoderConfig(const std::string &json_string)
     : m_json_string(json_string)
 {
-    m_config_manager =
-        std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_ENCODER);
-    auto ret = m_config_manager->validate_configuration(json_string);
-    if (ret != MEDIA_LIBRARY_SUCCESS)
+    if (configure(json_string) != MEDIA_LIBRARY_SUCCESS)
     {
         throw std::runtime_error("encoder's JSON config file is not valid");
     }
-    m_doc = nlohmann::json::parse(m_json_string);
 }
+
+media_library_return EncoderConfig::configure(const std::string &json_string)
+{   
+    std::string strapped_json = json_string;
+    strip_string_syntax(strapped_json);
+
+    m_config_manager =
+        std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_ENCODER);
+
+    media_library_return config_ret = m_config_manager->config_string_to_struct<encoder_config_t>(strapped_json, m_config);
+    if (config_ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("encoder's JSON config conversion failed: {}", strapped_json);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    m_doc = nlohmann::json::parse(strapped_json)["hailo_encoder"];
+    m_json_string = strapped_json;
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return EncoderConfig::configure(const encoder_config_t &encoder_config)
+{
+    m_config = encoder_config;
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+encoder_config_t EncoderConfig::get_config()
+{
+    return m_config;
+}
+
 const nlohmann::json &EncoderConfig::get_doc() const { return m_doc; }
-const nlohmann::json &EncoderConfig::get_gop_config() const
+
+bool Encoder::Impl::gop_config_update_required(const encoder_config_t &new_config)
 {
-    return m_doc["gop_config"];
-}
-const nlohmann::json &EncoderConfig::get_input_stream() const
-{
-    return m_doc["config"]["input_stream"];
+    encoder_config_t current_config = m_config->get_config();
+    if(new_config.gop.gop_size != current_config.gop.gop_size || new_config.gop.b_frame_qp_delta != current_config.gop.b_frame_qp_delta)
+    {
+        return true;
+    }
+
+    return false;
 }
 
-const nlohmann::json &EncoderConfig::get_coding_control() const
+bool Encoder::Impl::hard_restart_required(const encoder_config_t &new_config, bool gop_update_required)
 {
-    return m_doc["coding_control"];
-}
+    encoder_config_t current_config = m_config->get_config();
+    // Output stream configs requires hard restart
+    if((new_config.stream.output_stream.codec != current_config.stream.output_stream.codec) || \
+    (new_config.stream.output_stream.level != current_config.stream.output_stream.level) || \
+    (new_config.stream.output_stream.profile != current_config.stream.output_stream.profile))
+    {
+        return true;
+    }
 
-const nlohmann::json &EncoderConfig::get_rate_control() const
-{
-    return m_doc["rate_control"];
-}
+    // Input stream configs requires hard restart
+    if((new_config.stream.input_stream.width != current_config.stream.input_stream.width) || \
+    (new_config.stream.input_stream.height != current_config.stream.input_stream.height) || \
+    (new_config.stream.input_stream.framerate != current_config.stream.input_stream.framerate) || \
+    (new_config.stream.input_stream.format != current_config.stream.input_stream.format))
+    {
+        return true;
+    }
 
-const nlohmann::json &EncoderConfig::get_output_stream() const
-{
-    return m_doc["config"]["output_stream"];
+    // Gop size change requires hard restart
+    if(gop_update_required)
+    {
+        return true;
+    }
+
+    return false;
 }
 
 uint32_t Encoder::Impl::get_codec()
 {
-    auto output_stream = m_config->get_output_stream();
-    std::string codec = std::string(output_stream["codec"]);
-    if (codec == "h264")
+    auto output_stream = m_config->get_config().stream.output_stream;
+    if (output_stream.codec == CODEC_TYPE_H264)
         return 1;
-    else if (codec == "hevc")
+    else if (output_stream.codec == CODEC_TYPE_HEVC)
         return 0;
     else
         return 0;
@@ -84,8 +136,8 @@ uint32_t Encoder::Impl::get_codec()
 
 VCEncProfile Encoder::Impl::get_profile()
 {
-    auto output_stream = m_config->get_output_stream();
-    std::string profile = std::string(output_stream["profile"]);
+    auto output_stream = m_config->get_config().stream.output_stream;
+    std::string profile = output_stream.profile;
     if (profile == "VCENC_H264_BASE_PROFILE")
         return VCENC_H264_BASE_PROFILE;
     else if (profile == "VCENC_H264_MAIN_PROFILE")
@@ -128,16 +180,16 @@ VCEncLevel Encoder::Impl::get_level(std::string level, bool codecH264)
     }
 }
 
-void Encoder::Impl::updateArea(nlohmann::json &area, VCEncPictureArea &vc_area)
+void Encoder::Impl::updateArea(coding_roi_area_t &area, VCEncPictureArea &vc_area)
 {
-    bool enable = area["enable"];
-    if (enable)
+    if (area.enable)
     {
         vc_area.enable = 1;
-        vc_area.top = area["top"];
-        vc_area.left = area["left"];
-        vc_area.bottom = area["bottom"];
-        vc_area.right = area["right"];
+        vc_area.top = area.top;
+        vc_area.left = area.left;
+        vc_area.bottom = area.bottom;
+        vc_area.right = area.right;
+        // vc_area.qpDelta = area.qp_delta;
     }
     else
     {
@@ -146,16 +198,46 @@ void Encoder::Impl::updateArea(nlohmann::json &area, VCEncPictureArea &vc_area)
     }
 }
 
-void Encoder::Impl::init_gop_config()
+void Encoder::Impl::updateArea(coding_roi_t &area, VCEncPictureArea &vc_area)
+{
+    if (area.enable)
+    {
+        vc_area.enable = 1;
+        vc_area.top = area.top;
+        vc_area.left = area.left;
+        vc_area.bottom = area.bottom;
+        vc_area.right = area.right;
+    }
+    else
+    {
+        vc_area.enable = 0;
+        vc_area.top = vc_area.left = vc_area.bottom = vc_area.right = -1;
+    }
+}
+
+void Encoder::Impl::create_gop_config()
 {
     LOGGER__DEBUG("Encoder - init_gop_config");
     auto codec = get_codec();
-    auto gop_config_json = m_config->get_gop_config();
-    int32_t bframe_qp_delta = gop_config_json["b_frame_qp_delta"];
-    int32_t gop_size = gop_config_json["gop_size"];
+    auto gop_config_json = m_config->get_config().gop;
+    int32_t bframe_qp_delta = gop_config_json.b_frame_qp_delta;
+    int32_t gop_size = gop_config_json.gop_size;
     memset(&m_enc_in.gopConfig, 0, sizeof(VCEncGopConfig));
     m_gop_cfg = std::make_unique<gopConfig>(&(m_enc_in.gopConfig), gop_size,
                                             bframe_qp_delta, codec);
+}
+
+int Encoder::Impl::init_gop_config()
+{
+    auto gop_config = m_config->get_config().gop;
+    auto codec = get_codec();
+
+    memset(&m_enc_in.gopConfig, 0, sizeof(VCEncGopConfig));
+    memset(&m_enc_in.gopConfig.pGopPicCfg , 0, sizeof(VCEncGopPicConfig));
+    int ret = m_gop_cfg->init_config(&(m_enc_in.gopConfig), gop_config.gop_size, gop_config.b_frame_qp_delta, codec);
+    m_enc_in.gopConfig.pGopPicCfg = m_gop_cfg->get_gop_pic_cfg();
+    // m_enc_in.gopSize = m_gop_cfg->get_gop_size();
+    return ret;
 }
 
 VCEncRet Encoder::Impl::init_rate_control_config()
@@ -163,23 +245,22 @@ VCEncRet Encoder::Impl::init_rate_control_config()
     LOGGER__DEBUG("Encoder - init_rate_control_config");
     VCEncRet ret = VCENC_OK;
 
-    auto rate_control = m_config->get_rate_control();
-
+    auto rate_control = m_config->get_config().rate_control;
     /* Encoder setup: rate control */
     if ((ret = VCEncGetRateCtrl(m_inst, &m_vc_rate_cfg)) != VCENC_OK)
     {
         VCEncRelease(m_inst);
         return ret;
     }
-    m_vc_rate_cfg.qpHdr = rate_control["quantization"]["qp_hdr"];
-    m_vc_rate_cfg.qpMin = rate_control["quantization"]["qp_min"];
-    m_vc_rate_cfg.qpMax = rate_control["quantization"]["qp_max"];
-    m_vc_rate_cfg.pictureSkip = rate_control["picture_skip"];
-    m_vc_rate_cfg.pictureRc = rate_control["picture_rc"];
-    m_vc_rate_cfg.ctbRc = rate_control["ctb_rc"];
 
-    uint32_t block_rc_size = rate_control["block_rc_size"];
-    switch (block_rc_size)
+    m_vc_rate_cfg.qpHdr = rate_control.quantization.qp_hdr;
+    m_vc_rate_cfg.qpMin = rate_control.quantization.qp_min;
+    m_vc_rate_cfg.qpMax = rate_control.quantization.qp_max;
+    m_vc_rate_cfg.pictureSkip = rate_control.picture_skip;
+    m_vc_rate_cfg.pictureRc = rate_control.picture_rc;
+    m_vc_rate_cfg.ctbRc = rate_control.ctb_rc;
+
+    switch (rate_control.block_rc_size)
     {
     case 64:
         m_vc_rate_cfg.blockRCSize = 0;
@@ -194,14 +275,13 @@ VCEncRet Encoder::Impl::init_rate_control_config()
         throw std::invalid_argument("Invalid block_rc_size");
     }
 
-    m_vc_rate_cfg.bitPerSecond = rate_control["bitrate"]["target_bitrate"];
-    m_vc_rate_cfg.bitVarRangeI = rate_control["bitrate"]["bit_var_range_i"];
-    m_vc_rate_cfg.bitVarRangeP = rate_control["bitrate"]["bit_var_range_p"];
-    m_vc_rate_cfg.bitVarRangeB = rate_control["bitrate"]["bit_var_range_b"];
-    m_vc_rate_cfg.tolMovingBitRate =
-        rate_control["bitrate"]["tolerance_moving_bitrate"];
+    m_vc_rate_cfg.bitPerSecond = rate_control.bitrate.target_bitrate;
+    m_vc_rate_cfg.bitVarRangeI = rate_control.bitrate.bit_var_range_i;
+    m_vc_rate_cfg.bitVarRangeP = rate_control.bitrate.bit_var_range_p;
+    m_vc_rate_cfg.bitVarRangeB = rate_control.bitrate.bit_var_range_b;
+    m_vc_rate_cfg.tolMovingBitRate = rate_control.bitrate.tolerance_moving_bitrate;
 
-    uint32_t monitor_frames = rate_control["monitor_frames"];
+    uint32_t monitor_frames = rate_control.monitor_frames;
     if (monitor_frames != 0)
         m_vc_rate_cfg.monitorFrames = monitor_frames;
     else
@@ -214,12 +294,12 @@ VCEncRet Encoder::Impl::init_rate_control_config()
     if (m_vc_rate_cfg.monitorFrames < MIN_MONITOR_FRAMES)
         m_vc_rate_cfg.monitorFrames = MIN_MONITOR_FRAMES;
 
-    m_vc_rate_cfg.hrd = rate_control["hrd"];
-    m_vc_rate_cfg.hrdCpbSize = rate_control["hrd_cpb_size"];
+    m_vc_rate_cfg.hrd = rate_control.hrd;
+    m_vc_rate_cfg.hrdCpbSize = rate_control.hrd_cpb_size;
 
-    m_vc_rate_cfg.gopLen = m_counters.idr_interval = rate_control["gop_length"];
-    m_vc_rate_cfg.intraQpDelta = rate_control["quantization"]["intra_qp_delta"];
-    m_vc_rate_cfg.fixedIntraQp = rate_control["quantization"]["fixed_intra_qp"];
+    m_vc_rate_cfg.gopLen = m_counters.idr_interval = rate_control.gop_length;
+    m_vc_rate_cfg.intraQpDelta = rate_control.quantization.intra_qp_delta;
+    m_vc_rate_cfg.fixedIntraQp = rate_control.quantization.fixed_intra_qp;
 
     if ((ret = VCEncSetRateCtrl(m_inst, &m_vc_rate_cfg)) != VCENC_OK)
     {
@@ -232,7 +312,7 @@ VCEncRet Encoder::Impl::init_coding_control_config()
 {
     LOGGER__DEBUG("Encoder - init_coding_control_config");
     VCEncRet ret = VCENC_OK;
-    auto coding_control = m_config->get_coding_control();
+    auto coding_control = m_config->get_config().coding_control;
 
     /* Encoder setup: coding control */
     if ((ret = VCEncGetCodingCtrl(m_inst, &m_vc_coding_cfg)) != VCENC_OK)
@@ -262,11 +342,11 @@ VCEncRet Encoder::Impl::init_coding_control_config()
 
     m_vc_coding_cfg.pcm_loop_filter_disabled_flag = 0;
 
-    updateArea(coding_control["roi_area1"], m_vc_coding_cfg.roi1Area);
-    updateArea(coding_control["roi_area2"], m_vc_coding_cfg.roi2Area);
-    updateArea(coding_control["intra_area"], m_vc_coding_cfg.intraArea);
-    updateArea(coding_control["ipcm_area1"], m_vc_coding_cfg.ipcm1Area);
-    updateArea(coding_control["ipcm_area2"], m_vc_coding_cfg.ipcm2Area);
+    updateArea(coding_control.roi_area1, m_vc_coding_cfg.roi1Area);
+    updateArea(coding_control.roi_area2, m_vc_coding_cfg.roi2Area);
+    updateArea(coding_control.intra_area, m_vc_coding_cfg.intraArea);
+    updateArea(coding_control.ipcm_area1, m_vc_coding_cfg.ipcm1Area);
+    updateArea(coding_control.ipcm_area2, m_vc_coding_cfg.ipcm2Area);
 
     // TODO: check if need to be changed.
     m_vc_coding_cfg.ipcmMapEnable = 0;
@@ -310,15 +390,15 @@ VCEncRet Encoder::Impl::init_preprocessing_config()
         VCEncRelease(m_inst);
         return ret;
     }
-    auto input_stream = m_config->get_input_stream();
+    auto input_stream = m_config->get_config().stream.input_stream;
 
     m_vc_pre_proc_cfg.inputType =
-        get_input_format(std::string(input_stream["format"]));
+        get_input_format(std::string(input_stream.format));
     // No Rotation
     m_vc_pre_proc_cfg.rotation = (VCEncPictureRotation)0;
 
     m_vc_pre_proc_cfg.origWidth = m_input_stride;
-    m_vc_pre_proc_cfg.origHeight = input_stream["height"];
+    m_vc_pre_proc_cfg.origHeight = input_stream.height;
 
     m_vc_pre_proc_cfg.xOffset = 0;
     m_vc_pre_proc_cfg.yOffset = 0;
@@ -376,21 +456,21 @@ VCEncRet Encoder::Impl::init_encoder_config()
     memset(&m_vc_cfg, 0, sizeof(m_vc_cfg));
     LOGGER__DEBUG("Encoder - init_encoder_config");
     VCEncRet ret = VCENC_OK;
-    auto input_stream = m_config->get_input_stream();
-    auto output_stream = m_config->get_output_stream();
+    auto input_stream = m_config->get_config().stream.input_stream;
+    auto output_stream = m_config->get_config().stream.output_stream;
 
-    m_input_stride = input_stream["width"];
+    m_input_stride = input_stream.width;
 
-    m_vc_cfg.width = input_stream["width"];
-    m_vc_cfg.height = input_stream["height"];
-    m_vc_cfg.frameRateNum = input_stream["framerate"];
+    m_vc_cfg.width = input_stream.width;
+    m_vc_cfg.height = input_stream.height;
+    m_vc_cfg.frameRateNum = input_stream.framerate;
     m_vc_cfg.frameRateDenom = 1;
     /* intra tools in sps and pps */
     m_vc_cfg.strongIntraSmoothing = 1;
     m_vc_cfg.streamType = VCENC_BYTE_STREAM;
     m_vc_cfg.codecH264 = get_codec();
     m_vc_cfg.profile = get_profile();
-    m_vc_cfg.level = get_level(std::string(output_stream["level"]), m_vc_cfg.codecH264);
+    m_vc_cfg.level = get_level(output_stream.level, m_vc_cfg.codecH264);
     m_vc_cfg.bitDepthLuma = 8;
     m_vc_cfg.bitDepthChroma = 8;
 
@@ -423,10 +503,6 @@ VCEncRet Encoder::Impl::init_encoder_config()
     m_vc_cfg.AXIAlignment = 0;
     m_vc_cfg.AXIreadOutstandingNum = 64;  // ENCH2_ASIC_AXI_READ_OUTSTANDING_NUM;
     m_vc_cfg.AXIwriteOutstandingNum = 64; // ENCH2_ASIC_AXI_WRITE_OUTSTANDING_NUM;
-    if ((ret = VCEncInit(&m_vc_cfg, &m_inst)) != VCENC_OK)
-    {
-        // PrintErrorValue("VCEncInit() failed.", ret);
-        return ret;
-    }
+    ret = VCEncInit(&m_vc_cfg, &m_inst);
     return ret;
 }

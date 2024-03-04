@@ -12,7 +12,7 @@ namespace webserver
             std::map<ResourceType, WebserverResource> m_resources;
 
         public:
-            static std::shared_ptr<webserver::resources::ResourceRepository> create(std::vector<ResourceType> resources = {});
+            static std::shared_ptr<webserver::resources::ResourceRepository> create();
             ResourceRepository(std::vector<WebserverResource> resources);
             std::map<ResourceBehaviorType, std::vector<ResourceType>> get_all_types();
 

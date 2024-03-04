@@ -24,6 +24,7 @@
 #pragma once
 #include "media_library/config_manager.hpp"
 #include "media_library/media_library_logger.hpp"
+#include "media_library/media_library_types.hpp"
 #include "osd.hpp"
 #include <gst/gst.h>
 #include <gst/video/video.h>
@@ -37,8 +38,12 @@
 #include <functional>
 #include <future>
 
+#define WIDTH_PADDING 10
+
 class OverlayImpl;
 using OverlayImplPtr = std::shared_ptr<OverlayImpl>;
+
+mat_dims internal_calculate_text_size(const std::string &label, const std::string &font_path, int font_size, int line_thickness);
 
 class OverlayImpl
 {
@@ -118,18 +123,15 @@ protected:
     std::string m_path;
 };
 
-class TextOverlayImpl;
-using TextOverlayImplPtr = std::shared_ptr<TextOverlayImpl>;
-
-class TextOverlayImpl : public OverlayImpl
+class BaseTextOverlayImpl : public OverlayImpl
 {
+    // abstract class for text and date time overlays
 public:
-    static tl::expected<TextOverlayImplPtr, media_library_return> create(const osd::TextOverlay &overlay);
-    static std::shared_future<tl::expected<TextOverlayImplPtr, media_library_return>> create_async(const osd::TextOverlay &overlay);
-    TextOverlayImpl(const osd::TextOverlay &overlay, media_library_return &status);
-    virtual ~TextOverlayImpl() = default;
-
-    virtual std::shared_ptr<osd::Overlay> get_metadata();
+    static tl::expected<BaseTextOverlayImpl, media_library_return> create(const osd::BaseTextOverlay &overlay);
+    BaseTextOverlayImpl(const osd::BaseTextOverlay &overlay, media_library_return &status);
+    virtual ~BaseTextOverlayImpl() = default;
+    media_library_return create_text_m_mat(std::string label);
+    virtual std::shared_ptr<osd::Overlay> get_metadata() = 0;
 
 protected:
     std::string m_label;
@@ -140,14 +142,25 @@ protected:
     std::string m_font_path;
 };
 
+class TextOverlayImpl;
+using TextOverlayImplPtr = std::shared_ptr<TextOverlayImpl>;
+
+class TextOverlayImpl : public BaseTextOverlayImpl
+{
+public:
+    static tl::expected<TextOverlayImplPtr, media_library_return> create(const osd::TextOverlay &overlay);
+    static std::shared_future<tl::expected<TextOverlayImplPtr, media_library_return>> create_async(const osd::TextOverlay &overlay);
+    TextOverlayImpl(const osd::TextOverlay &overlay, media_library_return &status);
+    virtual ~TextOverlayImpl() = default;
+
+    virtual std::shared_ptr<osd::Overlay> get_metadata();
+};
+
 class DateTimeOverlayImpl;
 using DateTimeOverlayImplPtr = std::shared_ptr<DateTimeOverlayImpl>;
 
-class DateTimeOverlayImpl : public OverlayImpl
+class DateTimeOverlayImpl : public BaseTextOverlayImpl
 {
-    /*
-    This class does not inherit from TextOverlayImpl because its label is not known at creation time.
-    */
 public:
     static tl::expected<DateTimeOverlayImplPtr, media_library_return> create(const osd::DateTimeOverlay &overlay);
     static std::shared_future<tl::expected<DateTimeOverlayImplPtr, media_library_return>> create_async(const osd::DateTimeOverlay &overlay);
@@ -161,9 +174,6 @@ public:
     static std::string select_chars_for_timestamp();
 
 private:
-    std::array<int, 3> m_rgb_text_color;
-    float m_font_size;
-    int m_line_thickness;
     std::string m_datetime_str;
     int m_frame_width;
     int m_frame_height;

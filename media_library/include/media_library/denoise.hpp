@@ -48,6 +48,21 @@ protected:
   std::shared_ptr<Impl> m_impl;
 
 public:
+  class callbacks_t
+  {
+  public:
+    std::function<void(bool)> on_enable_changed = nullptr;
+  };
+
+  /**
+   * @brief Create the denoise module
+   *
+   * @return tl::expected<MediaLibraryDenoisePtr, media_library_return> -
+   * An expected object that holds either a shared pointer
+   * to an MediaLibraryDenoise object, or a error code.
+   */
+  static tl::expected<std::shared_ptr<MediaLibraryDenoise>, media_library_return> create();
+
   /**
    * @brief Create the denoise module
    *
@@ -103,6 +118,24 @@ public:
    * @return hailort_t - hailort configurations
    */
   hailort_t &get_hailort_configs();
+
+  /**
+   * @brief check enabled flag
+   *
+   * @return bool - enabled config flag
+   */
+  bool is_enabled();
+
+  /**
+   * @brief Observes the media library by registering the provided callbacks.
+   *
+   * This function allows the user to observe the media library by registering
+   * callbacks that will be called when certain events occur.
+   *
+   * @param callbacks The callbacks to be registered for observation.
+   * @return media_library_return - status of the observation operation
+   */
+  media_library_return observe(const callbacks_t &callbacks);
 };
 
 /** @} */ // end of denoise_type_definitions

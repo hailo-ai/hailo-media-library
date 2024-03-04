@@ -20,24 +20,23 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+#include "media_library/media_library_logger.hpp"
 #include "media_library/encoder.hpp"
 #include "buffer_utils.hpp"
 #include "encoder_internal.hpp"
 #include "gsthailobuffermeta.hpp"
-#include "osd_utils.hpp"
 #include <algorithm>
 #include <iostream>
 #include <sstream>
 
-#define OSD_QUEUE_NAME "osd_q"
 #define ENCODER_QUEUE_NAME "encoder_q"
 #define PRINT_FPS true
 
 tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>, media_library_return>
-MediaLibraryEncoder::Impl::create(std::string json_config)
+MediaLibraryEncoder::Impl::create(std::string json_config, std::string name)
 {
     media_library_return status = MEDIA_LIBRARY_UNINITIALIZED;
-    std::shared_ptr<MediaLibraryEncoder::Impl> encoder = std::make_shared<MediaLibraryEncoder::Impl>(json_config, status);
+    std::shared_ptr<MediaLibraryEncoder::Impl> encoder = std::make_shared<MediaLibraryEncoder::Impl>(json_config, status, name);
     if (status != MEDIA_LIBRARY_SUCCESS)
     {
         return tl::make_unexpected(status);
@@ -46,37 +45,34 @@ MediaLibraryEncoder::Impl::create(std::string json_config)
 }
 
 MediaLibraryEncoder::Impl::Impl(std::string json_config,
-                                media_library_return &status)
+                                media_library_return &status,
+                                std::string name)
     : m_json_config(json_config)
 {
-
+    m_name = name;
     nlohmann::json encoder_config = nlohmann::json::parse(m_json_config);
     // Validating json with json shcema is performed in media_library/src/hailo_encoder/encoder_config.cpp
     m_input_params.format =
-        encoder_config["encoder"]["config"]["input_stream"]["format"];
+        encoder_config["hailo_encoder"]["config"]["input_stream"]["format"];
     m_input_params.width =
-        encoder_config["encoder"]["config"]["input_stream"]["width"];
+        encoder_config["hailo_encoder"]["config"]["input_stream"]["width"];
     m_input_params.height =
-        encoder_config["encoder"]["config"]["input_stream"]["height"];
+        encoder_config["hailo_encoder"]["config"]["input_stream"]["height"];
     m_input_params.framerate =
-        encoder_config["encoder"]["config"]["input_stream"]["framerate"];
+        encoder_config["hailo_encoder"]["config"]["input_stream"]["framerate"];
     gst_init(nullptr, nullptr);
-    m_mutex = std::make_shared<std::mutex>();
-    m_condvar = std::make_unique<std::condition_variable>();
-    m_queue_size = std::min((int)encoder_config["encoder"]["gop_config"]["gop_size"], MIN_QUEUE_SIZE);
     m_pipeline = gst_parse_launch(create_pipeline_string(encoder_config).c_str(), NULL);
     if (!m_pipeline)
     {
-        std::cout << "Failed to create pipeline" << std::endl;
+        LOGGER__ERROR("Failed to create pipeline");
         status = MEDIA_LIBRARY_ERROR;
         return;
     }
-    m_send_buffer_id = 0;
     gst_bus_add_watch(gst_element_get_bus(m_pipeline), (GstBusFunc)bus_call, this);
     m_main_loop = g_main_loop_new(NULL, FALSE);
     this->set_gst_callbacks(m_pipeline);
     m_appsrc_state = APPSRC_STATE_UNINITIALIZED;
-    
+
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -87,9 +83,9 @@ MediaLibraryEncoder::Impl::~Impl()
 }
 
 tl::expected<MediaLibraryEncoderPtr, media_library_return>
-MediaLibraryEncoder::create(std::string json_config)
+MediaLibraryEncoder::create(std::string json_config, std::string name)
 {
-    auto impl_expected = Impl::create(json_config);
+    auto impl_expected = Impl::create(json_config, name);
     if (impl_expected.has_value())
     {
         return std::make_shared<MediaLibraryEncoder>(impl_expected.value());
@@ -120,37 +116,34 @@ media_library_return MediaLibraryEncoder::Impl::start()
         gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE)
     {
-        std::cout << "Failed to start pipeline" << std::endl;
+        LOGGER__ERROR("Failed to start encoder pipeline");
         return MEDIA_LIBRARY_ERROR;
     }
     m_main_loop_thread = std::make_shared<std::thread>(
         [this]()
         { g_main_loop_run(m_main_loop); });
 
-    GstElement *osd = gst_bin_get_by_name(GST_BIN(m_pipeline), "osd");
-    if (osd == nullptr)
+    GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
+    if (encoder_bin == nullptr)
     {
-        std::cout << "got null hailoosd element" << std::endl;
+        LOGGER__ERROR("Failed to get encoder bin");
         return MEDIA_LIBRARY_ERROR;
     }
-
-    m_blender = gst_hailoosd_get_blender(osd);
-    gst_object_unref(osd);
+    gpointer value = nullptr;
+    g_object_get(encoder_bin, "blender", &value, NULL);
+    osd::Blender *blender = reinterpret_cast<osd::Blender *>(value);
+    m_blender = blender->shared_from_this();
+    gst_object_unref(encoder_bin);
 
     return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return MediaLibraryEncoder::Impl::stop()
 {
-    if (m_send_buffer_id != 0)
-    {
-        g_source_remove(m_send_buffer_id);
-        m_send_buffer_id = 0;
-    }
     gboolean ret = gst_element_send_event(m_pipeline, gst_event_new_eos());
     if (!ret)
     {
-        std::cout << "Failed to send EOS event" << std::endl;
+        LOGGER__ERROR("Failed to stop the encoder pipeline");
         return MEDIA_LIBRARY_ERROR;
     }
     m_main_loop_thread->join();
@@ -168,8 +161,7 @@ std::string MediaLibraryEncoder::Impl::create_pipeline_string(
 {
     std::string pipeline = "";
     std::ostringstream caps;
-    auto json_encoder_config = encode_osd_json_config["encoder"].dump();
-    auto json_osd_config = encode_osd_json_config["osd"].dump();
+    auto json_osd_encoder_config = encode_osd_json_config.dump();
     caps << "video/x-raw,format=" << m_input_params.format
          << ",width=" << m_input_params.width;
     caps << ",height=" << m_input_params.height
@@ -179,30 +171,23 @@ std::string MediaLibraryEncoder::Impl::create_pipeline_string(
     caps2 << "video/x-h264,framerate=" << m_input_params.framerate << "/1";
 
     pipeline =
-        "appsrc do-timestamp=true format=buffers is-live=true max-bytes=0 "
+        "appsrc do-timestamp=true format=time block=true is-live=true max-bytes=0 "
         "max-buffers=1 name=encoder_src ! "
         "queue name=" +
-        std::string(OSD_QUEUE_NAME) + " leaky=no max-size-buffers=5 "
-                                      "max-size-bytes=0 max-size-time=0 ! " +
-        caps.str() +
-        " ! "
-        "hailoosd config-str=" +
+        std::string(ENCODER_QUEUE_NAME) + " leaky=no max-size-buffers=1 max-size-bytes=0 max-size-time=0 ! " +
+        caps.str() + " ! "
+        "hailoencodebin config-string=" +
         "'" + // Add ' in case the json string contains spaces
-        std::string(json_osd_config) +
+        std::string(json_osd_encoder_config) +
         "'" + // Close '
-        " name=osd wait-for-writable-buffer=true ! "
-        "queue name=" +
-        std::string(ENCODER_QUEUE_NAME) + " leaky=no max-size-buffers=5 max-size-bytes=0 max-size-time=0 ! "
-                                          "hailoencoder config-str=" +
-        std::string(json_encoder_config) +
-        " name=enco ! " + caps2.str() + " ! "
-                                                                       "queue leaky=no max-size-buffers=5 max-size-bytes=0 max-size-time=0 ! "
-                                                                       "fpsdisplaysink signal-fps-measurements=true name=fpsdisplaysink "
-                                                                       "text-overlay=false sync=false video-sink=\"appsink "
-                                                                       "name=encoder_sink\"";
+        " name=" + m_name.c_str() +
+        " ! " + caps2.str() + " ! "
+        "queue leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! "
+        "fpsdisplaysink signal-fps-measurements=true name=fpsdisplaysink "
+        "text-overlay=false sync=false video-sink=\"appsink sync=false max-buffers=1 qos=false "
+        "name=encoder_sink\"";
 
-    std::cout << "Pipeline:" << std::endl;
-    std::cout << "gst-launch-1.0 " << pipeline << std::endl;
+    LOGGER__INFO("Pipeline: gst-launch-1.0 {}", pipeline);
 
     return pipeline;
 }
@@ -230,23 +215,16 @@ void MediaLibraryEncoder::Impl::on_fps_measurement(GstElement *fpsdisplaysink,
  */
 static void on_queue_overrun(GstElement *queue, gpointer user_data)
 {
-    static uint8_t osd_count = 0;
     static uint8_t encoder_count = 0;
     const gchar *queue_name = gst_element_get_name(queue);
-    if (strcmp(queue_name, OSD_QUEUE_NAME) == 0)
-    {
-        if (osd_count++ != 10) // print every 10th time
-            return;
-        osd_count = 0;
-    }
-    else if (strcmp(queue_name, ENCODER_QUEUE_NAME) == 0)
+    if (strcmp(queue_name, ENCODER_QUEUE_NAME) == 0)
     {
         if (encoder_count++ != 10) // print every 10th time
             return;
         encoder_count = 0;
     }
 
-    std::cerr << "Warning: queue '" << queue_name << "' overrun detected!" << std::endl;
+    GST_DEBUG_OBJECT(queue, "queue overrun detected %s", queue_name);
 }
 
 /**
@@ -284,16 +262,12 @@ void MediaLibraryEncoder::Impl::set_gst_callbacks(GstElement *pipeline)
                                         m_input_params.framerate, 1, NULL),
     g_object_set(G_OBJECT(m_appsrc), "caps", m_appsrc_caps, NULL);
 
-    appsrc_callbacks.need_data = this->need_data;
-    appsrc_callbacks.enough_data = this->enough_data;
     gst_app_src_set_callbacks(GST_APP_SRC(appsrc), &appsrc_callbacks,
                               (void *)this, NULL);
 
-    GstElement *osd_queue = gst_bin_get_by_name(GST_BIN(pipeline), "osd_q");
-    GstElement *encoder_queue = gst_bin_get_by_name(GST_BIN(pipeline), "encoder_q");
+    GstElement *encoder_queue = gst_bin_get_by_name(GST_BIN(pipeline), ENCODER_QUEUE_NAME);
 
     // Connect to the "overrun" signal of the queue
-    g_signal_connect(osd_queue, "overrun", G_CALLBACK(on_queue_overrun), NULL);
     g_signal_connect(encoder_queue, "overrun", G_CALLBACK(on_queue_overrun), NULL);
 }
 
@@ -313,12 +287,10 @@ gboolean MediaLibraryEncoder::Impl::on_bus_call(GstBus *bus, GstMessage *msg)
         GError *err;
 
         gst_message_parse_error(msg, &err, &debug);
-        g_printerr("Debugging info: %s\n", (debug) ? debug : "none");
-        g_free(debug);
-
-        g_print("Error: %s\n", err->message);
+        LOGGER__ERROR("Received an error message from the pipeline: {}", err->message);
         g_error_free(err);
-        std::cout << "Error Message Received, quitting main loop" << std::endl;
+        LOGGER__DEBUG("Error debug info: {}", (debug) ? debug : "none");
+        g_free(debug);
         g_main_loop_quit(m_main_loop);
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
         break;
@@ -337,94 +309,28 @@ MediaLibraryEncoder::Impl::add_buffer(HailoMediaLibraryBufferPtr ptr)
     {
         return MEDIA_LIBRARY_ERROR;
     }
-    this->add_buffer_internal(gst_buffer);
+    GstFlowReturn ret = this->add_buffer_internal(gst_buffer);
+    if (ret != GST_FLOW_OK)
+    {
+        return MEDIA_LIBRARY_ERROR;
+    }
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-void MediaLibraryEncoder::Impl::add_gst_buffer(GstBuffer *buffer)
+GstFlowReturn MediaLibraryEncoder::Impl::add_gst_buffer(GstBuffer *buffer)
 {
-    this->add_buffer_internal(buffer);
+    return this->add_buffer_internal(buffer);
 }
 
-void MediaLibraryEncoder::Impl::add_buffer_internal(GstBuffer *buffer)
-{
-    std::unique_lock<std::mutex> lock(*m_mutex);
-    m_condvar->wait(lock, [this]
-                    { return m_queue.size() < m_queue_size; });
-    m_queue.push(buffer);
-    if ((m_appsrc_state == APPSRC_STATE_NEED_DATA) && (m_send_buffer_id == 0))
-    {
-        this->m_send_buffer_id = g_idle_add((GSourceFunc)idle_callback, this);
-    }
-}
-
-gboolean MediaLibraryEncoder::Impl::on_idle_callback()
-{
-    return this->send_buffer();
-}
-
-gboolean MediaLibraryEncoder::Impl::push_buffer(GstBuffer *buffer)
+GstFlowReturn MediaLibraryEncoder::Impl::add_buffer_internal(GstBuffer *buffer)
 {
     GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(m_appsrc), buffer);
-    return ret == GST_FLOW_OK;
-}
-
-gboolean MediaLibraryEncoder::Impl::send_buffer()
-{
-    gboolean ret = TRUE;
-    if (!m_queue.empty())
+    if (ret != GST_FLOW_OK)
     {
-        GstBuffer *buffer = this->dequeue_buffer();
-        if (!buffer)
-        {
-            std::cout << "Error dequeuing buffer" << std::endl;
-            m_send_buffer_id = 0;
-            return FALSE;
-        }
-        ret = this->push_buffer(buffer);
-        if (!ret)
-        {
-            std::cout << "Error pushing buffer" << std::endl;
-            m_send_buffer_id = 0;
-        }
-    }
-    else
-    {
-        if (m_send_buffer_id != 0)
-        {
-            g_source_remove(m_send_buffer_id);
-            m_send_buffer_id = 0;
-        }
+        GST_ERROR_OBJECT(m_appsrc, "Failed to push buffer to appsrc");
+        return ret;
     }
     return ret;
-}
-
-GstBuffer *MediaLibraryEncoder::Impl::dequeue_buffer()
-{
-    std::unique_lock<std::mutex> lock(*m_mutex);
-    GstBuffer *buffer = m_queue.front();
-    m_queue.pop();
-    m_condvar->notify_one();
-    return buffer;
-}
-
-void MediaLibraryEncoder::Impl::on_need_data(GstAppSrc *appsrc, guint size)
-{
-    m_appsrc_state = APPSRC_STATE_NEED_DATA;
-    if (m_send_buffer_id == 0)
-    {
-        this->m_send_buffer_id = g_idle_add((GSourceFunc)idle_callback, this);
-    }
-}
-
-void MediaLibraryEncoder::Impl::on_enough_data(GstAppSrc *appsrc)
-{
-    m_appsrc_state = APPSRC_STATE_ENOUGH_DATA;
-    if (m_send_buffer_id != 0)
-    {
-        g_source_remove(m_send_buffer_id);
-        m_send_buffer_id = 0;
-    }
 }
 
 GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
@@ -486,4 +392,42 @@ std::shared_ptr<osd::Blender> MediaLibraryEncoder::Impl::get_blender()
 std::shared_ptr<osd::Blender> MediaLibraryEncoder::get_blender()
 {
     return m_impl->get_blender();
+}
+
+media_library_return MediaLibraryEncoder::Impl::configure(encoder_config_t &config)
+{
+    GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
+    if (encoder_bin == nullptr)
+    {
+        std::cout << "Got null encoder bin element in get_config" << std::endl;
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    g_object_set(encoder_bin, "config", config, NULL);
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+encoder_config_t MediaLibraryEncoder::Impl::get_config()
+{
+    encoder_config_t config;
+    GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
+    if (encoder_bin == nullptr)
+    {
+        std::cout << "Got null encoder bin element in get_config" << std::endl;
+        return config;
+    }
+    gpointer value = nullptr;
+    g_object_get(encoder_bin, "config", &value, NULL);
+    config = *reinterpret_cast<encoder_config_t *>(value);
+    return config;
+}
+
+media_library_return MediaLibraryEncoder::configure(encoder_config_t &config)
+{
+    return m_impl->configure(config);
+}
+
+encoder_config_t MediaLibraryEncoder::get_config()
+{
+    return m_impl->get_config();
 }

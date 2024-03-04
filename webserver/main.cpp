@@ -4,6 +4,9 @@
 #include "resources/resources.hpp"
 #include "resources/repository.hpp"
 
+#include <chrono>
+#include <thread>
+
 // main method
 int main(int argc, char *argv[])
 {
@@ -34,7 +37,15 @@ int main(int argc, char *argv[])
         }
     }
 
+    auto isp_resource = std::static_pointer_cast<webserver::resources::IspResource>(pipeline->get_resources()->get(webserver::resources::RESOURCE_ISP));
+    isp_resource->override_configurations();
+
     pipeline->start();
+
+    // Part of the logic involels sleeping for a second and then inspecting ISP parameters
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    isp_resource->init();
+
     svr->listen("0.0.0.0", 8080);
     pipeline->stop();
 }

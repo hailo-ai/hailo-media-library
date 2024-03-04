@@ -40,9 +40,9 @@ static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE("sink",
                                                                     GST_PAD_ALWAYS,
                                                                     GST_STATIC_CAPS_ANY);
 
-static GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE("src_%u",
+static GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE("src",
                                                                    GST_PAD_SRC,
-                                                                   GST_PAD_REQUEST,
+                                                                   GST_PAD_ALWAYS,
                                                                    GST_STATIC_CAPS_ANY);
 
 #define _do_init \

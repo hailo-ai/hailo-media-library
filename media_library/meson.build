@@ -8,6 +8,7 @@ utils_incdir = [include_directories('./src/utils')]
 
 common_sourcs = [
     'src/dsp/dsp_utils.cpp',
+    'src/isp/isp_utils.cpp',
     'src/buffer_pool/buffer_pool.cpp',
     'src/utils/media_library_logger.cpp',
     'src/config_manager/config_manager.cpp'
@@ -45,7 +46,8 @@ frontend_sources = [
     'src/front_end/ldc_mesh_context.cpp',
     'src/front_end/privacy_mask.cpp',
     'src/front_end/polygon_math.cpp',
-    'src/front_end/denoise.cpp'
+    'src/front_end/denoise.cpp',
+    'src/front_end/defog.cpp'
 ]
 
 if get_option('hailort_4_16')

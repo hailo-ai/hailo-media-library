@@ -8,6 +8,10 @@
 #include <sstream>
 #include <tl/expected.hpp>
 
+#define FRONTEND_CONFIG_FILE "/usr/bin/frontend_config_example.json"
+#define ENCODER_OSD_CONFIG_FILE(id) get_encoder_osd_config_file(id)
+#define OUTPUT_FILE(id) get_output_file(id)
+
 struct MediaLibrary
 {
     MediaLibraryFrontendPtr frontend;
@@ -24,10 +28,6 @@ inline std::string get_output_file(const std::string &id)
 {
     return "/var/volatile/tmp/frontend_example_" + id + ".h264";
 }
-
-#define VISION_PREPROC_CONFIG_FILE "/usr/bin/frontend_config_example.json"
-#define ENCODER_OSD_CONFIG_FILE(id) get_encoder_osd_config_file(id)
-#define OUTPUT_FILE(id) get_output_file(id)
 
 void write_encoded_data(HailoMediaLibraryBufferPtr buffer, uint32_t size, std::ofstream &output_file)
 {
@@ -97,7 +97,7 @@ void subscribe_elements(std::shared_ptr<MediaLibrary> media_lib)
     }
 }
 
-void add_privacy_masks(PrivacyMaskBlender* privacy_mask_blender)
+void add_privacy_masks(PrivacyMaskBlenderPtr privacy_mask_blender)
 {
     polygon example_polygon;
     example_polygon.id = "privacy_mask1";
@@ -120,8 +120,9 @@ void add_privacy_masks(PrivacyMaskBlender* privacy_mask_blender)
     privacy_mask_blender->add_privacy_mask(example_polygon2);
 }
 
-int update_privacy_masks(PrivacyMaskBlender* privacy_mask_blender)
+int update_privacy_masks(PrivacyMaskBlenderPtr privacy_mask_blender)
 {
+    std::cout << "Updating privacy mask" << std::endl;
     auto polygon_exp = privacy_mask_blender->get_privacy_mask("privacy_mask1");
     if (!polygon_exp.has_value())
     {
@@ -136,13 +137,32 @@ int update_privacy_masks(PrivacyMaskBlender* privacy_mask_blender)
     return 0;
 }
 
+int update_encoders_bitrate(std::map<output_stream_id_t, MediaLibraryEncoderPtr> &encoders)
+{
+    uint32_t new_bitrate = 15000000;
+    uint enc_i = 0;
+    for (const auto &entry : encoders)
+    {
+        encoder_config_t encoder_config = entry.second->get_config();
+        std::cout << "Encoder " << enc_i << " current bitrate: " << encoder_config.rate_control.bitrate.target_bitrate << " Setting to "  << new_bitrate << std::endl;
+        encoder_config.rate_control.bitrate.target_bitrate = new_bitrate;
+        if (entry.second->configure(encoder_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        {
+            std::cout << "Failed to configure Encoder " << enc_i << std::endl;
+            return 1;
+        }
+        enc_i++;
+    }
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     std::shared_ptr<MediaLibrary> media_lib = std::make_shared<MediaLibrary>();
 
     // Create and configure frontend
-    std::string preproc_config_string = read_string_from_file(VISION_PREPROC_CONFIG_FILE);
-    tl::expected<MediaLibraryFrontendPtr, media_library_return> frontend_expected = MediaLibraryFrontend::create(FRONTEND_SRC_ELEMENT_V4L2SRC, preproc_config_string);
+    std::string frontend_config_string = read_string_from_file(FRONTEND_CONFIG_FILE);
+    tl::expected<MediaLibraryFrontendPtr, media_library_return> frontend_expected = MediaLibraryFrontend::create(FRONTEND_SRC_ELEMENT_V4L2SRC, frontend_config_string);
     if (!frontend_expected.has_value())
     {
         std::cout << "Failed to create frontend" << std::endl;
@@ -159,9 +179,10 @@ int main(int argc, char *argv[])
 
     for (auto s : streams.value())
     {
+        std::cout << "Creating encoder enc_" << s.id << std::endl;
         // Create and configure encoder
         std::string encoderosd_config_string = read_string_from_file(ENCODER_OSD_CONFIG_FILE(s.id).c_str());
-        tl::expected<MediaLibraryEncoderPtr, media_library_return> encoder_expected = MediaLibraryEncoder::create(encoderosd_config_string);
+        tl::expected<MediaLibraryEncoderPtr, media_library_return> encoder_expected = MediaLibraryEncoder::create(encoderosd_config_string, s.id);
         if (!encoder_expected.has_value())
         {
             std::cout << "Failed to create encoder osd" << std::endl;
@@ -190,7 +211,7 @@ int main(int argc, char *argv[])
         encoder->start();
     }
     media_lib->frontend->start();
-    PrivacyMaskBlender* privacy_blender = media_lib->frontend->get_privacy_mask_blender();
+    PrivacyMaskBlenderPtr privacy_blender = media_lib->frontend->get_privacy_mask_blender();
     add_privacy_masks(privacy_blender);
 
     std::cout << "Started playing for 30 seconds." << std::endl;
@@ -199,6 +220,9 @@ int main(int argc, char *argv[])
     
     // Update privacy mask
     if (update_privacy_masks(privacy_blender) != 0)
+        return 1;
+
+    if (update_encoders_bitrate(media_lib->encoders) != 0)
         return 1;
 
     std::this_thread::sleep_for(std::chrono::seconds(20)); // sleep for 20 seconds

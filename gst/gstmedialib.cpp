@@ -30,11 +30,14 @@
 #include "hailo_encoder/gsthailoencoder.hpp"
 #include "osd/gsthailoosd.hpp"
 #include "jpeg/gsthailojpeg.hpp"
+#include "encodebin/gsthailoencodebin.hpp"
 #include "visionpreproc/gsthailovisionpreproc.hpp"
 #include "multi_resize/gsthailomultiresize.hpp"
 #include "dewarp/gsthailodewarp.hpp"
 #include "denoise/gsthailodenoise.hpp"
+#include "defog/gsthailodefog.hpp"
 #include "frontend/gsthailofrontend.hpp"
+#include "frontend/gsthailofrontendbinsrc.hpp"
 #include "upload/gsthailoupload.hpp"
 #include <gst/gst.h>
 
@@ -46,11 +49,14 @@ media_library_plugin_init(GstPlugin *plugin)
     gst_element_register(plugin, "hailoh264enc", GST_RANK_PRIMARY, GST_TYPE_HAILO_H264_ENC);
     gst_element_register(plugin, "hailoosd", GST_RANK_PRIMARY, GST_TYPE_HAILO_OSD);
     gst_element_register(plugin, "hailoencoder", GST_RANK_PRIMARY, GST_TYPE_HAILO_ENCODER);
+    gst_element_register(plugin, "hailoencodebin", GST_RANK_PRIMARY, GST_TYPE_HAILO_ENCODE_BIN);
     gst_element_register(plugin, "hailojpegenc", GST_RANK_PRIMARY, GST_TYPE_HAILOJPEGENC);
     gst_element_register(plugin, "hailomultiresize", GST_RANK_PRIMARY, GST_TYPE_HAILO_MULTI_RESIZE);
     gst_element_register(plugin, "hailodewarp", GST_RANK_PRIMARY, GST_TYPE_HAILO_DEWARP);
     gst_element_register(plugin, "hailodenoise", GST_RANK_PRIMARY, GST_TYPE_HAILO_DENOISE);
+    gst_element_register(plugin, "hailodefog", GST_RANK_PRIMARY, GST_TYPE_HAILO_DEFOG);
     gst_element_register(plugin, "hailofrontend", GST_RANK_PRIMARY, GST_TYPE_HAILO_FRONTEND);
+    gst_element_register(plugin, "hailofrontendbinsrc", GST_RANK_PRIMARY, GST_TYPE_HAILO_FRONTEND_BINSRC);
     gst_element_register(plugin, "hailoupload", GST_RANK_PRIMARY, GST_TYPE_HAILO_UPLOAD);
     gst_hailo_buffer_meta_get_info();
     gst_hailo_buffer_meta_api_get_type();

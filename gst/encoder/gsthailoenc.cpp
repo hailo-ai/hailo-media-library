@@ -216,7 +216,7 @@ gst_hailoenc_class_init(GstHailoEncClass *klass)
                                   g_param_spec_boolean("picture-rc", "Picture Rate Control", "Adjust QP between pictures", TRUE,
                                                        (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_CTB_RC,
-                                  g_param_spec_boolean("ctb-rc", "Block Rate Control", "Adaptive adjustment of QP inside frame", FALSE,
+                                  g_param_spec_boolean("ctb-rc", "Block Rate Control", "Adaptive adjustment of QP inside frame", TRUE,
                                                        (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_PICTURE_SKIP,
                                   g_param_spec_boolean("picture-skip", "Picture Skip", "Allow rate control to skip pictures", FALSE,
@@ -638,17 +638,6 @@ Internal Functions
 *****************/
 
 /**
- * Gets the time difference between 2 time specs in milliseconds.
- * @param[in] after     The second time spec.
- * @param[in] before    The first time spec.\
- * @returns The time differnece in milliseconds.
- */
-int64_t gst_hailoenc_difftimespec_ms(const struct timespec after, const struct timespec before)
-{
-  return ((int64_t)after.tv_sec - (int64_t)before.tv_sec) * (int64_t)1000 + ((int64_t)after.tv_nsec - (int64_t)before.tv_nsec) / 1000000;
-}
-
-/**
  * Updates the encoder with the input video info.
  *
  * @param[in] hailoenc     The GstHailoEnc object.
@@ -1014,7 +1003,7 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
   clock_gettime(CLOCK_MONOTONIC, &start_encode);
   enc_ret = EncodeFrame(enc_params, hailoenc->encoder_instance, &gst_hailoenc_slice_ready, hailoenc);
   clock_gettime(CLOCK_MONOTONIC, &end_encode);
-  GST_DEBUG_OBJECT(hailoenc, "Encode took %lu milliseconds", (long)gst_hailoenc_difftimespec_ms(end_encode, start_encode));
+  GST_DEBUG_OBJECT(hailoenc, "Encode took %lu milliseconds", (long)media_library_difftimespec_ms(end_encode, start_encode));
 
   switch (enc_ret)
   {
@@ -1300,7 +1289,7 @@ static void gst_hailoenc_handle_timestamps(GstHailoEnc *hailoenc, GstVideoCodecF
   else if (hailoenc->adapt_framerate)
   {
     hailoenc->framerate_counter++;
-    auto timediff_ms = gst_hailoenc_difftimespec_ms(timestamp, hailoenc->last_timestamp);
+    auto timediff_ms = media_library_difftimespec_ms(timestamp, hailoenc->last_timestamp);
     if (timediff_ms > 1000 || hailoenc->framerate_counter == 10)
     {
       float avg_duration_s = (float)timediff_ms / (float)hailoenc->framerate_counter / 1000.0f;
@@ -1347,7 +1336,6 @@ gst_hailoenc_handle_frame(GstVideoEncoder *encoder,
       return ret;
     }
   }
-
 
   // Update Slice Encoding parameters
   enc_params->multislice_encoding = 0;
@@ -1406,6 +1394,6 @@ gst_hailoenc_handle_frame(GstVideoEncoder *encoder,
     break;
   }
   clock_gettime(CLOCK_MONOTONIC, &end_handle);
-  GST_DEBUG_OBJECT(hailoenc, "handle_frame took %lu milliseconds", (long)gst_hailoenc_difftimespec_ms(end_handle, start_handle));
+  GST_DEBUG_OBJECT(hailoenc, "handle_frame took %lu milliseconds", (long)media_library_difftimespec_ms(end_handle, start_handle));
   return ret;
 }

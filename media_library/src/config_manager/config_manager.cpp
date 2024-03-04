@@ -75,6 +75,9 @@ public:
         case ConfigSchema::CONFIG_SCHEMA_DENOISE:
             m_config_validator.set_root_schema(config_schemas::denoise_config_schema);
             break;
+        case ConfigSchema::CONFIG_SCHEMA_DEFOG:
+            m_config_validator.set_root_schema(config_schemas::defog_config_schema);
+            break;
         default:
             m_config_validator.set_root_schema(config_schemas::vision_config_schema); // Default to the vision_config schema
         }
@@ -173,7 +176,9 @@ template media_library_return ConfigManager::config_string_to_struct<pre_proc_op
 template media_library_return ConfigManager::config_string_to_struct<multi_resize_config_t>(const std::string &user_config_string, multi_resize_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<ldc_config_t>(const std::string &user_config_string, ldc_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<denoise_config_t>(const std::string &user_config_string, denoise_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<defog_config_t>(const std::string &user_config_string, defog_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<hailort_t>(const std::string &user_config_string, hailort_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<encoder_config_t>(const std::string &user_config_string, encoder_config_t &conf);
 
 tl::expected<std::string, media_library_return> ConfigManager::parse_config(std::string config_string, std::string entry)
 {

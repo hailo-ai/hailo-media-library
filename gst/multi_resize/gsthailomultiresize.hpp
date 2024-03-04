@@ -70,8 +70,6 @@ struct _GstHailoMultiResizeClass
   GstElementClass parent_class;
 };
 
-PrivacyMaskBlenderPtr gst_hailo_multi_resize_get_privacy_mask_blender(GstElement *object);
-
 G_GNUC_INTERNAL GType gst_hailo_multi_resize_get_type(void);
 
 G_END_DECLS

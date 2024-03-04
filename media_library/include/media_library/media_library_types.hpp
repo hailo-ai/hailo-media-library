@@ -51,6 +51,12 @@ enum media_library_return
     MEDIA_LIBRARY_MAX = INT_MAX
 };
 
+struct mat_dims
+{
+    int width;
+    int height;
+    int baseline;
+};
 enum pre_proc_operation
 {
     PRE_PROC_OPERATION_DEWARP = 0,
@@ -119,6 +125,15 @@ struct hailort_t
     std::string device_id;
 };
 
+struct network_config_t
+{
+    std::string network_path;
+    std::string y_channel;
+    std::string uv_channel;
+    std::string output_y_channel;
+    std::string output_uv_channel;
+};
+
 struct feedback_network_config_t
 {
     std::string network_path;
@@ -154,7 +169,7 @@ struct dewarp_config_t
     {
         return sensor_calib_path == other.sensor_calib_path &&
                interpolation_type == other.interpolation_type &&
-               camera_type == other.camera_type && camera_fov == other.camera_fov;
+               camera_fov == other.camera_fov;
     }
     bool operator!=(const dewarp_config_t &other) const
     {
@@ -388,12 +403,12 @@ public:
         input_video_config.format = DSP_IMAGE_FORMAT_NV12;
         input_video_config.video_device = "";
         input_video_config.resolution.framerate = 0;
-        input_video_config.resolution.pool_max_buffers = 5;
+        input_video_config.resolution.pool_max_buffers = 10;
         input_video_config.resolution.dimensions.destination_width = 0;
         input_video_config.resolution.dimensions.destination_height = 0;
 
         output_video_config.framerate = 0;
-        output_video_config.pool_max_buffers = 5;
+        output_video_config.pool_max_buffers = 10;
         output_video_config.dimensions.destination_width = 0;
         output_video_config.dimensions.destination_height = 0;
     }
@@ -447,6 +462,21 @@ public:
         denoising_quality = denoise_configs.denoising_quality;
         loopback_count = denoise_configs.loopback_count;
         network_config = denoise_configs.network_config;
+
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+};
+
+struct defog_config_t
+{
+public:
+    bool enabled;
+    network_config_t network_config;
+
+    media_library_return update(defog_config_t &defog_configs)
+    {
+        enabled = defog_configs.enabled;
+        network_config = defog_configs.network_config;
 
         return MEDIA_LIBRARY_SUCCESS;
     }

@@ -13,7 +13,6 @@ namespace webserver
             std::string m_gst_pipeline_str;
             WebserverResourceRepository m_resources;
             GstElement *m_pipeline;
-            GMainLoop *m_main_loop;
             std::shared_ptr<std::thread> m_main_loop_thread;
 
         public:
@@ -22,6 +21,7 @@ namespace webserver
             virtual void start();
             virtual void stop();
             virtual WebserverResourceRepository get_resources() { return m_resources; };
+            GstFlowReturn wait_for_end_of_pipeline();
 
             static std::shared_ptr<IPipeline> create();
         };
@@ -33,7 +33,9 @@ namespace webserver
             static std::shared_ptr<Pipeline> create();
 
         private:
+            void restart_stream();
             void callback_handle_strategy(webserver::resources::ResourceStateChangeNotification notif);
+            static nlohmann::json create_encoder_osd_config(nlohmann::json osd_config, nlohmann::json encoder_config);
         };
 
         class DummyPipeline : public IPipeline

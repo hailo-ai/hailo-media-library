@@ -29,10 +29,11 @@ hailort_dep = [
     meson.get_compiler('cpp').find_library('hailort', required: true),
     meson.get_compiler('cpp').find_library('libgsthailo', required: true, dirs: sysroot + '/usr/lib/gstreamer-1.0/')
 ]
-hailort_inc_dirs = [
+hailort_inc_dirs = include_directories(
     sysroot + '/usr/include/hailort',
-    sysroot + '/usr/include/gst-hailo/metadata'
-]
+    sysroot + '/usr/include/gst-hailo',
+    is_system: true
+)
 
 utils_sources = [
     'buffer_utils/buffer_utils.cpp',
@@ -76,7 +77,6 @@ pkgc.generate(
 install_headers('common/gstmedialibcommon.hpp')
 install_headers('buffer_utils/buffer_utils.hpp')
 install_headers('buffer_utils/gsthailobuffermeta.hpp')
-install_headers('osd/osd_utils.hpp')
 install_headers('osd/osd.hpp')
 
 # These headers are used in TAPPAS
@@ -97,7 +97,10 @@ plugin_sources = [
     'multi_resize/gsthailomultiresize.cpp',
     'dewarp/gsthailodewarp.cpp',
     'denoise/gsthailodenoise.cpp',
+    'defog/gsthailodefog.cpp',
     'frontend/gsthailofrontend.cpp',
+    'frontend/gsthailofrontendbinsrc.cpp',
+    'encodebin/gsthailoencodebin.cpp',
     'upload/gsthailoupload.cpp'
 ]
 

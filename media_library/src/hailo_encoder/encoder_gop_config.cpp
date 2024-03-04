@@ -23,11 +23,17 @@
 #include <iostream>
 
 #include "encoder_class.hpp"
+#include "media_library_logger.hpp"
 #include "encoder_internal.hpp"
 #include "encoder_gop_config.hpp"
 
 int Encoder::Impl::gopConfig::ParseGopConfigLine(GopPicConfig &pic_cfg, int gopSize)
 {
+    if (m_gop_cfg->size >= MAX_GOP_PIC_CONFIG_NUM)
+    {
+        LOGGER__ERROR("GOP Config: Error, Gop size is out of range\n");
+        return -1;
+    }
     VCEncGopPicConfig *cfg = &(m_gop_cfg->pGopPicCfg[m_gop_cfg->size++]);
 
     cfg->codingType = pic_cfg.m_type;
@@ -60,14 +66,21 @@ int Encoder::Impl::gopConfig::ReadGopConfig(std::vector<GopPicConfig> &config, i
 
     for (auto &pic_cfg : config)
     {
-        ParseGopConfigLine(pic_cfg, gopSize);
+        if (ParseGopConfigLine(pic_cfg, gopSize) == -1)
+            return -1;
     }
     ret = 0;
     return ret;
 }
 
-int Encoder::Impl::gopConfig::init_config()
+int Encoder::Impl::gopConfig::init_config(VCEncGopConfig * gopConfig, int gop_size, int b_frame_qp_delta, bool codec_h264)
 {
+    m_gop_cfg = gopConfig;
+    memset(m_gop_pic_cfg, 0, sizeof(m_gop_pic_cfg));
+    m_gop_cfg->pGopPicCfg = m_gop_pic_cfg;
+    b_frame_qp_delta = b_frame_qp_delta;
+    m_codec_h264 = codec_h264;
+    m_gop_size = gop_size;
     int i, pre_load_num;
     std::vector<std::vector<GopPicConfig>> default_configs = {
         m_codec_h264 ? RpsDefault_H264_GOPSize_1 : RpsDefault_GOPSize_1,
@@ -153,6 +166,7 @@ int Encoder::Impl::gopConfig::init_config()
                 cfg->QpOffset = m_b_frame_qp_delta;
         }
     }
+
     return 0;
 }
 
@@ -161,8 +175,6 @@ Encoder::Impl::gopConfig::gopConfig(VCEncGopConfig *gopConfig, int gopSize, int 
                                                                                                                  m_b_frame_qp_delta(bFrameQpDelta),
                                                                                                                  m_codec_h264(codecH264)
 {
-    m_gop_cfg->pGopPicCfg = m_gop_pic_cfg;
-    init_config();
 }
 
 int Encoder::Impl::gopConfig::get_gop_size() const

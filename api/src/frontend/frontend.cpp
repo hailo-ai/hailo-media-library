@@ -1,4 +1,5 @@
 #include "media_library/frontend.hpp"
+#include "media_library/media_library_logger.hpp"
 #include "frontend_internal.hpp"
 #include "gsthailobuffermeta.hpp"
 
@@ -68,7 +69,7 @@ MediaLibraryFrontend::Impl::Impl(frontend_src_element_t src_element, std::string
     m_pipeline = gst_parse_launch(create_pipeline_string().c_str(), NULL);
     if (!m_pipeline)
     {
-        std::cout << "Failed to create pipeline" << std::endl;
+        LOGGER__ERROR("Failed to create pipeline");
         status = MEDIA_LIBRARY_ERROR;
         return;
     }
@@ -104,7 +105,7 @@ media_library_return MediaLibraryFrontend::Impl::start()
     GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE)
     {
-        std::cout << "Failed to start pipeline" << std::endl;
+        LOGGER__ERROR("Failed to start pipeline");
         return MEDIA_LIBRARY_ERROR;
     }
     m_main_loop_thread = std::make_shared<std::thread>(
@@ -114,16 +115,15 @@ media_library_return MediaLibraryFrontend::Impl::start()
     GstElement *frontend = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
     if (frontend == nullptr)
     {
-        std::cout << "got null frontend element" << std::endl;
+        LOGGER__ERROR("Failed to get frontend element");
         return MEDIA_LIBRARY_ERROR;
     }
 
     // Get privacy mask blender from frontend bin
-    GValue val = G_VALUE_INIT;
-    g_object_get_property(G_OBJECT(frontend), "privacy-mask", &val);
-    void *value_ptr = g_value_get_pointer(&val);
-    m_privacy_blender = (PrivacyMaskBlender *)value_ptr;
-    g_value_unset(&val);
+    gpointer val = nullptr;
+    g_object_get(G_OBJECT(frontend), "privacy-mask", &val, NULL);
+    PrivacyMaskBlender *value_ptr = reinterpret_cast<PrivacyMaskBlender *>(val);
+    m_privacy_blender = value_ptr->shared_from_this();
     gst_object_unref(frontend);
 
     return MEDIA_LIBRARY_SUCCESS;
@@ -139,7 +139,7 @@ media_library_return MediaLibraryFrontend::Impl::stop()
     gboolean ret = gst_element_send_event(m_pipeline, gst_event_new_eos());
     if (!ret)
     {
-        std::cout << "Failed to send EOS event" << std::endl;
+        LOGGER__ERROR("Failed to stop pipeline");
         return MEDIA_LIBRARY_ERROR;
     }
 
@@ -177,7 +177,7 @@ std::string MediaLibraryFrontend::Impl::create_pipeline_string()
     auto outputs_expected = get_outputs_streams();
     if (!outputs_expected.has_value())
     {
-        std::cout << "Failed to get output streams ids" << std::endl;
+        LOGGER__ERROR("Failed to get output streams ids");
         throw new std::runtime_error("Failed to get output streams ids");
     }
     std::ostringstream pipeline;
@@ -191,7 +191,7 @@ std::string MediaLibraryFrontend::Impl::create_pipeline_string()
         pipeline << "v4l2src name=src device=/dev/video0 io-mode=mmap ! ";
         break;
     default:
-        std::cout << "Invalid src element " << m_src_element << std::endl;
+        LOGGER__ERROR("Invalid src element {}", m_src_element);
         throw new std::runtime_error("frontend src element not supported");
     }
 
@@ -201,13 +201,12 @@ std::string MediaLibraryFrontend::Impl::create_pipeline_string()
     for (frontend_output_stream_t s : outputs_expected.value())
     {
         pipeline << "frontend. ! ";
-        pipeline << "queue leaky=no max-size-buffers=5 max-size-time=0 max-size-bytes=0 ! ";
-        pipeline << "fpsdisplaysink signal-fps-measurements=true name=fpsdisplay" << s.id << " text-overlay=false sync=false video-sink=\"appsink wait-on-eos=false name=" << s.id << "\" ";
+        pipeline << "queue leaky=no max-size-buffers=3 max-size-time=0 max-size-bytes=0 ! ";
+        pipeline << "fpsdisplaysink signal-fps-measurements=true name=fpsdisplay" << s.id << " text-overlay=false sync=false video-sink=\"appsink qos=false wait-on-eos=false name=" << s.id << "\" ";
     }
 
     auto pipeline_str = pipeline.str();
-    std::cout << "Pipeline:" << std::endl;
-    std::cout << "gst-launch-1.0 " << pipeline_str << std::endl;
+    LOGGER__INFO("Pipeline: gst-launch-1.0 {}", pipeline_str);
 
     return pipeline_str;
 }
@@ -243,14 +242,14 @@ void MediaLibraryFrontend::Impl::set_gst_callbacks()
     auto expected_streams = get_outputs_streams();
     if (!expected_streams.has_value())
     {
-        std::cout << "Failed to get output streams ids" << std::endl;
+        LOGGER__ERROR("Failed to get output streams ids");
         return;
     }
     GstAppSinkCallbacks appsink_callbacks = {NULL};
     appsink_callbacks.new_sample = new_sample;
     for (auto s : expected_streams.value())
     {
-        std::cout << "Setting callback for sink " << s.id << std::endl;
+        LOGGER__INFO("Setting callback for sink {}", s.id);
         if (PRINT_FPS)
         {
             GstElement *fpssink = gst_bin_get_by_name(GST_BIN(m_pipeline), (std::string("fpsdisplay") + s.id).c_str());
@@ -285,7 +284,7 @@ GstFlowReturn MediaLibraryFrontend::Impl::on_new_sample(output_stream_id_t id, G
     GstHailoBufferMeta *buffer_meta = gst_buffer_get_hailo_buffer_meta(buffer);
     if (!buffer_meta)
     {
-        std::cout << "Failed to get hailo buffer meta" << std::endl;
+        LOGGER__ERROR("Failed to get hailo buffer meta");
         GST_ERROR("Failed to get hailo buffer meta");
         gst_sample_unref(sample);
         return GST_FLOW_ERROR;
@@ -295,6 +294,7 @@ GstFlowReturn MediaLibraryFrontend::Impl::on_new_sample(output_stream_id_t id, G
     uint32_t used_size = buffer_meta->used_size;
     if (!buffer_ptr)
     {
+        LOGGER__ERROR("Failed to get hailo buffer ptr");
         GST_ERROR("Failed to get hailo buffer ptr");
         gst_sample_unref(sample);
         return GST_FLOW_ERROR;
@@ -316,12 +316,12 @@ GstFlowReturn MediaLibraryFrontend::Impl::on_new_sample(output_stream_id_t id, G
     return GST_FLOW_OK;
 }
 
-PrivacyMaskBlender* MediaLibraryFrontend::Impl::get_privacy_mask_blender()
+PrivacyMaskBlenderPtr MediaLibraryFrontend::Impl::get_privacy_mask_blender()
 {
     return m_privacy_blender;
 }
 
-PrivacyMaskBlender* MediaLibraryFrontend::get_privacy_mask_blender()
+PrivacyMaskBlenderPtr MediaLibraryFrontend::get_privacy_mask_blender()
 {
     return m_impl->get_privacy_mask_blender();
 }

@@ -41,7 +41,7 @@
 
 using namespace privacy_mask_types;
 
-class PrivacyMaskBlender
+class PrivacyMaskBlender : public std::enable_shared_from_this<PrivacyMaskBlender>
 {
     public:
         /**

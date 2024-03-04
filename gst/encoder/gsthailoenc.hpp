@@ -28,6 +28,7 @@
 #pragma once
 
 #include "media_library/hailo_encoder.hpp"
+#include "media_library/media_library_utils.hpp"
 #include <gst/gst.h>
 #include <gst/video/video.h>
 

@@ -51,7 +51,7 @@ protected:
     std::shared_ptr<Impl> m_impl;
 
 public:
-   class callbacks_t
+    class callbacks_t
     {
     public:
         std::function<void(std::vector<output_resolution_t> &)> on_output_resolutions_change = nullptr;

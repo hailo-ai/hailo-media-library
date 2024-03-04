@@ -31,9 +31,12 @@
 #include <thread>
 #include <fstream>
 #include <memory>
+#include <functional>
 #include <gst/gst.h>
 #include <tl/expected.hpp> 
+#include "media_library/denoise.hpp"
 #include "media_library/media_library_types.hpp"
+#include "denoise/gsthailodenoise.hpp"
 
 G_BEGIN_DECLS
 
@@ -56,9 +59,17 @@ struct _GstHailoFrontend
     std::string config_string;
 
     gboolean m_elements_linked;
+    GstElement *m_denoise;
+    GstElement *m_capsfilter_0;
+    GstElement *m_denoise_dis_queue;
     GstElement *m_dis_dewarp;
-    GstElement *m_queue;
+    GstElement *m_defog_mresize_queue;
     GstElement *m_multi_resize;
+
+    media_library_return observe_denoising(const MediaLibraryDenoise::callbacks_t &callback) {
+        GstHailoDenoise* denoise = GST_HAILO_DENOISE(m_denoise);
+        return denoise->observe(callback);
+    }
 };
 
 struct _GstHailoFrontendClass

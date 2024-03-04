@@ -71,5 +71,5 @@ if 'api' in targets
         endif
     endif
     subdir('api')
-    # subdir('webserver')
+    subdir('webserver')
 endif

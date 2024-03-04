@@ -28,6 +28,7 @@
 #include "encoder_class.hpp"
 #include "encoder_internal.hpp"
 #include "media_library_logger.hpp"
+#include "media_library_utils.hpp"
 
 Encoder::Encoder(std::string json_string)
 {
@@ -73,15 +74,14 @@ int Encoder::Impl::allocate_output_memory()
     return 0;
 }
 
-void Encoder::Impl::init_buffer_pool()
+void Encoder::Impl::init_buffer_pool(uint pool_size)
 {
     m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(
-        m_vc_cfg.width, m_vc_cfg.height, DSP_IMAGE_FORMAT_GRAY8, 8, CMA);
+        m_vc_cfg.width, m_vc_cfg.height, DSP_IMAGE_FORMAT_GRAY8, (pool_size), CMA);
     if (m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR(
             "Encoder - init_buffer_pool - Failed to init buffer pool");
-        // return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 }
 
@@ -91,12 +91,14 @@ Encoder::Impl::Impl(std::string json_string)
     memset(&m_enc_out, 0, sizeof(VCEncOut));
     memset(&m_enc_in, 0, sizeof(VCEncIn));
     m_multislice_encoding = false;
+    m_next_gop_size = 0;
     m_encoder_version = VCEncGetApiVersion();
     m_encoder_build = VCEncGetBuild();
+    create_gop_config();
     init_gop_config();
     allocate_output_memory();
     init_encoder_config();
-    init_buffer_pool();
+    init_buffer_pool(MAX_GOP_SIZE+3);
 
     // Update timescale to be framerate denom (must happen after init_encoder_config)
     m_enc_in.timeIncrement = m_vc_cfg.frameRateDenom;
@@ -104,7 +106,212 @@ Encoder::Impl::Impl(std::string json_string)
     init_preprocessing_config();
     init_coding_control_config();
     init_rate_control_config();
+    m_update_required = {};
+    m_stream_restart = STREAM_RESTART_NONE;
 }
+
+media_library_return Encoder::configure(std::string json_string)
+{
+     return m_impl->configure(json_string);
+}
+
+media_library_return Encoder::Impl::configure(std::string json_string)
+{
+    if (m_config->configure(json_string) != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to configure encoder");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    m_update_required = {ENCODER_CONFIG_GOP, ENCODER_CONFIG_CODING_CONTROL, ENCODER_CONFIG_PRE_PROCESSING, ENCODER_CONFIG_RATE_CONTROL};
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return Encoder::configure(const encoder_config_t &config)
+{
+    return m_impl->configure(config);
+}
+
+media_library_return Encoder::Impl::configure(const encoder_config_t &config)
+{
+    m_update_required = {ENCODER_CONFIG_CODING_CONTROL, ENCODER_CONFIG_PRE_PROCESSING, ENCODER_CONFIG_RATE_CONTROL};
+
+    bool gop_update_required = gop_config_update_required(config);
+    bool hard_restart = hard_restart_required(config, gop_update_required);
+
+    // Gop change update required
+    if(gop_update_required)
+    {
+        m_update_required.emplace_back(ENCODER_CONFIG_GOP);
+    }
+
+    if (m_config->configure(config) != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to configure encoder");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    if (hard_restart)
+    {
+       m_update_required.emplace_back(ENCODER_CONFIG_STREAM);
+    }
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return Encoder::Impl::update_gop_configurations()
+{
+    if (m_update_required.empty())
+    {
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    auto it_gop = std::find(m_update_required.begin(), m_update_required.end(), ENCODER_CONFIG_GOP);
+    if (it_gop != m_update_required.end())
+    {
+        if (init_gop_config() == -1)
+        {
+            LOGGER__ERROR("Failed to init gop config");
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+        }
+
+        // remove gop from update required list
+        m_update_required.erase(it_gop);
+    }
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return Encoder::Impl::update_configurations()
+{
+    VCEncRet ret = VCENC_OK;
+    for (auto &config : m_update_required)
+    {
+        switch (config)
+        {
+        case ENCODER_CONFIG_RATE_CONTROL:
+        {
+            ret = init_rate_control_config();
+            break;
+        }
+        case ENCODER_CONFIG_PRE_PROCESSING:
+        {
+            ret = init_preprocessing_config();
+            break;
+        }
+        case ENCODER_CONFIG_CODING_CONTROL:
+        {
+            ret = init_coding_control_config();
+            break;
+        }
+        case ENCODER_CONFIG_GOP:
+        {
+            // handled before in update_gop_configurations
+            break;
+        }
+        case ENCODER_CONFIG_STREAM:
+        {
+            break;
+        }
+        default:
+            LOGGER__ERROR("Unknown configuration type");
+            m_update_required.clear();
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+        }
+    }
+    
+    // Clear update required list
+    m_update_required.clear();
+
+    if (ret != VCENC_OK)
+    {
+        LOGGER__ERROR("Failed to update configurations");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return Encoder::Impl::stream_restart()
+{
+    VCEncRet enc_ret = VCEncStrmEnd(m_inst, &m_enc_in, &m_enc_out);
+    if (enc_ret != VCENC_OK)
+    {
+        LOGGER__ERROR("Encoder restart - Failed to end stream, returned {}", enc_ret);
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    if (m_stream_restart == STREAM_RESTART_HARD)
+    {
+        if ((enc_ret = VCEncRelease(m_inst)) != VCENC_OK)
+        {
+            LOGGER__ERROR("Encoder HARD restart - Failed to release encoder, returned {}", enc_ret);
+            return MEDIA_LIBRARY_ERROR;
+        }
+    }
+
+    if (update_gop_configurations() != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Encoder restart - Failed to update gop configurations");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    if (m_stream_restart == STREAM_RESTART_HARD)
+    {
+        enc_ret = init_encoder_config();
+        if (enc_ret != VCENC_OK)
+        {
+            LOGGER__ERROR("Encoder HARD restart - Failed to init encoder config, returned {}", enc_ret);
+            return MEDIA_LIBRARY_ERROR;
+        }
+    }
+
+    if (update_configurations() != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Encoder restart - Failed to update configurations");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    if (encode_header() != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Encoder restart - Failed to encode header");
+        return MEDIA_LIBRARY_ERROR;
+    }
+    m_stream_restart = STREAM_RESTART_NONE;
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return Encoder::Impl::encode_header()
+{
+    if(m_inst == NULL)
+    {
+        LOGGER__ERROR("Encoder not initialized");
+        return MEDIA_LIBRARY_UNINITIALIZED;
+    }
+    // Start the stream
+    if (VCENC_OK != VCEncStrmStart(m_inst, &m_enc_in, &m_enc_out))
+    {
+        LOGGER__ERROR("Failed to start stream");
+        m_header.buffer = nullptr;
+        m_header.size = 0;
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    auto ret = create_output_buffer(m_header);
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to create output buffer");
+        m_header.buffer = nullptr;
+        m_header.size = 0;
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    // Default gop size as IPPP
+    m_enc_in.poc = 0;
+    // m_enc_in.gopSize =  m_next_gop_size = ((enc_params->gopSize == 0) ? 1 :
+    // enc_params->gopSize);
+    m_enc_in.gopSize = m_next_gop_size = get_gop_size();
+    m_next_coding_type = VCENC_INTRA_FRAME;
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
 
 void Encoder::update_stride(uint32_t stride) { m_impl->update_stride(stride); }
 
@@ -131,12 +338,12 @@ void Encoder::Impl::force_keyframe()
     m_counters.last_idr_picture_cnt = m_counters.picture_cnt;
 }
 
-std::shared_ptr<EncoderConfig> Encoder::get_config()
+encoder_config_t Encoder::get_config()
 {
     return m_impl->get_config();
 }
 
-std::shared_ptr<EncoderConfig> Encoder::Impl::get_config() { return m_config; }
+encoder_config_t Encoder::Impl::get_config() { return m_config->get_config(); }
 
 EncoderOutputBuffer Encoder::start() { return m_impl->start(); }
 
@@ -162,8 +369,6 @@ EncoderOutputBuffer Encoder::Impl::start()
         {
             // Default gop size as IPPP
             m_enc_in.poc = 0;
-            // m_enc_in.gopSize =  m_next_gop_size = ((enc_params->gopSize == 0) ? 1 :
-            // enc_params->gopSize);
             m_enc_in.gopSize = m_next_gop_size = get_gop_size();
             m_next_coding_type = VCENC_INTRA_FRAME;
         }
@@ -258,6 +463,12 @@ Encoder::Impl::encode_multiple_frames(std::vector<EncoderOutputBuffer> &outputs)
     LOGGER__DEBUG("Encoder - encode_multiple_frames");
     media_library_return ret = MEDIA_LIBRARY_UNINITIALIZED;
     auto gop_size = m_enc_in.gopSize;
+    if (gop_size == 0)
+    {
+        LOGGER__ERROR("Encoder - encode_multiple_frames - gop size is 0");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
     // Assuming enc_params->encIn.gopSize is not 0.
     for (uint8_t i = 0; i < gop_size; i++)
     {
@@ -286,7 +497,7 @@ Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
                             std::vector<EncoderOutputBuffer> &outputs)
 {
     LOGGER__DEBUG("Encoder - encode_frame");
-    VCEncRet enc_ret;
+    VCEncRet enc_ret = VCENC_OK;
     media_library_return ret = MEDIA_LIBRARY_UNINITIALIZED;
     hailo_media_library_buffer buffer;
     struct timespec start_encode, end_encode;
@@ -306,12 +517,15 @@ Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
     }
     clock_gettime(CLOCK_MONOTONIC, &start_encode);
     enc_ret = VCEncStrmEncode(m_inst, &m_enc_in, &m_enc_out, NULL, NULL);
+
     clock_gettime(CLOCK_MONOTONIC, &end_encode);
     LOGGER__DEBUG("Encoding of frame took {} ms",
-                  time_diff(end_encode, start_encode));
+                  time_diff(end_encode, start_encode)); 
+                                    
     switch (enc_ret)
     {
     case VCENC_FRAME_READY:
+    {
         m_counters.picture_enc_cnt++;
         if (m_enc_out.streamSize == 0)
         {
@@ -338,14 +552,29 @@ Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
             }
             m_counters.validencodedframenumber++;
             m_next_coding_type = find_next_pic();
+            if(m_next_coding_type == VCENC_INTRA_FRAME)
+            {
+                if (!m_update_required.empty())
+                {
+                    m_stream_restart = STREAM_RESTART;
+                    // check if m_update_required contains CONFIG_STREAM
+                    if (std::find(m_update_required.begin(), m_update_required.end(), ENCODER_CONFIG_STREAM) != m_update_required.end())
+                    {
+                        m_stream_restart = STREAM_RESTART_HARD;
+                    }
+                }
+            }
         }
         ret = MEDIA_LIBRARY_SUCCESS;
         break;
+    }
     default:
+    {
         LOGGER__ERROR("Encoder - encode_frame - Error encoding frame {}",
                       enc_ret);
         ret = MEDIA_LIBRARY_ENCODER_ENCODE_ERROR;
         break;
+    }
     }
     return ret;
 }
@@ -358,10 +587,22 @@ std::vector<EncoderOutputBuffer> Encoder::handle_frame(HailoMediaLibraryBufferPt
 std::vector<EncoderOutputBuffer>
 Encoder::Impl::handle_frame(HailoMediaLibraryBufferPtr buf)
 {
-    LOGGER__DEBUG("Start Handling Frame");
+    LOGGER__DEBUG("Start Handling Frame with plane 0 of size {} for buffer id {}", buf->get_plane_size(0), buf->buffer_index);
     std::vector<EncoderOutputBuffer> outputs;
     outputs.clear();
     media_library_return ret = MEDIA_LIBRARY_UNINITIALIZED;
+
+    if(m_stream_restart != STREAM_RESTART_NONE)
+    {
+        if (stream_restart() != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__ERROR("Encoder - encode_frame - Failed to restart stream");
+            // Stream restart failed, clear update required list
+            m_update_required.clear();
+            ret = MEDIA_LIBRARY_ERROR;
+        }
+    }
+
     switch (m_next_coding_type)
     {
     case VCENC_INTRA_FRAME:
@@ -380,10 +621,12 @@ Encoder::Impl::handle_frame(HailoMediaLibraryBufferPtr buf)
         else if (m_inputs.size() < (size_t)m_enc_in.gopSize - 1)
         {
             m_inputs.emplace_back(buf);
+            ret = MEDIA_LIBRARY_SUCCESS;
         }
         else
         {
             LOGGER__ERROR("Encoder Error - Too many inputs");
+            ret = MEDIA_LIBRARY_ERROR;
         }
         break;
     }
@@ -398,10 +641,12 @@ Encoder::Impl::handle_frame(HailoMediaLibraryBufferPtr buf)
         break;
     }
     }
+
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Encoder Error - encoding frame returned {}", ret);
     }
+
     LOGGER__DEBUG("Encoder - handle_frame - returns {} outputs",
                   outputs.size());
     return outputs;
@@ -411,6 +656,7 @@ VCEncPictureCodingType Encoder::Impl::find_next_pic()
 {
     VCEncPictureCodingType nextCodingType;
     int idx, offset, cur_poc, delta_poc_to_next;
+    int next_gop_size = m_next_gop_size;
     int picture_cnt_tmp = m_counters.picture_cnt;
     VCEncGopConfig *gop_cfg = (VCEncGopConfig *)(&(m_enc_in.gopConfig));
     const uint8_t *gop_cfg_offset = m_gop_cfg->get_gop_cfg_offset();
@@ -434,7 +680,7 @@ VCEncPictureCodingType Encoder::Impl::find_next_pic()
 
     // a GOP end, to start next GOP
     if (m_enc_in.gopPicIdx == 0)
-        offset = gop_cfg_offset[m_next_gop_size];
+        offset = gop_cfg_offset[next_gop_size];
     else
         offset = gop_cfg_offset[m_enc_in.gopSize];
 
@@ -460,7 +706,7 @@ VCEncPictureCodingType Encoder::Impl::find_next_pic()
                     1 + ((gop_end_pic - m_counters.last_idr_picture_cnt) -
                          m_counters.idr_interval);
 
-            if (gop_shorten >= m_next_gop_size)
+            if (gop_shorten >= next_gop_size)
             {
                 // for gopsize = 1
                 m_counters.picture_cnt = picture_cnt_tmp + 1 - cur_poc;
@@ -469,15 +715,15 @@ VCEncPictureCodingType Encoder::Impl::find_next_pic()
             {
                 // reduce gop size
                 const int max_reduced_gop_size = 4;
-                m_next_gop_size -= gop_shorten;
-                if (m_next_gop_size > max_reduced_gop_size)
-                    m_next_gop_size = max_reduced_gop_size;
+                next_gop_size -= gop_shorten;
+                if (next_gop_size > max_reduced_gop_size)
+                    next_gop_size = max_reduced_gop_size;
 
-                idx = gop_cfg_offset[m_next_gop_size];
+                idx = gop_cfg_offset[next_gop_size];
                 delta_poc_to_next = gop_cfg->pGopPicCfg[idx].poc - cur_poc;
                 m_counters.picture_cnt = picture_cnt_tmp + delta_poc_to_next;
             }
-            m_enc_in.gopSize = m_next_gop_size;
+            m_enc_in.gopSize = next_gop_size;
         }
 
         m_enc_in.poc += m_counters.picture_cnt - picture_cnt_tmp;
@@ -508,6 +754,5 @@ VCEncPictureCodingType Encoder::Impl::find_next_pic()
         gop_cfg->delta_poc_to_next =
             gop_cfg->pGopPicCfg[gop_cfg->id_next].poc - next_poc;
     }
-
     return nextCodingType;
 }

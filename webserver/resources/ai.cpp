@@ -3,11 +3,10 @@
 
 webserver::resources::AiResource::AiResource() : Resource()
 {
-    m_type = ResourceType::RESOURCE_AI;
     m_default_config = R"(
     {
         "detection": {
-            "enabled": false
+            "enabled": true
         },
         "denoise": {
             "enabled": false
@@ -17,6 +16,41 @@ webserver::resources::AiResource::AiResource() : Resource()
         }
     })";
     m_config = nlohmann::json::parse(m_default_config);
+    m_denoise_config = nlohmann::json::parse(R"({
+        "hailort": {
+            "device-id": "device0"
+        },
+        "denoise": {
+            "enabled": false,
+            "sensor": "imx678",
+            "method": "HIGH_QUALITY",
+            "loopback-count": 1,
+            "network": {
+                "network_path": "/home/root/apps/internals/frontend_pipelines/resources/VD_M2_IMX678.hef",
+                "y_channel": "model/input_layer1",
+                "uv_channel": "model/input_layer4",
+                "feedback_y_channel": "model/input_layer3",
+                "feedback_uv_channel": "model/input_layer2",
+                "output_y_channel": "model/conv17",
+                "output_uv_channel": "model/conv14"
+            }
+        }
+    })");
+    m_defog_config = nlohmann::json::parse(R"({
+        "hailort": {
+            "device-id": "device0"
+        },
+        "defog": {
+            "enabled": false,
+            "network": {
+                "network_path": "/home/root/apps/internals/frontend_pipelines/resources/dehazenet.hef",
+                "y_channel": "dehazenet/input_layer1",
+                "uv_channel": "dehazenet/input_layer2",
+                "output_y_channel": "dehazenet/conv17",
+                "output_uv_channel": "dehazenet/ew_add1"
+            }
+        }
+    })");
 }
 
 std::vector<webserver::resources::AiResource::AiApplications> webserver::resources::AiResource::get_enabled_applications()
@@ -57,27 +91,51 @@ std::shared_ptr<webserver::resources::AiResource::AiResourceState> webserver::re
     return state;
 }
 
+void webserver::resources::AiResource::http_patch(nlohmann::json body)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto prev_enabled_apps = this->get_enabled_applications();
+    m_config.merge_patch(body);
+    auto current_enabled_apps = this->get_enabled_applications();
+
+    // if denoise in current but not in prev, disable defog
+    if (std::find(current_enabled_apps.begin(), current_enabled_apps.end(), AiApplications::AI_APPLICATION_DENOISE) != current_enabled_apps.end() &&
+        std::find(prev_enabled_apps.begin(), prev_enabled_apps.end(), AiApplications::AI_APPLICATION_DENOISE) == prev_enabled_apps.end())
+    {
+        m_config["defog"]["enabled"] = false;
+    }
+
+    // if defog in current but not in prev, disable denoise
+    if (std::find(current_enabled_apps.begin(), current_enabled_apps.end(), AiApplications::AI_APPLICATION_DEFOG) != current_enabled_apps.end() &&
+        std::find(prev_enabled_apps.begin(), prev_enabled_apps.end(), AiApplications::AI_APPLICATION_DEFOG) == prev_enabled_apps.end())
+    {
+        // disable denoise
+        m_config["denoise"]["enabled"] = false;
+    }
+
+    m_defog_config["defog"]["enabled"] = m_config["defog"]["enabled"];
+    m_denoise_config["denoise"]["enabled"] = m_config["denoise"]["enabled"];
+
+    on_resource_change(this->parse_state(this->get_enabled_applications(), prev_enabled_apps));
+}
+
 void webserver::resources::AiResource::http_register(std::shared_ptr<httplib::Server> srv)
 {
     srv->Get("/ai", [this](const httplib::Request &, httplib::Response &res)
              { res.set_content(this->to_string(), "application/json"); });
 
     srv->Patch("/ai", [this](const httplib::Request &req, httplib::Response &res)
-               {    
-                auto prev_enabled_apps = this->get_enabled_applications();
-                auto partial_config = nlohmann::json::parse(req.body);
-                m_config.merge_patch(partial_config);
-                res.set_content(m_config.dump(), "application/json"); 
-                auto enabled_apps = this->get_enabled_applications();
-                on_resource_change(this->parse_state(enabled_apps, prev_enabled_apps)); });
+               { 
+                    auto body = nlohmann::json::parse(req.body);
+                    http_patch(body);
+                    res.set_content(this->to_string(), "application/json"); });
+}
 
-    srv->Put("/ai", [this](const httplib::Request &req, httplib::Response &res)
-             {
-                auto prev_enabled_apps = this->get_enabled_applications();
-                auto config = nlohmann::json::parse(req.body);
-                auto partial_config = nlohmann::json::diff(m_config, config);
-                m_config = m_config.patch(partial_config);
-                res.set_content(m_config.dump(), "application/json"); 
-                auto enabled_apps = this->get_enabled_applications();
-                on_resource_change(this->parse_state(enabled_apps, prev_enabled_apps)); });
+std::string webserver::resources::AiResource::get_ai_config(AiApplications app)
+{
+    if (app == AiApplications::AI_APPLICATION_DENOISE)
+        return m_denoise_config.dump();
+    if (app == AiApplications::AI_APPLICATION_DEFOG)
+        return m_defog_config.dump();
+    return "";
 }

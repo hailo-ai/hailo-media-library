@@ -53,6 +53,9 @@ namespace osd
         int blue;
     };
 
+    mat_dims calculate_text_size(const std::string &label, const std::string &font_path, int font_size, int line_thickness);
+
+
     /**
      * @defgroup overlays Overlay structs
      * @{
@@ -116,7 +119,7 @@ namespace osd
     };
 
     /** Overlay containing text */
-    struct TextOverlay : Overlay
+    struct BaseTextOverlay : Overlay
     {
         /** Text content */
         std::string label;
@@ -137,6 +140,13 @@ namespace osd
          */
         std::string font_path;
 
+        BaseTextOverlay();
+        BaseTextOverlay(std::string id, float x, float y, std::string label, rgb_color_t rgb, rgb_color_t rgb_background, float font_size, int line_thickness, unsigned int z_index, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
+        BaseTextOverlay(std::string id, float x, float y, std::string label, rgb_color_t rgb, rgb_color_t rgb_background, float font_size, int line_thickness, unsigned int z_index, std::string font_path, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
+    };
+
+    struct TextOverlay : BaseTextOverlay
+    {
         TextOverlay();
         TextOverlay(std::string id, float x, float y, std::string label, rgb_color_t rgb, rgb_color_t rgb_background, float font_size, int line_thickness, unsigned int z_index, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
         TextOverlay(std::string id, float x, float y, std::string label, rgb_color_t rgb, rgb_color_t rgb_background, float font_size, int line_thickness, unsigned int z_index, std::string font_path, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
@@ -146,16 +156,12 @@ namespace osd
      * Overlay containing an auto-updating timestamp
      * @note timestamp is updated once per second
      */
-    struct DateTimeOverlay : Overlay
+    struct DateTimeOverlay : BaseTextOverlay
     {
-        /** Text color */
-        rgb_color_t rgb;
-        float font_size;
-        int line_thickness;
-        std::string font_path;
-
         DateTimeOverlay();
-        DateTimeOverlay(std::string id, float x, float y, rgb_color_t rgb, float font_size, int line_thickness, unsigned int z_index, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
+        DateTimeOverlay(std::string _id, float _x, float _y, rgb_color_t _rgb, rgb_color_t _rgb_background, std::string font_path, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy);
+        DateTimeOverlay(std::string _id, float _x, float _y, rgb_color_t _rgb, rgb_color_t _rgb_background, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy);
+        DateTimeOverlay(std::string _id, float _x, float _y, rgb_color_t _rgb, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy);
     };
 
     /** Overlay containing custom buffer ptr */
@@ -188,7 +194,7 @@ namespace osd
      * @details Support the addition, removal and modification of overlays
      *          Overlay traits are defined using the structs above
      */
-    class Blender
+    class Blender : public std::enable_shared_from_this<Blender>
     {
     public:
         static tl::expected<std::shared_ptr<Blender>, media_library_return> create();

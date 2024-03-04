@@ -23,6 +23,7 @@
 #pragma once
 
 #include "media_library/encoder_class.hpp"
+#include "media_library/media_library_utils.hpp"
 #include <gst/gst.h>
 #include <gst/video/video.h>
 
@@ -39,18 +40,20 @@ typedef struct _GstHailoEncoderClass GstHailoEncoderClass;
 
 struct _GstHailoEncoder
 {
-  GstVideoEncoder parent;
-  GstVideoCodecState *input_state;
-  std::unique_ptr<Encoder> encoder;
-  std::string config;
-  std::string config_path;
-  gboolean stream_restart;
-  GQueue *dts_queue;
+    GstVideoEncoder parent;
+    GstVideoCodecState *input_state;
+    std::unique_ptr<Encoder> encoder;
+    std::string config;
+    std::string config_path;
+    std::shared_ptr<encoder_config_t> encoder_config;
+    gboolean stream_restart;
+    GQueue *dts_queue;
+    gboolean enforce_caps;
 };
 
 struct _GstHailoEncoderClass
 {
-  GstVideoEncoderClass parent_class;
+    GstVideoEncoderClass parent_class;
 };
 
 G_GNUC_INTERNAL GType gst_hailo_encoder_get_type(void);

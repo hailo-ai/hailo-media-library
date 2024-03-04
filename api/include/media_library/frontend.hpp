@@ -151,9 +151,9 @@ public:
     /**
      * @brief Get a privacy mask manager object
      * @return :pointer containing the privacy mask blender object
-     * @ref PrivacyMaskBlender*
+     * @ref PrivacyMaskBlenderPtr
      */
-    PrivacyMaskBlender* get_privacy_mask_blender();
+    PrivacyMaskBlenderPtr get_privacy_mask_blender();
 
     /**
      * @brief Retrieves the IDs of the output streams.

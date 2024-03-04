@@ -22,7 +22,6 @@
  */
 #include "gsthailoosd.hpp"
 #include "buffer_utils/buffer_utils.hpp"
-#include "osd_utils.hpp"
 #include <fstream>
 #include <gst/gst.h>
 #include <gst/gstobject.h>
@@ -55,6 +54,7 @@ enum
     PROP_CONFIG_FILE_PATH,
     PROP_CONFIG_STR,
     PROP_WAIT_FOR_WRITABLE_BUFFER,
+    PROP_BLENDER,
 };
 
 G_DEFINE_TYPE_WITH_CODE(GstHailoOsd, gst_hailoosd, GST_TYPE_BASE_TRANSFORM,
@@ -84,17 +84,22 @@ gst_hailoosd_class_init(GstHailoOsdClass *klass)
     gobject_class->set_property = gst_hailoosd_set_property;
     gobject_class->get_property = gst_hailoosd_get_property;
     g_object_class_install_property(gobject_class, PROP_CONFIG_FILE_PATH,
-                                    g_param_spec_string("config-path", NULL,
-                                                        "json config file path", "",
+                                    g_param_spec_string("config-file-path", NULL,
+                                                        "Json config file path", "",
                                                         (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
     g_object_class_install_property(gobject_class, PROP_CONFIG_STR,
-                                    g_param_spec_string("config-str", NULL,
-                                                        "json config string", "",
+                                    g_param_spec_string("config-string", NULL,
+                                                        "Json config string", "",
                                                         (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
     g_object_class_install_property(gobject_class, PROP_WAIT_FOR_WRITABLE_BUFFER,
                                     g_param_spec_boolean("wait-for-writable-buffer", "wait-for-writable-buffer",
-                                                         "enables the element thread to wait until incomming buffer is writable", FALSE,
+                                                         "Enables the element thread to wait until incomming buffer is writable", FALSE,
                                                          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
+    
+    g_object_class_install_property(gobject_class, PROP_BLENDER,
+                                    g_param_spec_pointer("blender", "Blender object",
+                                                         "Pointer to blender object",
+                                                         (GParamFlags)(G_PARAM_READABLE)));
 
     gobject_class->dispose = gst_hailoosd_dispose;
     gobject_class->finalize = gst_hailoosd_finalize;
@@ -157,16 +162,13 @@ void gst_hailoosd_get_property(GObject *object, guint property_id,
     case PROP_WAIT_FOR_WRITABLE_BUFFER:
         g_value_set_boolean(value, hailoosd->wait_for_writable_buffer);
         break;
+    case PROP_BLENDER:
+        g_value_set_pointer(value, hailoosd->blender.get());
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
     }
-}
-
-std::shared_ptr<osd::Blender> gst_hailoosd_get_blender(GstElement *object)
-{
-    GstHailoOsd *hailoosd = GST_HAILO_OSD(object);
-    return hailoosd->blender;
 }
 
 void gst_hailoosd_dispose(GObject *object)

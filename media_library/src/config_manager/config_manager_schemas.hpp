@@ -32,408 +32,367 @@ namespace config_schemas
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for encoder configuration",
     "type": "object",
-    "properties": {
-      "config": {
+    "definitions": {
+      "roi": {
         "type": "object",
         "properties": {
-          "input_stream": {
-            "type": "object",
-            "properties": {
-              "width": {
-                "type": "integer"
-              },
-              "height": {
-                "type": "integer"
-              },
-              "framerate": {
-                "type": "integer"
-              },
-              "format": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "width",
-              "height",
-              "framerate",
-              "format"
-            ]
+          "enable": {
+            "type": "boolean"
           },
-          "output_stream": {
+          "top": {
+            "type": "integer"
+          },
+          "left": {
+            "type": "integer"
+          },
+          "bottom": {
+            "type": "integer"
+          },
+          "right": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enable",
+          "top",
+          "left",
+          "bottom",
+          "right"
+        ],
+        "additionalProperties": false
+      },
+      "roi_area" : {
+        "type": "object",
+        "properties": {
+          "enable": {
+            "type": "boolean"
+          },
+          "top": {
+            "type": "integer"
+          },
+          "left": {
+            "type": "integer"
+          },
+          "bottom": {
+            "type": "integer"
+          },
+          "right": {
+            "type": "integer"
+          },
+          "qp_delta": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enable",
+          "top",
+          "left",
+          "bottom",
+          "right",
+          "qp_delta"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "properties": {
+      "hailo_encoder": {
+        "type": "object",
+        "properties": {
+          "config": {
             "type": "object",
             "properties": {
-              "codec": {
-                "type": "string",
-                "enum": [
-                  "h264",
-                  "hevc"
-                ]
-              },
-              "profile": {
-                "type": "string",
-                "enum": [
-                  "VCENC_HEVC_MAIN_PROFILE",
-                  "VCENC_HEVC_MAIN_STILL_PICTURE_PROFILE",
-                  "VCENC_H264_BASE_PROFILE",
-                  "VCENC_H264_MAIN_PROFILE",
-                  "VCENC_H264_HIGH_PROFILE"
-                ]
-              },
-              "level": {
-                "type": "string"
-              },
-              "bit_depth_luma": {
-                "type": "integer"
-              },
-              "bit_depth_chroma": {
-                "type": "integer"
-              },
-              "stream_type": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "codec",
-              "profile",
-              "level",
-              "bit_depth_luma",
-              "bit_depth_chroma",
-              "stream_type"
-            ],
-            "if": {
-              "properties": {
-                "output_stream": {
-                  "codec": "hevc"
-                }
-              },
-              "then": {
+              "input_stream": {
+                "type": "object",
                 "properties": {
-                  "output_stream": {
-                    "profile": {
-                      "enum": [
-                        "VCENC_HEVC_MAIN_PROFILE",
-                        "VCENC_HEVC_MAIN_STILL_PICTURE_PROFILE"
-                      ]
+                  "width": {
+                    "type": "integer"
+                  },
+                  "height": {
+                    "type": "integer"
+                  },
+                  "framerate": {
+                    "type": "integer"
+                  },
+                  "format": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "width",
+                  "height",
+                  "framerate",
+                  "format"
+                ],
+                "additionalProperties": false
+              },
+              "output_stream": {
+                "type": "object",
+                "properties": {
+                  "codec": {
+                    "type": "string",
+                    "enum": [
+                      "CODEC_TYPE_H264",
+                      "CODEC_TYPE_HEVC"
+                    ]
+                  },
+                  "profile": {
+                    "type": "string",
+                    "enum": [
+                      "VCENC_HEVC_MAIN_PROFILE",
+                      "VCENC_HEVC_MAIN_STILL_PICTURE_PROFILE",
+                      "VCENC_H264_BASE_PROFILE",
+                      "VCENC_H264_MAIN_PROFILE",
+                      "VCENC_H264_HIGH_PROFILE"
+                    ]
+                  },
+                  "level": {
+                    "type": "string"
+                  },
+                  "bit_depth_luma": {
+                    "type": "integer"
+                  },
+                  "bit_depth_chroma": {
+                    "type": "integer"
+                  },
+                  "stream_type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "codec",
+                  "profile",
+                  "level",
+                  "bit_depth_luma",
+                  "bit_depth_chroma",
+                  "stream_type"
+                ],
+                "additionalProperties": false,
+                "if": {
+                  "properties": {
+                    "output_stream": {
+                      "codec": "hevc"
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "output_stream": {
+                        "profile": {
+                          "enum": [
+                            "VCENC_HEVC_MAIN_PROFILE",
+                            "VCENC_HEVC_MAIN_STILL_PICTURE_PROFILE"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "output_stream": {
+                      "profile": {
+                        "enum": [
+                          "VCENC_H264_BASE_PROFILE",
+                          "VCENC_H264_MAIN_PROFILE",
+                          "VCENC_H264_HIGH_PROFILE"
+                        ]
+                      }
                     }
                   }
                 }
               }
             },
-            "else": {
-              "properties": {
-                "output_stream": {
-                  "profile": {
-                    "enum": [
-                      "VCENC_H264_BASE_PROFILE",
-                      "VCENC_H264_MAIN_PROFILE",
-                      "VCENC_H264_HIGH_PROFILE"
-                    ]
+            "required": [
+              "input_stream",
+              "output_stream"
+            ],
+            "additionalProperties": false
+          },
+          "gop_config": {
+            "type": "object",
+            "properties": {
+              "gop_size": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "b_frame_qp_delta": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "gop_size",
+              "b_frame_qp_delta"
+            ],
+            "additionalProperties": false
+          },
+          "coding_control": {
+            "type": "object",
+            "properties": {
+              "sei_messages": {
+                "type": "boolean"
+              },
+              "deblocking_filter": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string"
+                  },
+                  "tc_offset": {
+                    "type": "integer"
+                  },
+                  "beta_offset": {
+                    "type": "integer"
+                  },
+                  "deblock_override": {
+                    "type": "boolean"
                   }
-                }
+                },
+                "required": [
+                  "type",
+                  "tc_offset",
+                  "beta_offset",
+                  "deblock_override"
+                ],
+                "additionalProperties": false
+              },
+              "intra_area": {
+                "ref": "#/definitions/roi"
+              },
+              "ipcm_area1": {
+                "ref": "#/definitions/roi"
+              },
+              "ipcm_area2": {
+                "ref": "#/definitions/roi"
+              },
+              "roi_area1": {
+                "ref": "#/definitions/roi_area"
+              },
+              "roi_area2": {
+                "ref": "#/definitions/roi_area"
               }
-            }
+            },
+            "required": [
+              "sei_messages",
+              "deblocking_filter",
+              "intra_area",
+              "ipcm_area1",
+              "ipcm_area2",
+              "roi_area1",
+              "roi_area2"
+            ],
+            "additionalProperties": false
+          },
+          "rate_control": {
+            "type": "object",
+            "properties": {
+              "picture_rc": {
+                "type": "boolean"
+              },
+              "picture_skip": {
+                "type": "boolean"
+              },
+              "ctb_rc": {
+                "type": "boolean"
+              },
+              "block_rc_size": {
+                "type": "integer"
+              },
+              "hrd": {
+                "type": "boolean"
+              },
+              "hrd_cpb_size": {
+                "type": "integer"
+              },
+              "monitor_frames": {
+                "type": "integer"
+              },
+              "gop_length": {
+                "type": "integer"
+              },
+              "quantization": {
+                "type": "object",
+                "properties": {
+                  "qp_min": {
+                    "type": "integer"
+                  },
+                  "qp_max": {
+                    "type": "integer"
+                  },
+                  "qp_hdr": {
+                    "type": "integer"
+                  },
+                  "intra_qp_delta": {
+                    "type": "integer"
+                  },
+                  "fixed_intra_qp": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "qp_min",
+                  "qp_max",
+                  "qp_hdr",
+                  "intra_qp_delta",
+                  "fixed_intra_qp"
+                ],
+                "additionalProperties": false
+              },
+              "bitrate": {
+                "type": "object",
+                "properties": {
+                  "target_bitrate": {
+                    "type": "integer"
+                  },
+                  "bit_var_range_i": {
+                    "type": "integer"
+                  },
+                  "bit_var_range_p": {
+                    "type": "integer"
+                  },
+                  "bit_var_range_b": {
+                    "type": "integer"
+                  },
+                  "tolerance_moving_bitrate": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "target_bitrate",
+                  "bit_var_range_i",
+                  "bit_var_range_p",
+                  "bit_var_range_b",
+                  "tolerance_moving_bitrate"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "picture_rc",
+              "picture_skip",
+              "ctb_rc",
+              "block_rc_size",
+              "hrd",
+              "hrd_cpb_size",
+              "monitor_frames",
+              "gop_length",
+              "quantization",
+              "bitrate"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
-          "input_stream",
-          "output_stream"
-        ]
-      },
-      "gop_config": {
-        "type": "object",
-        "properties": {
-          "gop_size": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "b_frame_qp_delta": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "gop_size",
-          "b_frame_qp_delta"
-        ]
-      },
-      "coding_control": {
-        "type": "object",
-        "properties": {
-          "sei_messages": {
-            "type": "boolean"
-          },
-          "deblocking_filter": {
-            "type": "object",
-            "properties": {
-              "type": {
-                "type": "string"
-              },
-              "tc_offset": {
-                "type": "integer"
-              },
-              "beta_offset": {
-                "type": "integer"
-              },
-              "deblock_override": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "type",
-              "tc_offset",
-              "beta_offset",
-              "deblock_override"
-            ]
-          },
-          "intra_area": {
-            "type": "object",
-            "properties": {
-              "enable": {
-                "type": "boolean"
-              },
-              "top": {
-                "type": "integer"
-              },
-              "left": {
-                "type": "integer"
-              },
-              "bottom": {
-                "type": "integer"
-              },
-              "right": {
-                "type": "integer"
-              }
-            },
-            "required": [
-              "enable",
-              "top",
-              "left",
-              "bottom",
-              "right"
-            ]
-          },
-          "ipcm_area1": {
-            "type": "object",
-            "properties": {
-              "enable": {
-                "type": "boolean"
-              },
-              "top": {
-                "type": "integer"
-              },
-              "left": {
-                "type": "integer"
-              },
-              "bottom": {
-                "type": "integer"
-              },
-              "right": {
-                "type": "integer"
-              }
-            },
-            "required": [
-              "enable",
-              "top",
-              "left",
-              "bottom",
-              "right"
-            ]
-          },
-          "ipcm_area2": {
-            "type": "object",
-            "properties": {
-              "enable": {
-                "type": "boolean"
-              },
-              "top": {
-                "type": "integer"
-              },
-              "left": {
-                "type": "integer"
-              },
-              "bottom": {
-                "type": "integer"
-              },
-              "right": {
-                "type": "integer"
-              }
-            },
-            "required": [
-              "enable",
-              "top",
-              "left",
-              "bottom",
-              "right"
-            ]
-          },
-          "roi_area1": {
-            "type": "object",
-            "properties": {
-              "enable": {
-                "type": "boolean"
-              },
-              "top": {
-                "type": "integer"
-              },
-              "left": {
-                "type": "integer"
-              },
-              "bottom": {
-                "type": "integer"
-              },
-              "right": {
-                "type": "integer"
-              },
-              "qp_delta": {
-                "type": "integer"
-              }
-            },
-            "required": [
-              "enable",
-              "top",
-              "left",
-              "bottom",
-              "right",
-              "qp_delta"
-            ]
-          },
-          "roi_area2": {
-            "type": "object",
-            "properties": {
-              "enable": {
-                "type": "boolean"
-              },
-              "top": {
-                "type": "integer"
-              },
-              "left": {
-                "type": "integer"
-              },
-              "bottom": {
-                "type": "integer"
-              },
-              "right": {
-                "type": "integer"
-              },
-              "qp_delta": {
-                "type": "integer"
-              }
-            },
-            "required": [
-              "enable",
-              "top",
-              "left",
-              "bottom",
-              "right",
-              "qp_delta"
-            ]
-          }
-        },
-        "required": [
-          "sei_messages",
-          "deblocking_filter",
-          "intra_area",
-          "ipcm_area1",
-          "ipcm_area2",
-          "roi_area1",
-          "roi_area2"
-        ]
-      },
-      "rate_control": {
-        "type": "object",
-        "properties": {
-          "picture_rc": {
-            "type": "boolean"
-          },
-          "picture_skip": {
-            "type": "boolean"
-          },
-          "ctb_rc": {
-            "type": "boolean"
-          },
-          "block_rc_size": {
-            "type": "integer"
-          },
-          "hrd": {
-            "type": "boolean"
-          },
-          "hrd_cpb_size": {
-            "type": "integer"
-          },
-          "monitor_frames": {
-            "type": "integer"
-          },
-          "gop_length": {
-            "type": "integer"
-          },
-          "quantization": {
-            "type": "object",
-            "properties": {
-              "qp_min": {
-                "type": "integer"
-              },
-              "qp_max": {
-                "type": "integer"
-              },
-              "qp_hdr": {
-                "type": "integer"
-              },
-              "intra_qp_delta": {
-                "type": "integer"
-              },
-              "fixed_intra_qp": {
-                "type": "integer"
-              }
-            },
-            "required": [
-              "qp_min",
-              "qp_max",
-              "qp_hdr",
-              "intra_qp_delta",
-              "fixed_intra_qp"
-            ]
-          },
-          "bitrate": {
-            "type": "object",
-            "properties": {
-              "target_bitrate": {
-                "type": "integer"
-              },
-              "bit_var_range_i": {
-                "type": "integer"
-              },
-              "bit_var_range_p": {
-                "type": "integer"
-              },
-              "bit_var_range_b": {
-                "type": "integer"
-              },
-              "tolerance_moving_bitrate": {
-                "type": "integer"
-              }
-            },
-            "required": [
-              "target_bitrate",
-              "bit_var_range_i",
-              "bit_var_range_p",
-              "bit_var_range_b",
-              "tolerance_moving_bitrate"
-            ]
-          }
-        },
-        "required": [
-          "picture_rc",
-          "picture_skip",
-          "ctb_rc",
-          "block_rc_size",
-          "hrd",
-          "hrd_cpb_size",
-          "monitor_frames",
-          "gop_length",
-          "quantization",
-          "bitrate"
-        ]
+          "config",
+          "gop_config",
+          "coding_control",
+          "rate_control"
+        ],
+        "additionalProperties": false
       }
-    }
+    },
+    "required": [
+      "hailo_encoder"
+    ],
+    "additionalProperties": true
   })"_json;
 
   static nlohmann::json osd_config_schema = R"(
@@ -442,181 +401,210 @@ namespace config_schemas
     "title": "Media Library schema for on screen display configuration",
     "type": "object",
     "properties": {
-      "image": {
-        "type": "array",
-        "items": {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "image_path": {
-              "type": "string"
-            },
-            "width": {
-              "type": "number"
-            },
-            "height": {
-              "type": "number"
-            },
-            "angle": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 359
-            },
-            "rotation_policy":  {
-                "type": "string",
-                "enum": [
-                  "CENTER",
-                  "TOP_LEFT"
-                ]
-            },
-            "x": {
-              "type": "number"
-            },
-            "y": {
-              "type": "number"
-            },
-            "z-index": {
-              "type": "integer"
+      "osd": {
+        "type": "object",
+        "properties": {
+          "image": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "image_path": {
+                  "type": "string"
+                },
+                "width": {
+                  "type": "number"
+                },
+                "height": {
+                  "type": "number"
+                },
+                "angle": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 359
+                },
+                "rotation_policy":  {
+                    "type": "string",
+                    "enum": [
+                      "CENTER",
+                      "TOP_LEFT"
+                    ]
+                },
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "z-index": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "image_path",
+                "width",
+                "height",
+                "angle",
+                "rotation_policy",
+                "x",
+                "y",
+                "z-index"
+              ],
+              "additionalProperties": false
             }
           },
-          "required": [
-            "id",
-            "image_path",
-            "width",
-            "height",
-            "angle",
-            "rotation_policy",
-            "x",
-            "y",
-            "z-index"
-          ]
-        }
-      },
-      "dateTime": {
-        "type": "array",
-        "items": {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "font_size": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "line_thickness": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "rgb": {
-              "type": "array",
-              "items": {
-                "type": "integer"
-              }
-            },
-            "angle": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 359
-            },
-            "rotation_policy":  {
-                "type": "string",
-                "enum": [
-                  "CENTER",
-                  "TOP_LEFT"
-                ]
-            },
-            "x": {
-              "type": "number"
-            },
-            "y": {
-              "type": "number"
-            },
-            "z-index": {
-              "type": "integer"
+          "dateTime": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "font_size": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "font_path": {
+                  "type": "string"
+                },
+                "line_thickness": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "rgb": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "rgb_background": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "angle": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 359
+                },
+                "rotation_policy":  {
+                    "type": "string",
+                    "enum": [
+                      "CENTER",
+                      "TOP_LEFT"
+                    ]
+                },
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "z-index": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "font_size",
+                "font_path",
+                "line_thickness",
+                "rgb",
+                "angle",
+                "rotation_policy",
+                "x",
+                "y",
+                "z-index"
+              ],
+              "additionalProperties": false
             }
           },
-          "required": [
-            "id",
-            "font_size",
-            "line_thickness",
-            "rgb",
-            "angle",
-            "rotation_policy",
-            "x",
-            "y",
-            "z-index"
-          ]
-        }
-      },
-      "text": {
-        "type": "array",
-        "items": {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "label": {
-              "type": "string"
-            },
-            "font_size": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "font_path": {
-              "type": "string"
-            },
-            "line_thickness": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "angle": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 359
-            },
-            "rotation_policy":  {
-                "type": "string",
-                "enum": [
-                  "CENTER",
-                  "TOP_LEFT"
-                ]
-            },
-            "rgb": {
-              "type": "array",
-              "items": {
-                "type": "integer"
-              }
-            },
-            "x": {
-              "type": "number"
-            },
-            "y": {
-              "type": "number"
-            },
-            "z-index": {
-              "type": "integer"
+          "text": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "font_size": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "font_path": {
+                  "type": "string"
+                },
+                "line_thickness": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "angle": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 359
+                },
+                "rotation_policy":  {
+                    "type": "string",
+                    "enum": [
+                      "CENTER",
+                      "TOP_LEFT"
+                    ]
+                },
+                "rgb": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "rgb_background": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "z-index": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "label",
+                "font_size",
+                "line_thickness",
+                "font_path",
+                "angle",
+                "rotation_policy",
+                "rgb",
+                "x",
+                "y",
+                "z-index"
+              ],
+              "additionalProperties": false
             }
-          },
-          "required": [
-            "id",
-            "label",
-            "font_size",
-            "line_thickness",
-            "font_path",
-            "angle",
-            "rotation_policy",
-            "rgb",
-            "x",
-            "y",
-            "z-index"
-          ]
-        }
+          }
+        },
+        "additionalProperties": false
       }
-    }
+    },
+    "required": [
+      "osd"
+    ],
+    "additionalProperties": true
   }
   )"_json;
 
@@ -1325,6 +1313,60 @@ namespace config_schemas
     },
     "required": [
       "denoise"
+    ]
+  }
+  )"_json;
+
+  static nlohmann::json defog_config_schema = R"(
+  {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Media Library schema for defog configuration",
+    "type": "object",
+    "properties": {
+      "defog": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "network": {
+            "type": "object",
+            "properties": {
+              "network_path": {
+                "type": "string"
+              },
+              "y_channel": {
+                "type": "string"
+              },
+              "uv_channel": {
+                "type": "string"
+              },
+              "output_y_channel": {
+                "type": "string"
+              },
+              "output_uv_channel": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "network_path",
+              "y_channel",
+              "uv_channel",
+              "output_y_channel",
+              "output_uv_channel"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "network"
+        ]
+      }
+    },
+    "required": [
+      "defog"
     ]
   }
   )"_json;

@@ -38,12 +38,14 @@ struct EncoderOutputBuffer
 class Encoder
 {
 public:
-    Encoder(std::string json_path);
+    Encoder(std::string json_string);
     ~Encoder();
     int get_gop_size();
     void force_keyframe();
     void update_stride(uint32_t stride);
-    std::shared_ptr<EncoderConfig> get_config();
+    media_library_return configure(std::string json_string);
+    media_library_return configure(const encoder_config_t &config);
+    encoder_config_t get_config();
     std::vector<EncoderOutputBuffer> handle_frame(HailoMediaLibraryBufferPtr buf);
     EncoderOutputBuffer start();
     EncoderOutputBuffer stop();

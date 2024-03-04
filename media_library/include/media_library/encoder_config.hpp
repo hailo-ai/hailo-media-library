@@ -32,16 +32,16 @@
 
 enum codec_t
 {
-    H264,
-    H265
+    CODEC_TYPE_H264,
+    CODEC_TYPE_HEVC
 };
 
 struct input_config_t
 {
     uint32_t width;
     uint32_t height;
+    uint32_t framerate;
     std::string format;
-    std::string framerate;
 };
 
 struct output_config_t
@@ -51,22 +51,112 @@ struct output_config_t
     std::string level;
 };
 
+struct deblocking_filter_t
+{
+    std::string type;
+    uint32_t tc_offset;
+    uint32_t beta_offset;
+    bool deblock_override;
+};
+
+struct gop_config_t
+{
+    uint32_t gop_size;
+    uint32_t b_frame_qp_delta;
+};
+
+struct coding_roi_t
+{
+    bool enable;
+    uint32_t top;
+    uint32_t left;
+    uint32_t bottom;
+    uint32_t right;
+};
+
+struct coding_roi_area_t
+{
+    bool enable;
+    uint32_t top;
+    uint32_t left;
+    uint32_t bottom;
+    uint32_t right;
+    uint32_t qp_delta;
+};
+
+struct coding_control_config_t
+{
+    bool sei_messages;
+    deblocking_filter_t deblocking_filter;
+    coding_roi_t intra_area;
+    coding_roi_t ipcm_area1;
+    coding_roi_t ipcm_area2;
+    coding_roi_area_t roi_area1;
+    coding_roi_area_t roi_area2;
+};
+
+struct bitrate_config_t
+{
+    uint32_t target_bitrate;
+    uint32_t bit_var_range_i;
+    uint32_t bit_var_range_p;
+    uint32_t bit_var_range_b;
+    uint32_t tolerance_moving_bitrate;
+};
+
+struct quantization_config_t
+{
+    uint32_t qp_min;
+    uint32_t qp_max;
+    uint32_t qp_hdr;
+    uint32_t intra_qp_delta;
+    uint32_t fixed_intra_qp;
+};
+
+struct  rate_control_config_t
+{
+  bool picture_rc;
+  bool picture_skip;
+  bool ctb_rc;
+  bool hrd;
+  uint32_t block_rc_size;
+  uint32_t hrd_cpb_size;
+  uint32_t monitor_frames;
+  uint32_t gop_length;
+  quantization_config_t quantization;
+  bitrate_config_t bitrate;
+};
+
+struct stream_config_t
+{
+    input_config_t input_stream;
+    output_config_t output_stream;
+};
+
+struct encoder_config_t
+{
+    stream_config_t stream;
+    gop_config_t gop;
+    coding_control_config_t coding_control;
+    rate_control_config_t rate_control;
+};
+
+
 class EncoderConfig
 {
   private:
     std::shared_ptr<ConfigManager> m_config_manager;
     std::string m_json_string;
     nlohmann::json m_doc;
+    encoder_config_t m_config;
+    struct input_config_t m_input_config;
+    struct output_config_t m_output_config;
     // SchemaDocument m_schema_doc;
     // SchemaValidator m_validator;
   public:
     EncoderConfig(const std::string &config_path);
     const nlohmann::json &get_doc() const;
-    const nlohmann::json &get_input_stream() const;
-    const input_config_t &get_input_config() const;
-    const output_config_t &get_output_config() const;
-    const nlohmann::json &get_gop_config() const;
-    const nlohmann::json &get_output_stream() const;
-    const nlohmann::json &get_coding_control() const;
-    const nlohmann::json &get_rate_control() const;
+    media_library_return configure(const std::string &config_path);
+    media_library_return configure(const encoder_config_t &encoder_config);
+    encoder_config_t get_config();
 };

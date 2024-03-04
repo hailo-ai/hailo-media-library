@@ -76,6 +76,7 @@ enum
     PROP_PAD_0,
     PROP_CONFIG_FILE_PATH,
     PROP_CONFIG_STRING,
+    PROP_PRIVACY_MASK,
 };
 
 static void
@@ -103,6 +104,11 @@ gst_hailo_multi_resize_class_init(GstHailoMultiResizeClass *klass)
                                                         "JSON config string to load",
                                                         "",
                                                         (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+
+    g_object_class_install_property(gobject_class, PROP_PRIVACY_MASK,
+                                    g_param_spec_pointer("privacy-mask", "Privacy Mask",
+                                                         "Pointer to privacy mask blender",
+                                                         (GParamFlags)(G_PARAM_READABLE)));
     // Pad templates
     gst_element_class_add_static_pad_template(gstelement_class, &src_template);
     gst_element_class_add_static_pad_template(gstelement_class, &sink_template);
@@ -669,6 +675,14 @@ gst_hailo_multi_resize_get_property(GObject *object, guint property_id, GValue *
         g_value_set_string(value, self->config_string.c_str());
         break;
     }
+    case PROP_PRIVACY_MASK:
+    {
+        if (self->medialib_multi_resize != nullptr)
+            g_value_set_pointer(value, self->medialib_multi_resize->get_privacy_mask_blender().get());
+        else
+            g_value_set_pointer(value, NULL);
+        break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
@@ -743,11 +757,4 @@ static GstStateChangeReturn gst_hailo_multi_resize_change_state(GstElement *elem
     }
 
     return result;
-}
-
-PrivacyMaskBlenderPtr 
-gst_hailo_multi_resize_get_privacy_mask_blender(GstElement *object)
-{
-  GstHailoMultiResize *self = GST_HAILO_MULTI_RESIZE(object);
-  return self->medialib_multi_resize->get_privacy_mask_blender();
 }

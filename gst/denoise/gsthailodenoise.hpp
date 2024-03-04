@@ -34,13 +34,14 @@
 #include <queue>
 #include <fstream>
 #include <memory>
+#include <functional>
 #include <gst/gst.h>
 #include <tl/expected.hpp> 
 #include <condition_variable>
 #include "media_library/denoise.hpp"
 #include "media_library/media_library_types.hpp"
 #include "hailo/hailort.h"
-#include "tensor_meta.hpp"
+#include "metadata/tensor_meta.hpp"
 
 
 G_BEGIN_DECLS
@@ -64,14 +65,19 @@ struct _GstHailoDenoise
     std::string config_string;
     std::shared_ptr<MediaLibraryDenoise> medialib_denoise;
 
+    gboolean m_configured;
     gboolean m_elements_linked;
-    GstElement *m_queue;
     GstElement *m_hailonet;
 
     std::unique_ptr<std::condition_variable> m_condvar;
     std::shared_ptr<std::mutex> m_mutex;
     uint8_t m_queue_size;
+    uint8_t m_loop_counter;
     std::queue<GstBuffer *> m_loopback_queue;
+
+    media_library_return observe(const MediaLibraryDenoise::callbacks_t &callback) {
+        return medialib_denoise->observe(callback);
+    }
 };
 
 struct _GstHailoDenoiseClass

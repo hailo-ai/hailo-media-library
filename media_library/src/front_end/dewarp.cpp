@@ -273,6 +273,7 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
             LOGGER__ERROR("Invalid value for camera_fov ({}) for a pin-hole camera type, must be lower than 160", m_ldc_configs.dewarp_config.camera_fov);
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
+        m_ldc_configs.dewarp_config.camera_type = CAMERA_TYPE_PINHOLE;
     }
     else
     {

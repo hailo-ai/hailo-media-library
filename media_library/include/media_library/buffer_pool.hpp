@@ -101,6 +101,8 @@ private:
     uint m_bytes_per_line;
     dsp_image_format_t m_format;
     std::shared_ptr<std::mutex> m_buffer_pool_mutex;
+    size_t m_max_buffers;
+    uint32_t m_buffer_index;
 
 public:
     /**
@@ -111,9 +113,10 @@ public:
      * @param[in] format - buffer format
      * @param[in] max_buffers - number of buffers to allocate
      * @param[in] memory_type - memory type
+     * @param[in] name - buffer pool owner name
      */
     MediaLibraryBufferPool(uint width, uint height, dsp_image_format_t format,
-                           size_t max_buffers, HailoMemoryType memory_type);
+                           size_t max_buffers, HailoMemoryType memory_type, std::string name="");
     /**
      * @brief Constructor of MediaLibraryBufferPool
      *
@@ -123,14 +126,19 @@ public:
      * @param[in] max_buffers - number of buffers to allocate
      * @param[in] memory_type - memory type
      * @param[in] bytes_per_line - bytes per line if the buffer stride is padded (when padding=0, bytes_per_line=width)
+     * @param[in] name - buffer pool owner name
      */
     MediaLibraryBufferPool(uint width, uint height, dsp_image_format_t format,
-                           size_t max_buffers, HailoMemoryType memory_type, uint bytes_per_line);
+                           size_t max_buffers, HailoMemoryType memory_type, uint bytes_per_line, std::string name="");
     ~MediaLibraryBufferPool();
     // Copy constructor - delete
     MediaLibraryBufferPool(const MediaLibraryBufferPool &) = delete;
     // Copy assignment - delete
     MediaLibraryBufferPool &operator=(const MediaLibraryBufferPool &) = delete;
+
+
+    void log_increase_ref_count(uint32_t plane_index, uint32_t ref_count, uint32_t buffer_index);
+    void log_decrease_ref_count(uint32_t plane_index, uint32_t ref_count, uint32_t buffer_index);
 
     /**
      * @brief Initialization of MediaLibraryBufferPool
@@ -185,6 +193,19 @@ public:
      * @return The height of the buffer pool as an unsigned integer.
      */
     uint get_height() { return m_height; }
+    /**
+     * @brief Gets the max size of the buffer pool.
+     * 
+     * @return The height of the buffer pool as an unsigned integer.
+     */
+    uint get_size() { return m_max_buffers; }
+
+    /**
+     * @brief Gets the name of the buffer pool.
+     * 
+     * @return The name of the buffer pool as a string.
+     */
+    std::string get_name() { return m_name; }
 };
 
 struct hailo_media_library_buffer
@@ -193,6 +214,7 @@ private:
     std::vector<uint> planes_reference_count;
     std::shared_ptr<std::mutex> m_buffer_mutex;
     std::shared_ptr<std::mutex> m_plane_mutex;
+
     bool has_reference()
     {
         for (uint32_t i = 0; i < planes_reference_count.size(); i++)
@@ -240,6 +262,7 @@ public:
     struct hailo15_vsm vsm;
     int32_t isp_ae_fps;
     int32_t video_fd;
+    uint32_t buffer_index;
 
     hailo_media_library_buffer()
         : m_buffer_mutex(std::make_shared<std::mutex>()),
@@ -248,6 +271,7 @@ public:
     {
         vsm.dx = 0;
         vsm.dy = 0;
+        buffer_index = 0;
     }
     // Move constructor
     hailo_media_library_buffer(hailo_media_library_buffer &&other) noexcept
@@ -260,6 +284,7 @@ public:
         vsm = other.vsm;
         isp_ae_fps = other.isp_ae_fps;
         video_fd = other.video_fd;
+        buffer_index = other.buffer_index;
         other.hailo_pix_buffer = nullptr;
         other.owner = nullptr;
         other.m_buffer_mutex = nullptr;
@@ -269,6 +294,7 @@ public:
         other.video_fd = -1;
         other.vsm.dx = 0;
         other.vsm.dy = 0;
+        other.buffer_index = 0;
     }
 
     // Move assignment
@@ -285,6 +311,7 @@ public:
             vsm = other.vsm;
             isp_ae_fps = other.isp_ae_fps;
             video_fd = other.video_fd;
+            buffer_index = other.buffer_index;
             other.hailo_pix_buffer = nullptr;
             other.owner = nullptr;
             other.m_buffer_mutex = nullptr;
@@ -294,6 +321,7 @@ public:
             other.video_fd = -1;
             other.vsm.dx = 0;
             other.vsm.dy = 0;
+            other.buffer_index = 0;
         }
         return *this;
     }
@@ -332,6 +360,9 @@ public:
     {
         std::unique_lock<std::mutex> lock(*m_plane_mutex);
         planes_reference_count[plane_index] += 1;
+        if (owner != nullptr)
+            owner->log_increase_ref_count(plane_index, planes_reference_count[plane_index], buffer_index);
+
         return true;
     }
 
@@ -352,6 +383,8 @@ public:
             return false;
 
         planes_reference_count[plane_index] -= 1;
+        if (owner != nullptr)
+            owner->log_decrease_ref_count(plane_index, planes_reference_count[plane_index], buffer_index);
 
         if (planes_reference_count[plane_index] == 0)
             return release(plane_index);
@@ -372,6 +405,11 @@ public:
         return ret;
     }
 
+    void set_buffer_index(uint32_t buffer_index)
+    {
+        this->buffer_index = buffer_index;
+    }
+
     media_library_return create(MediaLibraryBufferPoolPtr owner,
                                 DspImagePropertiesPtr hailo_pix_buffer)
     {
@@ -383,6 +421,11 @@ public:
             planes_reference_count.emplace_back(0);
         }
         return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    uint refcount(int plane_index)
+    {
+        return planes_reference_count[plane_index];
     }
 };
 using HailoMediaLibraryBufferPtr = std::shared_ptr<hailo_media_library_buffer>;

@@ -35,7 +35,9 @@ GST_DEBUG_CATEGORY_STATIC(gst_hailofrontend_debug_category);
 static void gst_hailofrontend_set_property(GObject *object,
                                           guint property_id, const GValue *value, GParamSpec *pspec);
 static void gst_hailofrontend_get_property(GObject *object,
-                                          guint property_id, GValue *value, GParamSpec *pspec);
+                                          guint property_id, GValue *value, GParamSpec *pspec);                                          
+static GstElement *gst_hailofrontend_init_queue(GstHailoFrontend *hailofrontend, bool leaky);
+static GstElement *gst_hailofrontend_init_capsfilter(GstHailoFrontend *hailofrontend, bool ranged);
 static GstStateChangeReturn gst_hailofrontend_change_state(GstElement *element, GstStateChange transition);
 static void gst_hailofrontend_init_ghost_sink(GstHailoFrontend *hailofrontend);
 static GstPad *gst_hailofrontend_request_new_pad(GstElement *element, GstPadTemplate *templ, const gchar *name, const GstCaps *caps);
@@ -99,7 +101,7 @@ gst_hailofrontend_class_init(GstHailoFrontendClass *klass)
     g_object_class_install_property(gobject_class, PROP_PRIVACY_MASK,
                                   g_param_spec_pointer("privacy-mask", "Privacy Mask",
                                                       "Pointer to privacy mask blender",
-                                                      (GParamFlags)(G_PARAM_READABLE | GST_PARAM_MUTABLE_PLAYING)));
+                                                      (GParamFlags)(G_PARAM_READABLE)));
     
     element_class->change_state = GST_DEBUG_FUNCPTR(gst_hailofrontend_change_state);
     element_class->request_new_pad = GST_DEBUG_FUNCPTR(gst_hailofrontend_request_new_pad);
@@ -115,21 +117,27 @@ gst_hailofrontend_init(GstHailoFrontend *hailofrontend)
     hailofrontend->m_elements_linked = FALSE;
 
     // Prepare internal elements
+    // denoise
+    hailofrontend->m_denoise = gst_element_factory_make("hailodenoise", NULL);
+    if (nullptr == hailofrontend->m_denoise) {
+        GST_ELEMENT_ERROR(hailofrontend, RESOURCE, FAILED, ("Failed creating hailodenoise element in bin!"), (NULL));
+    }
+
+    // caps between denoise and dis_dewarp
+    hailofrontend->m_capsfilter_0 = gst_hailofrontend_init_capsfilter(hailofrontend, false);
+
+    // queue between denoise and dis_dewarp
+    hailofrontend->m_denoise_dis_queue = gst_hailofrontend_init_queue(hailofrontend, true);
+
     // dis_dewarp
     hailofrontend->m_dis_dewarp = gst_element_factory_make("hailodewarp", NULL);
     if (nullptr == hailofrontend->m_dis_dewarp) {
         GST_ELEMENT_ERROR(hailofrontend, RESOURCE, FAILED, ("Failed creating hailodewarp element in bin!"), (NULL));
     }
 
-    // queue between dis_dewarp and multi_resize
-    hailofrontend->m_queue = gst_element_factory_make("queue", NULL);
-    if (nullptr == hailofrontend->m_queue) {
-        GST_ELEMENT_ERROR(hailofrontend, RESOURCE, FAILED, ("Failed creating queue element in bin!"), (NULL));
-    }
-    // Passing 0 disables the features here
-    g_object_set(hailofrontend->m_queue, "max-size-time", (guint64)0, NULL);
-    g_object_set(hailofrontend->m_queue, "max-size-bytes", (guint)0, NULL);
-    g_object_set(hailofrontend->m_queue, "max-size-buffers", (guint)2, NULL);
+
+    // queue between defog and multi_resize
+    hailofrontend->m_defog_mresize_queue = gst_hailofrontend_init_queue(hailofrontend, false);
 
     // multi_resize
     hailofrontend->m_multi_resize = gst_element_factory_make("hailomultiresize", NULL);
@@ -138,8 +146,65 @@ gst_hailofrontend_init(GstHailoFrontend *hailofrontend)
     }
 
     // Add elements and pads in the bin
-    gst_bin_add_many(GST_BIN(hailofrontend), hailofrontend->m_dis_dewarp, hailofrontend->m_queue, hailofrontend->m_multi_resize, NULL);
+    gst_bin_add_many(GST_BIN(hailofrontend), hailofrontend->m_denoise,
+                                             hailofrontend->m_capsfilter_0,
+                                             hailofrontend->m_denoise_dis_queue,
+                                             hailofrontend->m_dis_dewarp,
+                                             hailofrontend->m_defog_mresize_queue,
+                                             hailofrontend->m_multi_resize, NULL);
     gst_hailofrontend_init_ghost_sink(hailofrontend);
+}
+
+static GstElement *
+gst_hailofrontend_init_queue(GstHailoFrontend *hailofrontend, bool leaky)
+{
+    // queue between defog and multi_resize
+    GstElement *queue = gst_element_factory_make("queue", NULL);
+    if (nullptr == queue) {
+        GST_ELEMENT_ERROR(hailofrontend, RESOURCE, FAILED, ("Failed creating queue element in bin!"), (NULL));
+        return NULL;
+    }
+    // Passing 0 disables the features here
+    g_object_set(queue, "max-size-time", (guint64)0, NULL);
+    g_object_set(queue, "max-size-bytes", (guint)0, NULL);
+    g_object_set(queue, "max-size-buffers", (guint)2, NULL);
+    // Upon request, enable leaky queue (downstream)
+    if (leaky) {
+        g_object_set(queue, "leaky", (guint)2, NULL);
+    }
+    return queue;
+}
+
+static GstElement *
+gst_hailofrontend_init_capsfilter(GstHailoFrontend *hailofrontend, bool ranged)
+{
+    // caps between defog and multi_resize
+    GstElement *capsfilter = gst_element_factory_make("capsfilter", NULL);
+    if (nullptr == capsfilter) {
+        GST_ELEMENT_ERROR(hailofrontend, RESOURCE, FAILED, ("Failed creating capsfilter element in bin!"), (NULL));
+        return NULL;
+    }
+
+    GstCaps *caps;
+    if (ranged) {
+        caps = gst_caps_new_simple("video/x-raw",
+                                    "format", G_TYPE_STRING, "NV12",
+                                    "width", GST_TYPE_INT_RANGE, 2160, 3840,
+                                    "height", GST_TYPE_INT_RANGE, 2160, 3840,
+                                    "framerate", GST_TYPE_FRACTION, 30, 1,
+                                    NULL);
+    } else  {
+        caps = gst_caps_new_simple("video/x-raw",
+                                    "format", G_TYPE_STRING, "NV12",
+                                    "width", G_TYPE_INT, 3840,
+                                    "height", G_TYPE_INT, 2160,
+                                    "framerate", GST_TYPE_FRACTION, 30, 1,
+                                    NULL);
+    }
+
+    g_object_set(capsfilter, "caps", caps, NULL);
+    gst_caps_unref(caps);
+    return capsfilter;
 }
 
 void gst_hailofrontend_set_property(GObject *object, guint property_id,
@@ -156,6 +221,7 @@ void gst_hailofrontend_set_property(GObject *object, guint property_id,
         GST_DEBUG_OBJECT(hailofrontend, "config_file_path: %s", hailofrontend->config_file_path);
 
         // set params for sub elements here
+        g_object_set(hailofrontend->m_denoise, "config-file-path", g_value_get_string(value), NULL);
         g_object_set(hailofrontend->m_dis_dewarp, "config-file-path", g_value_get_string(value), NULL);
         g_object_set(hailofrontend->m_multi_resize, "config-file-path", g_value_get_string(value), NULL);
 
@@ -173,6 +239,7 @@ void gst_hailofrontend_set_property(GObject *object, guint property_id,
         GST_DEBUG_OBJECT(hailofrontend, "config-string: %s", hailofrontend->config_string.c_str());
 
         // set params for sub elements here
+        g_object_set(hailofrontend->m_denoise, "config-string", g_value_get_string(value), NULL);
         g_object_set(hailofrontend->m_dis_dewarp, "config-string", g_value_get_string(value), NULL);
         g_object_set(hailofrontend->m_multi_resize, "config-string", g_value_get_string(value), NULL);
 
@@ -210,8 +277,9 @@ void gst_hailofrontend_get_property(GObject *object, guint property_id,
     }
     case PROP_PRIVACY_MASK:
     {
-        PrivacyMaskBlenderPtr privacy_mask_blender_ptr = gst_hailo_multi_resize_get_privacy_mask_blender(hailofrontend->m_multi_resize);
-        g_value_set_pointer(value, privacy_mask_blender_ptr.get());
+        gpointer blender;
+        g_object_get(hailofrontend->m_multi_resize, "privacy-mask", &blender, NULL);
+        g_value_set_pointer(value, blender);
         break;
     }
     default:
@@ -243,7 +311,7 @@ gst_hailofrontend_change_state(GstElement *element, GstStateChange transition)
 void gst_hailofrontend_init_ghost_sink(GstHailoFrontend *hailofrontend)
 {
     // Get the connecting pad
-    GstPad *pad = gst_element_get_static_pad(hailofrontend->m_dis_dewarp, "sink");
+    GstPad *pad = gst_element_get_static_pad(hailofrontend->m_denoise, "sink");
 
     // Create a ghostpad and connect it to the bin
     GstPadTemplate *pad_tmpl = gst_static_pad_template_get(&sink_template);
@@ -316,7 +384,13 @@ gst_hailofrontend_link_elements(GstElement *element)
   GstHailoFrontend *self = GST_HAILO_FRONTEND(element);
 
   // Link the elements
-  gboolean link_status = gst_element_link_many(self->m_dis_dewarp, self->m_queue, self->m_multi_resize, NULL);
+  gboolean link_status = gst_element_link_many(self->m_denoise,
+                                               self->m_capsfilter_0,
+                                               self->m_denoise_dis_queue,
+                                               self->m_dis_dewarp,
+                                               self->m_defog_mresize_queue,
+                                               self->m_multi_resize, NULL);
+
   if (!link_status) {
       GST_ERROR_OBJECT(self, "Failed to link elements in bin!");
       return FALSE;

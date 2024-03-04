@@ -88,11 +88,15 @@ private:
     multi_resize_config_t m_multi_resize_config;
     // input buffer pools
     MediaLibraryBufferPoolPtr m_input_buffer_pool;
+    // privacy mask blender
     PrivacyMaskBlenderPtr m_privacy_mask_blender;
     // callbacks
     std::vector<MediaLibraryMultiResize::callbacks_t> m_callbacks;
     // output buffer pools
     std::vector<MediaLibraryBufferPoolPtr> m_buffer_pools;
+    // Timestamps in ms.
+    std::vector<int64_t> m_timestamps;
+    bool m_strict_framerate = true;
     // read/write lock for configuration manipulation/reading
     std::shared_mutex rw_lock;
 
@@ -322,6 +326,11 @@ media_library_return MediaLibraryMultiResize::Impl::configure(multi_resize_confi
     if (ret != MEDIA_LIBRARY_SUCCESS)
         return ret;
 
+    auto timestamp = media_library_get_timespec_ms();
+    for (uint8_t i=0; i < m_buffer_pools.size(); i++)
+    {
+        m_timestamps.push_back(timestamp);
+    }
     m_configured = true;
 
     return MEDIA_LIBRARY_SUCCESS;
@@ -359,6 +368,7 @@ media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer
         uint width, height;
         width = output_res.dimensions.destination_width;
         height = output_res.dimensions.destination_height;
+        std::string name = "multi_resize_output_" + std::to_string(i);
 
         if (!first && m_buffer_pools[i] != nullptr && width == m_buffer_pools[i]->get_width() && height == m_buffer_pools[i]->get_height())
         {
@@ -366,9 +376,9 @@ media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer
             return MEDIA_LIBRARY_SUCCESS;
         }
 
-        auto bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width((uint)output_res.dimensions.destination_width);
-        LOGGER__INFO("Creating buffer pool for output resolution: width {} height {} in buffers size of {} and bytes per line {}", output_res.dimensions.destination_width, output_res.dimensions.destination_height, output_res.pool_max_buffers, bytes_per_line);
-        MediaLibraryBufferPoolPtr buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, m_multi_resize_config.output_video_config.format, output_res.pool_max_buffers, CMA, bytes_per_line);
+        auto bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width(width);
+        LOGGER__INFO("Creating buffer pool named {} for output resolution: width {} height {} in buffers size of {} and bytes per line {}", name, width, height, output_res.pool_max_buffers, bytes_per_line);
+        MediaLibraryBufferPoolPtr buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, m_multi_resize_config.output_video_config.format, output_res.pool_max_buffers, CMA, bytes_per_line, name);
         if (buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR("Failed to init buffer pool");
@@ -398,19 +408,37 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(hailo
 {
     // Acquire output buffers
     int32_t isp_ae_fps = input_buffer.isp_ae_fps;
-    uint8_t output_size = m_multi_resize_config.output_video_config.resolutions.size();
-    for (uint8_t i = 0; i < output_size; i++)
+    bool should_acquire_buffer;
+    uint8_t num_of_outputs = m_multi_resize_config.output_video_config.resolutions.size();
+    int64_t timestamp = media_library_get_timespec_ms();
+    for (uint8_t i = 0; i < num_of_outputs; i++)
     {
         uint32_t input_framerate = m_multi_resize_config.input_video_config.framerate;
         uint32_t output_framerate = m_multi_resize_config.output_video_config.resolutions[i].framerate;
-        LOGGER__DEBUG("Acquiring buffer {}, target framerate is {}", i, output_framerate);
-
-        uint stream_period = (output_framerate == 0) ? 0 : input_framerate / output_framerate;
-        bool should_acquire_buffer = stream_period == 0 ? false : (m_frame_counter % stream_period == 0) || (isp_ae_fps != -1 && output_framerate >= static_cast<uint32_t>(isp_ae_fps));
-        LOGGER__DEBUG("frame counter is {}, stream period is {}, should acquire buffer is {}", m_frame_counter, stream_period, should_acquire_buffer);
-
+        int64_t frame_latency = 1000 / output_framerate;
         hailo_media_library_buffer buffer;
-
+        bool push_frame = timestamp - m_timestamps[i] >= frame_latency;
+        if (push_frame)
+        {
+            // We want to advance the timestamp to the next frame time at least once.
+            // If we are still 2 frames behind, we will advance the timestamp again.
+            do
+            {
+                m_timestamps[i] += frame_latency;
+            } while (timestamp - m_timestamps[i] >= frame_latency*2);
+            LOGGER__DEBUG("Skipping current frame to match framerate {}, no need to acquire buffer {}, counter is {}", output_framerate, i, m_frame_counter);
+        }
+        LOGGER__DEBUG("Acquiring buffer {}, target framerate is {}", i, output_framerate);
+        // m_strict_framerate is true, using new frame counter logic
+        if (m_strict_framerate)
+            should_acquire_buffer = (output_framerate != 0) && push_frame;
+        else
+        {
+            // This is the old logic, using the frame counter, deprecated.
+            uint stream_period = (output_framerate == 0) ? 0 : input_framerate / output_framerate;
+            should_acquire_buffer = stream_period == 0 ? false : (m_frame_counter % stream_period == 0) || (isp_ae_fps != -1 && output_framerate >= static_cast<uint32_t>(isp_ae_fps));
+            LOGGER__DEBUG("frame counter is {}, stream period is {}, should acquire buffer is {}", m_frame_counter, stream_period, should_acquire_buffer);
+        }
         if (!should_acquire_buffer)
         {
             LOGGER__DEBUG("Skipping current frame to match framerate {}, no need to acquire buffer {}, counter is {}", output_framerate, i, m_frame_counter);
@@ -686,16 +714,6 @@ media_library_return MediaLibraryMultiResize::Impl::set_input_video_config(uint3
     m_multi_resize_config.input_video_config.dimensions.destination_width = width;
     m_multi_resize_config.input_video_config.dimensions.destination_height = height;
     m_multi_resize_config.input_video_config.framerate = framerate;
-
-    // Check if the new framerate is a multiple of each output framerate
-    for (auto &output_config : m_multi_resize_config.output_video_config.resolutions)
-    {
-        if (framerate % output_config.framerate != 0)
-        {
-            LOGGER__ERROR("The new input framerate {} is not a multiple of the output framerate {}", framerate, output_config.framerate);
-            return MEDIA_LIBRARY_INVALID_ARGUMENT;
-        }
-    }
 
     media_library_return blender_config_status = m_privacy_mask_blender->set_frame_size(m_multi_resize_config.input_video_config.dimensions.destination_width,
                                                                 m_multi_resize_config.input_video_config.dimensions.destination_height);

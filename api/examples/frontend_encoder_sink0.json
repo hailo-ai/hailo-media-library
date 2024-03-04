@@ -16,13 +16,14 @@
         "dateTime": [
             {
                 "id": "example_datetime",
-                "font_size": 2,
+                "font_size": 100,
                 "line_thickness": 3,
                 "rgb": [
                     255,
                     0,
                     0
                 ],
+                "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
                 "x": 0.1,
                 "y": 0.7,
                 "z-index": 3,
@@ -67,7 +68,7 @@
             }
         ]
     },
-    "encoder": {
+    "hailo_encoder": {
         "config": {
             "input_stream": {
                 "width": 3840,
@@ -76,7 +77,7 @@
                 "format": "NV12"
             },
             "output_stream": {
-                "codec": "h264",
+                "codec": "CODEC_TYPE_H264",
                 "profile": "VCENC_H264_MAIN_PROFILE",
                 "level": "5.0",
                 "bit_depth_luma": 8,
@@ -137,24 +138,24 @@
         "rate_control": {
             "picture_rc": true,
             "picture_skip": false,
-            "ctb_rc": false,
+            "ctb_rc": true,
             "block_rc_size": 64,
             "hrd": false,
             "hrd_cpb_size": 0,
-            "monitor_frames": 10,
+            "monitor_frames": 30,
             "gop_length": 30,
             "quantization": {
-                "qp_min": 10,
-                "qp_max": 50,
-                "qp_hdr": 11,
+                "qp_min": 15,
+                "qp_max": 48,
+                "qp_hdr": 26,
                 "intra_qp_delta": 0,
                 "fixed_intra_qp": 0
             },
             "bitrate": {
                 "target_bitrate": 10000000,
-                "bit_var_range_i": 0,
-                "bit_var_range_p": 0,
-                "bit_var_range_b": 0,
+                "bit_var_range_i": 10,
+                "bit_var_range_p": 10,
+                "bit_var_range_b": 10,
                 "tolerance_moving_bitrate": 0
             }
         }

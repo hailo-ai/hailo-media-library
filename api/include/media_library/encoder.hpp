@@ -27,6 +27,7 @@
 #pragma once
 #include "media_library/buffer_pool.hpp"
 #include "media_library/media_library_types.hpp"
+#include "media_library/encoder_config.hpp"
 #include "osd.hpp"
 #include <functional>
 #include <memory>
@@ -86,7 +87,7 @@ public:
    *  to an MediaLibraryEncoder object, or a error code.
    */
   static tl::expected<MediaLibraryEncoderPtr, media_library_return>
-  create(std::string json_config);
+  create(std::string json_config, std::string name = "encoder");
   /**
    * @brief Start the MediaLibraryEncoder module, the MediaLibraryEncoder
    * module will be ready to encode buffers.
@@ -134,6 +135,21 @@ public:
    * @ref osd::Blender
    */
   std::shared_ptr<osd::Blender> get_blender();
+
+  /**
+   * @brief
+   * Configure the encoder module with a new configuration object
+   * @param[in] config - encoder configuration object
+   * @return media_library_return - status of the configuration operation
+   */
+  media_library_return configure(encoder_config_t &config);
+
+  /**
+   * @brief 
+   * Get a copy of the current configuration of the encoder module
+   * @return encoder_config_t - the current configuration of the encoder module
+   */
+  encoder_config_t get_config();
 
   /**
    * @brief Constructor for the encoder module

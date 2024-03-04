@@ -1,43 +1,16 @@
 #include "resources.hpp"
 #include "repository.hpp"
 
-WebserverResourceRepository webserver::resources::ResourceRepository::create(std::vector<webserver::resources::ResourceType> resources)
+WebserverResourceRepository webserver::resources::ResourceRepository::create()
 {
-    if (resources.empty())
-        resources = {webserver::resources::RESOURCE_FRONTEND,
-                     webserver::resources::RESOURCE_OSD,
-                     webserver::resources::RESOURCE_ENCODER,
-                     webserver::resources::RESOURCE_AI,
-                     webserver::resources::RESOURCE_ISP,
-                     webserver::resources::RESOURCE_PRIVACY_MASK};
-
     std::vector<WebserverResource> resources_vec{};
-    for (const auto &resource : resources)
-    {
-        switch (resource)
-        {
-        case webserver::resources::RESOURCE_FRONTEND:
-            resources_vec.push_back(std::make_shared<webserver::resources::FrontendResource>());
-            break;
-        case webserver::resources::RESOURCE_ENCODER:
-            resources_vec.push_back(std::make_shared<webserver::resources::EncoderResource>());
-            break;
-        case webserver::resources::RESOURCE_OSD:
-            resources_vec.push_back(std::make_shared<webserver::resources::OsdResource>());
-            break;
-        case webserver::resources::RESOURCE_AI:
-            resources_vec.push_back(std::make_shared<webserver::resources::AiResource>());
-            break;
-        // case webserver::resources::RESOURCE_ISP:
-        //     resources_vec.push_back(std::make_shared<webserver::resources::IspResource>());
-        //     break;
-        // case webserver::resources::RESOURCE_PRIVACY_MASK:
-        //     resources_vec.push_back(std::make_shared<webserver::resources::PrivacyMaskResource>());
-        //     break;
-        default:
-            break;
-        }
-    }
+    auto ai_resource = std::make_shared<webserver::resources::AiResource>();
+    resources_vec.push_back(ai_resource);
+    resources_vec.push_back(std::make_shared<webserver::resources::IspResource>(ai_resource));
+    resources_vec.push_back(std::make_shared<webserver::resources::FrontendResource>());
+    resources_vec.push_back(std::make_shared<webserver::resources::EncoderResource>());
+    resources_vec.push_back(std::make_shared<webserver::resources::OsdResource>());
+    resources_vec.push_back(std::make_shared<webserver::resources::PrivacyMaskResource>());
 
     return std::make_shared<webserver::resources::ResourceRepository>(resources_vec);
 }

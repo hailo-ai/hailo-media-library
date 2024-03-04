@@ -38,9 +38,10 @@
 class MediaLibraryDenoise::Impl final
 {
 public:
-    static tl::expected<std::shared_ptr<MediaLibraryDenoise::Impl>, media_library_return>
-    create(std::string config_string);
+    static tl::expected<std::shared_ptr<MediaLibraryDenoise::Impl>, media_library_return> create();
+    static tl::expected<std::shared_ptr<MediaLibraryDenoise::Impl>, media_library_return> create(std::string config_string);
     // Constructor
+    Impl(media_library_return &status);
     Impl(media_library_return &status, std::string config_string);
     // Destructor
     ~Impl();
@@ -61,12 +62,19 @@ public:
     // get the hailort configurations object
     hailort_t &get_hailort_configs();
 
+    // get the enabled config status
+    bool is_enabled();
+
+    // set the callbacks object
+    media_library_return observe(const MediaLibraryDenoise::callbacks_t &callbacks);
+
 private:
     // configured flag - to determine if first configuration was done
     bool m_configured;
     // configuration manager
     std::shared_ptr<ConfigManager> m_denoise_config_manager;
     std::shared_ptr<ConfigManager> m_hailort_config_manager;
+    std::vector<MediaLibraryDenoise::callbacks_t> m_callbacks;
     // operation configurations
     denoise_config_t m_denoise_configs;
     hailort_t m_hailort_configs;
@@ -76,6 +84,15 @@ private:
 };
 
 //------------------------ MediaLibraryDenoise ------------------------
+tl::expected<std::shared_ptr<MediaLibraryDenoise>, media_library_return> MediaLibraryDenoise::create()
+{
+    auto impl_expected = Impl::create();
+    if (impl_expected.has_value())
+        return std::make_shared<MediaLibraryDenoise>(impl_expected.value());
+    else
+        return tl::make_unexpected(impl_expected.error());
+}
+
 tl::expected<std::shared_ptr<MediaLibraryDenoise>, media_library_return> MediaLibraryDenoise::create(std::string config_string)
 {
     auto impl_expected = Impl::create(config_string);
@@ -109,7 +126,27 @@ hailort_t &MediaLibraryDenoise::get_hailort_configs()
     return m_impl->get_hailort_configs();
 }
 
+bool MediaLibraryDenoise::is_enabled()
+{
+    return m_impl->is_enabled();
+}
+
+media_library_return MediaLibraryDenoise::observe(const MediaLibraryDenoise::callbacks_t &callbacks)
+{
+    return m_impl->observe(callbacks);
+}
+
 //------------------------ MediaLibraryDenoise::Impl ------------------------
+tl::expected<std::shared_ptr<MediaLibraryDenoise::Impl>, media_library_return> MediaLibraryDenoise::Impl::create()
+{
+    media_library_return status = MEDIA_LIBRARY_UNINITIALIZED;
+    std::shared_ptr<MediaLibraryDenoise::Impl> denoise = std::make_shared<MediaLibraryDenoise::Impl>(status);
+    if (status != MEDIA_LIBRARY_SUCCESS)
+    {
+        return tl::make_unexpected(status);
+    }
+    return denoise;
+}
 
 tl::expected<std::shared_ptr<MediaLibraryDenoise::Impl>, media_library_return> MediaLibraryDenoise::Impl::create(std::string config_string)
 {
@@ -120,6 +157,14 @@ tl::expected<std::shared_ptr<MediaLibraryDenoise::Impl>, media_library_return> M
         return tl::make_unexpected(status);
     }
     return denoise;
+}
+
+MediaLibraryDenoise::Impl::Impl(media_library_return &status)
+{
+    m_configured = false;
+    m_denoise_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_DENOISE);
+    m_hailort_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_HAILORT);
+    status = MEDIA_LIBRARY_SUCCESS;
 }
 
 MediaLibraryDenoise::Impl::Impl(media_library_return &status, std::string config_string)
@@ -185,9 +230,19 @@ media_library_return MediaLibraryDenoise::Impl::configure(denoise_config_t &deno
         LOGGER__ERROR("Failed to validate configurations");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
+    auto prev_enabled = m_denoise_configs.enabled;
     m_denoise_configs = denoise_configs;
     m_hailort_configs = hailort_configs;
+    bool enabled_changed = m_denoise_configs.enabled != prev_enabled;
+
+    // Call observing callbacks in case configuration changed
+    for (auto &callbacks : m_callbacks)
+    {
+        if ((!m_configured || enabled_changed) && callbacks.on_enable_changed)
+            callbacks.on_enable_changed(m_denoise_configs.enabled);
+    }
     m_configured = true;
+
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -199,4 +254,15 @@ denoise_config_t &MediaLibraryDenoise::Impl::get_denoise_configs()
 hailort_t &MediaLibraryDenoise::Impl::get_hailort_configs()
 {
     return m_hailort_configs;
+}
+
+bool MediaLibraryDenoise::Impl::is_enabled()
+{
+    return m_denoise_configs.enabled;
+}
+
+media_library_return MediaLibraryDenoise::Impl::observe(const MediaLibraryDenoise::callbacks_t &callbacks)
+{
+    m_callbacks.push_back(callbacks);
+    return MEDIA_LIBRARY_SUCCESS;
 }

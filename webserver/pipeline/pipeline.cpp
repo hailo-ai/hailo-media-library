@@ -1,102 +1,75 @@
-#include "pipeline.hpp"
+#include "pipeline/pipeline.hpp"
+#include "common/common.hpp"
+#include "resources/resources.hpp"
 #include <gst/gst.h>
+// #include "osd_utils.hpp"
 
+using namespace webserver::pipeline;
+using namespace webserver::resources;
 #ifndef MEDIALIB_LOCAL_SERVER
-#define UDP_HOST "10.0.0.2"
-#else
-#define UDP_HOST "127.0.0.1"
+using namespace privacy_mask_types;
 #endif
 
-std::shared_ptr<webserver::pipeline::IPipeline> webserver::pipeline::IPipeline::create()
+std::shared_ptr<Pipeline> Pipeline::create()
 {
-#ifndef MEDIALIB_LOCAL_SERVER
-    std::cout << "Creating pipeline" << std::endl;
-    return webserver::pipeline::Pipeline::create();
-#else
-    std::cout << "Creating dummy pipeline" << std::endl;
-    return webserver::pipeline::DummyPipeline::create();
-#endif
-}
+    auto resources = ResourceRepository::create();
+    auto osd_resource = std::static_pointer_cast<OsdResource>(resources->get(RESOURCE_OSD));
+    auto ai_resource = std::static_pointer_cast<AiResource>(resources->get(RESOURCE_AI));
 
-std::shared_ptr<webserver::pipeline::Pipeline> webserver::pipeline::Pipeline::create()
-{
-    auto resources = webserver::resources::ResourceRepository::create();
+    nlohmann::json enc_osd_conf = Pipeline::create_encoder_osd_config(osd_resource->get_current_osd_config(), resources->get(RESOURCE_ENCODER)->get());
 
     std::ostringstream pipeline;
-    pipeline << "v4l2src device=/dev/video0 io-mode=mmap ! ";
+    pipeline << "v4l2src device=" << V4L2_DEVICE_NAME << " io-mode=mmap ! ";
     pipeline << "video/x-raw,format=NV12,width=3840,height=2160,framerate=30/1 ! ";
-    pipeline << "queue leaky=downstream max-size-buffers=5 max-size-bytes=0 max-size-time=0 ! ";
-    pipeline << "hailofrontend name=frontend config-string='" << resources->get(webserver::resources::RESOURCE_FRONTEND)->to_string() << "' ";
+    pipeline << "queue name=q1 leaky=downstream max-size-buffers=2 max-size-bytes=0 max-size-time=0 ! ";
+    pipeline << "hailodenoise name=denoise config-string='" << ai_resource->get_ai_config(AiResource::AiApplications::AI_APPLICATION_DENOISE) << "' ! ";
+    pipeline << "video/x-raw,format=NV12,width=3840,height=2160,framerate=30/1 ! ";
+    pipeline << "queue name=q2 leaky=no max-size-buffers=2 max-size-bytes=0 max-size-time=0 ! ";
+    pipeline << "hailodefog name=defog config-string='" << ai_resource->get_ai_config(AiResource::AiApplications::AI_APPLICATION_DEFOG) << "' ! ";
+    pipeline << "video/x-raw,format=NV12,width=3840,height=2160,framerate=30/1 ! ";
+    pipeline << "queue name=q3 leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! ";
+    pipeline << "hailofrontend name=frontend config-string='" << resources->get(RESOURCE_FRONTEND)->to_string() << "' ";
+    pipeline << "hailomuxer name=mux ";
     pipeline << "frontend. ! ";
-    pipeline << "queue leaky=no max-size-buffers=5 max-size-bytes=0 max-size-time=0 ! ";
-    // pipeline << "hailoosd name=osd config-str=" << resources->get(webserver::resources::RESOURCE_OSD)->to_string() << " ! ";
-    // pipeline << "queue leaky=no max-size-buffers=5 max-size-bytes=0 max-size-time=0 ! ";
-    // pipeline << "hailonet name=detection hef-path=" << ai_config["detection_hef_path"] << " is-active=" << ai_config["detection_active"] << " ! ";
-    // pipeline << "queue leaky=no max-size-buffers=5 max-size-bytes=0 max-size-time=0 ! ";
-    pipeline << "hailoencoder name=enc config-str=" << resources->get(webserver::resources::RESOURCE_ENCODER)->to_string() << " ! ";
+    pipeline << "queue name=q4 leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! ";
+    pipeline << "mux. ";
+    pipeline << "frontend. ! ";
+    pipeline << "queue name=q5 leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! ";
+    pipeline << "hailovideoscale ! video/x-raw, width=640, height=640 ! ";
+    pipeline << "queue name=q6 leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! ";
+    pipeline << "hailonet2 name=detection hef-path=/home/root/apps/detection/resources/yolov5m_wo_spp_60p_nv12_640.hef pass-through=false nms-iou-threshold=0.45 nms-score-threshold=0.3 scheduling-algorithm=1 vdevice-group-id=device0 ! ";
+    pipeline << "queue name=q7 leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! ";
+    pipeline << "hailofilter function-name=yolov5m config-path=/home/root/apps/detection/resources/configs/yolov5.json so-path=/usr/lib/hailo-post-processes/libyolo_hailortpp_post.so qos=false ! ";
+    pipeline << "queue name=q8 leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! ";
+    pipeline << "mux. ";
+    pipeline << "mux. ! ";
+    pipeline << "hailooverlay qos=false ! ";
+    pipeline << "hailoencodebin name=enc enforce-caps=false config-string='" << enc_osd_conf.dump() << "' ! ";
+    pipeline << "video/x-h264,framerate=30/1 ! ";
+    pipeline << "queue name=q10 leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! ";
     pipeline << "h264parse config-interval=-1 ! ";
-    pipeline << "video/x-h264,framerate=30 ! ";
-    pipeline << "queue leaky=no max-size-buffers=5 max-size-bytes=0 max-size-time=0 ! ";
-    pipeline << "rtph264pay ! ";
+    pipeline << "queue name=q11 leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! ";
+    pipeline << "rtph264pay config-interval=1 ! ";
+    pipeline << "application/x-rtp, media=(string)video, encoding-name=(string)H264 ! ";
     pipeline << "udpsink host=" << UDP_HOST << " port=5000";
     std::string pipeline_str = pipeline.str();
     std::cout << "Pipeline: \n"
               << pipeline_str << std::endl;
-    return std::make_shared<webserver::pipeline::Pipeline>(resources, pipeline_str);
+    return std::make_shared<Pipeline>(resources, pipeline_str);
 }
 
-std::shared_ptr<webserver::pipeline::DummyPipeline> webserver::pipeline::DummyPipeline::create()
+nlohmann::json webserver::pipeline::Pipeline::create_encoder_osd_config(nlohmann::json osd_config, nlohmann::json encoder_config)
 {
-    std::ostringstream pipeline;
-    pipeline << "videotestsrc pattern=ball ! ";
-    pipeline << "video/x-raw,width=320,height=240,framerate=30/1 ! ";
-    pipeline << "x264enc ! ";
-    pipeline << "matroskamux streamable=true ! ";
-    pipeline << "udpsink host=" << UDP_HOST << " port=5000";
-
-    std::string pipeline_str = pipeline.str();
-    std::cout << "Pipeline: \n"
-              << pipeline_str << std::endl;
-    return std::make_shared<webserver::pipeline::DummyPipeline>(webserver::resources::ResourceRepository::create(), pipeline_str);
+    nlohmann::json encoder_osd_config;
+    encoder_osd_config["osd"] = osd_config;
+    encoder_osd_config["hailo_encoder"] = encoder_config;
+    return encoder_osd_config;
 }
 
-webserver::pipeline::IPipeline::IPipeline(WebserverResourceRepository resources, std::string gst_pipeline_str)
+void webserver::pipeline::Pipeline::restart_stream()
 {
-    m_resources = resources;
-    m_gst_pipeline_str = gst_pipeline_str;
+    std::cout << "Restarting Gstreamer Pipeline!" << std::endl;
 
-    gst_init(nullptr, nullptr);
-
-    m_pipeline = gst_parse_launch(gst_pipeline_str.c_str(), NULL);
-    if (!m_pipeline)
-    {
-        std::cout << "Failed to create pipeline" << std::endl;
-        throw std::runtime_error("Failed to create pipeline");
-    }
-    m_main_loop = g_main_loop_new(NULL, FALSE);
-}
-
-webserver::pipeline::IPipeline::~IPipeline()
-{
-    gst_object_unref(m_pipeline);
-}
-
-void webserver::pipeline::IPipeline::start()
-{
-    std::cout << "Starting pipeline" << std::endl;
-    GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
-    if (ret == GST_STATE_CHANGE_FAILURE)
-    {
-        std::cout << "Failed to start pipeline" << std::endl;
-        throw std::runtime_error("Failed to start pipeline");
-    }
-    m_main_loop_thread = std::make_shared<std::thread>(
-        [this]()
-        { g_main_loop_run(m_main_loop); });
-}
-
-void webserver::pipeline::IPipeline::stop()
-{
     gboolean ret = gst_element_send_event(m_pipeline, gst_event_new_eos());
     if (!ret)
     {
@@ -104,12 +77,37 @@ void webserver::pipeline::IPipeline::stop()
         throw std::runtime_error("Failed to send EOS event");
     }
 
-    gst_element_set_state(m_pipeline, GST_STATE_NULL);
-    g_main_loop_quit(m_main_loop);
     m_main_loop_thread->join();
+
+    gst_element_set_state(m_pipeline, GST_STATE_NULL);
+
+    std::cout << "Joined main loop thread" << std::endl;
+
+    gst_object_unref(m_pipeline);
+    m_pipeline = gst_parse_launch(m_gst_pipeline_str.c_str(), NULL);
+    if (!m_pipeline)
+    {
+        std::cout << "Failed to create pipeline" << std::endl;
+        throw std::runtime_error("Failed to create pipeline");
+    }
+
+    std::cout << "Starting pipeline" << std::endl;
+    ret = gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
+
+    if (ret == GST_STATE_CHANGE_FAILURE)
+    {
+        std::cout << "Failed to start pipeline" << std::endl;
+        throw std::runtime_error("Failed to start pipeline");
+    }
+
+    m_main_loop_thread = std::make_shared<std::thread>(
+        [this]()
+        {
+            wait_for_end_of_pipeline();
+        });
 }
 
-webserver::pipeline::Pipeline::Pipeline(WebserverResourceRepository resources, std::string gst_pipeline_str)
+Pipeline::Pipeline(WebserverResourceRepository resources, std::string gst_pipeline_str)
     : IPipeline(resources, gst_pipeline_str)
 {
     for (const auto &[key, val] : resources->get_all_types())
@@ -119,113 +117,150 @@ webserver::pipeline::Pipeline::Pipeline(WebserverResourceRepository resources, s
             auto resource = resources->get(resource_type);
             if (resource == nullptr)
                 continue;
-            resource->subscribe_callback([this](webserver::resources::ResourceStateChangeNotification notif)
+            resource->subscribe_callback([this](ResourceStateChangeNotification notif)
                                          { this->callback_handle_strategy(notif); });
         }
     }
 }
 
-webserver::pipeline::DummyPipeline::DummyPipeline(WebserverResourceRepository resources, std::string gst_pipeline_str)
-    : IPipeline(resources, gst_pipeline_str)
+void Pipeline::callback_handle_strategy(ResourceStateChangeNotification notif)
 {
-    for (const auto &[key, val] : resources->get_all_types())
-    {
-        for (const auto &resource_type : val)
-        {
-            auto resource = resources->get(resource_type);
-            if (resource == nullptr)
-                continue;
-            resource->subscribe_callback([this](webserver::resources::ResourceStateChangeNotification notif)
-                                         { this->callback_handle_strategy(notif); });
-        }
-    }
-}
-
-void webserver::pipeline::DummyPipeline::callback_handle_strategy(webserver::resources::ResourceStateChangeNotification notif)
-{
-    std::string data_string;
+    std::cout << "Pipeline Resource callback, type: " << notif.resource_type << std::endl;
     switch (notif.resource_type)
     {
-    case webserver::resources::RESOURCE_AI:
+    case RESOURCE_FRONTEND:
     {
-        auto state = std::static_pointer_cast<webserver::resources::AiResource::AiResourceState>(notif.resource_state);
-        data_string = "\n\tenabled: ";
-        for (const auto &app : state->enabled)
-        {
-            data_string += std::to_string(app) + ", ";
-        }
-        data_string += "\n\tdisabled: ";
-        for (const auto &app : state->disabled)
-        {
-            data_string += std::to_string(app) + ", ";
-        }
-        break;
-    }
-    case webserver::resources::RESOURCE_FRONTEND:
-    case webserver::resources::RESOURCE_ENCODER:
-    case webserver::resources::RESOURCE_OSD:
-    {
-        data_string = "";
-        break;
-    }
-    default:
-        data_string = "???";
-        break;
-    }
-
-    std::cout << "Dummy pipeline Resource callback, type: " << notif.resource_type << " data: " << data_string << std::endl;
-}
-
-void webserver::pipeline::Pipeline::callback_handle_strategy(webserver::resources::ResourceStateChangeNotification notif)
-{
-    switch (notif.resource_type)
-    {
-    case webserver::resources::RESOURCE_FRONTEND:
-    {
-        auto state = std::static_pointer_cast<webserver::resources::ConfigResourceState>(notif.resource_state);
         GstElement *frontend = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
-        g_object_set(frontend, "config-string", state->config.c_str(), NULL);
+        std::string conf = m_resources->get(RESOURCE_FRONTEND)->to_string();
+        std::cout << "Setting frontend config: " << conf << std::endl;
+        g_object_set(frontend, "config-string", conf.c_str(), NULL);
         gst_object_unref(frontend);
         break;
     }
-    case webserver::resources::RESOURCE_ENCODER:
+    case RESOURCE_OSD:
+    case RESOURCE_ENCODER:
     {
-        auto state = std::static_pointer_cast<webserver::resources::ConfigResourceState>(notif.resource_state);
         GstElement *encoder = gst_bin_get_by_name(GST_BIN(m_pipeline), "enc");
-        g_object_set(encoder, "config-str", state->config.c_str(), NULL);
+        auto osd_conf = std::static_pointer_cast<OsdResource>(m_resources->get(RESOURCE_OSD))->get();
+        auto enc_conf = m_resources->get(RESOURCE_ENCODER)->get();
+        std::cout << "Setting encoder config: " << enc_conf << std::endl;
+        std::cout << "Setting osd config: " << osd_conf << std::endl;
+        nlohmann::json enc_osd_conf = Pipeline::create_encoder_osd_config(osd_conf, enc_conf);
+        g_object_set(encoder, "config-string", enc_osd_conf.dump(), NULL);
         gst_object_unref(encoder);
         break;
-    }
-    case webserver::resources::RESOURCE_OSD:
-    {
-        auto state = std::static_pointer_cast<webserver::resources::ConfigResourceState>(notif.resource_state);
-        GstElement *osd = gst_bin_get_by_name(GST_BIN(m_pipeline), "osd");
-        g_object_set(osd, "config-str", state->config.c_str(), NULL);
-        gst_object_unref(osd);
+
+        // GstElement *osd = gst_bin_get_by_name(GST_BIN(m_pipeline), "osd");
+
+        // auto osd_resource = std::static_pointer_cast<OsdResource>(m_resources->get(RESOURCE_OSD));
+        // std::string conf = osd_resource->get_current_osd_config();
+        // auto m_blender = gst_hailoosd_get_blender(osd);
+
+        // std::map<std::string, bool> osd_config;
+        // for (auto &config : osd_resource->get_current_osd_internal_config())
+        // {
+        //     osd_config[config["id"]] = config["enabled"];
+        // }
+
+        // for (auto &config : osd_config)
+        // {
+        //     std::string id = config.first;
+        //     bool enabled = config.second;
+
+        //     bool is_overlay_contained = m_blender->is_overlay_contained(id);
+
+        //     if (enabled && !is_overlay_contained)
+        //     {
+        //         auto osd_to_add = osd_resource->get_osd_config_by_id(id);
+        //         m_blender->add_overlay(osd_to_add);
+        //     }
+        //     else if (!enabled && is_overlay_contained)
+        //     {
+        //         m_blender->remove_overlay(id);
+        //     }
+        // }
+
+        // gst_object_unref(osd);
         break;
     }
-    case webserver::resources::RESOURCE_AI:
+    case RESOURCE_AI:
     {
-        auto state = std::static_pointer_cast<webserver::resources::AiResource::AiResourceState>(notif.resource_state);
+        auto state = std::static_pointer_cast<AiResource::AiResourceState>(notif.resource_state);
 
-        GstElement *detection = gst_bin_get_by_name(GST_BIN(m_pipeline), "detection");
-        gboolean detection_enabled;
-        g_object_get(detection, "is-active", &detection_enabled, NULL);
-        if (detection_enabled)
+        // disable detection if it's in the disabled list
+        if (std::find(state->disabled.begin(), state->disabled.end(), AiResource::AI_APPLICATION_DETECTION) != state->disabled.end())
         {
-            if (std::find(state->disabled.begin(), state->disabled.end(), webserver::resources::AiResource::AI_APPLICATION_DETECTION) == state->disabled.end())
+            GstElement *detection = gst_bin_get_by_name(GST_BIN(m_pipeline), "detection");
+            g_object_set(detection, "pass-through", TRUE, NULL);
+            gst_object_unref(detection);
+        }
+        // enable detection if it's in the enabled list
+        else if (std::find(state->enabled.begin(), state->enabled.end(), AiResource::AI_APPLICATION_DETECTION) != state->enabled.end())
+        {
+            GstElement *detection = gst_bin_get_by_name(GST_BIN(m_pipeline), "detection");
+            g_object_set(detection, "pass-through", FALSE, NULL);
+            gst_object_unref(detection);
+        }
+
+        auto ai_resource = std::static_pointer_cast<AiResource>(m_resources->get(RESOURCE_AI));
+
+        // if denoise is in any of the lists, update its config
+        if (std::find(state->enabled.begin(), state->enabled.end(), AiResource::AI_APPLICATION_DENOISE) != state->enabled.end() ||
+            std::find(state->disabled.begin(), state->disabled.end(), AiResource::AI_APPLICATION_DENOISE) != state->disabled.end())
+        {
+            GstElement *denoise = gst_bin_get_by_name(GST_BIN(m_pipeline), "denoise");
+            g_object_set(denoise, "config-string", ai_resource->get_ai_config(AiResource::AI_APPLICATION_DENOISE).c_str(), NULL);
+            gst_object_unref(denoise);
+        }
+
+        // if defog is in any of the lists, update its config
+        if (std::find(state->enabled.begin(), state->enabled.end(), AiResource::AI_APPLICATION_DEFOG) != state->enabled.end() ||
+            std::find(state->disabled.begin(), state->disabled.end(), AiResource::AI_APPLICATION_DEFOG) != state->disabled.end())
+        {
+            GstElement *defog = gst_bin_get_by_name(GST_BIN(m_pipeline), "defog");
+            g_object_set(defog, "config-string", ai_resource->get_ai_config(AiResource::AI_APPLICATION_DEFOG).c_str(), NULL);
+            gst_object_unref(defog);
+        }
+
+        break;
+    }
+    case RESOURCE_ISP:
+    {
+        auto state = std::static_pointer_cast<IspResource::IspResourceState>(notif.resource_state);
+        if (state->should_restart_stream)
+            this->restart_stream();
+        break;
+    }
+    case RESOURCE_PRIVACY_MASK:
+    {
+        auto state = std::static_pointer_cast<PrivacyMaskResource::PrivacyMaskResourceState>(notif.resource_state);
+        if (state->enabled.empty() && state->disabled.empty())
+        {
+            return;
+        }
+        std::shared_ptr<PrivacyMaskResource> pm_resource = std::static_pointer_cast<PrivacyMaskResource>(m_resources->get(RESOURCE_PRIVACY_MASK));
+        auto masks = pm_resource->get_privacy_masks();
+
+        GstElement *frontend = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
+        GValue val = G_VALUE_INIT;
+        g_object_get_property(G_OBJECT(frontend), "privacy-mask", &val);
+        void *value_ptr = g_value_get_pointer(&val);
+        auto privacy_blender = (PrivacyMaskBlender *)value_ptr;
+
+        for (std::string id : state->enabled)
+        {
+            if (masks.find(id) != masks.end())
             {
-                g_object_set(detection, "is-active", FALSE, NULL);
+                privacy_blender->add_privacy_mask(masks[id]);
             }
         }
-        else
+        for (std::string id : state->disabled)
         {
-            if (std::find(state->enabled.begin(), state->enabled.end(), webserver::resources::AiResource::AI_APPLICATION_DETECTION) == state->enabled.end())
+            if (masks.find(id) != masks.end())
             {
-                g_object_set(detection, "is-active", TRUE, NULL);
+                privacy_blender->remove_privacy_mask(id);
             }
         }
-        gst_object_unref(detection);
 
         break;
     }

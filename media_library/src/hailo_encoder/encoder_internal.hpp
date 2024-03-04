@@ -39,6 +39,20 @@ extern "C"
 #include "encoder_gop_config.hpp"
 #include "encoder_internal.hpp"
 
+enum encoder_stream_restart_t
+{
+  STREAM_RESTART_NONE = 0,
+  STREAM_RESTART,
+  STREAM_RESTART_HARD
+};
+enum encoder_config_type_t
+{
+  ENCODER_CONFIG_RATE_CONTROL = 0,
+  ENCODER_CONFIG_PRE_PROCESSING,
+  ENCODER_CONFIG_CODING_CONTROL,
+  ENCODER_CONFIG_GOP,
+  ENCODER_CONFIG_STREAM
+};
 struct EncoderCounters
 {
   i32 picture_cnt;
@@ -83,6 +97,8 @@ private:
   class gopConfig;
   std::unique_ptr<gopConfig> m_gop_cfg;
   MediaLibraryBufferPoolPtr m_buffer_pool;
+  encoder_stream_restart_t m_stream_restart;
+  std::vector<encoder_config_type_t> m_update_required;
 
 public:
   Impl(std::string json_string);
@@ -91,32 +107,43 @@ public:
   void force_keyframe();
   void update_stride(uint32_t stride);
   int get_gop_size();
-  std::shared_ptr<EncoderConfig> get_config();
+  media_library_return configure(std::string json_string);
+  media_library_return configure(const encoder_config_t &config);
+  encoder_config_t get_config();
   EncoderOutputBuffer start();
   EncoderOutputBuffer stop();
 
   // static const char *json_schema const get_json_schema() const;
   // static const char * const load_json_schema() const;
 private:
-  void updateArea(nlohmann::json &area, VCEncPictureArea &vc_area);
-  void init_gop_config();
-  void init_buffer_pool();
+  void updateArea(coding_roi_t &area, VCEncPictureArea &vc_area);
+  void updateArea(coding_roi_area_t &area, VCEncPictureArea &vc_area);
+  int init_gop_config();
+  void create_gop_config();
+  void init_buffer_pool(uint pool_size);
   VCEncRet init_coding_control_config();
   VCEncRet init_rate_control_config();
   VCEncRet init_preprocessing_config();
   VCEncRet init_encoder_config();
+  void stamp_time_and_log_fps(timespec &start_handle, timespec &end_handle);
   VCEncLevel get_level(std::string level, bool codecH264);
   VCEncPictureType get_input_format(std::string format);
   VCEncPictureCodingType find_next_pic();
   media_library_return update_input_buffer(HailoMediaLibraryBufferPtr buf);
   media_library_return create_output_buffer(EncoderOutputBuffer &output_buf);
   int allocate_output_memory();
+  media_library_return update_configurations();
+  media_library_return update_gop_configurations();
+  media_library_return stream_restart();
+  media_library_return encode_header();
   media_library_return
   encode_frame(HailoMediaLibraryBufferPtr buf,
                std::vector<EncoderOutputBuffer> &outputs);
   media_library_return
   encode_multiple_frames(std::vector<EncoderOutputBuffer> &outputs);
   uint32_t get_codec();
+  bool hard_restart_required(const encoder_config_t &new_config, bool gop_update_required);
+  bool gop_config_update_required(const encoder_config_t &new_config);
   VCEncProfile get_profile();
 };
 
@@ -130,15 +157,15 @@ private:
   uint8_t m_gop_cfg_offset[MAX_GOP_SIZE + 1];
   int m_b_frame_qp_delta;
   bool m_codec_h264;
-  int init_config();
   int ReadGopConfig(std::vector<GopPicConfig> &config, int gopSize);
   int ParseGopConfigLine(GopPicConfig &pic_cfg, int gopSize);
 
 public:
   gopConfig(VCEncGopConfig *gopConfig, int gopSize, int bFrameQpDelta,
             bool codecH264);
+  int init_config(VCEncGopConfig *gopConfig, int gop_size, int b_frame_qp_delta, bool codec_h264);
   int get_gop_size() const;
   ~gopConfig() = default;
-  const VCEncGopPicConfig *get_gop_pic_cfg() const { return m_gop_pic_cfg; }
+  VCEncGopPicConfig *get_gop_pic_cfg() { return m_gop_pic_cfg; }
   const uint8_t *get_gop_cfg_offset() const { return m_gop_cfg_offset; }
 };

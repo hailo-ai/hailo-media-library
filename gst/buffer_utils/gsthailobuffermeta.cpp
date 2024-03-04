@@ -28,8 +28,6 @@
 
 static gboolean gst_hailo_buffer_meta_init(GstMeta *meta, gpointer params, GstBuffer *buffer);
 static void gst_hailo_buffer_meta_free(GstMeta *meta, GstBuffer *buffer);
-static gboolean gst_hailo_buffer_meta_transform(GstBuffer *transbuf, GstMeta *meta, GstBuffer *buffer,
-                                                GQuark type, gpointer data);
 
 // Register metadata type and returns Gtype
 // https://gstreamer.freedesktop.org/data/doc/gstreamer/head/gstreamer/html/gstreamer-GstMeta.html#gst-meta-api-type-register
@@ -60,7 +58,7 @@ const GstMetaInfo *gst_hailo_buffer_meta_get_info(void)
                                                     sizeof(GstHailoBufferMeta),     /* size of the structure */
                                                     gst_hailo_buffer_meta_init,
                                                     (GstMetaFreeFunction)gst_hailo_buffer_meta_free,
-                                                    gst_hailo_buffer_meta_transform);
+                                                    (GstMetaTransformFunction)nullptr);
         g_once_init_leave(&gst_hailo_buffer_meta_info, meta);
     }
     return gst_hailo_buffer_meta_info;
@@ -93,29 +91,6 @@ static void gst_hailo_buffer_meta_free(GstMeta *meta, GstBuffer *buffer)
         gst_hailo_buffer_meta->buffer_ptr->decrease_ref_count();
     gst_hailo_buffer_meta->buffer_ptr = nullptr;
     gst_hailo_buffer_meta->used_size = 0;
-}
-
-// Meta transform function
-// Sixth field in GstMetaInfo
-// https://gstreamer.freedesktop.org/data/doc/gstreamer/head/gstreamer/html/gstreamer-GstMeta.html#GstMetaTransformFunction
-static gboolean gst_hailo_buffer_meta_transform(GstBuffer *transbuf, GstMeta *meta, GstBuffer *buffer,
-                                                GQuark type, gpointer data)
-{
-    GstHailoBufferMeta *gst_hailo_buffer_meta = (GstHailoBufferMeta *)meta;
-    HailoMediaLibraryBufferPtr buffer_ptr = gst_hailo_buffer_meta->buffer_ptr;
-    uint32_t used_size = gst_hailo_buffer_meta->used_size;
-
-    GstHailoBufferMeta *new_hailo_meta = gst_buffer_add_hailo_buffer_meta(transbuf, buffer_ptr, used_size);
-    if (gst_buffer_is_writable(buffer))
-        gst_buffer_remove_meta(buffer, &gst_hailo_buffer_meta->meta);
-
-    if (!new_hailo_meta)
-    {
-        GST_ERROR("gst_hailo_buffer_meta_transform: failed to transform hailo_meta");
-        return FALSE;
-    }
-
-    return TRUE;
 }
 
 GstHailoBufferMeta *gst_buffer_get_hailo_meta(GstBuffer *buffer)
@@ -163,7 +138,7 @@ GstHailoBufferMeta *gst_buffer_add_hailo_buffer_meta(GstBuffer *buffer,
  * @return gboolean whether removal was successfull (TRUE if there isn't GstHailoBufferMeta).
  * @note Removes only the first GstHailoBufferMeta in this buffer.
  */
-gboolean gst_buffer_remove_hailo_meta(GstBuffer *buffer)
+gboolean gst_buffer_remove_hailo_buffer_meta(GstBuffer *buffer)
 {
     g_return_val_if_fail((int)GST_IS_BUFFER(buffer), false);
 

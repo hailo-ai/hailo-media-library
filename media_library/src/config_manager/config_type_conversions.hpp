@@ -26,6 +26,7 @@
 #include <nlohmann/json-schema.hpp>
 #include "media_library_types.hpp"
 #include "media_library_logger.hpp"
+#include "encoder_config.hpp"
 
 #define MEDIALIB_JSON_SERIALIZE_ENUM(ENUM_TYPE, ...)                                    \
     template <typename BasicJsonType>                                                   \
@@ -112,6 +113,12 @@ MEDIALIB_JSON_SERIALIZE_ENUM(denoise_method_t, {
                                                    {DENOISE_METHOD_VD3, "HIGH_PERFORMANCE"},
                                                })
 
+
+MEDIALIB_JSON_SERIALIZE_ENUM(codec_t, {
+                                        {CODEC_TYPE_H264, "CODEC_TYPE_H264"},
+                                        {CODEC_TYPE_HEVC, "CODEC_TYPE_HEVC"},
+                                      })                                   
+
 //------------------------ roi_t ------------------------
 
 void to_json(nlohmann::json &j, const roi_t &roi)
@@ -172,6 +179,240 @@ void from_json(const nlohmann::json &j, dis_debug_config_t &dis_debug)
     j.at("fix_stabilization").get_to(dis_debug.fix_stabilization);
     j.at("fix_stabilization_longitude").get_to(dis_debug.fix_stabilization_longitude);
     j.at("fix_stabilization_latitude").get_to(dis_debug.fix_stabilization_latitude);
+}
+
+//------------------------encoder_config_t ------------------------
+
+void to_json(nlohmann::json &j, const input_config_t &in_conf)
+{
+    j = nlohmann::json{
+        {"width", in_conf.width},
+        {"height", in_conf.height},
+        {"framerate", in_conf.framerate},
+        {"format", in_conf.format},
+    };
+}
+
+void from_json(const nlohmann::json &j, input_config_t &in_conf)
+{
+    j.at("width").get_to(in_conf.width);
+    j.at("height").get_to(in_conf.height);
+    j.at("framerate").get_to(in_conf.framerate);
+    j.at("format").get_to(in_conf.format);
+}
+
+void to_json(nlohmann::json &j, const output_config_t &out_conf)
+{
+    j = nlohmann::json{
+        {"codec", out_conf.codec},
+        {"profile", out_conf.profile},
+        {"level", out_conf.level},
+    };
+}
+
+void from_json(const nlohmann::json &j, output_config_t &out_conf)
+{
+    j.at("codec").get_to(out_conf.codec);
+    j.at("profile").get_to(out_conf.profile);
+    j.at("level").get_to(out_conf.level);
+}
+
+void to_json(nlohmann::json &j, const stream_config_t &stream_conf)
+{
+    j = nlohmann::json{
+        {"input_stream", stream_conf.input_stream},
+        {"output_stream", stream_conf.output_stream},
+    };
+}
+
+void from_json(const nlohmann::json &j, stream_config_t &stream_conf)
+{
+    j.at("input_stream").get_to(stream_conf.input_stream);
+    j.at("output_stream").get_to(stream_conf.output_stream);
+}
+
+void to_json(nlohmann::json &j, const gop_config_t &gop_conf)
+{
+    j = nlohmann::json{
+        {"gop_size", gop_conf.gop_size},
+        {"b_frame_qp_delta", gop_conf.b_frame_qp_delta},
+    };
+}
+
+void from_json(const nlohmann::json &j, gop_config_t &gop_conf)
+{
+    j.at("gop_size").get_to(gop_conf.gop_size);
+    j.at("b_frame_qp_delta").get_to(gop_conf.b_frame_qp_delta);
+}
+
+void to_json(nlohmann::json &j, const deblocking_filter_t &df_conf)
+{
+    j = nlohmann::json{
+        {"type", df_conf.type},
+        {"tc_offset", df_conf.tc_offset},
+        {"beta_offset", df_conf.beta_offset},
+        {"deblock_override", df_conf.deblock_override},
+    };
+}
+
+void from_json(const nlohmann::json &j, deblocking_filter_t &df_conf)
+{
+    j.at("type").get_to(df_conf.type);
+    j.at("tc_offset").get_to(df_conf.tc_offset);
+    j.at("beta_offset").get_to(df_conf.beta_offset);
+    j.at("deblock_override").get_to(df_conf.deblock_override);
+}
+
+void to_json(nlohmann::json &j, const coding_roi_area_t &roi_conf)
+{
+    j = nlohmann::json{
+        {"enable", roi_conf.enable},
+        {"top", roi_conf.top},
+        {"left", roi_conf.left},
+        {"bottom", roi_conf.bottom},
+        {"right", roi_conf.right},
+        {"qp_delta", roi_conf.qp_delta},
+    };
+}
+
+void from_json(const nlohmann::json &j, coding_roi_area_t &roi_conf)
+{
+    j.at("enable").get_to(roi_conf.enable);
+    j.at("top").get_to(roi_conf.top);
+    j.at("left").get_to(roi_conf.left);
+    j.at("bottom").get_to(roi_conf.bottom);
+    j.at("right").get_to(roi_conf.right);
+    j.at("qp_delta").get_to(roi_conf.qp_delta);
+}
+
+void to_json(nlohmann::json &j, const coding_roi_t &intra_conf)
+{
+    j = nlohmann::json{
+        {"enable", intra_conf.enable},
+        {"top", intra_conf.top},
+        {"left", intra_conf.left},
+        {"bottom", intra_conf.bottom},
+        {"right", intra_conf.right},
+    };
+}
+
+void from_json(const nlohmann::json &j, coding_roi_t &intra_conf)
+{
+    j.at("enable").get_to(intra_conf.enable);
+    j.at("top").get_to(intra_conf.top);
+    j.at("left").get_to(intra_conf.left);
+    j.at("bottom").get_to(intra_conf.bottom);
+    j.at("right").get_to(intra_conf.right);
+}
+
+void to_json(nlohmann::json &j, const coding_control_config_t &cc_conf)
+{
+    j = nlohmann::json{
+        {"sei_messages", cc_conf.sei_messages},
+        {"deblocking_filter", cc_conf.deblocking_filter},
+        {"intra_area", cc_conf.intra_area},
+        {"ipcm_area1", cc_conf.ipcm_area1},
+        {"ipcm_area2", cc_conf.ipcm_area2},
+        {"roi_area1", cc_conf.roi_area1},
+        {"roi_area2", cc_conf.roi_area2},
+    };
+}
+
+void from_json(const nlohmann::json &j, coding_control_config_t &cc_conf)
+{
+    j.at("sei_messages").get_to(cc_conf.sei_messages);
+    j.at("deblocking_filter").get_to(cc_conf.deblocking_filter);
+    j.at("intra_area").get_to(cc_conf.intra_area);
+    j.at("ipcm_area1").get_to(cc_conf.ipcm_area1);
+    j.at("ipcm_area2").get_to(cc_conf.ipcm_area2);
+    j.at("roi_area1").get_to(cc_conf.roi_area1);
+    j.at("roi_area2").get_to(cc_conf.roi_area2);
+}
+
+void to_json(nlohmann::json &j, const bitrate_config_t &bitrate_conf)
+{
+    j = nlohmann::json{
+        {"target_bitrate", bitrate_conf.target_bitrate},
+        {"bit_var_range_i", bitrate_conf.bit_var_range_i},
+        {"bit_var_range_p", bitrate_conf.bit_var_range_p},
+        {"bit_var_range_b", bitrate_conf.bit_var_range_b},
+        {"tolerance_moving_bitrate", bitrate_conf.tolerance_moving_bitrate},
+    };
+}
+
+void from_json(const nlohmann::json &j, bitrate_config_t &bitrate_conf)
+{
+    j.at("target_bitrate").get_to(bitrate_conf.target_bitrate);
+    j.at("bit_var_range_i").get_to(bitrate_conf.bit_var_range_i);
+    j.at("bit_var_range_p").get_to(bitrate_conf.bit_var_range_p);
+    j.at("bit_var_range_b").get_to(bitrate_conf.bit_var_range_b);
+    j.at("tolerance_moving_bitrate").get_to(bitrate_conf.tolerance_moving_bitrate);
+}
+
+void to_json(nlohmann::json &j, const quantization_config_t &q_conf)
+{
+    j = nlohmann::json{
+        {"qp_min", q_conf.qp_min},
+        {"qp_max", q_conf.qp_max},
+        {"qp_hdr", q_conf.qp_hdr},
+        {"intra_qp_delta", q_conf.intra_qp_delta},
+        {"fixed_intra_qp", q_conf.fixed_intra_qp},
+    };
+}
+
+void from_json(const nlohmann::json &j, quantization_config_t &q_conf)
+{
+    j.at("qp_min").get_to(q_conf.qp_min);
+    j.at("qp_max").get_to(q_conf.qp_max);
+    j.at("qp_hdr").get_to(q_conf.qp_hdr);
+    j.at("intra_qp_delta").get_to(q_conf.intra_qp_delta);
+    j.at("fixed_intra_qp").get_to(q_conf.fixed_intra_qp);
+}
+
+void to_json(nlohmann::json &j, const rate_control_config_t &rc_conf)
+{
+    j = nlohmann::json{
+        {"picture_rc", rc_conf.picture_rc},
+        {"picture_skip", rc_conf.picture_skip},
+        {"ctb_rc", rc_conf.ctb_rc},
+        {"hrd", rc_conf.hrd},
+        {"block_rc_size", rc_conf.block_rc_size}, 
+        {"monitor_frames", rc_conf.monitor_frames},
+        {"gop_length", rc_conf.gop_length}, 
+        {"bitrate", rc_conf.bitrate},
+        {"quantization", rc_conf.quantization},	
+    };
+}
+
+void from_json(const nlohmann::json &j, rate_control_config_t &rc_conf)
+{
+    j.at("picture_rc").get_to(rc_conf.picture_rc);
+    j.at("picture_skip").get_to(rc_conf.picture_skip);
+    j.at("ctb_rc").get_to(rc_conf.ctb_rc);
+    j.at("hrd").get_to(rc_conf.hrd);
+    j.at("block_rc_size").get_to(rc_conf.block_rc_size);
+    j.at("monitor_frames").get_to(rc_conf.monitor_frames);
+    j.at("gop_length").get_to(rc_conf.gop_length);
+    j.at("bitrate").get_to(rc_conf.bitrate);
+    j.at("quantization").get_to(rc_conf.quantization);
+}
+
+void to_json(nlohmann::json &j, const encoder_config_t &enc_conf)
+{
+    j = nlohmann::json{
+        {"config", enc_conf.stream},
+        {"gop_config", enc_conf.gop},
+        {"coding_cotnrol", enc_conf.coding_control},
+        {"rate_control", enc_conf.rate_control},
+    };
+}
+
+void from_json(const nlohmann::json &j, encoder_config_t &enc_conf)
+{
+    j.at("hailo_encoder").at("config").get_to(enc_conf.stream);
+    j.at("hailo_encoder").at("gop_config").get_to(enc_conf.gop);
+    j.at("hailo_encoder").at("coding_control").get_to(enc_conf.coding_control);
+    j.at("hailo_encoder").at("rate_control").get_to(enc_conf.rate_control);
 }
 
 //------------------------ dis_config_t ------------------------
@@ -448,6 +689,28 @@ void from_json(const nlohmann::json &j, feedback_network_config_t &net_conf)
     j.at("output_uv_channel").get_to(net_conf.output_uv_channel);
 }
 
+//------------------------ network_config_t ------------------------
+
+void to_json(nlohmann::json &j, const network_config_t &net_conf)
+{
+    j = nlohmann::json{
+        {"network_path", net_conf.network_path},
+        {"y_channel", net_conf.y_channel},
+        {"uv_channel", net_conf.uv_channel},
+        {"output_y_channel", net_conf.output_y_channel},
+        {"output_uv_channel", net_conf.output_uv_channel},
+    };
+}
+
+void from_json(const nlohmann::json &j, network_config_t &net_conf)
+{
+    j.at("network_path").get_to(net_conf.network_path);
+    j.at("y_channel").get_to(net_conf.y_channel);
+    j.at("uv_channel").get_to(net_conf.uv_channel);
+    j.at("output_y_channel").get_to(net_conf.output_y_channel);
+    j.at("output_uv_channel").get_to(net_conf.output_uv_channel);
+}
+
 //------------------------ denoise_config_t ------------------------
 
 void to_json(nlohmann::json &j, const denoise_config_t &d_conf)
@@ -471,4 +734,23 @@ void from_json(const nlohmann::json &j, denoise_config_t &d_conf)
     denoise.at("method").get_to(d_conf.denoising_quality);
     denoise.at("loopback-count").get_to(d_conf.loopback_count);
     denoise.at("network").get_to(d_conf.network_config);
+}
+
+//------------------------ defog_config_t ------------------------
+
+void to_json(nlohmann::json &j, const defog_config_t &d_conf)
+{
+    j = nlohmann::json{
+        {"defog", {
+            {"enabled", d_conf.enabled},
+            {"network", d_conf.network_config},
+        }},
+    };
+}
+
+void from_json(const nlohmann::json &j, defog_config_t &d_conf)
+{
+    const auto &defog = j.at("defog");
+    defog.at("enabled").get_to(d_conf.enabled);
+    defog.at("network").get_to(d_conf.network_config);
 }
