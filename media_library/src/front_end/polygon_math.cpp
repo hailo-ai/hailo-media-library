@@ -260,7 +260,7 @@ fill_edge_collection(Mat &img, std::vector<PolyEdge> &edges, const void *color, 
     }
 }
 
-static std::vector<Point> convert_vertices_to_points(const std::vector<privacy_mask_types::vertex> &vertices, roi_t &roi)
+static std::vector<Point> convert_vertices_to_points(const std::vector<privacy_mask_types::vertex> &vertices, roi_t &roi, const uint &frame_width, const uint &frame_height)
 {
     int min_x = INT_MAX;
     int min_y = INT_MAX;
@@ -272,7 +272,17 @@ static std::vector<Point> convert_vertices_to_points(const std::vector<privacy_m
 
     for (const auto &vertex : vertices)
     {
-        Point point(vertex.x * PRIVACY_MASK_QUANTIZATION, vertex.y * PRIVACY_MASK_QUANTIZATION);
+        int x = vertex.x;
+        int y = vertex.y;
+        // cap to 0 if negative
+        x = std::max(x, 0);
+        y = std::max(y, 0);
+
+        // cap to frame width/height if larger
+        x = std::min(x, (int)frame_width);
+        y = std::min(y, (int)frame_height);
+
+        Point point(x * PRIVACY_MASK_QUANTIZATION, y * PRIVACY_MASK_QUANTIZATION);
         points.emplace_back(point);
 
         min_x = std::min(min_x, point.x);
@@ -490,7 +500,7 @@ media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mas
     uint i = 0;
     for (const auto &polygon : polygons)
     {
-        std::vector<Point> pts = convert_vertices_to_points(polygon->vertices, privacy_mask_data->rois[i]);
+        std::vector<Point> pts = convert_vertices_to_points(polygon->vertices, privacy_mask_data->rois[i], frame_width, frame_height);
 
         if (fill_poly_packaged_array(mask, pts, white, 8, 0, mask_width_with_stride, packaged_array) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         {

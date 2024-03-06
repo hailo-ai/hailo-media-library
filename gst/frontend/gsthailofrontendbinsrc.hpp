@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+ * Copyright (c) 2017-2024 Hailo Technologies Ltd. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -64,7 +64,6 @@ struct _GstHailoFrontendBinSrc
 
     media_library_return observe_denoising(const MediaLibraryDenoise::callbacks_t &callback) {
         GstHailoFrontend* frontend = GST_HAILO_FRONTEND(m_frontend);
-        g_print("inside observe_denoising\n");
         return frontend->observe_denoising(callback);
     }
 };

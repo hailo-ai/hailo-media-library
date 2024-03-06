@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+ * Copyright (c) 2017-2024 Hailo Technologies Ltd. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -25,6 +25,9 @@
 #include <errno.h>
 #include <stdio.h>
 #include <time.h>
+#include <pthread.h>
+#include <sstream>
+#include <thread>
 #include "gsthailoenc.hpp"
 #include "buffer_utils/buffer_utils.hpp"
 
@@ -283,6 +286,12 @@ gst_hailoenc_init(GstHailoEnc *hailoenc)
   hailoenc->framerate_tolerance = 1.15f;
   hailoenc->dts_queue = g_queue_new();
   g_queue_init(hailoenc->dts_queue);
+  int sched_policy=0;
+  sched_param sch_params;
+  memset(&sch_params, 0, sizeof(sch_params));
+  pthread_getschedparam(pthread_self(), &sched_policy, &sch_params);
+  sch_params.sched_priority -= 10;
+  pthread_setschedparam(pthread_self(), SCHED_OTHER, &sch_params);
 }
 
 /************************

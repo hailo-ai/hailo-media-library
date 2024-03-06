@@ -122,12 +122,12 @@ FlipMirrorRot LdcMeshContext::get_flip_value(flip_direction_t flip_dir, rotation
         }
         case FLIP_DIRECTION_BOTH:
         {
-            flip_mirror_rot = ROT90_FLIPV_MIRROR;
+            flip_mirror_rot = ROT90;
             break;
         }
         default:
         {
-            flip_mirror_rot = ROT90;
+            flip_mirror_rot = ROT90_FLIPV_MIRROR;
             break;
         }
         }
@@ -176,12 +176,12 @@ FlipMirrorRot LdcMeshContext::get_flip_value(flip_direction_t flip_dir, rotation
         }
         case FLIP_DIRECTION_BOTH:
         {
-            flip_mirror_rot = ROT270_FLIPV_MIRROR;
+            flip_mirror_rot = ROT270;
             break;
         }
         default:
         {
-            flip_mirror_rot = ROT270;
+            flip_mirror_rot = ROT270_FLIPV_MIRROR;
             break;
         }
         }

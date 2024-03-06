@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+ * Copyright (c) 2017-2024 Hailo Technologies Ltd. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
