@@ -147,7 +147,7 @@ void gst_hailodenoise_set_property(GObject *object, guint property_id,
     }
     if (state != GST_STATE_NULL)
     {
-        GST_ERROR_OBJECT(hailodenoise, "Cannot set properties while the element is in non-NULL state, please set properties before playing the pipeline");
+        GST_WARNING_OBJECT(hailodenoise, "Cannot set properties while the element is in non-NULL state, please set properties before playing the pipeline");
         return;
     }
     switch (property_id)
@@ -387,12 +387,20 @@ gst_hailodenoise_change_state(GstElement *element, GstStateChange transition)
 {
     GstHailoDenoise *hailodenoise = GST_HAILO_DENOISE(element);
     // If transition is PAUSED to READY, remove the probes
-    if (transition == GST_STATE_CHANGE_PAUSED_TO_READY)
+    switch (transition)
     {
+    case GST_STATE_CHANGE_PLAYING_TO_PAUSED:
         if (hailodenoise->medialib_denoise->is_enabled())
         {
             // Set pass-through as true.
             g_object_set(hailodenoise->m_hailonet, "pass-through", true, NULL);
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+        break;
+    case GST_STATE_CHANGE_PAUSED_TO_READY:
+    {
+        if (hailodenoise->medialib_denoise->is_enabled())
+        {
             // Set flushing as true.
             hailodenoise->m_flushing = true;
             // Remove the probes
@@ -401,6 +409,10 @@ gst_hailodenoise_change_state(GstElement *element, GstStateChange transition)
             // Clear the loopback queue since those buffers are not valid for the next time we enable
             gst_hailodenoise_clear_loopback_queue(hailodenoise);
         }
+        break;
+    }
+    default:
+        break;
     }
 
     GstStateChangeReturn ret = GST_ELEMENT_CLASS(gst_hailodenoise_parent_class)->change_state(element, transition);
