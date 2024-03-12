@@ -38,6 +38,7 @@
 #include "dsp_utils.hpp"
 #include "media_library_types.hpp"
 #include "hailo_v4l2/hailo_vsm.h"
+#include "dma_memory_allocator.hpp"
 
 /** @defgroup media_library_buffer_pool_definitions MediaLibrary BufferPool CPP
  * API definitions
@@ -337,7 +338,20 @@ public:
     {
         if (index >= hailo_pix_buffer->planes_count)
             return nullptr;
-        return hailo_pix_buffer->planes[index].userptr;
+
+        if (is_dmabuf())
+        {
+            // Ugly trick, but its will work for now
+            void *ptr = nullptr;
+            DmaMemoryAllocator::get_instance().get_ptr(hailo_pix_buffer->planes[index].fd, &ptr);
+
+            return ptr;
+        }
+        else
+        {
+            return hailo_pix_buffer->planes[index].userptr;
+        }
+
     }
 
     uint32_t get_plane_size(uint32_t index)
@@ -426,6 +440,53 @@ public:
     uint refcount(int plane_index)
     {
         return planes_reference_count[plane_index];
+    }
+
+    bool is_dmabuf()
+    {
+        return (hailo_pix_buffer->memory == DSP_MEMORY_TYPE_DMABUF);
+    }
+
+    media_library_return sync_start()
+    {
+        if (!is_dmabuf())
+        {
+            return MEDIA_LIBRARY_ERROR;
+        }
+
+        for (uint32_t i = 0; i < get_num_of_planes(); i++)
+        {
+            void* plane_ptr = get_plane(i);
+            media_library_return ret = DmaMemoryAllocator::get_instance().dmabuf_sync_start(plane_ptr);
+
+            if (ret != MEDIA_LIBRARY_SUCCESS)
+            {
+                return ret;
+            }
+        }
+
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    media_library_return sync_end()
+    {
+        if (!is_dmabuf())
+        {
+            return MEDIA_LIBRARY_ERROR;
+        }
+
+        for (uint32_t i = 0; i < get_num_of_planes(); i++)
+        {
+            void* plane_ptr = get_plane(i);
+            media_library_return ret = DmaMemoryAllocator::get_instance().dmabuf_sync_end(plane_ptr);
+
+            if (ret != MEDIA_LIBRARY_SUCCESS)
+            {
+                return ret;
+            }
+        }
+
+        return MEDIA_LIBRARY_SUCCESS;
     }
 };
 using HailoMediaLibraryBufferPtr = std::shared_ptr<hailo_media_library_buffer>;

@@ -22,6 +22,8 @@
  */
 #include "dsp_utils.hpp"
 #include "media_library_logger.hpp"
+#include "media_library_types.hpp"
+#include "dma_memory_allocator.hpp"
 
 /** @defgroup dsp_utils_definitions MediaLibrary DSP utilities CPP API
  * definitions
@@ -124,16 +126,28 @@ namespace dsp_utils
      * buffer
      * @return dsp_status
      */
-    dsp_status create_hailo_dsp_buffer(size_t size, void **buffer)
+    dsp_status create_hailo_dsp_buffer(size_t size, void **buffer, bool dma)
     {
         if (device != NULL)
         {
-            LOGGER__DEBUG("Creating dsp buffer with size {}", size);
-            dsp_status status = dsp_create_buffer(device, size, buffer);
-            if (status != DSP_SUCCESS)
+            if (dma)
             {
-                LOGGER__ERROR("Create buffer failed with status {}", status);
-                return status;
+                LOGGER__DEBUG("Creating dma buffer with size {}", size);
+                // dsp_status status = dsp_create_dma_buffer(device, size, buffer);
+                media_library_return status = DmaMemoryAllocator::get_instance().allocate_dma_buffer(size, buffer);
+                if (status != MEDIA_LIBRARY_SUCCESS)
+                {
+                    LOGGER__ERROR("Create dma buffer failed with status {}", status);
+                    return DSP_UNINITIALIZED;
+                }
+            } else {
+                LOGGER__DEBUG("Creating dsp buffer with size {}", size);
+                dsp_status status = dsp_create_buffer(device, size, buffer);
+                if (status != DSP_SUCCESS)
+                {
+                    LOGGER__ERROR("Create buffer failed with status {}", status);
+                    return status;
+                }
             }
         }
         else

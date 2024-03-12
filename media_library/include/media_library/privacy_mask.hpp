@@ -170,6 +170,7 @@ class PrivacyMaskBlender : public std::enable_shared_from_this<PrivacyMaskBlende
         MediaLibraryBufferPoolPtr m_buffer_pool;
         std::shared_ptr<std::mutex> m_privacy_mask_mutex;
         PrivacyMaskDataPtr m_latest_privacy_mask_data;
+        bool m_update_required;
         media_library_return init_buffer_pool();
         void clean_latest_privacy_mask_data();
 };

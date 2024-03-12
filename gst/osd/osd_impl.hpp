@@ -66,11 +66,15 @@ public:
 protected:
     static tl::expected<std::tuple<int, int>, media_library_return> calc_xy_offsets(std::string id, float x_norm, float y_norm, int overlay_width, int overlay_height, int image_width, int image_height, int x_drift, int y_drift);
     static GstVideoFrame gst_video_frame_from_mat_bgra(cv::Mat mat);
-    static media_library_return convert_2_dsp_video_frame(GstVideoFrame *src_frame, GstVideoFrame *dest_frame, GstVideoFormat dest_format);
+    static media_library_return convert_2_dma_video_frame(GstVideoFrame *src_frame, GstVideoFrame *dest_frame, GstVideoFormat dest_format);
     static media_library_return create_gst_video_frame(uint width, uint height, std::string format, GstVideoFrame *frame);
     static cv::Mat resize_mat(cv::Mat mat, int width, int height);
     static cv::Mat rotate_mat(cv::Mat mat, uint angle, osd::rotation_alignment_policy_t alignment_policy, cv::Point *center_drift);
     void free_resources();
+    static media_library_return create_dma_a420_video_frame(uint width, uint height, GstVideoFrame *frame);
+    static media_library_return end_sync_buffer(GstVideoFrame *frame);
+
+    DmaMemoryAllocator *m_dma_allocator;
 
     cv::Mat m_image_mat;
     std::vector<GstVideoFrame> m_video_frames;

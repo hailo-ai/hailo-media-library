@@ -162,7 +162,84 @@ media_library_return OverlayImpl::create_gst_video_frame(uint width, uint height
     return ret;
 }
 
-media_library_return OverlayImpl::convert_2_dsp_video_frame(GstVideoFrame *src_frame, GstVideoFrame *dest_frame, GstVideoFormat dest_format)
+media_library_return OverlayImpl::end_sync_buffer(GstVideoFrame *video_frame)
+{
+    media_library_return ret = MEDIA_LIBRARY_SUCCESS;
+    for (int i = 0; i < (int)GST_VIDEO_FRAME_N_PLANES(video_frame); i++)
+    {
+        void *buffer_ptr = (void *)GST_VIDEO_FRAME_PLANE_DATA(video_frame, i);
+        media_library_return status = DmaMemoryAllocator::get_instance().dmabuf_sync_end(buffer_ptr);
+        if (status != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__ERROR("Error: dmabuf_sync_end - failed to sync buffer for plane ", i);
+            return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
+        }
+    }
+    return ret;
+}
+
+media_library_return OverlayImpl::create_dma_a420_video_frame(uint width, uint height, GstVideoFrame *frame)
+{
+    media_library_return ret = MEDIA_LIBRARY_SUCCESS;
+    // Create caps at format and required size
+    GstCaps *caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "A420",
+                                        "width", G_TYPE_INT, width,
+                                        "height", G_TYPE_INT, height,
+                                        NULL);
+
+    // Create GstVideoInfo meta from those caps
+    GstVideoInfo *image_info = gst_video_info_new();
+    gst_video_info_from_caps(image_info, caps);
+
+    // Create a GstBuffer from the dma buffers, allowing for contiguous memory
+    GstBuffer *buffer = gst_buffer_new();
+    // Create 4 dma buffers for each of the 4 planes of an A420 image
+    for (int i = 0; i < 4; i++) {
+        void *buffer_ptr = NULL;
+        // Calculate plane sizes
+        size_t channel_stride = image_info->stride[i];
+        size_t channel_size = channel_stride * height;
+        if (i == 1 || i == 2)
+            channel_size /= 2;
+
+        // Create the dma buffer
+        media_library_return status = DmaMemoryAllocator::get_instance().allocate_dma_buffer(channel_size, &buffer_ptr);
+        DmaMemoryAllocator::get_instance().dmabuf_sync_start(buffer_ptr); // start sync so that we can write to it
+        if (status != MEDIA_LIBRARY_SUCCESS)
+        {
+            gst_caps_unref(caps);
+            LOGGER__ERROR("Error: create_hailo_dsp_buffer - failed to create buffer for plane ", i);
+            return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
+        }
+
+        // Wrap the dma buffer as continuous GstMemory, add the plane to the GstBuffer
+        GstMemory *mem = gst_memory_new_wrapped(GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS,
+                                                buffer_ptr,
+                                                channel_size,
+                                                0, channel_size,
+                                                buffer_ptr, GDestroyNotify(destroy_dma_buffer));
+        gst_buffer_insert_memory(buffer, -1, mem);
+    }
+
+    // Add GstVideoMeta so that mapping the buffer (ie: gst_video_frame_map) does not change the buffer layout (GstMemory per plane)
+    (void)gst_buffer_add_video_meta_full(buffer,
+                                        GST_VIDEO_FRAME_FLAG_NONE,
+                                        GST_VIDEO_INFO_FORMAT(image_info),
+                                        GST_VIDEO_INFO_WIDTH(image_info),
+                                        GST_VIDEO_INFO_HEIGHT(image_info),
+                                        GST_VIDEO_INFO_N_PLANES(image_info),
+                                        image_info->offset,
+                                        image_info->stride);
+
+    // Create and map a GstVideoFrame from the GstVideoInfo and GstBuffer
+    gst_video_frame_map(frame, image_info, buffer, GST_MAP_WRITE);
+    gst_buffer_unref(buffer);
+    gst_video_info_free(image_info);
+    gst_caps_unref(caps);
+    return ret;
+}
+
+media_library_return OverlayImpl::convert_2_dma_video_frame(GstVideoFrame *src_frame, GstVideoFrame *dest_frame, GstVideoFormat dest_format)
 {
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
 
@@ -172,24 +249,18 @@ media_library_return OverlayImpl::convert_2_dsp_video_frame(GstVideoFrame *src_f
     // Prepare the GstVideoConverter that will facilitate the conversion
     GstVideoConverter *converter = gst_video_converter_new(&src_frame->info, dest_info, NULL);
 
-    void *buffer_ptr = NULL;
-    dsp_status buffer_status = dsp_utils::create_hailo_dsp_buffer(dest_info->size, &buffer_ptr);
-    if (buffer_status != DSP_SUCCESS)
+    // Create a DMA capable buffer for the A420 format
+    media_library_return a420_dma_status = create_dma_a420_video_frame(src_frame->info.width, src_frame->info.height, dest_frame);
+    if (a420_dma_status != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Error: create_hailo_dsp_buffer - failed to create buffer");
+        LOGGER__ERROR("Error: create_dma_a420_video_frame - failed to create buffer");
         ret = MEDIA_LIBRARY_DSP_OPERATION_ERROR;
     }
     else
     {
-        GstBuffer *buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS,
-                                                        buffer_ptr,
-                                                        dest_info->size, 0, dest_info->size, buffer_ptr, GDestroyNotify(dsp_utils::release_hailo_dsp_buffer));
-
-        // Prepare the destination buffer and frame
-        gst_video_frame_map(dest_frame, dest_info, buffer, GST_MAP_WRITE);
-        gst_buffer_unref(buffer);
         // Make the conversion
         gst_video_converter_frame(converter, src_frame, dest_frame);
+        end_sync_buffer(dest_frame); // end sync so that DMA is written
     }
 
     gst_video_converter_free(converter);
@@ -236,6 +307,7 @@ tl::expected<std::tuple<int, int>, media_library_return> OverlayImpl::calc_xy_of
 
 OverlayImpl::OverlayImpl(std::string id, float x, float y, float width, float height, unsigned int z_index, unsigned int angle, osd::rotation_alignment_policy_t rotation_policy, bool ready_to_blend = true) : m_id(id), m_x(x), m_y(y), m_width(width), m_height(height), m_z_index(z_index), m_angle(angle), m_rotation_policy(rotation_policy), m_ready_to_blend(ready_to_blend)
 {
+    m_dma_allocator = &DmaMemoryAllocator::get_instance();
 }
 
 bool OverlayImpl::get_ready_to_blend()
@@ -493,7 +565,7 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
     }
 
     GstVideoFrame gst_bgra_image = gst_video_frame_from_mat_bgra(mat);
-    status = convert_2_dsp_video_frame(&gst_bgra_image, &dest_frame, GST_VIDEO_FORMAT_A420);
+    status = convert_2_dma_video_frame(&gst_bgra_image, &dest_frame, GST_VIDEO_FORMAT_A420);
 
     gst_buffer_unref(gst_bgra_image.buffer);
     gst_video_frame_unmap(&gst_bgra_image);

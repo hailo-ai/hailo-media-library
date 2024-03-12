@@ -30,7 +30,7 @@ hailort_dep = [
     meson.get_compiler('cpp').find_library('libgsthailo', required: true, dirs: sysroot + '/usr/lib/gstreamer-1.0/')
 ]
 hailort_inc_dirs = include_directories(
-    sysroot + '/usr/include/hailort',
+    sysroot + '/usr/include/hailo',
     sysroot + '/usr/include/gst-hailo',
     is_system: true
 )
@@ -41,6 +41,8 @@ utils_sources = [
     'osd/gsthailoosd.cpp',
     'osd/osd.cpp',
     'osd/osd_impl.cpp',
+
+    # DSP Related sources
     'dsp/gsthailodsp.c',
     'dsp/gsthailodspbufferpool.cpp',
     'dsp/gsthailodspbufferpoolutils.cpp',
@@ -79,10 +81,8 @@ install_headers('buffer_utils/buffer_utils.hpp')
 install_headers('buffer_utils/gsthailobuffermeta.hpp')
 install_headers('osd/osd.hpp')
 
-# These headers are used in TAPPAS
 headers_to_install = ['dsp/gsthailodsp.h', 'dsp/gsthailodspbasetransform.hpp',
                       'dsp/gsthailodspbufferpool.hpp', 'dsp/gsthailodspbufferpoolutils.hpp']
-# install_headers(headers_to_install, install_dir: get_option('includedir') + '/hailo/media_library/gstreamer')
 install_headers(headers_to_install)
 
 

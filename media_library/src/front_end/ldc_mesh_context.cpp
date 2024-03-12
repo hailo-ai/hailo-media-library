@@ -2,6 +2,7 @@
 #include "dis_interface.h"
 #include "media_library_logger.hpp"
 #include "media_library_utils.hpp"
+#include "dma_memory_allocator.hpp"
 #include <cmath>
 #include <fstream>
 #include <iostream>
@@ -28,9 +29,9 @@ LdcMeshContext::~LdcMeshContext()
 
     free_dis_context();
 
-    // Free memory for mesh table
-    dsp_status result = dsp_utils::release_hailo_dsp_buffer(m_dewarp_mesh.mesh_table);
-    if (result != DSP_SUCCESS)
+    media_library_return result = DmaMemoryAllocator::get_instance().free_dma_buffer(m_dewarp_mesh.mesh_table);
+
+    if (result != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("failed releasing mesh dsp buffer on error {}", result);
     }
@@ -310,6 +311,9 @@ media_library_return LdcMeshContext::initialize_dewarp_mesh()
     m_dewarp_mesh.mesh_table = mesh.mesh_table;
     m_dewarp_mesh.mesh_width = mesh.mesh_width;
     m_dewarp_mesh.mesh_height = mesh.mesh_height;
+
+    DmaMemoryAllocator::get_instance().dmabuf_sync_start(m_dewarp_mesh.mesh_table);
+
     LOGGER__INFO("generated base dewarp mesh grid {}x{}", mesh.mesh_width, mesh.mesh_height);
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -332,8 +336,9 @@ media_library_return LdcMeshContext::configure(ldc_config_t &ldc_configs)
 
         // Allocate memory for mesh table - doing it outside of initialize_dewarp_mesh for reuse of the buffer
         size_t mesh_size = m_dewarp_mesh.mesh_width * m_dewarp_mesh.mesh_height * 2 * 4;
-        dsp_status result = dsp_utils::create_hailo_dsp_buffer(mesh_size, (void **)&m_dewarp_mesh.mesh_table);
-        if (result != DSP_SUCCESS)
+
+        media_library_return result = DmaMemoryAllocator::get_instance().allocate_dma_buffer(mesh_size, (void **)&m_dewarp_mesh.mesh_table);
+        if (result != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR("dewarp mesh initialization failed in the buffer allocation process (tried to allocate buffer in size of {})", mesh_size);
             return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
@@ -383,6 +388,9 @@ media_library_return LdcMeshContext::on_frame_vsm_update(struct hailo15_vsm &vsm
     m_dewarp_mesh.mesh_table = mesh.mesh_table;
     m_dewarp_mesh.mesh_width = mesh.mesh_width;
     m_dewarp_mesh.mesh_height = mesh.mesh_height;
+
+    DmaMemoryAllocator::get_instance().dmabuf_sync_start(m_dewarp_mesh.mesh_table);
+
     return MEDIA_LIBRARY_SUCCESS;
 }
 

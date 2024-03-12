@@ -59,7 +59,7 @@ namespace dsp_utils
 
   dsp_status release_device();
   dsp_status acquire_device();
-  dsp_status create_hailo_dsp_buffer(size_t size, void **buffer);
+  dsp_status create_hailo_dsp_buffer(size_t size, void **buffer, bool dma = false);
   dsp_status release_hailo_dsp_buffer(void *buffer);
 
   dsp_status

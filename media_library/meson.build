@@ -10,6 +10,7 @@ common_sourcs = [
     'src/dsp/dsp_utils.cpp',
     'src/isp/isp_utils.cpp',
     'src/buffer_pool/buffer_pool.cpp',
+    'src/buffer_pool/dma_memory_allocator.cpp',
     'src/utils/media_library_logger.cpp',
     'src/config_manager/config_manager.cpp'
 ]
