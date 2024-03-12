@@ -168,6 +168,7 @@ media_library_return OverlayImpl::end_sync_buffer(GstVideoFrame *video_frame)
     for (int i = 0; i < (int)GST_VIDEO_FRAME_N_PLANES(video_frame); i++)
     {
         void *buffer_ptr = (void *)GST_VIDEO_FRAME_PLANE_DATA(video_frame, i);
+
         media_library_return status = DmaMemoryAllocator::get_instance().dmabuf_sync_end(buffer_ptr);
         if (status != MEDIA_LIBRARY_SUCCESS)
         {
@@ -204,13 +205,13 @@ media_library_return OverlayImpl::create_dma_a420_video_frame(uint width, uint h
 
         // Create the dma buffer
         media_library_return status = DmaMemoryAllocator::get_instance().allocate_dma_buffer(channel_size, &buffer_ptr);
-        DmaMemoryAllocator::get_instance().dmabuf_sync_start(buffer_ptr); // start sync so that we can write to it
         if (status != MEDIA_LIBRARY_SUCCESS)
         {
             gst_caps_unref(caps);
             LOGGER__ERROR("Error: create_hailo_dsp_buffer - failed to create buffer for plane ", i);
             return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
         }
+        DmaMemoryAllocator::get_instance().dmabuf_sync_start(buffer_ptr); // start sync so that we can write to it
 
         // Wrap the dma buffer as continuous GstMemory, add the plane to the GstBuffer
         GstMemory *mem = gst_memory_new_wrapped(GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS,

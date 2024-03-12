@@ -257,15 +257,11 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
 
         if (ret != MEDIA_LIBRARY_SUCCESS)
         {
-            // TODO: Remove in the future
             y_plane_data.userptr = (void *)y_channel_ptr;
         }
         else
         {
             y_plane_data.fd = y_channel_fd;
-
-            // Sync ioctl
-            DmaMemoryAllocator::get_instance().dmabuf_sync_start((void *)y_channel_ptr);
         }
 
         // Gather uv channel info
@@ -287,15 +283,11 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
 
         if (ret != MEDIA_LIBRARY_SUCCESS)
         {
-            // TODO: Remove in the future
             uv_plane_data.userptr = (void *)uv_channel_ptr;
         }
         else
         {
             uv_plane_data.fd = uv_channel_fd;
-
-            // Sync ioctl
-            DmaMemoryAllocator::get_instance().dmabuf_sync_start((void *)uv_channel_ptr);
         }
 
         LOGGER__DEBUG("{}: Buffers acquired: buffer for y_channel (size = {}), and "

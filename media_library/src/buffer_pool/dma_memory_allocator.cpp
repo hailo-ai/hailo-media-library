@@ -39,7 +39,13 @@
 
 DmaMemoryAllocator::DmaMemoryAllocator()
 {
+    fd_count = 0;
+    m_allocator_mutex = std::make_shared<std::mutex>();
     m_dma_heap_fd_open = false;
+    if (dmabuf_fd_open() != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("dmabuf_fd_open failed!");
+    }
 }
 
 DmaMemoryAllocator::~DmaMemoryAllocator()
@@ -49,28 +55,31 @@ DmaMemoryAllocator::~DmaMemoryAllocator()
 
 media_library_return DmaMemoryAllocator::dmabuf_fd_open()
 {
+    std::unique_lock<std::mutex> lock(*m_allocator_mutex);
     if (m_dma_heap_fd_open)
     {
         return MEDIA_LIBRARY_SUCCESS;
     }
 
-    LOGGER__INFO("dmabuf_fd_open start");
+    LOGGER__INFO("dmabuf_fd_open function-start");
 
-    m_dma_heap_fd = open(DEVPATH, O_RDONLY | O_CLOEXEC);
+    m_dma_heap_fd = open(DEVPATH, O_RDWR | O_CLOEXEC);
     if (m_dma_heap_fd < 0)
     {
         LOGGER__ERROR("open fd failed!");
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
+    fd_count++;
     m_dma_heap_fd_open = true;
-    LOGGER__INFO("dmabuf_fd_open end");
+    LOGGER__INFO("dmabuf_fd_open function-end");
 
     return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return DmaMemoryAllocator::dmabuf_fd_close()
 {
+    std::unique_lock<std::mutex> lock(*m_allocator_mutex);
     if (m_allocated_buffers.size() > 0)
     {
         LOGGER__INFO("allocated buffers not freed");
@@ -89,19 +98,12 @@ media_library_return DmaMemoryAllocator::dmabuf_fd_close()
 
 media_library_return DmaMemoryAllocator::dmabuf_heap_alloc(dma_heap_allocation_data &heap_data, uint size)
 {
-    LOGGER__INFO("dmabuf_heap_alloc start: heap_data.fd = {}, heap_data.len = {}", heap_data.fd, heap_data.len);
+    LOGGER__INFO("dmabuf_heap_alloc function-start: heap_data.fd = {}, heap_data.len = {}", heap_data.fd, heap_data.len);
 
     heap_data = {
         .len = size,
         .fd_flags = O_RDWR | O_CLOEXEC,
     };
-
-    m_dma_heap_fd = open(DEVPATH, O_RDONLY | O_CLOEXEC);
-    if (m_dma_heap_fd < 0)
-    {
-        LOGGER__ERROR("open fd failed!");
-        return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
-    }
 
     int ret = ioctl(m_dma_heap_fd, DMA_HEAP_IOCTL_ALLOC, &heap_data);
     if (ret < 0)
@@ -112,7 +114,7 @@ media_library_return DmaMemoryAllocator::dmabuf_heap_alloc(dma_heap_allocation_d
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
-    LOGGER__INFO("dmabuf_heap_alloc end: heap_data.fd = {}, heap_data.len = {}", heap_data.fd, heap_data.len);
+    LOGGER__INFO("dmabuf_heap_alloc heap_data.fd = {}, heap_data.len = {}", heap_data.fd, heap_data.len);
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -137,12 +139,22 @@ media_library_return DmaMemoryAllocator::dmabuf_map(dma_heap_allocation_data &he
 
 media_library_return DmaMemoryAllocator::allocate_dma_buffer(uint size, void **buffer)
 {
-    LOGGER__INFO("allocating dma buffer start: buffer = {}, size = {}", fmt::ptr(buffer), size);
+    std::unique_lock<std::mutex> lock(*m_allocator_mutex);
+    LOGGER__INFO("allocating dma buffer function-start: buffer = {}, size = {}", fmt::ptr(buffer), size);
 
-    if (dmabuf_fd_open() != MEDIA_LIBRARY_SUCCESS)
+    // if (dmabuf_fd_open() != MEDIA_LIBRARY_SUCCESS)
+    // {
+    //     LOGGER__ERROR("dmabuf_fd_open failed!");
+    //     return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+    // }
+
+    if (!m_dma_heap_fd_open)
     {
-        LOGGER__ERROR("dmabuf_fd_open failed!");
-        return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+        if (dmabuf_fd_open() != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__ERROR("dmabuf_fd_open failed!");
+            return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+        }
     }
 
     dma_heap_allocation_data heap_data;
@@ -160,26 +172,31 @@ media_library_return DmaMemoryAllocator::allocate_dma_buffer(uint size, void **b
 
     m_allocated_buffers[*buffer] = heap_data;
 
-    LOGGER__INFO("allocating dma buffer end: buffer = {}, size = {}", fmt::ptr(buffer), size);
+    LOGGER__INFO("allocating dma buffer function-end: buffer = {}, size = {}, fd_count = {}", fmt::ptr(buffer), size, fd_count);
+    fd_count++;
 
     return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return DmaMemoryAllocator::free_dma_buffer(void *buffer)
 {
+    std::unique_lock<std::mutex> lock(*m_allocator_mutex);
     LOGGER__INFO("freeing dma buffer start: buffer = {}", fmt::ptr(buffer));
 
-    if (munmap(buffer, m_allocated_buffers[buffer].len) == -1)
+    int fd = m_allocated_buffers[buffer].fd;
+    auto length = m_allocated_buffers[buffer].len;
+    m_allocated_buffers.erase(buffer);
+
+    if (munmap(buffer, length) == -1)
     {
         LOGGER__ERROR("munmap failed!");
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
-    int fd = m_allocated_buffers[buffer].fd;
     close(fd);
-    m_allocated_buffers.erase(buffer);
 
-    LOGGER__INFO("freeing dma buffer end: buffer = {}", fmt::ptr(buffer));
+    LOGGER__INFO("freeing dma buffer end: buffer = {}, fd_count = {}", fmt::ptr(buffer), fd_count);
+    fd_count--;
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -224,6 +241,7 @@ media_library_return DmaMemoryAllocator::dmabuf_sync_end(void *buffer)
 
 media_library_return DmaMemoryAllocator::get_fd(void *buffer, int& fd)
 {
+    std::unique_lock<std::mutex> lock(*m_allocator_mutex);
     LOGGER__INFO("get_fd start: buffer = {}", fmt::ptr(buffer));
 
     if (m_allocated_buffers.find(buffer) == m_allocated_buffers.end())
@@ -240,8 +258,9 @@ media_library_return DmaMemoryAllocator::get_fd(void *buffer, int& fd)
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return DmaMemoryAllocator::get_ptr(int fd, void **buffer)
+media_library_return DmaMemoryAllocator::get_ptr(uint fd, void **buffer)
 {
+    std::unique_lock<std::mutex> lock(*m_allocator_mutex);
     LOGGER__INFO("get_ptr start: fd = {}", fd);
 
     for (auto const& [key, val] : m_allocated_buffers)

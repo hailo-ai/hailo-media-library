@@ -27,6 +27,8 @@
 
 #pragma once
 
+#include <mutex>
+#include <memory>
 #include <stdint.h>
 #include <unordered_map>
 #include <linux/dma-heap.h>
@@ -36,8 +38,10 @@
 class DmaMemoryAllocator
 {
     private:
+        uint fd_count;
         int m_dma_heap_fd;
         bool m_dma_heap_fd_open;
+        std::shared_ptr<std::mutex> m_allocator_mutex;
         std::unordered_map<void *, dma_heap_allocation_data> m_allocated_buffers;
         DmaMemoryAllocator();
         ~DmaMemoryAllocator();
@@ -63,7 +67,7 @@ class DmaMemoryAllocator
         media_library_return dmabuf_sync_start(void *buffer);
         media_library_return dmabuf_sync_end(void *buffer);
         media_library_return get_fd(void *buffer, int& fd);
-        media_library_return get_ptr(int fd, void **buffer);
+        media_library_return get_ptr(uint fd, void **buffer);
 };
 
 static inline media_library_return destroy_dma_buffer(void *buffer)
