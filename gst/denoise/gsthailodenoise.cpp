@@ -45,11 +45,14 @@ static void gst_hailodenoise_init_ghost_src(GstHailoDenoise *hailodenoise);
 static GstPadProbeReturn gst_hailodenoise_sink_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDenoise *hailodenoise);
 static GstPadProbeReturn gst_hailodenoise_src_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDenoise *hailodenoise);
 static gboolean gst_hailodenoise_create(GstHailoDenoise *self);
-static gboolean gst_hailodenoise_configure_hailonet(GstHailoDenoise *self);
+static void gst_hailodenoise_configure_hailonet(GstHailoDenoise *self);
+static void gst_hailodenoise_configure_capsfilter(GstHailoDenoise *self);
+static void gst_hailodenoise_release_hailonet(GstHailoDenoise *self);
+static void gst_hailodenoise_release_capsfilter(GstHailoDenoise *self);
 static void gst_hailodenoise_payload_tensor_meta(GstBuffer *buffer, GstBuffer *payload, std::string layer_name, hailo_format_order_t format_order);
-static std::map<std::string, GstBuffer*> gst_hailodenoise_get_tensor_meta_from_buffer(GstBuffer *buffer);
+static std::map<std::string, GstBuffer *> gst_hailodenoise_get_tensor_meta_from_buffer(GstBuffer *buffer);
 static void gst_hailodenoise_queue_buffer(GstHailoDenoise *self, GstBuffer *buffer);
-static GstBuffer* gst_hailodenoise_dequeue_buffer(GstHailoDenoise *self);
+static GstBuffer *gst_hailodenoise_dequeue_buffer(GstHailoDenoise *self);
 static gboolean gst_hailodenoise_remove_tensor_meta(GstBuffer *buffer);
 static gboolean gst_hailodenoise_remove_tensors(GstBuffer *buffer);
 static void gst_hailodenoise_clear_loopback_queue(GstHailoDenoise *self);
@@ -81,7 +84,7 @@ gst_hailodenoise_class_init(GstHailoDenoiseClass *klass)
 {
     GObjectClass *gobject_class = G_OBJECT_CLASS(klass);
     GstElementClass *element_class = GST_ELEMENT_CLASS(klass);
-    
+
     gst_element_class_add_static_pad_template(element_class, &src_template);
     gst_element_class_add_static_pad_template(element_class, &sink_template);
 
@@ -93,19 +96,18 @@ gst_hailodenoise_class_init(GstHailoDenoiseClass *klass)
     gobject_class->get_property = gst_hailodenoise_get_property;
 
     g_object_class_install_property(gobject_class, PROP_CONFIG_FILE_PATH,
-                                  g_param_spec_string("config-file-path", "Config file path",
-                                                      "JSON config file path to load",
-                                                      "",
-                                                      (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                    g_param_spec_string("config-file-path", "Config file path",
+                                                        "JSON config file path to load",
+                                                        "",
+                                                        (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 
     g_object_class_install_property(gobject_class, PROP_CONFIG_STRING,
-                                  g_param_spec_string("config-string", "Config string",
-                                                      "JSON config string to load",
-                                                      "",
-                                                      (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                    g_param_spec_string("config-string", "Config string",
+                                                        "JSON config string to load",
+                                                        "",
+                                                        (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 
     element_class->change_state = GST_DEBUG_FUNCPTR(gst_hailodenoise_change_state);
-
 }
 
 static void
@@ -121,17 +123,13 @@ gst_hailodenoise_init(GstHailoDenoise *hailodenoise)
     hailodenoise->m_mutex = std::make_shared<std::mutex>();
     hailodenoise->m_condvar = std::make_unique<std::condition_variable>();
     hailodenoise->m_loopback_queue = std::queue<GstBuffer *>();
+    hailodenoise->m_flushing = false;
     gst_hailodenoise_create(hailodenoise);
 
-    // Prepare internal elements
-
-    // hailonet2 to perform the denoising
-    hailodenoise->m_hailonet = gst_element_factory_make("hailonet2", NULL);
-
-    // Connect elements and pads in the bin
-    gst_bin_add_many(GST_BIN(hailodenoise), hailodenoise->m_hailonet, NULL);
-    gst_hailodenoise_init_ghost_sink(hailodenoise);
-    gst_hailodenoise_init_ghost_src(hailodenoise);
+    // hailonet to perform the denoising
+    hailodenoise->m_hailonet = NULL;
+    // capsfilter to set the input format
+    hailodenoise->m_capsfilter = NULL;
 }
 
 void gst_hailodenoise_set_property(GObject *object, guint property_id,
@@ -140,7 +138,18 @@ void gst_hailodenoise_set_property(GObject *object, guint property_id,
     GstHailoDenoise *hailodenoise = GST_HAILO_DENOISE(object);
 
     GST_DEBUG_OBJECT(hailodenoise, "set_property");
-
+    GstState state, pending;
+    GstStateChangeReturn ret = gst_element_get_state(GST_ELEMENT(hailodenoise), &state, &pending, 0);
+    if (ret != GST_STATE_CHANGE_SUCCESS)
+    {
+        GST_ERROR_OBJECT(hailodenoise, "Failed to get state");
+        return;
+    }
+    if (state != GST_STATE_NULL)
+    {
+        GST_ERROR_OBJECT(hailodenoise, "Cannot set properties while the element is in non-NULL state, please set properties before playing the pipeline");
+        return;
+    }
     switch (property_id)
     {
     // Handle property assignments here
@@ -152,15 +161,9 @@ void gst_hailodenoise_set_property(GObject *object, guint property_id,
 
         media_library_return config_status = hailodenoise->medialib_denoise->configure(hailodenoise->config_string);
         if (config_status != MEDIA_LIBRARY_SUCCESS)
-            GST_ERROR_OBJECT(hailodenoise, "configuration error: %d", config_status);
-
-        gst_hailodenoise_configure_hailonet(hailodenoise);
-        hailodenoise->m_configured = TRUE;
-
-        // Now that configuration is known, link the elements
-        if (hailodenoise->m_elements_linked == FALSE) 
         {
-          hailodenoise->m_elements_linked = TRUE;
+            GST_ERROR_OBJECT(hailodenoise, "configuration error: %d", config_status);
+            return;
         }
         break;
     }
@@ -171,21 +174,36 @@ void gst_hailodenoise_set_property(GObject *object, guint property_id,
 
         media_library_return config_status = hailodenoise->medialib_denoise->configure(hailodenoise->config_string);
         if (config_status != MEDIA_LIBRARY_SUCCESS)
-            GST_ERROR_OBJECT(hailodenoise, "configuration error: %d", config_status);
-
-        gst_hailodenoise_configure_hailonet(hailodenoise);
-        hailodenoise->m_configured = TRUE;
-
-        // Now that configuration is known, link the elements
-        if (hailodenoise->m_elements_linked == FALSE) 
         {
-          hailodenoise->m_elements_linked = TRUE;
+            GST_ERROR_OBJECT(hailodenoise, "configuration error: %d", config_status);
+            return;
         }
         break;
     }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
-        break;
+        return;
+    }
+
+    if (hailodenoise->medialib_denoise->is_enabled())
+    {
+        gst_hailodenoise_release_capsfilter(hailodenoise);
+        gst_hailodenoise_configure_hailonet(hailodenoise);
+    }
+    else
+    {
+        gst_hailodenoise_release_hailonet(hailodenoise);
+        gst_hailodenoise_configure_capsfilter(hailodenoise);
+    }
+    gst_hailodenoise_init_ghost_sink(hailodenoise);
+    gst_hailodenoise_init_ghost_src(hailodenoise);
+
+    hailodenoise->m_configured = TRUE;
+
+    // Now that configuration is known, link the elements
+    if (hailodenoise->m_elements_linked == FALSE)
+    {
+        hailodenoise->m_elements_linked = TRUE;
     }
 }
 
@@ -231,38 +249,87 @@ gst_hailodenoise_create(GstHailoDenoise *self)
     return TRUE;
 }
 
-static gboolean
+static void
+gst_hailodenoise_configure_capsfilter(GstHailoDenoise *self)
+{
+
+    if (!self->m_capsfilter)
+    {
+        self->m_capsfilter = gst_element_factory_make("capsfilter", NULL);
+        // Connect elements and pads in the bin
+        gst_bin_add_many(GST_BIN(self), self->m_capsfilter, NULL);
+        // set the m_capsfilter properties
+        g_object_set(self->m_capsfilter, "caps", gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "NV12", "width", G_TYPE_INT, 3840, "height", G_TYPE_INT, 2160, "framerate", GST_TYPE_FRACTION, 30, 1, NULL), NULL);
+    }
+}
+
+static void
+gst_hailodenoise_release_capsfilter(GstHailoDenoise *self)
+{
+    if (self->m_capsfilter)
+    {
+        gst_element_set_state(self->m_capsfilter, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(self), self->m_capsfilter);
+        gst_object_unref(self->m_capsfilter);
+        self->m_capsfilter = NULL;
+    }
+}
+
+static void
 gst_hailodenoise_configure_hailonet(GstHailoDenoise *self)
 {
+    if (!self->m_hailonet)
+    {
+        self->m_hailonet = gst_element_factory_make("hailonet", NULL);
+        // Connect elements and pads in the bin
+        gst_bin_add_many(GST_BIN(self), self->m_hailonet, NULL);
+    }
     // get the hailort configurations from medialib_denoise, and set m_hailonet properties using the found config
     hailort_t hailort_configs = self->medialib_denoise->get_hailort_configs();
     denoise_config_t denoise_configs = self->medialib_denoise->get_denoise_configs();
     // set the hailonet properties
-    if (!self->m_configured)
-    {
-        // Some HailoRT parameters cannot be changed once configured
-        g_object_set(self->m_hailonet, "hef-path", denoise_configs.network_config.network_path.c_str(), NULL);
-        g_object_set(self->m_hailonet, "input-from-meta", true, NULL);
-        g_object_set(self->m_hailonet, "no-transform", true, NULL);
-        g_object_set(self->m_hailonet, "scheduling-algorithm", 1, NULL);
-        g_object_set(self->m_hailonet, "outputs-min-pool-size", 0, NULL);
-        g_object_set(self->m_hailonet, "outputs-max-pool-size", 4, NULL); // hailonet will hold two internal queues of outputs-max-pool-size
-        g_object_set(self->m_hailonet, "vdevice-group-id", hailort_configs.device_id.c_str(), NULL);
-    }
+    // Some HailoRT parameters cannot be changed once configured
+    g_object_set(self->m_hailonet, "hef-path", denoise_configs.network_config.network_path.c_str(), NULL);
+    g_object_set(self->m_hailonet, "input-from-meta", true, NULL);
+    g_object_set(self->m_hailonet, "no-transform", true, NULL);
+    g_object_set(self->m_hailonet, "scheduling-algorithm", 1, NULL);
+    g_object_set(self->m_hailonet, "outputs-min-pool-size", 0, NULL);
+    g_object_set(self->m_hailonet, "outputs-max-pool-size", 4, NULL); // hailonet will hold two internal queues of outputs-max-pool-size
+    g_object_set(self->m_hailonet, "vdevice-group-id", hailort_configs.device_id.c_str(), NULL);
     g_object_set(self->m_hailonet, "pass-through", !denoise_configs.enabled, NULL);
 
     // reset the loopback counter for the next time we enable
     self->m_loop_counter = 0;
     // Clear the loopback queue since those buffers are not valid for the next time we enable
     gst_hailodenoise_clear_loopback_queue(self);
-    return TRUE;
 }
 
-static void 
+static void
+gst_hailodenoise_release_hailonet(GstHailoDenoise *self)
+{
+    if (self->m_hailonet)
+    {
+        gst_element_set_state(self->m_hailonet, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(self), self->m_hailonet);
+        gst_object_unref(self->m_hailonet);
+        self->m_hailonet = NULL;
+    }
+}
+
+static void
 gst_hailodenoise_init_ghost_sink(GstHailoDenoise *hailodenoise)
 {
+    GstPad *pad = NULL;
+    GST_DEBUG_OBJECT(hailodenoise, "Initializing ghost sink pad");
     // Get the connecting pad
-    GstPad *pad = gst_element_get_static_pad(hailodenoise->m_hailonet, "sink");
+    if (hailodenoise->medialib_denoise->is_enabled())
+    {
+        pad = gst_element_get_static_pad(hailodenoise->m_hailonet, "sink");
+    }
+    else
+    {
+        pad = gst_element_get_static_pad(hailodenoise->m_capsfilter, "sink");
+    }
 
     // Create a ghostpad and connect it to the bin
     GstPadTemplate *pad_tmpl = gst_static_pad_template_get(&sink_template);
@@ -270,9 +337,12 @@ gst_hailodenoise_init_ghost_sink(GstHailoDenoise *hailodenoise)
     gst_pad_set_active(hailodenoise->sinkpad, TRUE);
     gst_element_add_pad(GST_ELEMENT(hailodenoise), hailodenoise->sinkpad);
 
-    // Add a probe for internal logic
-    gst_pad_add_probe(hailodenoise->sinkpad, static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM | GST_PAD_PROBE_TYPE_BUFFER),
-                      (GstPadProbeCallback)gst_hailodenoise_sink_probe, hailodenoise, NULL);
+    if (hailodenoise->medialib_denoise->is_enabled())
+    {
+        // Add a probe for internal logic
+        hailodenoise->sink_probe_id = gst_pad_add_probe(hailodenoise->sinkpad, static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM | GST_PAD_PROBE_TYPE_BUFFER),
+                                                        (GstPadProbeCallback)gst_hailodenoise_sink_probe, hailodenoise, NULL);
+    }
 
     // Cleanup
     gst_object_unref(pad_tmpl);
@@ -282,8 +352,17 @@ gst_hailodenoise_init_ghost_sink(GstHailoDenoise *hailodenoise)
 static void
 gst_hailodenoise_init_ghost_src(GstHailoDenoise *hailodenoise)
 {
+    GstPad *pad = NULL;
+    GST_DEBUG_OBJECT(hailodenoise, "Initializing ghost src pad");
     // Get the connecting pad
-    GstPad *pad = gst_element_get_static_pad(hailodenoise->m_hailonet, "src");
+    if (hailodenoise->medialib_denoise->is_enabled())
+    {
+        pad = gst_element_get_static_pad(hailodenoise->m_hailonet, "src");
+    }
+    else
+    {
+        pad = gst_element_get_static_pad(hailodenoise->m_capsfilter, "src");
+    }
 
     // Create a ghostpad and connect it to the bin
     GstPadTemplate *pad_tmpl = gst_static_pad_template_get(&src_template);
@@ -291,9 +370,12 @@ gst_hailodenoise_init_ghost_src(GstHailoDenoise *hailodenoise)
     gst_pad_set_active(hailodenoise->srcpad, TRUE);
     gst_element_add_pad(GST_ELEMENT(hailodenoise), hailodenoise->srcpad);
 
-    // Add a probe for internal logic
-    gst_pad_add_probe(hailodenoise->srcpad, static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM | GST_PAD_PROBE_TYPE_BUFFER),
-                      (GstPadProbeCallback)gst_hailodenoise_src_probe, hailodenoise, NULL);
+    if (hailodenoise->medialib_denoise->is_enabled())
+    {
+        // Add a probe for internal logic
+        hailodenoise->src_probe_id = gst_pad_add_probe(hailodenoise->srcpad, static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM | GST_PAD_PROBE_TYPE_BUFFER),
+                                                       (GstPadProbeCallback)gst_hailodenoise_src_probe, hailodenoise, NULL);
+    }
 
     // Cleanup
     gst_object_unref(pad_tmpl);
@@ -303,9 +385,33 @@ gst_hailodenoise_init_ghost_src(GstHailoDenoise *hailodenoise)
 static GstStateChangeReturn
 gst_hailodenoise_change_state(GstElement *element, GstStateChange transition)
 {
+    GstHailoDenoise *hailodenoise = GST_HAILO_DENOISE(element);
+    // If transition is PAUSED to READY, remove the probes
+    if (transition == GST_STATE_CHANGE_PAUSED_TO_READY)
+    {
+        if (hailodenoise->medialib_denoise->is_enabled())
+        {
+            // Set pass-through as true.
+            g_object_set(hailodenoise->m_hailonet, "pass-through", true, NULL);
+            // Set flushing as true.
+            hailodenoise->m_flushing = true;
+            // Remove the probes
+            gst_pad_remove_probe(hailodenoise->sinkpad, hailodenoise->sink_probe_id);
+            gst_pad_remove_probe(hailodenoise->srcpad, hailodenoise->src_probe_id);
+            // Clear the loopback queue since those buffers are not valid for the next time we enable
+            gst_hailodenoise_clear_loopback_queue(hailodenoise);
+        }
+    }
+
     GstStateChangeReturn ret = GST_ELEMENT_CLASS(gst_hailodenoise_parent_class)->change_state(element, transition);
-    if (GST_STATE_CHANGE_FAILURE == ret) {
+    if (GST_STATE_CHANGE_FAILURE == ret)
+    {
         return ret;
+    }
+    if (transition == GST_STATE_CHANGE_PAUSED_TO_READY)
+    {
+        // Set flushing to false again
+        hailodenoise->m_flushing = false;
     }
     return ret;
 }
@@ -400,10 +506,10 @@ gst_hailodenoise_payload_tensor_meta(GstBuffer *buffer, GstBuffer *payload, std:
     gst_buffer_add_parent_buffer_meta(buffer, payload);
 }
 
-static std::map<std::string, GstBuffer*>
+static std::map<std::string, GstBuffer *>
 gst_hailodenoise_get_tensor_meta_from_buffer(GstBuffer *buffer)
 {
-    std::map<std::string, GstBuffer*> meta_vector;
+    std::map<std::string, GstBuffer *> meta_vector;
 
     gpointer state = NULL;
     GstMeta *meta;
@@ -436,7 +542,8 @@ static GstPadProbeReturn
 gst_hailodenoise_sink_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDenoise *hailodenoise)
 {
     // Handle incoming data
-    if (!(info->type & GST_PAD_PROBE_TYPE_BUFFER)) {
+    if (!(info->type & GST_PAD_PROBE_TYPE_BUFFER))
+    {
         // probe recieved something other than a buffer, pass it immediately
         return GST_PAD_PROBE_PASS;
     }
@@ -496,15 +603,27 @@ gst_hailodenoise_sink_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDenoise 
     {
         // Get the next buffer from the loopback queue
         GstBuffer *loopback_buffer = gst_hailodenoise_dequeue_buffer(hailodenoise);
+        if (!loopback_buffer)
+        {
+            if (hailodenoise->m_flushing)
+            {
+                GST_INFO_OBJECT(hailodenoise, "Flushing, drop frame, do not loop-back");
+            }
+            else
+            {
+                GST_ERROR_OBJECT(hailodenoise, "Loopback buffer is null");
+            }
+            return GST_PAD_PROBE_REMOVE;
+        }
 
         // Retrieve the plane data from the loopback buffer
-        std::map<std::string, GstBuffer*> loopback_tensors = gst_hailodenoise_get_tensor_meta_from_buffer(loopback_buffer);
+        std::map<std::string, GstBuffer *> loopback_tensors = gst_hailodenoise_get_tensor_meta_from_buffer(loopback_buffer);
 
         // Y
         GstBuffer *y_tensor_buffer = loopback_tensors[net_configs.output_y_channel];
-        (void)gst_hailodenoise_remove_tensor_meta(y_tensor_buffer);  // Clean out the old tensor meta
+        (void)gst_hailodenoise_remove_tensor_meta(y_tensor_buffer); // Clean out the old tensor meta
         gst_hailodenoise_payload_tensor_meta(buffer, y_tensor_buffer, net_configs.feedback_y_channel, HAILO_FORMAT_ORDER_NHCW);
-      
+
         // UV
         GstBuffer *uv_tensor_buffer = loopback_tensors[net_configs.output_uv_channel];
         (void)gst_hailodenoise_remove_tensor_meta(uv_tensor_buffer); // Clean out the old tensor meta
@@ -522,7 +641,8 @@ static GstPadProbeReturn
 gst_hailodenoise_src_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDenoise *hailodenoise)
 {
     // Handle outgoing data
-    if (!(info->type & GST_PAD_PROBE_TYPE_BUFFER)) {
+    if (!(info->type & GST_PAD_PROBE_TYPE_BUFFER))
+    {
         // probe recieved something other than a buffer, pass it immediately
         return GST_PAD_PROBE_PASS;
     }
@@ -549,7 +669,7 @@ gst_hailodenoise_src_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDenoise *
     feedback_network_config_t net_configs = hailodenoise->medialib_denoise->get_denoise_configs().network_config;
 
     // Retrieve the tensor data from the incoming buffer
-    std::map<std::string, GstBuffer*> output_tensors = gst_hailodenoise_get_tensor_meta_from_buffer(buffer);
+    std::map<std::string, GstBuffer *> output_tensors = gst_hailodenoise_get_tensor_meta_from_buffer(buffer);
     // Y
     GstBuffer *y_tensor_buffer = output_tensors[net_configs.output_y_channel];
     // UV
@@ -559,8 +679,7 @@ gst_hailodenoise_src_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDenoise *
     {
         GST_INFO_OBJECT(hailodenoise, "We are in closing/flushing stage. Drop frame, do not loop-back");
         return GST_PAD_PROBE_DROP;
-    } 
-    
+    }
     // Get the planes to replace in the incoming buffer
     GstVideoFrame frame;
     GstVideoInfo video_info;
@@ -606,17 +725,21 @@ gst_hailodenoise_queue_buffer(GstHailoDenoise *self, GstBuffer *buffer)
 {
     std::unique_lock<std::mutex> lock(*(self->m_mutex));
     self->m_condvar->wait(lock, [self]
-                    { return self->m_loopback_queue.size() < self->m_queue_size; });
+                          { return self->m_loopback_queue.size() < self->m_queue_size; });
     self->m_loopback_queue.push(buffer);
     self->m_condvar->notify_one();
 }
 
-static GstBuffer*
+static GstBuffer *
 gst_hailodenoise_dequeue_buffer(GstHailoDenoise *self)
 {
     std::unique_lock<std::mutex> lock(*(self->m_mutex));
     self->m_condvar->wait(lock, [self]
-                    { return !self->m_loopback_queue.empty(); });
+                          { return !self->m_loopback_queue.empty() || self->m_flushing; });
+    if (self->m_loopback_queue.empty())
+    {
+        return nullptr;
+    }
     GstBuffer *buffer = self->m_loopback_queue.front();
     self->m_loopback_queue.pop();
     self->m_condvar->notify_one();
