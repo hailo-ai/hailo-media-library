@@ -1,12 +1,10 @@
 #include "dsp/gsthailodspbasetransform.hpp"
 #include "dsp/gsthailodsp.h"
 #include "upload/gsthailoupload.hpp"
-#include "media_library/dma_memory_allocator.hpp"
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <sys/ioctl.h>
 #include <fcntl.h>
-#include <iostream>
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailo_upload_debug);
 #define GST_CAT_DEFAULT gst_hailo_upload_debug
@@ -201,7 +199,12 @@ gst_hailo_upload_transform(GstBaseTransform *base_transform, GstBuffer *inbuf, G
 
     GstVideoFrame video_frame_input, video_frame_output;
     gst_video_frame_map(&video_frame_input, &input_video_info, inbuf, GST_MAP_READ);
-    gst_video_frame_map(&video_frame_output, &input_video_info, outbuf, GST_MAP_WRITE);
+
+    if (hailoupload->use_gpdma)
+    {
+        // There is no need to map the output buffer if we are not using GPDMA
+        gst_video_frame_map(&video_frame_output, &input_video_info, outbuf, GST_MAP_WRITE);
+    }
 
     GstVideoFormat format = GST_VIDEO_FRAME_FORMAT(&video_frame_input);
     size_t image_height = GST_VIDEO_FRAME_HEIGHT(&video_frame_input);
@@ -224,7 +227,7 @@ gst_hailo_upload_transform(GstBaseTransform *base_transform, GstBuffer *inbuf, G
         size_t y_channel_stride = GST_VIDEO_FRAME_PLANE_STRIDE(&video_frame_input, 0);
         size_t y_channel_size = y_channel_stride * image_height;
 
-        void *uv_input_channel_data = (void *)GST_VIDEO_FRAME_PLANE_DATA(&video_frame_input, 1);
+        void *uv_channel_data = (void *)GST_VIDEO_FRAME_PLANE_DATA(&video_frame_input, 1);
         size_t uv_channel_stride = GST_VIDEO_FRAME_PLANE_STRIDE(&video_frame_input, 1);
         size_t uv_channel_size = uv_channel_stride * image_height / 2;
 
@@ -242,7 +245,7 @@ gst_hailo_upload_transform(GstBaseTransform *base_transform, GstBuffer *inbuf, G
                 break;
             }
 
-            if (gpdma_copy_channel(hailoupload, uv_input_channel_data, uv_output_channel_data, uv_channel_size) != GST_FLOW_OK)
+            if (gpdma_copy_channel(hailoupload, uv_channel_data, uv_output_channel_data, uv_channel_size) != GST_FLOW_OK)
             {
                 GST_ERROR_OBJECT(hailoupload, "Failed to copy UV channel");
                 ret = GST_FLOW_ERROR;
@@ -254,26 +257,14 @@ gst_hailo_upload_transform(GstBaseTransform *base_transform, GstBuffer *inbuf, G
         else 
         {
             GST_DEBUG_OBJECT(hailoupload, "Using CPU for memory copy");
-            int y_fd = -1, uv_fd = -1;
 
             // Copy Y channel to the contiguous memory
-            void *y_output_channel_data = (void *)GST_VIDEO_FRAME_PLANE_DATA(&video_frame_output, 0);
-            memcpy(y_output_channel_data, y_input_channel_data, y_channel_size);
-            if (DmaMemoryAllocator::get_instance().get_fd(y_output_channel_data, y_fd) != -1)
-            {
-                DmaMemoryAllocator::get_instance().dmabuf_sync_end(y_output_channel_data);
-            }
-            GST_DEBUG_OBJECT(hailoupload, "NV12 format: Copied Y channel %d bytes from input buffer to output buffer", (int)y_channel_size);
+            gsize size_copied = gst_buffer_fill(outbuf, 0, y_input_channel_data, y_channel_size);
+            GST_DEBUG_OBJECT(hailoupload, "NV12 format: Copied Y channel %d bytes from input buffer to output buffer", (int)size_copied);
 
             // Copy UV channel to the contiguous memory
-            void *uv_output_channel_data = (void *)GST_VIDEO_FRAME_PLANE_DATA(&video_frame_output, 1);
-            memcpy(uv_output_channel_data, uv_input_channel_data, uv_channel_size);
-            if (DmaMemoryAllocator::get_instance().get_fd(uv_output_channel_data, uv_fd) != -1)
-            {
-                DmaMemoryAllocator::get_instance().dmabuf_sync_end(uv_output_channel_data);
-            }
-            GST_DEBUG_OBJECT(hailoupload, "NV12 format: Copied UV channel %d bytes from input buffer to output buffer", (int)uv_channel_size);
-
+            size_copied = gst_buffer_fill(outbuf, y_channel_size, uv_channel_data, uv_channel_size);
+            GST_DEBUG_OBJECT(hailoupload, "NV12 format: Copied UV channel %d bytes from input buffer to output buffer", (int)size_copied);
             break;
         }
     }
@@ -302,7 +293,12 @@ gst_hailo_upload_transform(GstBaseTransform *base_transform, GstBuffer *inbuf, G
     }
 
     gst_video_frame_unmap(&video_frame_input);
-    gst_video_frame_unmap(&video_frame_output);
+
+    if (hailoupload->use_gpdma)
+    {
+        gst_video_frame_unmap(&video_frame_output);
+    }
+
     gst_caps_unref(incaps);
     gst_caps_unref(outcaps);
 

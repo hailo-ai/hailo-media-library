@@ -162,7 +162,7 @@ gst_hailofrontendbinsrc_init_queue(GstHailoFrontendBinSrc *hailofrontendbinsrc)
     g_object_set(queue, "leaky", (guint)2, NULL);
     g_object_set(queue, "max-size-time", (guint64)0, NULL);
     g_object_set(queue, "max-size-bytes", (guint)0, NULL);
-    g_object_set(queue, "max-size-buffers", (guint)2, NULL);
+    g_object_set(queue, "max-size-buffers", (guint)1, NULL);
     return queue;
 }
 
