@@ -301,7 +301,9 @@ media_library_return LdcMeshContext::initialize_dewarp_mesh()
     if (m_ldc_configs.rotation_config.enabled)
         rotation_angle = m_ldc_configs.rotation_config.angle;
     FlipMirrorRot flip_mirror_rot = get_flip_value(flip_dir, rotation_angle);
+    DmaMemoryAllocator::get_instance().dmabuf_sync_start((void*)m_dewarp_mesh.mesh_table);
     RetCodes ret = dis_dewarp_only_grid(m_dis_ctx, m_input_width, m_input_height, flip_mirror_rot, &mesh);
+    DmaMemoryAllocator::get_instance().dmabuf_sync_end((void*)m_dewarp_mesh.mesh_table);
     if (ret != DIS_OK)
     {
         LOGGER__ERROR("Failed to generate mesh, status: {}", ret);
@@ -312,7 +314,6 @@ media_library_return LdcMeshContext::initialize_dewarp_mesh()
     m_dewarp_mesh.mesh_width = mesh.mesh_width;
     m_dewarp_mesh.mesh_height = mesh.mesh_height;
 
-    DmaMemoryAllocator::get_instance().dmabuf_sync_start(m_dewarp_mesh.mesh_table);
 
     LOGGER__INFO("generated base dewarp mesh grid {}x{}", mesh.mesh_width, mesh.mesh_height);
     return MEDIA_LIBRARY_SUCCESS;
@@ -377,8 +378,10 @@ media_library_return LdcMeshContext::on_frame_vsm_update(struct hailo15_vsm &vsm
         rotation_angle = m_ldc_configs.rotation_config.angle;
     FlipMirrorRot flip_mirror_rot = get_flip_value(flip_dir, rotation_angle);
 
+    DmaMemoryAllocator::get_instance().dmabuf_sync_start((void*)m_dewarp_mesh.mesh_table);
     RetCodes ret = dis_generate_grid(m_dis_ctx, m_input_width, m_input_height, vsm.dx,
                                      vsm.dy, 0, flip_mirror_rot, &mesh);
+    DmaMemoryAllocator::get_instance().dmabuf_sync_end((void*)m_dewarp_mesh.mesh_table);
     if (ret != DIS_OK)
     {
         LOGGER__ERROR("Failed to update mesh with VSM, status: {}", ret);
@@ -389,7 +392,6 @@ media_library_return LdcMeshContext::on_frame_vsm_update(struct hailo15_vsm &vsm
     m_dewarp_mesh.mesh_width = mesh.mesh_width;
     m_dewarp_mesh.mesh_height = mesh.mesh_height;
 
-    DmaMemoryAllocator::get_instance().dmabuf_sync_start(m_dewarp_mesh.mesh_table);
 
     return MEDIA_LIBRARY_SUCCESS;
 }

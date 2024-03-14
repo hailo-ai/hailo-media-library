@@ -168,7 +168,7 @@ media_library_return OverlayImpl::end_sync_buffer(GstVideoFrame *video_frame)
     for (int i = 0; i < (int)GST_VIDEO_FRAME_N_PLANES(video_frame); i++)
     {
         void *buffer_ptr = (void *)GST_VIDEO_FRAME_PLANE_DATA(video_frame, i);
-
+        
         media_library_return status = DmaMemoryAllocator::get_instance().dmabuf_sync_end(buffer_ptr);
         if (status != MEDIA_LIBRARY_SUCCESS)
         {

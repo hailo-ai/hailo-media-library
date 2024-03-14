@@ -36,16 +36,16 @@
 #include "media_library_types.hpp"
 
 class DmaMemoryAllocator
-{
+{    
     private:
         uint fd_count;
         int m_dma_heap_fd;
         bool m_dma_heap_fd_open;
         std::shared_ptr<std::mutex> m_allocator_mutex;
-        std::unordered_map<void *, dma_heap_allocation_data> m_allocated_buffers;
+        std::unordered_map<void *, dma_heap_allocation_data> m_allocated_buffers; 
         DmaMemoryAllocator();
         ~DmaMemoryAllocator();
-
+        
         media_library_return dmabuf_fd_open();
         media_library_return dmabuf_fd_close();
         media_library_return dmabuf_map(dma_heap_allocation_data &heap_data, void **mapped_memory);

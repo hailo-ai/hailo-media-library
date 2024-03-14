@@ -41,7 +41,7 @@ utils_sources = [
     'osd/gsthailoosd.cpp',
     'osd/osd.cpp',
     'osd/osd_impl.cpp',
-
+    
     # DSP Related sources
     'dsp/gsthailodsp.c',
     'dsp/gsthailodspbufferpool.cpp',

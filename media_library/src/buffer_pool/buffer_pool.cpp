@@ -66,11 +66,6 @@ media_library_return HailoBucket::allocate()
 media_library_return HailoBucket::free()
 {
     std::unique_lock<std::mutex> lock(*m_bucket_mutex);
-    if (!m_used_buffers.empty())
-    {
-        LOGGER__INFO("There are still {} in the bucket, {} are free", m_used_buffers.size(), m_available_buffers.size());
-        return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
-    }
 
     while (!m_available_buffers.empty())
     {
@@ -84,6 +79,12 @@ media_library_return HailoBucket::free()
         }
 
         m_available_buffers.pop_front();
+    }
+
+    if (!m_used_buffers.empty())
+    {
+        LOGGER__ERROR("There are still {} in the bucket, {} are free", m_used_buffers.size(), m_available_buffers.size());
+        return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
     LOGGER__DEBUG("After freeing bucket of size {} num of buffers {}, used buffers {} available buffers {}",
@@ -107,8 +108,8 @@ media_library_return HailoBucket::acquire(intptr_t *buffer_ptr)
     m_available_buffers.pop_front();
     m_used_buffers.insert(*buffer_ptr);
 
-    LOGGER__DEBUG("After acquiring buffer, available_buffers={} used_buffers={}",
-                 m_available_buffers.size(), m_used_buffers.size());
+    LOGGER__DEBUG("After acquiring buffer {}, available_buffers={} used_buffers={}",
+                 *buffer_ptr, m_available_buffers.size(), m_used_buffers.size());
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -118,11 +119,11 @@ media_library_return HailoBucket::release(intptr_t buffer_ptr)
     std::unique_lock<std::mutex> lock(*m_bucket_mutex);
 
     // TODO: validate that buffer_ptr is in m_used_buffers?
-    m_used_buffers.erase(buffer_ptr);
+    auto num_erased = m_used_buffers.erase(buffer_ptr);
     m_available_buffers.push_front(buffer_ptr);
 
-    LOGGER__DEBUG("After release buffer, total_buffers={}  available_buffers={} used_buffers={}",
-                 m_num_buffers, m_available_buffers.size(), m_used_buffers.size());
+    LOGGER__DEBUG("After release buffer {}, total_buffers={}  available_buffers={} used_buffers={}, removed={}",
+                 buffer_ptr, m_num_buffers, m_available_buffers.size(), m_used_buffers.size(), num_erased);
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -188,7 +189,7 @@ media_library_return MediaLibraryBufferPool::free()
         LOGGER__DEBUG("{}: Freeing bucket {} of size {} num of buffers {}", m_name, i, bucket->m_buffer_size, bucket->m_num_buffers);
         if (bucket->free() != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__INFO("{}: failed to free bucket {}", m_name, i);
+            LOGGER__ERROR("{}: failed to free bucket {}", m_name, i);
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
     }
@@ -252,7 +253,7 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
             .bytesused = y_channel_size,
         };
 
-        int y_channel_fd;
+        int y_channel_fd; 
         ret = DmaMemoryAllocator::get_instance().get_fd((void *)y_channel_ptr, y_channel_fd);
 
         if (ret != MEDIA_LIBRARY_SUCCESS)
@@ -280,7 +281,7 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
 
         int uv_channel_fd;
         ret = DmaMemoryAllocator::get_instance().get_fd((void *)uv_channel_ptr, uv_channel_fd);
-
+        
         if (ret != MEDIA_LIBRARY_SUCCESS)
         {
             uv_plane_data.userptr = (void *)uv_channel_ptr;
@@ -338,10 +339,21 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
         }
 
         dsp_data_plane_t plane_data = {
-            .userptr = (void *)(data_ptr),
             .bytesperline = image_stride,
             .bytesused = image_size,
         };
+
+        int channel_fd;
+        ret = DmaMemoryAllocator::get_instance().get_fd((void *)data_ptr, channel_fd);
+
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+        {
+            plane_data.userptr = (void *)data_ptr;
+        }
+        else
+        {
+            plane_data.fd = channel_fd;
+        }
 
         // TODO: nested struct malloc - free or find a better solution
         dsp_data_plane_t *planes = new dsp_data_plane_t[1];
@@ -354,6 +366,7 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
         hailo_pix_buffer->planes = planes;
         hailo_pix_buffer->planes_count = 1;
         hailo_pix_buffer->format = DSP_IMAGE_FORMAT_GRAY8;
+        hailo_pix_buffer->memory = DSP_MEMORY_TYPE_DMABUF;
 
         ret = buffer.create(shared_from_this(), hailo_pix_buffer);
         if (ret != MEDIA_LIBRARY_SUCCESS)
@@ -396,6 +409,13 @@ MediaLibraryBufferPool::release_plane(hailo_media_library_buffer *buffer,
                   m_name, plane_index,
                   buffer->buffer_index, bucket->m_buffer_size, bucket->m_num_buffers,
                   bucket->m_used_buffers.size() - 1);
+
+    if (buffer->is_dmabuf())
+    {
+        return bucket->release(
+            (intptr_t)buffer->get_plane(plane_index));
+    }
+    
     return bucket->release(
         (intptr_t)buffer->hailo_pix_buffer->planes[plane_index].userptr);
 }

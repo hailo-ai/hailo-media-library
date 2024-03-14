@@ -89,7 +89,7 @@ gst_hailo_dsp_base_prepare_output_buffer(GstBaseTransform *trans,
 
     if (gst_base_transform_is_passthrough(trans))
     {
-        // Passthrough mdoe - modify the incoming buffer, output = input
+        // Passthrough mode - modify the incoming buffer, output = input
         GST_DEBUG_OBJECT(trans, "Passthrough: reusing input buffer");
         *outbuf = inbuf;
         return GST_FLOW_OK;

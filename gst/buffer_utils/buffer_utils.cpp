@@ -213,7 +213,7 @@ int get_fd(GstVideoFrame *video_frame, int index)
     // GstMemory *memory = gst_buffer_peek_memory(video_frame->buffer, index);
     // if (memory && gst_is_dmabuf_memory(memory))
     // {
-    //    fd = gst_dmabuf_memory_get_fd(memory);
+    //     fd = gst_dmabuf_memory_get_fd(memory);
     // }
 
     return fd;
@@ -390,7 +390,7 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
         } else {
             dsp_image_props.memory = DSP_MEMORY_TYPE_DMABUF;
         }
-
+        
         break;
     }
     default:

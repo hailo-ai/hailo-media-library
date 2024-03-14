@@ -338,7 +338,7 @@ public:
     {
         if (index >= hailo_pix_buffer->planes_count)
             return nullptr;
-
+        
         if (is_dmabuf())
         {
             // Ugly trick, but its will work for now

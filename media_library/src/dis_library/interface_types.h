@@ -49,7 +49,7 @@ enum FlipMirrorRot
     FLIPV_MIRROR_ROT90 = 3,  // {0, 1; -1, 0}
     ROT90_FLIPV_MIRROR = 3,  // {0, 1; -1, 0}
     MIRROR = 4,              // {-1, 0; 0, 1}
-    FLIPV_ROT180 = 4,        // {-1, 0; 0, 1}
+    FLIPV_ROT180 = 4,        // {-1, 0; 0, 1}   
     ROT180_FLIPV = 4,        // {-1, 0; 0, 1}
     MIRROR_ROT270 = 5,       // {0, -1; -1, 0}
     FLIPV_ROT90 = 5,         // {0, -1; -1, 0}

@@ -316,6 +316,7 @@ media_library_return MediaLibraryDewarp::Impl::create_and_initialize_buffer_pool
     uint width, height;
     width = m_ldc_configs.output_video_config.dimensions.destination_width;
     height = m_ldc_configs.output_video_config.dimensions.destination_height;
+    std::string name = "dewarp_output";
 
     if (m_output_buffer_pool != nullptr && width == m_output_buffer_pool->get_width() && height == m_output_buffer_pool->get_height())
     {
@@ -324,8 +325,8 @@ media_library_return MediaLibraryDewarp::Impl::create_and_initialize_buffer_pool
     }
 
     auto bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width(width);
-    LOGGER__INFO("Creating buffer pool for output resolution: width {} height {} in buffers size of {} and bytes per line {}", width, height, m_ldc_configs.output_video_config.pool_max_buffers, bytes_per_line);
-    m_output_buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, m_ldc_configs.input_video_config.format, (uint)m_ldc_configs.output_video_config.pool_max_buffers, CMA, bytes_per_line);
+    LOGGER__INFO("Creating buffer pool named {} for output resolution: width {} height {} in buffers size of {} and bytes per line {}", name, width, height, m_ldc_configs.output_video_config.pool_max_buffers, bytes_per_line);
+    m_output_buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, m_ldc_configs.input_video_config.format, (uint)m_ldc_configs.output_video_config.pool_max_buffers, CMA, bytes_per_line, name);
     if (m_output_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to init buffer pool");

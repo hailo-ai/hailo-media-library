@@ -86,8 +86,8 @@ private:
     std::shared_ptr<ConfigManager> m_config_manager;
     // operation configurations
     multi_resize_config_t m_multi_resize_config;
-    // input buffer pools
-    MediaLibraryBufferPoolPtr m_input_buffer_pool;
+    // dsp internal helper buffer pool
+    MediaLibraryBufferPoolPtr m_dsp_helper_buffer_pool;
     // privacy mask blender
     PrivacyMaskBlenderPtr m_privacy_mask_blender;
     // callbacks
@@ -223,6 +223,13 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
     {
         LOGGER__ERROR("Failed to create privacy mask blender");
         status = blender_expected.error();
+    }
+
+    m_dsp_helper_buffer_pool = std::make_shared<MediaLibraryBufferPool>(1280, 720, DSP_IMAGE_FORMAT_GRAY8, 1, CMA, dsp_utils::get_dsp_desired_stride_from_width(1280), "multi_resize_input");
+    if (m_dsp_helper_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to init internal buffer pool");
+        status = MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
     status = MEDIA_LIBRARY_SUCCESS;
@@ -477,9 +484,13 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(hailo_m
         return MEDIA_LIBRARY_ERROR;
     }
 
+    hailo_media_library_buffer resize_helper_buffer;
+    m_dsp_helper_buffer_pool->acquire_buffer(resize_helper_buffer);
+
     dsp_multi_resize_params_t multi_resize_params = {
         .src = input_buffer.hailo_pix_buffer.get(),
         .interpolation = m_multi_resize_config.output_video_config.interpolation_type,
+        .helper_plane = &resize_helper_buffer.hailo_pix_buffer.get()->planes[0],
     };
 
     uint num_bufs_to_resize = 0;
@@ -572,10 +583,9 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(hailo_m
     }
     else
     {
-        dsp_image_properties_t *dsp_image_props = privacy_mask_data->bitmask.hailo_pix_buffer.get();
         dsp_roi_t dsp_rois[privacy_mask_data->rois_count];
         dsp_privacy_mask_t dsp_privacy_mask = {
-            .bitmask = (uint8_t *)dsp_image_props->planes[0].userptr,
+            .bitmask = (uint8_t *)privacy_mask_data->bitmask.get_plane(0),
             .y_color = privacy_mask_data->color.y,
             .u_color = privacy_mask_data->color.u,
             .v_color = privacy_mask_data->color.v,
@@ -597,6 +607,8 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(hailo_m
         ret = dsp_utils::perform_dsp_multi_resize(&multi_resize_params, start_x, start_y, end_x, end_y, &dsp_privacy_mask);
 
     }
+
+    resize_helper_buffer.decrease_ref_count();
 
     clock_gettime(CLOCK_MONOTONIC, &end_resize);
     [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_resize, start_resize);
@@ -672,8 +684,14 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(hailo_media_lib
     if (m_multi_resize_config.output_video_config.grayscale)
     {
         // Saturate UV plane to value of 128 - to get a grayscale image
-        dsp_data_plane_t &uv_plane = input_frame.hailo_pix_buffer->planes[1];
-        memset(uv_plane.userptr, 128, uv_plane.bytesused);
+        if (input_frame.is_dmabuf())
+        {
+            input_frame.sync_start();
+            memset(input_frame.get_plane(1), 128, input_frame.get_plane_size(1));
+            input_frame.sync_end();
+        } else {
+            memset(input_frame.get_plane(1), 128, input_frame.get_plane_size(1));
+        }
     }
 
     // Perform multi resize
