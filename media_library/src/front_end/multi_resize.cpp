@@ -490,7 +490,7 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(hailo_m
     dsp_multi_resize_params_t multi_resize_params = {
         .src = input_buffer.hailo_pix_buffer.get(),
         .interpolation = m_multi_resize_config.output_video_config.interpolation_type,
-        .helper_plane = &resize_helper_buffer.hailo_pix_buffer.get()->planes[0],
+        .helper_plane = resize_helper_buffer.hailo_pix_buffer.get(),
     };
 
     uint num_bufs_to_resize = 0;

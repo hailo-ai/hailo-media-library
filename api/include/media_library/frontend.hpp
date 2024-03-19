@@ -120,6 +120,14 @@ public:
     media_library_return stop();
 
     /**
+     * @brief Configure the MediaLibraryFrontend module with the given
+     * configuration.
+     * @param[in] json_config - a json string containing the configuration
+     * @return media_library_return - status of the configuration operation
+     */
+    media_library_return configure(std::string json_config);
+
+    /**
      * @brief Subscribe to the MediaLibraryFrontend module to receive the output
      * buffers
      * @param[in] callbacks - a map of callbacks functions to be called when a buffer is

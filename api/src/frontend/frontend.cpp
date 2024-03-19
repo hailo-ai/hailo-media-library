@@ -30,6 +30,11 @@ media_library_return MediaLibraryFrontend::stop()
     return m_impl->stop();
 }
 
+media_library_return MediaLibraryFrontend::configure(std::string json_config)
+{
+    return m_impl->configure(json_config);
+}
+
 media_library_return MediaLibraryFrontend::subscribe(FrontendCallbacksMap callbacks)
 {
     return m_impl->subscribe(callbacks);
@@ -146,6 +151,20 @@ media_library_return MediaLibraryFrontend::Impl::stop()
     gst_element_set_state(m_pipeline, GST_STATE_NULL);
     g_main_loop_quit(m_main_loop);
     m_main_loop_thread->join();
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return MediaLibraryFrontend::Impl::configure(std::string json_config)
+{
+    m_json_config = nlohmann::json::parse(json_config);
+    GstElement *frontend = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
+    if (frontend == nullptr)
+    {
+        LOGGER__ERROR("Failed to get frontend element");
+        return MEDIA_LIBRARY_ERROR;
+    }
+    g_object_set(G_OBJECT(frontend), "config-string", json_config.c_str(), NULL);
+    gst_object_unref(frontend);
     return MEDIA_LIBRARY_SUCCESS;
 }
 

@@ -294,7 +294,7 @@ gst_hailodenoise_configure_hailonet(GstHailoDenoise *self)
     g_object_set(self->m_hailonet, "no-transform", true, NULL);
     g_object_set(self->m_hailonet, "scheduling-algorithm", 1, NULL);
     g_object_set(self->m_hailonet, "outputs-min-pool-size", 0, NULL);
-    g_object_set(self->m_hailonet, "outputs-max-pool-size", 4, NULL); // hailonet will hold two internal queues of outputs-max-pool-size
+    g_object_set(self->m_hailonet, "outputs-max-pool-size", denoise_configs.loopback_count+1, NULL); // hailonet will hold two internal queues of outputs-max-pool-size
     g_object_set(self->m_hailonet, "vdevice-group-id", hailort_configs.device_id.c_str(), NULL);
     g_object_set(self->m_hailonet, "pass-through", !denoise_configs.enabled, NULL);
 

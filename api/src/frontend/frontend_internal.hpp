@@ -18,6 +18,7 @@ public:
     media_library_return subscribe(FrontendCallbacksMap callback);
     media_library_return start();
     media_library_return stop();
+    media_library_return configure(std::string json_config);
     // media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
 
     void on_need_data(GstAppSrc *appsrc, guint size);
