@@ -766,6 +766,84 @@ namespace config_schemas
           "black_corners_threshold": {
             "type": "number"
           },
+          "angular_dis": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "vsm": {
+                "type": "object",
+                "properties": {
+                  "hoffset": {
+                    "type": "number"
+                  },
+                  "voffset": {
+                    "type": "number"
+                  },
+                  "width": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "max_displacement": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "hoffset",
+                  "voffset",
+                  "width",
+                  "height",
+                  "max_displacement"
+                ]
+              }
+            },
+            "required": [
+              "enabled",
+              "vsm"
+            ]
+          },
+          "angular_dis": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "vsm": {
+                "type": "object",
+                "properties": {
+                  "hoffset": {
+                    "type": "number"
+                  },
+                  "voffset": {
+                    "type": "number"
+                  },
+                  "width": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "max_displacement": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "hoffset",
+                  "voffset",
+                  "width",
+                  "height",
+                  "max_displacement"
+                ]
+              }
+            },
+            "required": [
+              "enabled",
+              "vsm"
+            ]
+          },
           "debug": {
             "type": "object",
             "properties": {
@@ -799,6 +877,7 @@ namespace config_schemas
           "std_multiplier",
           "black_corners_correction_enabled",
           "black_corners_threshold",
+          "angular_dis",
           "debug"
         ]
       },
@@ -1104,6 +1183,45 @@ namespace config_schemas
           "black_corners_threshold": {
             "type": "number"
           },
+          "angular_dis": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "vsm": {
+                "type": "object",
+                "properties": {
+                  "hoffset": {
+                    "type": "number"
+                  },
+                  "voffset": {
+                    "type": "number"
+                  },
+                  "width": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "max_displacement": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "hoffset",
+                  "voffset",
+                  "width",
+                  "height",
+                  "max_displacement"
+                ]
+              }
+            },
+            "required": [
+              "enabled",
+              "vsm"
+            ]
+          },
           "debug": {
             "type": "object",
             "properties": {
@@ -1139,6 +1257,7 @@ namespace config_schemas
           "std_multiplier",
           "black_corners_correction_enabled",
           "black_corners_threshold",
+          "angular_dis",
           "debug"
         ]
       },
@@ -1367,6 +1486,56 @@ namespace config_schemas
     },
     "required": [
       "defog"
+    ]
+  }
+  )"_json;
+
+  static nlohmann::json vsm_config_schema = R"(
+  {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Media Library schema for vsm media server configuration",
+    "type": "object",
+    "properties": {
+      "vsm": {
+        "type": "object",
+        "properties": {
+          "vsm_h_size": {
+            "type": "number"
+          },
+          "vsm_h_offset": {
+            "type": "number"
+          },
+          "vsm_v_size": {
+            "type": "number"
+          },
+          "vsm_v_offset": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "vsm_h_size",
+          "vsm_h_offset",
+          "vsm_v_size",
+          "vsm_v_offset"
+        ]
+      },
+      "3dnr": {
+        "type": "object",
+        "properties": {
+          "enable": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "enable"
+        ]
+      }
+    },
+    "required": [
+      "vsm",
+      "3dnr"
     ]
   }
   )"_json;

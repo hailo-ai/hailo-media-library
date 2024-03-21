@@ -25,6 +25,10 @@ if meson.is_cross_build()
     endif
 endif
 
+v4l_dep = [
+    meson.get_compiler('cpp').find_library('libgstvideo4linux2', required: true, dirs: sysroot + '/usr/lib/gstreamer-1.0/')
+]
+
 hailort_dep = [
     meson.get_compiler('cpp').find_library('hailort', required: true),
     meson.get_compiler('cpp').find_library('libgsthailo', required: true, dirs: sysroot + '/usr/lib/gstreamer-1.0/')
@@ -54,17 +58,19 @@ opencv_freetype_lib_dep = meson.get_compiler('cpp').find_library('opencv_freetyp
 gstmedialibutils_lib = shared_library('gstmedialibutils',
     utils_sources,
     cpp_args : common_args,
+    link_args: ['-lm', '-Wl,-rpath,/usr/lib/gstreamer-1.0'],
     dependencies : gstreamer_deps + 
-                   [dsp_dep, media_library_common_dep, opencv_dep, spdlog_dep, opencv_freetype_lib_dep],
+                   [dsp_dep, media_library_common_dep, opencv_dep, spdlog_dep, opencv_freetype_lib_dep, v4l_dep],
     gnu_symbol_visibility : 'default',
     version: meson.project_version(),
     install: true,
     install_dir: get_option('libdir'),
+    install_rpath: '/usr/lib/gstreamer-1.0',
 )
 
 gstmedialibrary_utils_dep = declare_dependency(
   include_directories: [include_directories('./buffer_utils', './osd')],
-  dependencies : [media_library_common_dep],
+  dependencies : [media_library_common_dep, v4l_dep],
   link_with : gstmedialibutils_lib)
 
 

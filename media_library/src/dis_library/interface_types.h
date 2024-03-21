@@ -28,8 +28,10 @@
 #define _DIS_INTERFACE_TYPES_H_
 
 #include "dis_math.h"
+#include "dis_common.h"
 #include <stddef.h>
 #include <stdint.h>
+#include <memory>
 
 /// Flip vertical, mirror horizontal, rotate to 90/180/270 deg.
 /// Flip and mirror may be before or after rotation. All possible combinations
@@ -84,6 +86,41 @@ struct dis_calibration_t
     ivec2 res;
     vec2 oc;
     std::vector<float> theta2radius;
+};
+
+struct angular_dis_isp_vsm_t {
+    /** Horizontal axis center point of the VSP window used for ISP VSM (calculated as: hoffset + width / 2) */
+    size_t center_x;
+    /** Vertical axis center point of the VSP window used for ISP VSM (calculated as: voffset + height / 2) */
+    size_t center_y;
+    /** VSM dx reading from ISP */
+    int dx;
+    /** VSM dy reading from ISP */
+    int dy;
+};
+
+struct angular_dis_filter_angle_t {
+    /** Maximum allowed theta angle */
+    float maximum_theta;
+    /** Filter alpha */
+    float alpha;
+    /** Output of angles sum for current frame */
+    std::shared_ptr<float> cur_angles_sum;
+    /** Output of trajectory for current frame */
+    std::shared_ptr<float> cur_traj;
+    /** Output of stabilized theta */
+    std::shared_ptr<float> stabilized_theta;
+};
+
+
+struct angular_dis_params_t
+{
+    angular_dis_vsm_config_t dsp_vsm_config;
+    std::shared_ptr<angular_dis_filter_angle_t> dsp_filter_angle;
+    angular_dis_isp_vsm_t isp_vsm;
+    uint16_t *cur_columns_sum;
+    uint16_t *cur_rows_sum;
+    bool stabilize_rotation;
 };
 
 #endif // _DIS_INTERFACE_TYPES_H_

@@ -81,10 +81,10 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
 
     float out_diag = vec2(out_width, out_height).len();
     float max_out_fov = 0; // for print
+    float flen = 0.0;
     // create virtual camera
     if (m_camera_type == CAMERA_TYPE_PINHOLE)
     { // pinhole
-        float flen;
         const float in_tan_ltrb[4] = {
             tan(std::min(in_cam.ltrb[0], RADIANS(89.9))),
             tan(std::min(in_cam.ltrb[1], RADIANS(89.9))),
@@ -144,7 +144,7 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
         // accurate calc is too complex. DFOV is the limitation when output camera is more distorted than the
         // input one, which is not a practical case.
         vec2 oc;
-        float flen = out_diag / out_fov; // fisheye: rad = flen * theta
+        flen = out_diag / out_fov; // fisheye: rad = flen * theta
         oc.x = out_width * 0.5f + flen * (in_cam.ltrb[0] - in_cam.ltrb[2]) / 2;
         oc.y = out_height * 0.5f + flen * (in_cam.ltrb[1] - in_cam.ltrb[3]) / 2;
 
@@ -191,6 +191,21 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
     }
 
     const float ONE_DEG_IN_RADS = RADIANS(1.0f);
+
+    float eff_in_height = tan(in_cam.ltrb[3]) * flen + in_cam.oc.y;
+    float eff_in_width  = tan(in_cam.ltrb[2]) * flen + in_cam.oc.x;
+    LOG("In CAM Eff (WxH):  %.3f, %.3f", eff_in_width, eff_in_height);
+    float y1 = eff_in_height / 2;
+    float y0 = out_cam->res.y / 2;
+    float x0 = out_cam->res.x / 2;
+    float x1 = std::sqrt(pow(x0, 2) + pow(y0, 2) - pow(y1, 2));
+    LOG("-- In CAM Eff (WxH):  %.3f, %.3f", x1, y1);
+    LOG("-- Out CAM Eff (WxH): %.3f, %.3f", x0, y0);
+
+    float string0 = std::hypotf(y1-y0, x1-x0);
+    room4stab_theta = std::acos((2*pow(out_cam->diag/2, 2) - pow(string0, 2)) / (2*pow(out_cam->diag/2, 2)));
+    LOG("Room 4 Stab Rot deg: %.3f", DEGREES(room4stab_theta));
+
 
     room4stab[0] = in_cam.ltrb[0] - out_cam->ltrb[0];
     room4stab[1] = in_cam.ltrb[1] - out_cam->ltrb[1];
@@ -263,8 +278,11 @@ void DIS::gen_resize_grid(DewarpT &grid)
 ///////////////////////////////////////////////////////////////////////////////
 RetCodes DIS::generate_grid(vec2 fmv, int32_t panning,
                             FlipMirrorRot flip_mirror_rot,
+                            std::shared_ptr<angular_dis_params_t> angular_dis_params,
                             DewarpT &grid)
 {
+    float stabilization_theta = *(angular_dis_params->dsp_filter_angle->stabilized_theta);
+
     if (cfg.debug.generate_resize_grid)
     { // generate grid, which only resizes the input image into the output one
         gen_resize_grid(grid);
@@ -319,18 +337,24 @@ RetCodes DIS::generate_grid(vec2 fmv, int32_t panning,
     in_lo += fmv_lo;
     in_la += fmv_la;
 
+    in_yaw += stabilization_theta;
+
     // filter
     filt_lo = (in_lo - filt_lo) * k + filt_lo;
     filt_la = (in_la - filt_la) * k + filt_la;
+    filt_yaw = (in_yaw - filt_yaw) * k + filt_yaw;
+
     if (cfg.debug.fix_stabilization)
     {
         filt_lo = cfg.debug.fix_stabilization_longitude;
         filt_la = cfg.debug.fix_stabilization_longitude;
+        filt_yaw = cfg.debug.fix_stabilization_longitude;
     }
 
     // stabilizing rotation is the difference between actual and stabilized orientation
     float stab_la = filt_la - in_la;
     float stab_lo = filt_lo - in_lo;
+    float stab_yaw = filt_yaw - in_yaw;
 
     if (!cfg.debug.fix_stabilization && cfg.black_corners_correction_enabled)
     {
@@ -344,22 +368,17 @@ RetCodes DIS::generate_grid(vec2 fmv, int32_t panning,
             filt_la = in_la + stab_la;
             filt_lo = in_lo + stab_lo;
         }
+        if (black_corner_theta_adjust(stab_yaw) && angular_dis_params->stabilize_rotation)
+        {
+            filt_yaw = in_yaw + stab_yaw;
+        }
     }
-    // LOG("stats %d MV: %.1f, %.1f, %.4f, %.4f , grossErr: %c ; orient: %.3f, %.3f ; stab: %.3f, %.3f ; "
-    //     "CRN: %.3f, %.3f, %.3f, %.3f , limited %c, %c ; k: %.4f",
-    //     frame_cnt,
-    //     fmv.x, fmv.y, fmv_lo, fmv_la, //FMV
-    //     FMV_LIMITED, //whether motion vector was limited by statistics
-    //     in_lo, in_la, //actual orientation
-    //     filt_lo, filt_la,  //stabilized orientation
-    //     crn[0], crn[1], crn[2], crn[3], BLKCRN_FLAG_LR, BLKCRN_FLAG_TB, //black corners (negative: OK, positive: NOT OK)
-    //     k
-    // );
 
     // adjust k according to statistics
     // if black corners appear, weaken the filter (increase k). However, don't wait for black corners to appear and get
     // limited - if the filtered orient is close to black corners - increase k.
     bool weaken = false;
+
     for (int i = 0; i < 4; i++)
     {
         if (crn[i] > -cfg.black_corners_threshold * room4stab[i])
@@ -369,6 +388,20 @@ RetCodes DIS::generate_grid(vec2 fmv, int32_t panning,
             break;
         }
     }
+
+    if ((!weaken) && (angular_dis_params->stabilize_rotation))
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            if (crn_theta[i] > -cfg.black_corners_threshold * room4stab_theta)
+            {
+                k = std::min(k + cfg.increment_coefficient_threshold, 1.f);
+                weaken = true;
+                break;
+            }
+        }
+    }
+
     if (!weaken)
     {
         // decrease k down to K_MIN : strengthen the filter if it was weakened
@@ -376,13 +409,15 @@ RetCodes DIS::generate_grid(vec2 fmv, int32_t panning,
     }
 
     // convert stabilizing rotation from longitude/latitude to rotation matrix
+    mat3 stab_rot;
     float cos_lo = std::cos(stab_lo);
     float sin_lo = std::sin(stab_lo);
     float cos_la = std::cos(stab_la);
     float sin_la = std::sin(stab_la);
-    mat3 stab_rot = {cos_lo, 0, sin_lo,
-                     -sin_la * sin_lo, cos_la, sin_la * cos_lo,
-                     -cos_la * sin_lo, -sin_la, cos_la * cos_lo};
+
+    stab_rot = {cos_lo, 0, sin_lo,
+                -sin_la * sin_lo, cos_la, sin_la * cos_lo,
+                -cos_la * sin_lo, -sin_la, cos_la * cos_lo};
 
     // if the output rotation is changed, swap the grid size and re-calculate output rays - see calc_out_rays()
     int cur_flip_mirror_rot = static_cast<int>(flip_mirror_rot);
@@ -414,6 +449,12 @@ RetCodes DIS::generate_grid(vec2 fmv, int32_t panning,
     }
 
     frame_cnt++;
+
+    if(angular_dis_params->stabilize_rotation)
+    {
+        angular_dis_params->dsp_filter_angle->alpha = k;
+        angular_dis_params->dsp_filter_angle->maximum_theta = room4stab_theta;
+    }
 
     return DIS_OK;
 }
@@ -562,3 +603,25 @@ bool DIS::black_corner_adjust(float &stab_lo, float &stab_la)
     }
     return limited;
 }
+
+bool DIS::black_corner_theta_adjust(float &stab_yaw)
+{
+    // return false;
+    bool limited = false;
+    crn_theta[0] = -room4stab_theta - stab_yaw;
+    crn_theta[1] = -room4stab_theta + stab_yaw;
+    if ( crn_theta[0] > 0)
+    {
+        stab_yaw = crn_theta[0] + stab_yaw;
+        limited = true;
+    }
+    else if (crn_theta[1] > 0)
+    {
+        stab_yaw = -crn_theta[1] + stab_yaw;
+        limited = true;
+    }
+
+    return limited;
+}
+
+///////////////////////////////////////////////////////////////////////////////

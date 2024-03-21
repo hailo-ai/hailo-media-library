@@ -499,7 +499,7 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(hailo_m
         // TODO: Handle cases where its nullptr
         if (output_frames[i].hailo_pix_buffer == nullptr)
         {
-            LOGGER__DEBUG("Skipping resize for output frame {} to match target framerate", i);
+            LOGGER__DEBUG("Skipping resize for output frame {} to match target framerate ({})", i, m_multi_resize_config.output_video_config.resolutions[i].framerate);
             continue;
         }
         dsp_image_properties_t *output_frame = output_frames[i].hailo_pix_buffer.get();
@@ -519,6 +519,7 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(hailo_m
     if (num_bufs_to_resize == 0)
     {
         LOGGER__DEBUG("No need to perform multi resize");
+        resize_helper_buffer.decrease_ref_count();
         return MEDIA_LIBRARY_SUCCESS;
     }
 

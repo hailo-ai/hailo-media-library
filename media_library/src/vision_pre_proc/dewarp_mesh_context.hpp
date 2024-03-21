@@ -3,7 +3,7 @@
 #include "interface_types.h"
 #include "media_library_types.hpp"
 #include "media_library_utils.hpp"
-#include "hailo_v4l2/hailo_vsm.h"
+#include "hailo_v4l2/hailo_v4l2.h"
 #include <shared_mutex>
 #include <tl/expected.hpp>
 

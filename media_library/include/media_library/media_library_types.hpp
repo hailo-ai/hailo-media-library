@@ -121,6 +121,14 @@ struct roi_t
     uint32_t height;
 };
 
+struct vsm_config_t
+{
+    uint32_t vsm_h_size;
+    uint32_t vsm_h_offset;
+    uint32_t vsm_v_size;
+    uint32_t vsm_v_offset;
+};
+
 struct hailort_t
 {
     std::string device_id;

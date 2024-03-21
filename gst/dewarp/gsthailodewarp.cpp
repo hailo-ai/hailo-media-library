@@ -23,7 +23,7 @@
 #include "gsthailodewarp.hpp"
 #include "common/gstmedialibcommon.hpp"
 #include "buffer_utils/buffer_utils.hpp"
-#include "hailo_v4l2/hailo_vsm.h"
+#include "hailo_v4l2/hailo_v4l2.h"
 #include "hailo_v4l2/hailo_v4l2_meta.h"
 #include <gst/video/video.h>
 #include <tl/expected.hpp>

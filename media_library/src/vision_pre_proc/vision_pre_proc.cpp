@@ -430,7 +430,8 @@ media_library_return MediaLibraryVisionPreProc::Impl::perform_dewarp(
     clock_gettime(CLOCK_MONOTONIC, &start_dewarp);
     dsp_status ret = dsp_utils::perform_dsp_dewarp(
         input_buffer.hailo_pix_buffer.get(),
-        dewarp_output_buffer.hailo_pix_buffer.get(), mesh,
+        dewarp_output_buffer.hailo_pix_buffer.get(),
+        mesh,
         m_pre_proc_configs.dewarp_config.interpolation_type);
     clock_gettime(CLOCK_MONOTONIC, &end_dewarp);
     [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_dewarp, start_dewarp);

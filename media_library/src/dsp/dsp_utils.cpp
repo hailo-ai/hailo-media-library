@@ -283,11 +283,47 @@ namespace dsp_utils
     dsp_status perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
                                   dsp_image_properties_t *output_image_properties,
                                   dsp_dewarp_mesh_t *mesh,
+                                  dsp_interpolation_type_t interpolation,
+                                  const dsp_isp_vsm_t &isp_vsm,
+                                  const dsp_vsm_config_t &dsp_vsm_config,
+                                  const dsp_filter_angle_t &filter_angle,
+                                  uint16_t *cur_columns_sum,
+                                  uint16_t *cur_rows_sum,
+                                  bool do_mesh_correction)
+
+
+    {
+        dsp_dewarp_angular_dis_params_t dewarp_params = {
+            .src = input_image_properties,
+            .dst = output_image_properties,
+            .mesh = mesh,
+            .interpolation = interpolation,
+            .do_mesh_correction = do_mesh_correction,
+            .isp_vsm = isp_vsm,
+            .vsm =
+                {
+                    .config = dsp_vsm_config,
+                    .prev_rows_sum = cur_rows_sum,
+                    .prev_columns_sum = cur_columns_sum,
+                    .cur_rows_sum = cur_rows_sum,
+                    .cur_columns_sum = cur_columns_sum,
+                },
+            .filter_angle = filter_angle,
+        };
+        return dsp_rot_dis_dewarp(device, &dewarp_params);
+    }
+
+    dsp_status perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
+                                  dsp_image_properties_t *output_image_properties,
+                                  dsp_dewarp_mesh_t *mesh,
                                   dsp_interpolation_type_t interpolation)
+
+
     {
         return dsp_dewarp(device, input_image_properties, output_image_properties,
                           mesh, interpolation);
     }
+
 
     /**
      * Perform DSP blending using multiple overlays

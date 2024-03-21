@@ -23,7 +23,7 @@
 
 #include "buffer_utils.hpp"
 #include "gsthailobuffermeta.hpp"
-#include "hailo_v4l2/hailo_vsm.h"
+#include "hailo_v4l2/hailo_v4l2.h"
 #include "hailo_v4l2/hailo_v4l2_meta.h"
 #include <gst/gst.h>
 #include <gst/allocators/gstdmabuf.h>
@@ -136,9 +136,12 @@ GstBuffer *gst_buffer_from_hailo_buffer(HailoMediaLibraryBufferPtr hailo_buffer,
         hailo_plane->second = i;
 
         void *data;
-        if(hailo_buffer->hailo_pix_buffer->memory == DSP_MEMORY_TYPE_DMABUF) {
+        if (hailo_buffer->hailo_pix_buffer->memory == DSP_MEMORY_TYPE_DMABUF)
+        {
             (void)DmaMemoryAllocator::get_instance().get_ptr(plane.fd, &data);
-        } else {
+        }
+        else
+        {
             data = plane.userptr;
         }
 
@@ -172,6 +175,16 @@ GstBuffer *gst_buffer_from_hailo_buffer(HailoMediaLibraryBufferPtr hailo_buffer,
     {
         GST_CAT_WARNING(GST_CAT_DEFAULT, "No caps provided, not adding video meta to buffer");
     }
+
+    // add hailo_v4l2_meta
+    gst_buffer_add_hailo_v4l2_meta(gst_outbuf,
+                                   hailo_buffer->video_fd,
+                                   hailo_buffer->buffer_index,
+                                   hailo_buffer->vsm,
+                                   hailo_buffer->isp_ae_fps,
+                                   hailo_buffer->isp_ae_converged
+                                   );
+
     return gst_outbuf;
 }
 
@@ -192,6 +205,7 @@ static bool create_hailo_buffer_from_video_frame(GstVideoFrame *video_frame, hai
     {
         hailo_buffer.vsm = hailo_v4l2_meta->vsm;
         hailo_buffer.isp_ae_fps = hailo_v4l2_meta->isp_ae_fps;
+        hailo_buffer.isp_ae_converged = hailo_v4l2_meta->isp_ae_converged;
         hailo_buffer.video_fd = hailo_v4l2_meta->video_fd;
     }
     hailo_media_library_buffer_ref(&hailo_buffer);
@@ -273,13 +287,15 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
 
         dsp_data_plane_t y_plane_data = {
             .bytesperline = y_channel_stride,
-            .bytesused = y_channel_size
-        };
+            .bytesused = y_channel_size};
 
-        if (y_channel_fd == -1) {
+        if (y_channel_fd == -1)
+        {
             // TODO: Remove in the future
             y_plane_data.userptr = y_channel_data;
-        } else {
+        }
+        else
+        {
             y_plane_data.fd = y_channel_fd;
         }
         // Gather uv channel info
@@ -293,10 +309,13 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
             .bytesused = uv_channel_size,
         };
 
-        if (uv_channel_fd == -1) {
+        if (uv_channel_fd == -1)
+        {
             // TODO: Remove in the future
             uv_plane_data.userptr = uv_channel_data;
-        } else {
+        }
+        else
+        {
             uv_plane_data.fd = uv_channel_fd;
         }
 
@@ -315,10 +334,13 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
             .planes_count = n_planes,
             .format = DSP_IMAGE_FORMAT_NV12};
 
-        if (y_channel_fd == -1) {
+        if (y_channel_fd == -1)
+        {
             // TODO: Remove in the future
             dsp_image_props.memory = DSP_MEMORY_TYPE_USERPTR;
-        } else {
+        }
+        else
+        {
             dsp_image_props.memory = DSP_MEMORY_TYPE_DMABUF;
         }
 
@@ -366,10 +388,13 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
                 .bytesperline = channel_stride,
                 .bytesused = channel_size,
             };
-            if (channel_fd == -1) {
+            if (channel_fd == -1)
+            {
                 // TODO: Remove in the future
                 plane_data.userptr = channel_data;
-            } else {
+            }
+            else
+            {
                 plane_data.fd = channel_fd;
             }
 
@@ -384,13 +409,16 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
             .planes_count = n_planes,
             .format = DSP_IMAGE_FORMAT_A420};
 
-        if (get_fd(video_frame, 0) == -1) {
+        if (get_fd(video_frame, 0) == -1)
+        {
             // TODO: Remove in the future
             dsp_image_props.memory = DSP_MEMORY_TYPE_USERPTR;
-        } else {
+        }
+        else
+        {
             dsp_image_props.memory = DSP_MEMORY_TYPE_DMABUF;
         }
-        
+
         break;
     }
     default:

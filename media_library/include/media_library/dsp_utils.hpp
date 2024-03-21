@@ -82,7 +82,20 @@ namespace dsp_utils
   perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
                                 dsp_image_properties_t *output_image_properties,
                                 dsp_dewarp_mesh_t *mesh,
+                                dsp_interpolation_type_t interpolation,
+                                const dsp_isp_vsm_t &isp_vsm,
+                                const dsp_vsm_config_t &dsp_vsm_config,
+                                const dsp_filter_angle_t &filter_angle,
+                                uint16_t *cur_columns_sum,
+                                uint16_t *cur_rows_sum,
+                                bool do_mesh_correction);
+
+  dsp_status 
+  perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
+                                dsp_image_properties_t *output_image_properties,
+                                dsp_dewarp_mesh_t *mesh,
                                 dsp_interpolation_type_t interpolation);
+
 
   dsp_status perform_dsp_multiblend(dsp_image_properties_t *image_frame,
                                     dsp_overlay_properties_t *overlay,

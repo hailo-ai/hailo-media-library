@@ -37,7 +37,7 @@
 
 #include "dsp_utils.hpp"
 #include "media_library_types.hpp"
-#include "hailo_v4l2/hailo_vsm.h"
+#include "hailo_v4l2/hailo_v4l2.h"
 #include "dma_memory_allocator.hpp"
 
 /** @defgroup media_library_buffer_pool_definitions MediaLibrary BufferPool CPP
@@ -117,7 +117,7 @@ public:
      * @param[in] name - buffer pool owner name
      */
     MediaLibraryBufferPool(uint width, uint height, dsp_image_format_t format,
-                           size_t max_buffers, HailoMemoryType memory_type, std::string name="");
+                           size_t max_buffers, HailoMemoryType memory_type, std::string name = "");
     /**
      * @brief Constructor of MediaLibraryBufferPool
      *
@@ -130,13 +130,12 @@ public:
      * @param[in] name - buffer pool owner name
      */
     MediaLibraryBufferPool(uint width, uint height, dsp_image_format_t format,
-                           size_t max_buffers, HailoMemoryType memory_type, uint bytes_per_line, std::string name="");
+                           size_t max_buffers, HailoMemoryType memory_type, uint bytes_per_line, std::string name = "");
     ~MediaLibraryBufferPool();
     // Copy constructor - delete
     MediaLibraryBufferPool(const MediaLibraryBufferPool &) = delete;
     // Copy assignment - delete
     MediaLibraryBufferPool &operator=(const MediaLibraryBufferPool &) = delete;
-
 
     void log_increase_ref_count(uint32_t plane_index, uint32_t ref_count, uint32_t buffer_index);
     void log_decrease_ref_count(uint32_t plane_index, uint32_t ref_count, uint32_t buffer_index);
@@ -180,30 +179,30 @@ public:
     /**
      * @brief Swaps the width and height of the buffer.
      * @return The return status of the swap operation.
-    */
+     */
     media_library_return swap_width_and_height();
     /**
      * @brief Gets the width of the buffer pool.
-     * 
+     *
      * @return The width of the buffer pool as an unsigned integer.
      */
     uint get_width() { return m_width; }
     /**
      * @brief Gets the height of the buffer pool.
-     * 
+     *
      * @return The height of the buffer pool as an unsigned integer.
      */
     uint get_height() { return m_height; }
     /**
      * @brief Gets the max size of the buffer pool.
-     * 
+     *
      * @return The height of the buffer pool as an unsigned integer.
      */
     uint get_size() { return m_max_buffers; }
 
     /**
      * @brief Gets the name of the buffer pool.
-     * 
+     *
      * @return The name of the buffer pool as a string.
      */
     std::string get_name() { return m_name; }
@@ -262,16 +261,18 @@ public:
     MediaLibraryBufferPoolPtr owner;
     struct hailo15_vsm vsm;
     int32_t isp_ae_fps;
+    bool isp_ae_converged;
     int32_t video_fd;
     uint32_t buffer_index;
 
     hailo_media_library_buffer()
         : m_buffer_mutex(std::make_shared<std::mutex>()),
           m_plane_mutex(std::make_shared<std::mutex>()),
-          hailo_pix_buffer(nullptr), owner(nullptr), isp_ae_fps(-1), video_fd(-1)
+          hailo_pix_buffer(nullptr), owner(nullptr), isp_ae_fps(HAILO_ISP_AE_FPS_DEFAULT_VALUE),
+          isp_ae_converged(HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE), video_fd(-1)
     {
-        vsm.dx = 0;
-        vsm.dy = 0;
+        vsm.dx = HAILO_VSM_DEFAULT_VALUE;
+        vsm.dy = HAILO_VSM_DEFAULT_VALUE;
         buffer_index = 0;
     }
     // Move constructor
@@ -284,6 +285,7 @@ public:
         planes_reference_count = other.planes_reference_count;
         vsm = other.vsm;
         isp_ae_fps = other.isp_ae_fps;
+        isp_ae_converged = other.isp_ae_converged;
         video_fd = other.video_fd;
         buffer_index = other.buffer_index;
         other.hailo_pix_buffer = nullptr;
@@ -291,10 +293,11 @@ public:
         other.m_buffer_mutex = nullptr;
         other.m_plane_mutex = nullptr;
         other.planes_reference_count.clear();
-        other.isp_ae_fps = -1;
+        other.isp_ae_fps = HAILO_ISP_AE_FPS_DEFAULT_VALUE;
+        other.isp_ae_converged = HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE;
         other.video_fd = -1;
-        other.vsm.dx = 0;
-        other.vsm.dy = 0;
+        other.vsm.dx = HAILO_VSM_DEFAULT_VALUE;
+        other.vsm.dy = HAILO_VSM_DEFAULT_VALUE;
         other.buffer_index = 0;
     }
 
@@ -311,6 +314,7 @@ public:
             planes_reference_count = other.planes_reference_count;
             vsm = other.vsm;
             isp_ae_fps = other.isp_ae_fps;
+            isp_ae_converged = other.isp_ae_converged;
             video_fd = other.video_fd;
             buffer_index = other.buffer_index;
             other.hailo_pix_buffer = nullptr;
@@ -318,10 +322,11 @@ public:
             other.m_buffer_mutex = nullptr;
             other.m_plane_mutex = nullptr;
             other.planes_reference_count.clear();
-            other.isp_ae_fps = -1;
+            other.isp_ae_fps = HAILO_ISP_AE_FPS_DEFAULT_VALUE;
+            other.isp_ae_converged = HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE;
             other.video_fd = -1;
-            other.vsm.dx = 0;
-            other.vsm.dy = 0;
+            other.vsm.dx = HAILO_VSM_DEFAULT_VALUE;
+            other.vsm.dy = HAILO_VSM_DEFAULT_VALUE;
             other.buffer_index = 0;
         }
         return *this;
@@ -338,7 +343,7 @@ public:
     {
         if (index >= hailo_pix_buffer->planes_count)
             return nullptr;
-        
+
         if (is_dmabuf())
         {
             // Ugly trick, but its will work for now
@@ -351,7 +356,6 @@ public:
         {
             return hailo_pix_buffer->planes[index].userptr;
         }
-
     }
 
     uint32_t get_plane_size(uint32_t index)
@@ -456,7 +460,7 @@ public:
 
         for (uint32_t i = 0; i < get_num_of_planes(); i++)
         {
-            void* plane_ptr = get_plane(i);
+            void *plane_ptr = get_plane(i);
             media_library_return ret = DmaMemoryAllocator::get_instance().dmabuf_sync_start(plane_ptr);
 
             if (ret != MEDIA_LIBRARY_SUCCESS)
@@ -477,7 +481,7 @@ public:
 
         for (uint32_t i = 0; i < get_num_of_planes(); i++)
         {
-            void* plane_ptr = get_plane(i);
+            void *plane_ptr = get_plane(i);
             media_library_return ret = DmaMemoryAllocator::get_instance().dmabuf_sync_end(plane_ptr);
 
             if (ret != MEDIA_LIBRARY_SUCCESS)

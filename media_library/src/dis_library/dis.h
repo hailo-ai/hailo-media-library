@@ -78,6 +78,7 @@ private:
     /// actual camera orientation, accumulated from frame-to-frame MVs, radians
     float in_la = 0;
     float in_lo = 0;
+    float in_yaw = 0;
     // Circular buffer storing the motion vectors of the last FMV_HISTORY_LEN (see config) frames.
     // std::deque<vec2> motion_vecs;
 
@@ -90,6 +91,7 @@ private:
     float k = 0.1f;
 
     float filt_lo = 0.f, filt_la = 0.f; /// filtered (stabilized) orientation
+    float filt_yaw = 0.f;
 
     /// running average of frame motion vector
     vec2 prev_fmv_mean = {0.f, 0.f};
@@ -102,10 +104,12 @@ private:
     /// Negative values tell how much more shake could cause black corners in this frame.
     std::array<float, 4> crn;      // angles, rad  //L,T,R,B
     std::array<float, 4> diag_crn; // diagonal angles, rad  //TL,TR,BR,BL
+    std::array<float, 2> crn_theta;      // angles, rad  //L,T,R,B
     /// Available room for stabilization (angles).
     /// If the stabilizing rotation is 0 (don't rotate, just crop), then crn = -room4stab.
     std::array<float, 4> room4stab;      // angles, rad  //L,T,R,B
     std::array<float, 4> diag_room4stab; // diagonal angles, rad  //TL,TR,BR,BL
+    float room4stab_theta;
 
     /// If stabilizing rotation is too high, it would cause black corners, hence stabilizing rotation is limited
     /// to avoid black corners. Those flags indicate that for debugging and analysis
@@ -146,7 +150,7 @@ public:
     /// @param panning panning per frame
     /// @param flip_mirror_rot as applied on the output image
     /// @param grid output grid
-    RetCodes generate_grid(vec2 fmv, int32_t panning, FlipMirrorRot flip_mirror_rot, DewarpT &grid);
+    RetCodes generate_grid(vec2 fmv, int32_t panning, FlipMirrorRot flip_mirror_rot, std::shared_ptr<angular_dis_params_t> angular_dis_params, DewarpT &grid);
 
     /// @brief Calculates grid for dewarping the input frame only.
     /// @param flip_mirror_rot as applied on the output image
@@ -162,6 +166,7 @@ private:
     /// @param stab_lo stabilizing rotation angle (longitude)
     /// @param stab_la stabilizing rotation angle (latitude)
     bool black_corner_adjust(float &stab_lo, float &stab_la);
+    bool black_corner_theta_adjust(float &stab_yaw);
 };
 
 #endif //  _DIS_DIS_H_

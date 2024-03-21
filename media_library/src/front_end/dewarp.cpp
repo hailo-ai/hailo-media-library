@@ -93,6 +93,8 @@ private:
     std::shared_ptr<ConfigManager> m_config_manager;
     // operation configurations
     ldc_config_t m_ldc_configs;
+    // last vsm
+    struct hailo15_vsm m_last_vsm;
     // input buffer pools
     MediaLibraryBufferPoolPtr m_output_buffer_pool;
     // video fd
@@ -105,6 +107,7 @@ private:
     media_library_return create_and_initialize_buffer_pools();
     media_library_return validate_input_frame(hailo_media_library_buffer &input_frame);
     media_library_return perform_dewarp(hailo_media_library_buffer &input_buffer, hailo_media_library_buffer &dewarp_output_buffer);
+    media_library_return perform_angular_dis_dewarp(hailo_media_library_buffer &input_buffer, hailo_media_library_buffer &dewarp_output_buffer, dsp_image_properties_t *image, dsp_dewarp_mesh_t *mesh);
     void stamp_time_and_log_fps(timespec &start_handle, timespec &end_handle);
     void increase_frame_counter();
 };
@@ -185,6 +188,8 @@ MediaLibraryDewarp::Impl::Impl(media_library_return &status, std::string config_
 {
     m_configured = false;
     m_video_fd = -1;
+    m_last_vsm.dx = 0;
+    m_last_vsm.dy = 0;
 
     // Start frame count from 0 - to make sure we always handle the first frame even if framerate is set to 0
     m_frame_counter = 0;
@@ -336,6 +341,59 @@ media_library_return MediaLibraryDewarp::Impl::create_and_initialize_buffer_pool
     return MEDIA_LIBRARY_SUCCESS;
 }
 
+media_library_return MediaLibraryDewarp::Impl::perform_angular_dis_dewarp(hailo_media_library_buffer &input_buffer, hailo_media_library_buffer &dewarp_output_buffer, dsp_image_properties_t *image, dsp_dewarp_mesh_t *mesh)
+{
+    std::shared_ptr<angular_dis_params_t> angular_dis_params = m_dewarp_mesh_ctx->get_angular_dis_params();
+
+    float cur_angles_sum = *(angular_dis_params->dsp_filter_angle->cur_angles_sum);
+    float cur_traj = *(angular_dis_params->dsp_filter_angle->cur_traj);
+    LOGGER__DEBUG("Perform Angular dewarp previous alpha = {} cur angles sum = {} cur traj = {}", angular_dis_params->dsp_filter_angle->alpha, cur_angles_sum, cur_traj);
+
+    dsp_filter_angle_t filter_angle_ptr = {
+        .maximum_theta = angular_dis_params->dsp_filter_angle->maximum_theta,
+        .alpha = angular_dis_params->dsp_filter_angle->alpha,
+        .prev_angles_sum = cur_angles_sum,
+        .prev_traj = cur_traj,
+        .cur_angles_sum = angular_dis_params->dsp_filter_angle->cur_angles_sum.get(),
+        .cur_traj = angular_dis_params->dsp_filter_angle->cur_traj.get(),
+        .stabilized_theta = angular_dis_params->dsp_filter_angle->stabilized_theta.get()
+    };
+
+    dsp_vsm_config_t vsm_config = {
+        .hoffset = angular_dis_params->dsp_vsm_config.hoffset,
+        .voffset = angular_dis_params->dsp_vsm_config.voffset,
+        .width = angular_dis_params->dsp_vsm_config.width,
+        .height = angular_dis_params->dsp_vsm_config.height,
+        .max_displacement = angular_dis_params->dsp_vsm_config.max_displacement
+    };
+
+    dsp_isp_vsm_t isp_vsm = {
+        .center_x = angular_dis_params->isp_vsm.center_x,
+        .center_y = angular_dis_params->isp_vsm.center_y,
+        .dx = angular_dis_params->isp_vsm.dx,
+        .dy = angular_dis_params->isp_vsm.dy
+    };
+
+    dsp_status ret = dsp_utils::perform_dsp_dewarp(
+        input_buffer.hailo_pix_buffer.get(),
+        image, mesh,
+        m_ldc_configs.dewarp_config.interpolation_type,
+        isp_vsm,
+        vsm_config,
+        filter_angle_ptr,
+        angular_dis_params->cur_columns_sum,
+        angular_dis_params->cur_rows_sum,
+        angular_dis_params->stabilize_rotation);
+
+    if (ret != DSP_SUCCESS)
+        return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
+
+    // First time dewarp is performed without mesh correction, Afterwards we need to correct the mesh
+    angular_dis_params->stabilize_rotation = true;
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
 /**
  * @brief Perform dewarp
  * Generate dewarp mesh, acquire buffer for dewarp output and perform dewarp on
@@ -350,7 +408,7 @@ media_library_return MediaLibraryDewarp::Impl::perform_dewarp(
     hailo_media_library_buffer &dewarp_output_buffer)
 {
     struct timespec start_dewarp, end_dewarp;
-
+    
     // Acquire buffer for dewarp output
     if (m_output_buffer_pool->acquire_buffer(dewarp_output_buffer) !=
         MEDIA_LIBRARY_SUCCESS)
@@ -364,16 +422,27 @@ media_library_return MediaLibraryDewarp::Impl::perform_dewarp(
     dsp_image_properties_t *image = dewarp_output_buffer.hailo_pix_buffer.get();
     LOGGER__TRACE("Performing dewarp with mesh (w={}, h={}) interpolation type {}", mesh->mesh_width, mesh->mesh_height, m_ldc_configs.dewarp_config.interpolation_type);
     clock_gettime(CLOCK_MONOTONIC, &start_dewarp);
-    dsp_status ret = dsp_utils::perform_dsp_dewarp(
-        input_buffer.hailo_pix_buffer.get(),
-        image, mesh,
-        m_ldc_configs.dewarp_config.interpolation_type);
+    
+    if(m_ldc_configs.dis_config.angular_dis_config.enabled)
+    {
+        media_library_return ret = perform_angular_dis_dewarp(input_buffer, dewarp_output_buffer, image, mesh);
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+            return ret;
+    }
+    else
+    {
+        dsp_status ret = dsp_utils::perform_dsp_dewarp(
+            input_buffer.hailo_pix_buffer.get(),
+            image, mesh,
+            m_ldc_configs.dewarp_config.interpolation_type);
+
+        if (ret != DSP_SUCCESS)
+            return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
+    }
+
     clock_gettime(CLOCK_MONOTONIC, &end_dewarp);
     [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_dewarp, start_dewarp);
     LOGGER__TRACE("perform_dsp_dewarp took {} milliseconds ({} fps)", ms, (1000 / ms));
-
-    if (ret != DSP_SUCCESS)
-        return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -426,10 +495,26 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(hailo_media_library_
 
     // Dewarp
     media_library_return media_lib_ret = MEDIA_LIBRARY_SUCCESS;
-    if (m_ldc_configs.dis_config.enabled && (input_frame.isp_ae_fps > MIN_ISP_AE_FPS_FOR_DIS || input_frame.isp_ae_fps == -1))
+    // If the frame is not converged, or the fps is lower than the minimum fps for DIS, we need to reset the VSM
+    if (input_frame.isp_ae_converged && (input_frame.isp_ae_fps > MIN_ISP_AE_FPS_FOR_DIS || input_frame.isp_ae_fps == -1))
+    {
+        input_frame.vsm.dx = 0;
+        input_frame.vsm.dy = 0;
+    }
+
+    // Update mesh context if dis is enabled and vsm has changed
+    if (m_ldc_configs.dis_config.enabled && (input_frame.vsm.dx != m_last_vsm.dx || input_frame.vsm.dy != m_last_vsm.dy))
+    {
         m_dewarp_mesh_ctx->on_frame_vsm_update(input_frame.vsm);
+    }
+
+    // Update last vsm
+    m_last_vsm.dx = input_frame.vsm.dx;
+    m_last_vsm.dy = input_frame.vsm.dy;
+
     media_lib_ret = perform_dewarp(input_frame, output_frame);
     output_frame.isp_ae_fps = input_frame.isp_ae_fps;
+    output_frame.isp_ae_converged = input_frame.isp_ae_converged;
 
     // Unref the input frame
     input_frame.decrease_ref_count();
