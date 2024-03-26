@@ -181,6 +181,17 @@ struct dis_config_t
      */
     float black_corners_threshold;
 
+    /**
+     * For low light conditions, the stabilizer causes some noise in the output video.
+     * To avoid this, the stabilizer can be disabled when the average luminance of the frame is below a certain threshold.
+     * The threshold is set in the range [0, 255].
+     * If the average luminance of the frame is below the threshold, the stabilizer is disabled.
+     * If the average luminance of the frame is above the threshold, the stabilizer is enabled.
+     * If the threshold is set to 0, the stabilizer is always enabled.
+     * If the threshold is set to 255, the stabilizer is always disabled.
+     */
+    uint8_t average_luminance_threshold;
+
     // Angular Digital Image Stabilization
     angular_dis_config_t angular_dis_config;
 

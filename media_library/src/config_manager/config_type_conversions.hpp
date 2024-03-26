@@ -464,6 +464,7 @@ void to_json(nlohmann::json &j, const dis_config_t &dis)
         {"std_multiplier", dis.std_multiplier},
         {"black_corners_correction_enabled", dis.black_corners_correction_enabled},
         {"black_corners_threshold", dis.black_corners_threshold},
+        {"average_luminance_threshold", dis.average_luminance_threshold},
         {"angular_dis", dis.angular_dis_config},
         {"debug", dis.debug},
     };
@@ -479,6 +480,7 @@ void from_json(const nlohmann::json &j, dis_config_t &dis)
     j.at("std_multiplier").get_to(dis.std_multiplier);
     j.at("black_corners_correction_enabled").get_to(dis.black_corners_correction_enabled);
     j.at("black_corners_threshold").get_to(dis.black_corners_threshold);
+    j.at("average_luminance_threshold").get_to(dis.average_luminance_threshold);
     j.at("angular_dis").get_to(dis.angular_dis_config);
     j.at("debug").get_to(dis.debug);
 }

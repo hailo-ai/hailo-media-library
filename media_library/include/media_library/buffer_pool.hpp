@@ -262,14 +262,18 @@ public:
     struct hailo15_vsm vsm;
     int32_t isp_ae_fps;
     bool isp_ae_converged;
+    uint8_t isp_ae_average_luma;
     int32_t video_fd;
     uint32_t buffer_index;
 
     hailo_media_library_buffer()
         : m_buffer_mutex(std::make_shared<std::mutex>()),
           m_plane_mutex(std::make_shared<std::mutex>()),
-          hailo_pix_buffer(nullptr), owner(nullptr), isp_ae_fps(HAILO_ISP_AE_FPS_DEFAULT_VALUE),
-          isp_ae_converged(HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE), video_fd(-1)
+          hailo_pix_buffer(nullptr), owner(nullptr),
+          isp_ae_fps(HAILO_ISP_AE_FPS_DEFAULT_VALUE),
+          isp_ae_converged(HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE),
+          isp_ae_average_luma(HAILO_ISP_AE_LUMA_DEFUALT_VALUE),
+          video_fd(-1)
     {
         vsm.dx = HAILO_VSM_DEFAULT_VALUE;
         vsm.dy = HAILO_VSM_DEFAULT_VALUE;
@@ -286,6 +290,7 @@ public:
         vsm = other.vsm;
         isp_ae_fps = other.isp_ae_fps;
         isp_ae_converged = other.isp_ae_converged;
+        isp_ae_average_luma = other.isp_ae_average_luma;
         video_fd = other.video_fd;
         buffer_index = other.buffer_index;
         other.hailo_pix_buffer = nullptr;
@@ -295,6 +300,7 @@ public:
         other.planes_reference_count.clear();
         other.isp_ae_fps = HAILO_ISP_AE_FPS_DEFAULT_VALUE;
         other.isp_ae_converged = HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE;
+        other.isp_ae_average_luma = HAILO_ISP_AE_LUMA_DEFUALT_VALUE;
         other.video_fd = -1;
         other.vsm.dx = HAILO_VSM_DEFAULT_VALUE;
         other.vsm.dy = HAILO_VSM_DEFAULT_VALUE;
@@ -315,6 +321,7 @@ public:
             vsm = other.vsm;
             isp_ae_fps = other.isp_ae_fps;
             isp_ae_converged = other.isp_ae_converged;
+            isp_ae_average_luma = other.isp_ae_average_luma;
             video_fd = other.video_fd;
             buffer_index = other.buffer_index;
             other.hailo_pix_buffer = nullptr;
@@ -324,6 +331,7 @@ public:
             other.planes_reference_count.clear();
             other.isp_ae_fps = HAILO_ISP_AE_FPS_DEFAULT_VALUE;
             other.isp_ae_converged = HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE;
+            other.isp_ae_average_luma = HAILO_ISP_AE_LUMA_DEFUALT_VALUE;
             other.video_fd = -1;
             other.vsm.dx = HAILO_VSM_DEFAULT_VALUE;
             other.vsm.dy = HAILO_VSM_DEFAULT_VALUE;

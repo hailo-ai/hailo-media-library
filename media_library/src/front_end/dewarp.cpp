@@ -356,23 +356,20 @@ media_library_return MediaLibraryDewarp::Impl::perform_angular_dis_dewarp(hailo_
         .prev_traj = cur_traj,
         .cur_angles_sum = angular_dis_params->dsp_filter_angle->cur_angles_sum.get(),
         .cur_traj = angular_dis_params->dsp_filter_angle->cur_traj.get(),
-        .stabilized_theta = angular_dis_params->dsp_filter_angle->stabilized_theta.get()
-    };
+        .stabilized_theta = angular_dis_params->dsp_filter_angle->stabilized_theta.get()};
 
     dsp_vsm_config_t vsm_config = {
         .hoffset = angular_dis_params->dsp_vsm_config.hoffset,
         .voffset = angular_dis_params->dsp_vsm_config.voffset,
         .width = angular_dis_params->dsp_vsm_config.width,
         .height = angular_dis_params->dsp_vsm_config.height,
-        .max_displacement = angular_dis_params->dsp_vsm_config.max_displacement
-    };
+        .max_displacement = angular_dis_params->dsp_vsm_config.max_displacement};
 
     dsp_isp_vsm_t isp_vsm = {
         .center_x = angular_dis_params->isp_vsm.center_x,
         .center_y = angular_dis_params->isp_vsm.center_y,
         .dx = angular_dis_params->isp_vsm.dx,
-        .dy = angular_dis_params->isp_vsm.dy
-    };
+        .dy = angular_dis_params->isp_vsm.dy};
 
     dsp_status ret = dsp_utils::perform_dsp_dewarp(
         input_buffer.hailo_pix_buffer.get(),
@@ -408,7 +405,7 @@ media_library_return MediaLibraryDewarp::Impl::perform_dewarp(
     hailo_media_library_buffer &dewarp_output_buffer)
 {
     struct timespec start_dewarp, end_dewarp;
-    
+
     // Acquire buffer for dewarp output
     if (m_output_buffer_pool->acquire_buffer(dewarp_output_buffer) !=
         MEDIA_LIBRARY_SUCCESS)
@@ -422,8 +419,8 @@ media_library_return MediaLibraryDewarp::Impl::perform_dewarp(
     dsp_image_properties_t *image = dewarp_output_buffer.hailo_pix_buffer.get();
     LOGGER__TRACE("Performing dewarp with mesh (w={}, h={}) interpolation type {}", mesh->mesh_width, mesh->mesh_height, m_ldc_configs.dewarp_config.interpolation_type);
     clock_gettime(CLOCK_MONOTONIC, &start_dewarp);
-    
-    if(m_ldc_configs.dis_config.angular_dis_config.enabled)
+
+    if (m_ldc_configs.dis_config.angular_dis_config.enabled)
     {
         media_library_return ret = perform_angular_dis_dewarp(input_buffer, dewarp_output_buffer, image, mesh);
         if (ret != MEDIA_LIBRARY_SUCCESS)
@@ -496,15 +493,22 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(hailo_media_library_
     // Dewarp
     media_library_return media_lib_ret = MEDIA_LIBRARY_SUCCESS;
     // If the frame is not converged, or the fps is lower than the minimum fps for DIS, we need to reset the VSM
-    if (input_frame.isp_ae_converged && (input_frame.isp_ae_fps > MIN_ISP_AE_FPS_FOR_DIS || input_frame.isp_ae_fps == -1))
+    if ((!input_frame.isp_ae_converged) ||
+        (!(input_frame.isp_ae_fps > MIN_ISP_AE_FPS_FOR_DIS || input_frame.isp_ae_fps == HAILO_ISP_AE_FPS_DEFAULT_VALUE)) ||
+        (input_frame.isp_ae_average_luma < m_ldc_configs.dis_config.average_luminance_threshold))
     {
-        input_frame.vsm.dx = 0;
-        input_frame.vsm.dy = 0;
+        LOGGER__INFO("Resetting VSM  - reason could be ae converged {} ae fps {} or ae luminance {}",
+                     input_frame.isp_ae_converged,
+                     input_frame.isp_ae_fps,
+                     input_frame.isp_ae_average_luma);
+        input_frame.vsm.dx = HAILO_VSM_DEFAULT_VALUE;
+        input_frame.vsm.dy = HAILO_VSM_DEFAULT_VALUE;
     }
 
     // Update mesh context if dis is enabled and vsm has changed
     if (m_ldc_configs.dis_config.enabled && (input_frame.vsm.dx != m_last_vsm.dx || input_frame.vsm.dy != m_last_vsm.dy))
     {
+        LOGGER__DEBUG("Updating vsm to dx {} dy {}", input_frame.vsm.dx, input_frame.vsm.dy);
         m_dewarp_mesh_ctx->on_frame_vsm_update(input_frame.vsm);
     }
 

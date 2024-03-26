@@ -1183,6 +1183,11 @@ namespace config_schemas
           "black_corners_threshold": {
             "type": "number"
           },
+          "average_luminance_threshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 255
+          },
           "angular_dis": {
             "type": "object",
             "properties": {
@@ -1257,6 +1262,7 @@ namespace config_schemas
           "std_multiplier",
           "black_corners_correction_enabled",
           "black_corners_threshold",
+          "average_luminance_threshold",
           "angular_dis",
           "debug"
         ]
