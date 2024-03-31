@@ -636,7 +636,7 @@ static void gst_hailo_multi_resize_set_property(GObject *object, guint property_
     }
     case PROP_CONFIG_STRING:
     {
-        self->config_string = g_strdup(g_value_get_string(value));
+        self->config_string = std::string(g_value_get_string(value));
         gstmedialibcommon::strip_string_syntax(self->config_string);
 
         if (self->medialib_multi_resize == nullptr)

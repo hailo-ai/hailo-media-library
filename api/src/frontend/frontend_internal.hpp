@@ -50,7 +50,9 @@ private:
     {
         gchar *name = gst_element_get_name(GST_ELEMENT(appsink));
         MediaLibraryFrontend::Impl *fe = static_cast<MediaLibraryFrontend::Impl *>(user_data);
-        return fe->on_new_sample(name, appsink);
+        GstFlowReturn ret = fe->on_new_sample(name, appsink);
+        g_free(name);
+        return ret;
     }
     void set_gst_callbacks();
     std::string create_pipeline_string();

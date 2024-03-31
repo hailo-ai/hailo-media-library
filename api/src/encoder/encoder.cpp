@@ -205,6 +205,7 @@ void MediaLibraryEncoder::Impl::on_fps_measurement(GstElement *fpsdisplaysink,
     gchar *name;
     g_object_get(G_OBJECT(fpsdisplaysink), "name", &name, NULL);
     std::cout << name << ", DROP RATE: " << droprate << " FPS: " << fps << " AVG_FPS: " << avgfps << std::endl;
+    g_free(name);
 }
 
 /**
@@ -419,6 +420,8 @@ encoder_config_t MediaLibraryEncoder::Impl::get_config()
     gpointer value = nullptr;
     g_object_get(encoder_bin, "config", &value, NULL);
     config = *reinterpret_cast<encoder_config_t *>(value);
+    
+    gst_object_unref(encoder_bin);
     return config;
 }
 

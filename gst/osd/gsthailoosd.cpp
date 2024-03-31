@@ -174,10 +174,12 @@ void gst_hailoosd_get_property(GObject *object, guint property_id,
 void gst_hailoosd_dispose(GObject *object)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(object);
-
     GST_DEBUG_OBJECT(hailoosd, "dispose");
 
     /* clean up as possible.  may be called multiple times */
+
+    // Release overlays
+    hailoosd->blender = nullptr;
 
     G_OBJECT_CLASS(gst_hailoosd_parent_class)->dispose(object);
 }
@@ -196,6 +198,13 @@ void gst_hailoosd_finalize(GObject *object)
 static gboolean gst_hailoosd_start(GstBaseTransform *trans)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
+
+
+    if(hailoosd->blender != nullptr)
+    {
+        GST_DEBUG_OBJECT(hailoosd, "Blender object already exists, skipping creation");
+        return TRUE;
+    }
 
     std::string config_str = hailoosd->config_str;
     std::string config_path = hailoosd->config_path;
@@ -268,9 +277,6 @@ static gboolean
 gst_hailoosd_stop(GstBaseTransform *trans)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
-
-    // Release overlays
-    hailoosd->blender = nullptr;
 
     GST_DEBUG_OBJECT(hailoosd, "stop");
 

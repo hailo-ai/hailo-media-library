@@ -163,10 +163,8 @@ static void
 gst_hailo_encoder_init(GstHailoEncoder *hailoencoder)
 {
     hailoencoder->stream_restart = FALSE;
-    hailoencoder->dts_queue = g_queue_new();
     hailoencoder->encoder = nullptr;
     hailoencoder->enforce_caps = TRUE;
-    g_queue_init(hailoencoder->dts_queue);
 }
 
 /************************
@@ -476,7 +474,16 @@ gst_hailo_encoder_open(GstVideoEncoder *encoder)
 
     hailoencoder->config = clean_config;
 
-    hailoencoder->encoder = std::make_unique<Encoder>(hailoencoder->config);
+    if(hailoencoder->encoder)
+    {
+        std::cout << "hailoencoder reusing encoder" << std::endl;
+        hailoencoder->encoder->init();
+    }
+    else
+    {
+        std::cout << "hailoencoder create new encoder" << std::endl;
+        hailoencoder->encoder = std::make_unique<Encoder>(hailoencoder->config);
+    }
     return TRUE;
 }
 
@@ -486,6 +493,9 @@ gst_hailo_encoder_start(GstVideoEncoder *encoder)
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
     GST_DEBUG_OBJECT(hailoencoder, "hailoencoder start callback");
     hailoencoder->stream_restart = FALSE;
+    hailoencoder->dts_queue = g_queue_new();
+    g_queue_init(hailoencoder->dts_queue);
+
     auto output = hailoencoder->encoder->start();
     GstBuffer *buf = gst_hailo_encoder_get_output_buffer(hailoencoder, output);
     gst_buffer_add_hailo_buffer_meta(buf, output.buffer, output.size);
@@ -500,7 +510,7 @@ static gboolean
 gst_hailo_encoder_stop(GstVideoEncoder *encoder)
 {
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
-
+    hailoencoder->encoder->dispose();
     g_queue_free(hailoencoder->dts_queue);
     return TRUE;
 }
@@ -508,7 +518,15 @@ gst_hailo_encoder_stop(GstVideoEncoder *encoder)
 static GstFlowReturn
 gst_hailo_encoder_finish(GstVideoEncoder *encoder)
 {
-    return GST_FLOW_OK;
+    GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
+
+    auto output = hailoencoder->encoder->stop();
+    GstBuffer *eos_buffer = gst_hailo_encoder_get_output_buffer(hailoencoder, output);
+    gst_buffer_add_hailo_buffer_meta(eos_buffer, output.buffer, output.size);
+
+    eos_buffer->pts = eos_buffer->dts = GPOINTER_TO_UINT(g_queue_peek_tail(hailoencoder->dts_queue));
+
+    return gst_pad_push(GST_VIDEO_ENCODER_SRC_PAD(encoder), eos_buffer);
 }
 
 static GstFlowReturn

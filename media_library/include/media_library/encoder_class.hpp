@@ -49,6 +49,8 @@ public:
     std::vector<EncoderOutputBuffer> handle_frame(HailoMediaLibraryBufferPtr buf);
     EncoderOutputBuffer start();
     EncoderOutputBuffer stop();
+    media_library_return init();
+    media_library_return dispose();
 
 private:
     class Impl;

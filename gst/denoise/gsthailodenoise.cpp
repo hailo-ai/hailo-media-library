@@ -169,7 +169,7 @@ void gst_hailodenoise_set_property(GObject *object, guint property_id,
     }
     case PROP_CONFIG_STRING:
     {
-        hailodenoise->config_string = g_strdup(g_value_get_string(value));
+        hailodenoise->config_string = std::string(g_value_get_string(value));
         gstmedialibcommon::strip_string_syntax(hailodenoise->config_string);
 
         media_library_return config_status = hailodenoise->medialib_denoise->configure(hailodenoise->config_string);

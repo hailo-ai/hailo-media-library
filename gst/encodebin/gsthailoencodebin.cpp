@@ -222,7 +222,7 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id,
     }
     case PROP_CONFIG_STRING:
     {
-        hailoencodebin->config_string = g_strdup(g_value_get_string(value));
+        hailoencodebin->config_string = std::string(g_value_get_string(value));
         GST_DEBUG_OBJECT(hailoencodebin, "config-string: %s", hailoencodebin->config_string.c_str());
 
         // set params for sub elements here

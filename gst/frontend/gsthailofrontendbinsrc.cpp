@@ -211,7 +211,7 @@ void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id,
     }
     case PROP_CONFIG_STRING:
     {
-        hailofrontendbinsrc->config_string = g_strdup(g_value_get_string(value));
+        hailofrontendbinsrc->config_string = std::string(g_value_get_string(value));
         GST_DEBUG_OBJECT(hailofrontendbinsrc, "config-string: %s", hailofrontendbinsrc->config_string.c_str());
 
         // set params for sub elements here

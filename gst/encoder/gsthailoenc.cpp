@@ -1013,6 +1013,7 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
   enc_ret = EncodeFrame(enc_params, hailoenc->encoder_instance, &gst_hailoenc_slice_ready, hailoenc);
   clock_gettime(CLOCK_MONOTONIC, &end_encode);
   GST_DEBUG_OBJECT(hailoenc, "Encode took %lu milliseconds", (long)media_library_difftimespec_ms(end_encode, start_encode));
+  GST_DEBUG_OBJECT(hailoenc, "Encode performance is %d cycles", VCEncGetPerformance(hailoenc->encoder_instance));
 
   switch (enc_ret)
   {

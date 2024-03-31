@@ -39,11 +39,7 @@ Encoder::~Encoder() = default;
 
 Encoder::Impl::~Impl()
 {
-    VCEncRelease(m_inst);
-    if (m_output_memory.virtualAddress != NULL)
-        EWLFreeLinear((const void *)m_ewl, &m_output_memory);
-    if (NULL != m_ewl)
-        (void)EWLRelease((const void *)m_ewl);
+    dispose();
 }
 
 int Encoder::Impl::allocate_output_memory()
@@ -76,17 +72,57 @@ int Encoder::Impl::allocate_output_memory()
 
 void Encoder::Impl::init_buffer_pool(uint pool_size)
 {
-    m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(
-        m_vc_cfg.width, m_vc_cfg.height, DSP_IMAGE_FORMAT_GRAY8, (pool_size), CMA);
-    if (m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
+    if (m_buffer_pool == nullptr)
     {
-        LOGGER__ERROR(
-            "Encoder - init_buffer_pool - Failed to init buffer pool");
+        m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(
+            m_vc_cfg.width, m_vc_cfg.height, DSP_IMAGE_FORMAT_GRAY8, (pool_size), CMA);
+        if (m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__ERROR(
+                "Encoder - init_buffer_pool - Failed to init buffer pool");
+        }
     }
 }
 
 Encoder::Impl::Impl(std::string json_string)
     : m_config(std::make_unique<EncoderConfig>(json_string))
+{
+    m_state = ENCODER_STATE_UNINITIALIZED;
+    init();
+}
+
+media_library_return Encoder::Impl::dispose()
+{
+    if (m_state == ENCODER_STATE_UNINITIALIZED)
+    {
+        LOGGER__DEBUG("Encoder - dispose requested - but it is already in uninitialized state");
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    if(m_header.buffer != nullptr)
+        m_header.buffer->decrease_ref_count();
+
+    VCEncRelease(m_inst);
+    if (m_output_memory.virtualAddress != NULL)
+        EWLFreeLinear((const void *)m_ewl, &m_output_memory);
+    if (NULL != m_ewl)
+        (void)EWLRelease((const void *)m_ewl);
+
+    m_state = ENCODER_STATE_UNINITIALIZED;
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return Encoder::dispose()
+{
+    return m_impl->dispose();
+}
+
+media_library_return Encoder::init()
+{
+    return m_impl->init();
+}
+
+media_library_return Encoder::Impl::init()
 {
     memset(&m_enc_out, 0, sizeof(VCEncOut));
     memset(&m_enc_in, 0, sizeof(VCEncIn));
@@ -98,7 +134,7 @@ Encoder::Impl::Impl(std::string json_string)
     init_gop_config();
     allocate_output_memory();
     init_encoder_config();
-    init_buffer_pool(MAX_GOP_SIZE+3);
+    init_buffer_pool(MAX_GOP_SIZE + 3);
 
     // Update timescale to be framerate denom (must happen after init_encoder_config)
     m_enc_in.timeIncrement = m_vc_cfg.frameRateDenom;
@@ -108,11 +144,15 @@ Encoder::Impl::Impl(std::string json_string)
     init_rate_control_config();
     m_update_required = {};
     m_stream_restart = STREAM_RESTART_NONE;
+    m_state = ENCODER_STATE_INITIALIZED;
+    m_header.buffer = nullptr;
+    m_header.size = 0;
+    return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return Encoder::configure(std::string json_string)
 {
-     return m_impl->configure(json_string);
+    return m_impl->configure(json_string);
 }
 
 media_library_return Encoder::Impl::configure(std::string json_string)
@@ -139,7 +179,7 @@ media_library_return Encoder::Impl::configure(const encoder_config_t &config)
     bool hard_restart = hard_restart_required(config, gop_update_required);
 
     // Gop change update required
-    if(gop_update_required)
+    if (gop_update_required)
     {
         m_update_required.emplace_back(ENCODER_CONFIG_GOP);
     }
@@ -152,7 +192,7 @@ media_library_return Encoder::Impl::configure(const encoder_config_t &config)
 
     if (hard_restart)
     {
-       m_update_required.emplace_back(ENCODER_CONFIG_STREAM);
+        m_update_required.emplace_back(ENCODER_CONFIG_STREAM);
     }
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -217,7 +257,7 @@ media_library_return Encoder::Impl::update_configurations()
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
     }
-    
+
     // Clear update required list
     m_update_required.clear();
 
@@ -280,7 +320,7 @@ media_library_return Encoder::Impl::stream_restart()
 
 media_library_return Encoder::Impl::encode_header()
 {
-    if(m_inst == NULL)
+    if (m_inst == NULL)
     {
         LOGGER__ERROR("Encoder not initialized");
         return MEDIA_LIBRARY_UNINITIALIZED;
@@ -311,7 +351,6 @@ media_library_return Encoder::Impl::encode_header()
     m_next_coding_type = VCENC_INTRA_FRAME;
     return MEDIA_LIBRARY_SUCCESS;
 }
-
 
 void Encoder::update_stride(uint32_t stride) { m_impl->update_stride(stride); }
 
@@ -373,6 +412,8 @@ EncoderOutputBuffer Encoder::Impl::start()
             m_next_coding_type = VCENC_INTRA_FRAME;
         }
     }
+
+    m_state = ENCODER_STATE_START;
     return m_header;
 }
 
@@ -383,6 +424,7 @@ EncoderOutputBuffer Encoder::Impl::stop()
     VCEncStrmEnd(m_inst, &m_enc_in, &m_enc_out);
     EncoderOutputBuffer output;
     auto ret = create_output_buffer(output);
+    m_state = ENCODER_STATE_STOP;
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to create output buffer");
@@ -519,9 +561,9 @@ Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
     enc_ret = VCEncStrmEncode(m_inst, &m_enc_in, &m_enc_out, NULL, NULL);
 
     clock_gettime(CLOCK_MONOTONIC, &end_encode);
-    LOGGER__DEBUG("Encoding of frame took {} ms",
-                  time_diff(end_encode, start_encode)); 
-                                    
+    LOGGER__DEBUG("Encoding of frame took {} ms", time_diff(end_encode, start_encode));
+    LOGGER__DEBUG("Encoding performance is {} cycles", VCEncGetPerformance(m_inst));
+
     switch (enc_ret)
     {
     case VCENC_FRAME_READY:
@@ -552,7 +594,7 @@ Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
             }
             m_counters.validencodedframenumber++;
             m_next_coding_type = find_next_pic();
-            if(m_next_coding_type == VCENC_INTRA_FRAME)
+            if (m_next_coding_type == VCENC_INTRA_FRAME)
             {
                 if (!m_update_required.empty())
                 {
@@ -592,7 +634,7 @@ Encoder::Impl::handle_frame(HailoMediaLibraryBufferPtr buf)
     outputs.clear();
     media_library_return ret = MEDIA_LIBRARY_UNINITIALIZED;
 
-    if(m_stream_restart != STREAM_RESTART_NONE)
+    if (m_stream_restart != STREAM_RESTART_NONE)
     {
         if (stream_restart() != MEDIA_LIBRARY_SUCCESS)
         {

@@ -1261,6 +1261,18 @@ namespace osd
     {
         std::unique_lock lock(m_mutex);
 
+        if(frame_width < 1 || frame_height < 1)
+        {
+            LOGGER__ERROR("Frame size is invalid ({}x{})", frame_width, frame_height);
+            return MEDIA_LIBRARY_INVALID_ARGUMENT;
+        }
+
+        if(m_frame_width == frame_width && m_frame_height == frame_height)
+        {
+            LOGGER__DEBUG("Frame size is already set to {}x{}", frame_width, frame_height);
+            return MEDIA_LIBRARY_SUCCESS;
+        }
+
         m_frame_width = frame_width;
         m_frame_height = frame_height;
         m_frame_size_set = true;
