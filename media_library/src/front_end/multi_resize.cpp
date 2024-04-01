@@ -88,6 +88,8 @@ private:
     multi_resize_config_t m_multi_resize_config;
     // dsp internal helper buffer pool
     MediaLibraryBufferPoolPtr m_dsp_helper_buffer_pool;
+    // helper buffer for multi-resize (constantly in use)
+    hailo_media_library_buffer m_resize_helper_buffer;
     // privacy mask blender
     PrivacyMaskBlenderPtr m_privacy_mask_blender;
     // callbacks
@@ -228,15 +230,18 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
     m_dsp_helper_buffer_pool = std::make_shared<MediaLibraryBufferPool>(1280, 720, DSP_IMAGE_FORMAT_GRAY8, 1, CMA, dsp_utils::get_dsp_desired_stride_from_width(1280), "multi_resize_input");
     if (m_dsp_helper_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to init internal buffer pool");
+        LOGGER__ERROR("Failed to init internal helper buffer pool");
         status = MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
+
+    m_dsp_helper_buffer_pool->acquire_buffer(m_resize_helper_buffer);
 
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
 MediaLibraryMultiResize::Impl::~Impl()
 {
+    m_resize_helper_buffer.decrease_ref_count();
     m_multi_resize_config.output_video_config.resolutions.clear();
     dsp_status status = dsp_utils::release_device();
     if (status != DSP_SUCCESS)
@@ -334,7 +339,7 @@ media_library_return MediaLibraryMultiResize::Impl::configure(multi_resize_confi
         return ret;
 
     auto timestamp = media_library_get_timespec_ms();
-    for (uint8_t i=0; i < m_buffer_pools.size(); i++)
+    for (uint8_t i = 0; i < m_buffer_pools.size(); i++)
     {
         m_timestamps.push_back(timestamp);
     }
@@ -432,7 +437,7 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(hailo
             do
             {
                 m_timestamps[i] += frame_latency;
-            } while (timestamp - m_timestamps[i] >= frame_latency*2);
+            } while (timestamp - m_timestamps[i] >= frame_latency * 2);
             LOGGER__DEBUG("Skipping current frame to match framerate {}, no need to acquire buffer {}, counter is {}", output_framerate, i, m_frame_counter);
         }
         LOGGER__DEBUG("Acquiring buffer {}, target framerate is {}", i, output_framerate);
@@ -484,13 +489,10 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(hailo_m
         return MEDIA_LIBRARY_ERROR;
     }
 
-    hailo_media_library_buffer resize_helper_buffer;
-    m_dsp_helper_buffer_pool->acquire_buffer(resize_helper_buffer);
-
     dsp_multi_resize_params_t multi_resize_params = {
         .src = input_buffer.hailo_pix_buffer.get(),
         .interpolation = m_multi_resize_config.output_video_config.interpolation_type,
-        .helper_plane = resize_helper_buffer.hailo_pix_buffer.get(),
+        .helper_plane = m_resize_helper_buffer.hailo_pix_buffer.get(),
     };
 
     uint num_bufs_to_resize = 0;
@@ -519,7 +521,6 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(hailo_m
     if (num_bufs_to_resize == 0)
     {
         LOGGER__DEBUG("No need to perform multi resize");
-        resize_helper_buffer.decrease_ref_count();
         return MEDIA_LIBRARY_SUCCESS;
     }
 
@@ -577,7 +578,7 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(hailo_m
     // Perform multi resize
     clock_gettime(CLOCK_MONOTONIC, &start_resize);
     dsp_status ret = DSP_SUCCESS;
-    if(privacy_mask_data->rois_count==0)
+    if (privacy_mask_data->rois_count == 0)
     {
         LOGGER__DEBUG("Performing multi resize on the DSP with digital zoom ROI: start_x {} start_y {} end_x {} end_y {}", start_x, start_y, end_x, end_y);
         ret = dsp_utils::perform_dsp_multi_resize(&multi_resize_params, start_x, start_y, end_x, end_y);
@@ -594,22 +595,18 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(hailo_m
             .rois_count = privacy_mask_data->rois_count,
         };
 
-        for(uint i = 0; i < privacy_mask_data->rois_count; i++)
+        for (uint i = 0; i < privacy_mask_data->rois_count; i++)
         {
             dsp_privacy_mask.rois[i] = {
                 .start_x = privacy_mask_data->rois[i].x,
                 .start_y = privacy_mask_data->rois[i].y,
                 .end_x = privacy_mask_data->rois[i].x + privacy_mask_data->rois[i].width,
-                .end_y = privacy_mask_data->rois[i].y + privacy_mask_data->rois[i].height
-            };
+                .end_y = privacy_mask_data->rois[i].y + privacy_mask_data->rois[i].height};
         }
 
         LOGGER__DEBUG("Performing multi resize on the DSP with digital zoom ROI: start_x {} start_y {} end_x {} end_y {} and {} privacy masks", start_x, start_y, end_x, end_y, privacy_mask_data->rois_count);
         ret = dsp_utils::perform_dsp_multi_resize(&multi_resize_params, start_x, start_y, end_x, end_y, &dsp_privacy_mask);
-
     }
-
-    resize_helper_buffer.decrease_ref_count();
 
     clock_gettime(CLOCK_MONOTONIC, &end_resize);
     [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_resize, start_resize);
@@ -690,7 +687,9 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(hailo_media_lib
             input_frame.sync_start();
             memset(input_frame.get_plane(1), 128, input_frame.get_plane_size(1));
             input_frame.sync_end();
-        } else {
+        }
+        else
+        {
             memset(input_frame.get_plane(1), 128, input_frame.get_plane_size(1));
         }
     }
@@ -700,6 +699,7 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(hailo_media_lib
 
     // Unref the input frame
     input_frame.decrease_ref_count();
+    // LOGGER__ERROR("decreased input frame ref count of buffer indexed: {}, plane 0 refcount: {}", input_frame.buffer_index, input_frame.refcount(0) );
 
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
         return media_lib_ret;
@@ -735,7 +735,7 @@ media_library_return MediaLibraryMultiResize::Impl::set_input_video_config(uint3
     m_multi_resize_config.input_video_config.framerate = framerate;
 
     media_library_return blender_config_status = m_privacy_mask_blender->set_frame_size(m_multi_resize_config.input_video_config.dimensions.destination_width,
-                                                                m_multi_resize_config.input_video_config.dimensions.destination_height);
+                                                                                        m_multi_resize_config.input_video_config.dimensions.destination_height);
     if (blender_config_status != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to set privacy mask blender frame size");

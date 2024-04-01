@@ -7,7 +7,7 @@ WebserverResourceRepository webserver::resources::ResourceRepository::create()
     auto ai_resource = std::make_shared<webserver::resources::AiResource>();
     resources_vec.push_back(ai_resource);
     resources_vec.push_back(std::make_shared<webserver::resources::IspResource>(ai_resource));
-    resources_vec.push_back(std::make_shared<webserver::resources::FrontendResource>());
+    resources_vec.push_back(std::make_shared<webserver::resources::FrontendResource>(ai_resource));
     resources_vec.push_back(std::make_shared<webserver::resources::EncoderResource>());
     resources_vec.push_back(std::make_shared<webserver::resources::OsdResource>());
     resources_vec.push_back(std::make_shared<webserver::resources::PrivacyMaskResource>());

@@ -226,11 +226,11 @@ int get_fd(GstVideoFrame *video_frame, int index)
     }
 
     // If failed, try to get the fd from GStreamer
-    // GstMemory *memory = gst_buffer_peek_memory(video_frame->buffer, index);
-    // if (memory && gst_is_dmabuf_memory(memory))
-    // {
-    //     fd = gst_dmabuf_memory_get_fd(memory);
-    // }
+    GstMemory *memory = gst_buffer_peek_memory(video_frame->buffer, index);
+    if (memory && gst_is_dmabuf_memory(memory))
+    {
+        fd = gst_dmabuf_memory_get_fd(memory);
+    }
 
     return fd;
 }

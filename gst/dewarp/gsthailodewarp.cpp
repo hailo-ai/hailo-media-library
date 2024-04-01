@@ -584,13 +584,19 @@ static void gst_hailo_dewarp_set_property(GObject *object, guint property_id, co
         self->config_file_path = g_value_dup_string(value);
         GST_DEBUG_OBJECT(self, "config_file_path: %s", self->config_file_path);
         self->config_string = gstmedialibcommon::read_json_string_from_file(self->config_file_path);
-
         if (self->medialib_dewarp == nullptr)
         {
             gst_hailo_dewarp_create(self);
         }
         else
         {
+            bool enabled_ops = self->medialib_dewarp->check_ops_enabled_from_config_string(self->config_string);
+
+            if (!enabled_ops)
+            {
+                break;
+            }
+
             media_library_return config_status = self->medialib_dewarp->configure(self->config_string);
             if (config_status != MEDIA_LIBRARY_SUCCESS)
                 GST_ERROR_OBJECT(self, "configuration error: %d", config_status);
@@ -608,6 +614,12 @@ static void gst_hailo_dewarp_set_property(GObject *object, guint property_id, co
         }
         else
         {
+            bool enabled_ops = self->medialib_dewarp->check_ops_enabled_from_config_string(self->config_string);
+
+            if (!enabled_ops) 
+            {
+                break;
+            }
             media_library_return config_status = self->medialib_dewarp->configure(self->config_string);
             if (config_status != MEDIA_LIBRARY_SUCCESS)
                 GST_ERROR_OBJECT(self, "configuration error: %d", config_status);

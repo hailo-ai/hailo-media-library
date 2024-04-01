@@ -277,6 +277,11 @@ gst_hailo_encoder_finalize(GObject *object)
     GST_DEBUG_OBJECT(hailoencoder, "hailoencoder finalize callback");
 
     /* clean up remaining allocated data */
+    if (hailoencoder->encoder)
+    {
+        hailoencoder->encoder.reset();
+        hailoencoder->encoder = NULL;
+    }
 
     G_OBJECT_CLASS(parent_class)->finalize(object);
 }

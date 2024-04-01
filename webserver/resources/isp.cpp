@@ -9,19 +9,26 @@ IspResource::IspResource(std::shared_ptr<AiResource> ai_res) : Resource(), m_bas
 {
     m_v4l2 = std::make_unique<webserver::common::v4l2Control>(V4L2_DEVICE_NAME);
     m_ai_resource = ai_res;
-    m_tuning_profile = {};
+    m_tuning_profile = {webserver::common::TUNING_PROFILE_BACKLIGHT_COMPENSATION, webserver::common::TUNING_PROFILE_BACKLIGHT_COMPENSATION};
     m_ai_resource->subscribe_callback([this](ResourceStateChangeNotification notification)
                                       { this->on_ai_state_change(std::static_pointer_cast<AiResource::AiResourceState>(notification.resource_state)); });
 }
 
 void IspResource::on_ai_state_change(std::shared_ptr<AiResource::AiResourceState> state)
 {
+    std::cout << "IspResource::on_ai_state_change" << std::endl;
     bool ae_enabled;
+
+    on_resource_change(std::make_shared<ResourceState>(IspResource::IspResourceState(true)));
+
+    // Sleep before sending any ioctl is required
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
     // enabled denoise
     if (std::find(state->enabled.begin(), state->enabled.end(), AiResource::AiApplications::AI_APPLICATION_DENOISE) != state->enabled.end())
     {
-        override_file(ISP_DENOISE_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
-        override_file(ISP_DENOISE_SONY_CONFIG, SONY_CONFIG_PATH);
+        std::cout << "enabling denoise" << std::endl;
+        // isp_utils::set_denoise_configuration();
         m_tuning_profile.current = webserver::common::TUNING_PROFILE_DENOISE;
         ae_enabled = false;
     }
@@ -29,9 +36,16 @@ void IspResource::on_ai_state_change(std::shared_ptr<AiResource::AiResourceState
     // disabled denoise
     else if (std::find(state->disabled.begin(), state->disabled.end(), AiResource::AiApplications::AI_APPLICATION_DENOISE) != state->disabled.end())
     {
-        auto file = (m_tuning_profile.fallback == webserver::common::TUNING_PROFILE_BACKLIGHT_COMPENSATION) ? ISP_BACKLIGHT_COMPENSATION_3A_CONFIG : ISP_DEFAULT_3A_CONFIG;
-        override_file(file, TRIPLE_A_CONFIG_PATH);
-        override_file(ISP_DEFAULT_SONY_CONFIG, SONY_CONFIG_PATH);
+        if (m_tuning_profile.fallback == webserver::common::TUNING_PROFILE_BACKLIGHT_COMPENSATION)
+        {
+            std::cout << "enabling backlight compensation" << std::endl;
+            isp_utils::set_backlight_configuration();
+        }
+        else
+        {
+            std::cout << "enabling default configuration" << std::endl;
+            isp_utils::set_default_configuration();
+        }
         m_tuning_profile.current = m_tuning_profile.fallback;
         ae_enabled = true;
     }
@@ -40,23 +54,7 @@ void IspResource::on_ai_state_change(std::shared_ptr<AiResource::AiResourceState
         return;
     }
 
-    on_resource_change(std::make_shared<ResourceState>(IspResource::IspResourceState(true)));
     this->init(ae_enabled);
-}
-
-void IspResource::override_configurations()
-{
-    auto enabled_applications = m_ai_resource->get_enabled_applications();
-    bool is_denoise_enabled = std::find(enabled_applications.begin(), enabled_applications.end(), webserver::resources::AiResource::AiApplications::AI_APPLICATION_DENOISE) != enabled_applications.end();
-
-    std::string triple_a_config_path = is_denoise_enabled ? ISP_DENOISE_3A_CONFIG : ISP_BACKLIGHT_COMPENSATION_3A_CONFIG;
-    std::string sony_config_path = is_denoise_enabled ? ISP_DENOISE_SONY_CONFIG : ISP_DEFAULT_SONY_CONFIG;
-
-    override_file(triple_a_config_path, TRIPLE_A_CONFIG_PATH);
-    override_file(sony_config_path, SONY_CONFIG_PATH);
-    m_tuning_profile.current = is_denoise_enabled ? webserver::common::TUNING_PROFILE_DENOISE : webserver::common::tuning_profile_t::TUNING_PROFILE_BACKLIGHT_COMPENSATION;
-    m_tuning_profile.fallback = webserver::common::TUNING_PROFILE_BACKLIGHT_COMPENSATION;
-    this->init(false, false);
 }
 
 void IspResource::init(bool set_auto_exposure, bool set_auto_wb)
@@ -278,9 +276,16 @@ void IspResource::http_register(std::shared_ptr<httplib::Server> srv)
                 }
                 
                 m_tuning_profile.current = tuning.value;
-                auto file = (tuning.value == webserver::common::TUNING_PROFILE_BACKLIGHT_COMPENSATION) ? ISP_BACKLIGHT_COMPENSATION_3A_CONFIG : ISP_DEFAULT_3A_CONFIG;
-                override_file(file, TRIPLE_A_CONFIG_PATH); 
+                if (tuning.value == webserver::common::TUNING_PROFILE_BACKLIGHT_COMPENSATION)
+                {
+                    isp_utils::set_backlight_configuration();
+                }
+                else 
+                {
+                    isp_utils::set_default_configuration();
+                }
                 
+                // return current tuning profile, if denoise enabled, return fallbackSSS
                 tuning.value = this->m_tuning_profile.current; 
                 if (tuning.value == webserver::common::TUNING_PROFILE_DENOISE)
                 {

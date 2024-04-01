@@ -150,9 +150,10 @@ dsp_status release_hailo_dsp_buffer(void *buffer)
  * @param[in] input_image_properties input image properties
  * @param[in] output_image_properties output image properties
  * @param[in] dsp_interpolation_type interpolation type to use
+ * @param[in] use_letterbox should letterbox resize be used
  * @return dsp_status
  */
-dsp_status perform_dsp_resize(dsp_image_properties_t *input_image_properties, dsp_image_properties_t *output_image_properties, dsp_interpolation_type_t dsp_interpolation_type)
+dsp_status perform_dsp_resize(dsp_image_properties_t *input_image_properties, dsp_image_properties_t *output_image_properties, dsp_interpolation_type_t dsp_interpolation_type, bool letterbox)
 {
     if (device == NULL)
     {
@@ -166,16 +167,44 @@ dsp_status perform_dsp_resize(dsp_image_properties_t *input_image_properties, ds
         .interpolation = dsp_interpolation_type,
     };
 
+    if (!letterbox)
+    {
+        dsp_status status = dsp_resize(device, &resize_params);
+
+        if (status != DSP_SUCCESS)
+        {
+            GST_CAT_ERROR(GST_CAT_DEFAULT, "DSP Resize command failed with status %d", status);
+            return status;
+        }
+    }
+    else
+    {
+        // dsp_roi_t crop_params = {
+        // .start_x = 0,
+        // .start_y = 0,
+        // .end_x = input_image_properties->width,
+        // .end_y = input_image_properties->height,
+        // };
+
+        // dsp_letterbox_properties_t letterbox_params;
+        // letterbox_params.letterbox_alignment = DSP_LETTERBOX_MIDDLE;
+        // letterbox_params.letterbox_color.y_color = 0;
+        // letterbox_params.letterbox_color.u_color = 128;
+        // letterbox_params.letterbox_color.v_color = 128;
+
+        // dsp_status status = dsp_crop_and_resize_letterbox(device, &resize_params, &crop_params, &letterbox_params);
+
+        // if (status != DSP_SUCCESS)
+        // {
+        //     GST_CAT_ERROR(GST_CAT_DEFAULT, "DSP Resize command failed with status %d", status);
+        //     return status;
+        // }
+    }
+    
     GST_CAT_DEBUG(GST_CAT_DEFAULT,
                 "Perform DSP resize %s (no crop) to destination width: %ld, destination height: %ld",
                 interpolations_strings[dsp_interpolation_type], output_image_properties->width, output_image_properties->height);
-    dsp_status status = dsp_resize(device, &resize_params);
-
-    if (status != DSP_SUCCESS)
-    {
-        GST_CAT_ERROR(GST_CAT_DEFAULT, "DSP Resize command failed with status %d", status);
-        return status;
-    }
+    
 
     GST_CAT_DEBUG(GST_CAT_DEFAULT, "DSP  Resize command completed successfully");
     return DSP_SUCCESS;

@@ -34,6 +34,12 @@ gst_hailo_dsp_buffer_pool_dispose(GObject *object)
         gst_structure_free(pool->config);
         pool->config = NULL;
     }
+    // Release DSP device
+    dsp_status result = release_device();
+    if (result != DSP_SUCCESS)
+    {
+        GST_ERROR_OBJECT(pool, "Release DSP device failed with status code %d", result);
+    }
 }
 
 static void
@@ -41,6 +47,12 @@ gst_hailo_dsp_buffer_pool_init(GstHailoDspBufferPool *pool)
 {
     GST_INFO_OBJECT(pool, "New Hailo DSP buffer pool");
     pool->memory_allocator = &DmaMemoryAllocator::get_instance();
+    // Acquire DSP device
+    dsp_status status = acquire_device();
+    if (status != DSP_SUCCESS)
+    {
+        GST_ERROR_OBJECT(pool, "Accuire DSP device failed with status code %d", status);
+    }
 }
 
 GstBufferPool *

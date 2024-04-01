@@ -9,6 +9,11 @@ using namespace webserver::resources;
 
 std::shared_ptr<DummyPipeline> DummyPipeline::create()
 {
+    return std::make_shared<DummyPipeline>(ResourceRepository::create());
+}
+
+std::string webserver::pipeline::DummyPipeline::create_gst_pipeline_string()
+{
     std::ostringstream pipeline;
     pipeline << "gst-launch-1.0 videotestsrc pattern=ball ! ";
     pipeline << "video/x-raw,width=320,height=240,framerate=10/1 ! ";
@@ -23,11 +28,11 @@ std::shared_ptr<DummyPipeline> DummyPipeline::create()
     std::string pipeline_str = pipeline.str();
     std::cout << "Pipeline: \n"
               << pipeline_str << std::endl;
-    return std::make_shared<DummyPipeline>(ResourceRepository::create(), pipeline_str);
+    return pipeline_str;
 }
 
-DummyPipeline::DummyPipeline(WebserverResourceRepository resources, std::string gst_pipeline_str)
-    : IPipeline(resources, gst_pipeline_str)
+DummyPipeline::DummyPipeline(WebserverResourceRepository resources)
+    : IPipeline(resources)
 {
     for (const auto &[key, val] : resources->get_all_types())
     {
@@ -62,12 +67,6 @@ void DummyPipeline::callback_handle_strategy(ResourceStateChangeNotification not
         }
         break;
     }
-    case RESOURCE_ISP:
-    {
-        auto state = std::static_pointer_cast<IspResource::IspResourceState>(notif.resource_state);
-        data_string = "\n\tshould_restart_stream: " + std::to_string(state->should_restart_stream);
-        break;
-    }
     case RESOURCE_PRIVACY_MASK:
     {
         auto state = std::static_pointer_cast<PrivacyMaskResource::PrivacyMaskResourceState>(notif.resource_state);
@@ -86,6 +85,7 @@ void DummyPipeline::callback_handle_strategy(ResourceStateChangeNotification not
     case RESOURCE_FRONTEND:
     case RESOURCE_ENCODER:
     case RESOURCE_OSD:
+    case RESOURCE_ISP:
     {
         data_string = "";
         break;

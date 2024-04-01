@@ -1,20 +1,10 @@
 #include "resources.hpp"
 #include <iostream>
 
-webserver::resources::FrontendResource::FrontendResource() : Resource()
+webserver::resources::FrontendResource::FrontendResource(std::shared_ptr<webserver::resources::AiResource> ai_res) : Resource()
 {
     m_default_config = R"(
     {
-        "input_stream": {
-            "source": "/dev/video0",
-            "format": "IMAGE_FORMAT_NV12",
-            "resolution": {
-                "width": 3840,
-                "height": 2160,
-                "framerate": 30,
-                "pool_max_buffers": 8
-            }
-        },
         "output_video": {
             "method": "INTERPOLATION_TYPE_BILINEAR",
             "format": "IMAGE_FORMAT_NV12",
@@ -27,15 +17,15 @@ webserver::resources::FrontendResource::FrontendResource() : Resource()
                     "pool_max_buffers": 20
                 },
                 {
-                    "width": 1280,
-                    "height": 720,
+                    "width": 640,
+                    "height": 640,
                     "framerate": 30,
                     "pool_max_buffers": 20
                 }
             ]
         },
         "dewarp": {
-            "enabled": true,
+            "enabled": false,
             "color_interpolation": "INTERPOLATION_TYPE_BILINEAR",
             "sensor_calib_path": "/home/root/apps/resources/cam_intrinsics.txt",
             "camera_type": "CAMERA_TYPE_PINHOLE",
@@ -51,6 +41,16 @@ webserver::resources::FrontendResource::FrontendResource() : Resource()
             "black_corners_correction_enabled": true,
             "black_corners_threshold": 0.5,
             "average_luminance_threshold": 0,
+            "angular_dis": {
+                "enabled": false,
+                "vsm": {
+                    "hoffset": 1856,
+                    "voffset": 1016,
+                    "width": 1920,
+                    "height": 1080,
+                    "max_displacement": 64
+                }
+            },
             "debug": {
                 "generate_resize_grid": false,
                 "fix_stabilization": false,
@@ -84,9 +84,13 @@ webserver::resources::FrontendResource::FrontendResource() : Resource()
         "flip": {
             "enabled": false,
             "direction": "FLIP_DIRECTION_NONE"
+        },
+        "hailort": {
+            "device-id": "device0"
         }
     })";
     m_config = nlohmann::json::parse(m_default_config);
+    m_ai_resource = ai_res;
 }
 
 void webserver::resources::FrontendResource::http_register(std::shared_ptr<httplib::Server> srv)
@@ -109,4 +113,12 @@ void webserver::resources::FrontendResource::http_register(std::shared_ptr<httpl
                 m_config = m_config.patch(partial_config);
                 res.set_content(this->to_string(), "application/json");
                 on_resource_change(std::make_shared<webserver::resources::ResourceState>(ConfigResourceState(this->to_string()))); });
+}
+
+nlohmann::json webserver::resources::FrontendResource::get_frontend_config()
+{
+    nlohmann::json conf = m_config;
+    conf["denoise"] = m_ai_resource->get_ai_config(AiResource::AiApplications::AI_APPLICATION_DENOISE);
+    conf["defog"] = m_ai_resource->get_ai_config(AiResource::AiApplications::AI_APPLICATION_DEFOG);
+    return conf;
 }

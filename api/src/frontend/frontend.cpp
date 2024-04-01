@@ -252,7 +252,7 @@ std::string MediaLibraryFrontend::Impl::create_pipeline_string()
     {
         pipeline << "frontend. ! ";
         pipeline << "queue leaky=no max-size-buffers=3 max-size-time=0 max-size-bytes=0 ! ";
-        pipeline << "fpsdisplaysink signal-fps-measurements=true name=fpsdisplay" << s.id << " text-overlay=false sync=false video-sink=\"appsink qos=false wait-on-eos=false name=" << s.id << "\" ";
+        pipeline << "fpsdisplaysink signal-fps-measurements=true name=fpsdisplay" << s.id << " text-overlay=false sync=false video-sink=\"appsink qos=false wait-on-eos=false max-buffers=1 name=" << s.id << "\" ";
     }
 
     auto pipeline_str = pipeline.str();

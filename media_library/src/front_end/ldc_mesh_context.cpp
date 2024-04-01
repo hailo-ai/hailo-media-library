@@ -48,22 +48,26 @@ LdcMeshContext::~LdcMeshContext()
     }
 
     // Free angular dis columns buffer
-    if (m_angular_dis_params->cur_columns_sum != nullptr)
+    if(m_angular_dis_params!=nullptr)
     {
-        result = DmaMemoryAllocator::get_instance().free_dma_buffer((void*)m_angular_dis_params->cur_columns_sum);
-        if (result != MEDIA_LIBRARY_SUCCESS)
+        if (m_angular_dis_params->cur_columns_sum != nullptr)
         {
-            LOGGER__ERROR("failed releasing angular dis columns buffer on error {}", result);
+            result = DmaMemoryAllocator::get_instance().free_dma_buffer((void*)m_angular_dis_params->cur_columns_sum);
+            if (result != MEDIA_LIBRARY_SUCCESS)
+            {
+                LOGGER__ERROR("failed releasing angular dis columns buffer on error {}", result);
+            }
         }
-    }
+        
 
-    // Free angular dis rows buffer
-    if (m_angular_dis_params->cur_rows_sum != nullptr)
-    {
-        result = DmaMemoryAllocator::get_instance().free_dma_buffer((void*)m_angular_dis_params->cur_rows_sum);
-        if (result != MEDIA_LIBRARY_SUCCESS)
+        // Free angular dis rows buffer
+        if (m_angular_dis_params->cur_rows_sum != nullptr)
         {
-            LOGGER__ERROR("failed releasing angular dis rows buffer on error {}", result);
+            result = DmaMemoryAllocator::get_instance().free_dma_buffer((void*)m_angular_dis_params->cur_rows_sum);
+            if (result != MEDIA_LIBRARY_SUCCESS)
+            {
+                LOGGER__ERROR("failed releasing angular dis rows buffer on error {}", result);
+            }
         }
     }
 }

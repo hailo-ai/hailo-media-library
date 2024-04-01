@@ -201,7 +201,7 @@ media_library_return MediaLibraryBufferPool::init()
 {
     for (HailoBucketPtr &bucket : m_buckets)
     {
-        LOGGER__DEBUG("{}: allocating bucket", m_name);
+        LOGGER__DEBUG("{}: allocating bucket of size {} num of buffers {}", m_name, bucket->m_buffer_size, bucket->m_num_buffers);
         if (bucket->allocate() != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR("{}: failed to allocate bucket", m_name);

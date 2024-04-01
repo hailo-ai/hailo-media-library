@@ -366,6 +366,13 @@ public:
         }
     }
 
+    int get_fd(uint32_t index)
+    {
+        if (index >= hailo_pix_buffer->planes_count)
+            return -1;
+        return hailo_pix_buffer->planes[index].fd;
+    }
+
     uint32_t get_plane_size(uint32_t index)
     {
         if (index >= hailo_pix_buffer->planes_count)

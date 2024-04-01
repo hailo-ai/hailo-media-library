@@ -464,6 +464,14 @@ public:
     uint32_t loopback_count;
     feedback_network_config_t network_config;
 
+    denoise_config_t()
+    {
+        enabled = false;
+        sensor = "imx678";
+        denoising_quality = DENOISE_METHOD_VD2;
+        loopback_count = 1;
+    }
+
     media_library_return update(denoise_config_t &denoise_configs)
     {
         enabled = denoise_configs.enabled;

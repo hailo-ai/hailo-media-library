@@ -36,7 +36,7 @@
 #include <tl/expected.hpp> 
 #include "media_library/denoise.hpp"
 #include "media_library/media_library_types.hpp"
-#include "denoise/gsthailodenoise.hpp"
+#include "denoise/gstnativedenoise.hpp"
 
 G_BEGIN_DECLS
 

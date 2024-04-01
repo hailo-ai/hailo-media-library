@@ -39,6 +39,7 @@ Encoder::~Encoder() = default;
 
 Encoder::Impl::~Impl()
 {
+    LOGGER__DEBUG("Encoder - Destructor");
     dispose();
 }
 
@@ -74,8 +75,9 @@ void Encoder::Impl::init_buffer_pool(uint pool_size)
 {
     if (m_buffer_pool == nullptr)
     {
+        std::string name = "encoder_output";
         m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(
-            m_vc_cfg.width, m_vc_cfg.height, DSP_IMAGE_FORMAT_GRAY8, (pool_size), CMA);
+            m_vc_cfg.width, m_vc_cfg.height, DSP_IMAGE_FORMAT_GRAY8, (pool_size), CMA, name);
         if (m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR(

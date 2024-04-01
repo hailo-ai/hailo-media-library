@@ -122,7 +122,7 @@ void webserver::resources::EncoderResource::set_encoder_control(webserver::resou
 {
     m_config["rate_control"]["bitrate"]["target_bitrate"] = encoder_control.bitrate;
     m_config["rate_control"]["picture-rc"] = encoder_control.bitrate_control == webserver::resources::EncoderResource::VBR ? 0 : 1;
-    m_config["rate_control"]["tolerance_moving_bitrate"] = encoder_control.bitrate_control == webserver::resources::EncoderResource::VBR ? 2000 : 0;
+    m_config["rate_control"]["bitrate"]["tolerance_moving_bitrate"] = encoder_control.bitrate_control == webserver::resources::EncoderResource::VBR ? 2000 : 0;
     on_resource_change(std::make_shared<webserver::resources::ResourceState>(ConfigResourceState(this->to_string())));
 }
 

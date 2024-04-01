@@ -28,6 +28,7 @@
 #include <pthread.h>
 #include <sstream>
 #include <thread>
+#include <gst/allocators/gstfdmemory.h>
 #include "gsthailoenc.hpp"
 #include "buffer_utils/buffer_utils.hpp"
 

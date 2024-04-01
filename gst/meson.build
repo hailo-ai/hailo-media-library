@@ -9,36 +9,6 @@ configure_file(output : 'config.h', configuration : core_conf)
 # Gstreamer Media Library
 ################################################
 
-# Hailort Arguments
-sysroot_arg = []
-if meson.is_cross_build()
-    cmd_array = meson.get_compiler('cpp').cmd_array()
-    foreach arg : cmd_array
-        if arg.startswith('--sysroot=')
-            sysroot = arg.split('=')[1]
-            break
-        endif
-    endforeach
-    message('Cross building using sysroot: ' + sysroot)
-    if sysroot != ''
-        sysroot_arg += '--sysroot=' + sysroot
-    endif
-endif
-
-v4l_dep = [
-    meson.get_compiler('cpp').find_library('libgstvideo4linux2', required: true, dirs: sysroot + '/usr/lib/gstreamer-1.0/')
-]
-
-hailort_dep = [
-    meson.get_compiler('cpp').find_library('hailort', required: true),
-    meson.get_compiler('cpp').find_library('libgsthailo', required: true, dirs: sysroot + '/usr/lib/gstreamer-1.0/')
-]
-hailort_inc_dirs = include_directories(
-    sysroot + '/usr/include/hailo',
-    sysroot + '/usr/include/gst-hailo',
-    is_system: true
-)
-
 utils_sources = [
     'buffer_utils/buffer_utils.cpp',
     'buffer_utils/gsthailobuffermeta.cpp',
@@ -54,6 +24,9 @@ utils_sources = [
 ]
 
 opencv_freetype_lib_dep = meson.get_compiler('cpp').find_library('opencv_freetype', required: true, dirs: '/usr/lib/')
+v4l_dep = [
+    meson.get_compiler('cpp').find_library('libgstvideo4linux2', required: true, dirs: sysroot + '/usr/lib/gstreamer-1.0/')
+]
 
 gstmedialibutils_lib = shared_library('gstmedialibutils',
     utils_sources,
@@ -102,7 +75,7 @@ plugin_sources = [
     'jpeg/gsthailojpeg.cpp',
     'multi_resize/gsthailomultiresize.cpp',
     'dewarp/gsthailodewarp.cpp',
-    'denoise/gsthailodenoise.cpp',
+    'denoise/gstnativedenoise.cpp',
     'defog/gsthailodefog.cpp',
     'frontend/gsthailofrontend.cpp',
     'frontend/gsthailofrontendbinsrc.cpp',
@@ -116,6 +89,12 @@ if get_option('hailort_4_16')
     ]
     common_args += ['-DHAILORT_4_16']
 endif
+
+hailort_inc_dirs = include_directories(
+    sysroot + '/usr/include/hailo',
+    sysroot + '/usr/include/gst-hailo',
+    is_system: true
+)
 
 shared_library('gstmedialib',
     plugin_sources,

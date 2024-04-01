@@ -33,6 +33,7 @@
 #include <memory>
 #include <tl/expected.hpp>
 
+#include "buffer_pool.hpp"
 #include "media_library_types.hpp"
 
 /** @defgroup denoise_type_definitions MediaLibrary Denoise CPP API definitions
@@ -52,6 +53,7 @@ public:
   {
   public:
     std::function<void(bool)> on_enable_changed = nullptr;
+    std::function<void(HailoMediaLibraryBufferPtr)> on_buffer_ready = nullptr;
   };
 
   /**
@@ -104,6 +106,16 @@ public:
    * @return media_library_return - status of the configuration operation
    */
   media_library_return configure(denoise_config_t &denoise_configs, hailort_t &hailort_configs);
+
+  /**
+   * @brief Perform low-light-enhancement on the input frame and return the output frame
+   *
+   * @param[in] input_frame - pointer to the input frame to be pre-processed
+   * @param[out] output_frames - output frame after denoise
+   *
+   * @return media_library_return - status of the denoise operation
+   */
+  media_library_return handle_frame(HailoMediaLibraryBufferPtr input_frame, HailoMediaLibraryBufferPtr output_frame);
 
   /**
    * @brief get the denoise configurations object
