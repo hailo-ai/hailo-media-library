@@ -25,6 +25,7 @@
 #include "multi_resize/gsthailomultiresize.hpp"
 #include "media_library/privacy_mask.hpp"
 #include "media_library/isp_utils.hpp"
+#include "common/gstmedialibcommon.hpp"
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <dlfcn.h>
@@ -149,6 +150,9 @@ gst_hailofrontendbinsrc_init(GstHailoFrontendBinSrc *hailofrontendbinsrc)
                      hailofrontendbinsrc->m_capsfilter,
                      hailofrontendbinsrc->m_queue,
                      hailofrontendbinsrc->m_frontend, NULL);
+    hailofrontendbinsrc->m_hailort_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_HAILORT);
+    hailofrontendbinsrc->m_hdr_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_HDR);
+    hailofrontendbinsrc->m_hdr_thread = nullptr;
 }
 
 static GstElement *
@@ -180,8 +184,8 @@ gst_hailofrontendbinsrc_init_capsfilter(GstHailoFrontendBinSrc *hailofrontendbin
     }
     GstCaps *caps = gst_caps_new_simple("video/x-raw",
                                         "format", G_TYPE_STRING, "NV12",
-                                        "width", G_TYPE_INT, 3840,
-                                        "height", G_TYPE_INT, 2160,
+                                        // "width", G_TYPE_INT, 1920,
+                                        // "height", G_TYPE_INT, 1080,
                                         "framerate", GST_TYPE_FRACTION, 30, 1,
                                         NULL);
     g_object_set(capsfilter, "caps", caps, NULL);
@@ -189,43 +193,78 @@ gst_hailofrontendbinsrc_init_capsfilter(GstHailoFrontendBinSrc *hailofrontendbin
     return capsfilter;
 }
 
+void gst_hailofrontendbinsrc_set_hdr_conf(GstHailoFrontendBinSrc *self, std::string config_string)
+{
+    if (config_string.empty())
+    {
+        GST_ERROR_OBJECT(self, "Config string is NULL");
+        return;
+    }
+    hailort_t hailort_config;
+
+    media_library_return hailort_status = self->m_hailort_config_manager->config_string_to_struct<hailort_t>(config_string, hailort_config);
+    if (hailort_status != MEDIA_LIBRARY_SUCCESS)
+    {
+        GST_ERROR_OBJECT(self, "Failed to decode Hailort config from json string: %s", config_string.c_str());
+        return;
+    }
+    self->m_hailort_config = hailort_config;
+
+    hdr_config_t hdr_config;
+    media_library_return hdr_status = self->m_hdr_config_manager->config_string_to_struct<hdr_config_t>(config_string, hdr_config);
+    if (hdr_status != MEDIA_LIBRARY_SUCCESS)
+    {
+        GST_ERROR_OBJECT(self, "Failed to decode HDR config from json string: %s", config_string.c_str());
+        return;
+    }
+    self->m_hdr_config = hdr_config;
+}
+
 void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id,
                                           const GValue *value, GParamSpec *pspec)
 {
-    GstHailoFrontendBinSrc *hailofrontendbinsrc = GST_HAILO_FRONTEND_BINSRC(object);
-    GST_DEBUG_OBJECT(hailofrontendbinsrc, "set_property");
+    GstHailoFrontendBinSrc *self = GST_HAILO_FRONTEND_BINSRC(object);
+    GST_DEBUG_OBJECT(self, "set_property");
     switch (property_id)
     {
     // Handle property assignments here
     case PROP_CONFIG_FILE_PATH:
     {
-        hailofrontendbinsrc->config_file_path = g_value_dup_string(value);
-        GST_DEBUG_OBJECT(hailofrontendbinsrc, "config_file_path: %s", hailofrontendbinsrc->config_file_path);
+        self->config_file_path = g_value_dup_string(value);
+        GST_DEBUG_OBJECT(self, "config_file_path: %s", self->config_file_path);
+        self->config_string = gstmedialibcommon::read_json_string_from_file(self->config_file_path);
 
         // set params for sub elements here
-        g_object_set(hailofrontendbinsrc->m_frontend, "config-file-path", g_value_get_string(value), NULL);
+        g_object_set(self->m_frontend, "config-file-path", g_value_get_string(value), NULL);
+
+        // Set HDR configurations
+        gst_hailofrontendbinsrc_set_hdr_conf(self, self->config_string);
 
         // Now that configuration is known, link the elements
-        if (hailofrontendbinsrc->m_elements_linked == FALSE)
+        if (self->m_elements_linked == FALSE)
         {
-            gst_hailofrontendbinsrc_link_elements(GST_ELEMENT(hailofrontendbinsrc));
-            hailofrontendbinsrc->m_elements_linked = TRUE;
+            gst_hailofrontendbinsrc_link_elements(GST_ELEMENT(self));
+            self->m_elements_linked = TRUE;
         }
         break;
     }
     case PROP_CONFIG_STRING:
     {
-        hailofrontendbinsrc->config_string = std::string(g_value_get_string(value));
-        GST_DEBUG_OBJECT(hailofrontendbinsrc, "config-string: %s", hailofrontendbinsrc->config_string.c_str());
+        self->config_string = g_strdup(g_value_get_string(value));
+        gstmedialibcommon::strip_string_syntax(self->config_string);
+        GST_DEBUG_OBJECT(self, "config-string: %s", self->config_string.c_str());
 
         // set params for sub elements here
-        g_object_set(hailofrontendbinsrc->m_frontend, "config-string", g_value_get_string(value), NULL);
+        g_object_set(self->m_frontend, "config-string", g_value_get_string(value), NULL);
+
+        // Set HDR configurations
+        gst_hailofrontendbinsrc_set_hdr_conf(self, self->config_string);
 
         // Now that configuration is known, link the elements
-        if (hailofrontendbinsrc->m_elements_linked == FALSE)
+        if (self->m_elements_linked == FALSE)
         {
-            gst_hailofrontendbinsrc_link_elements(GST_ELEMENT(hailofrontendbinsrc));
-            hailofrontendbinsrc->m_elements_linked = TRUE;
+            gst_hailofrontendbinsrc_link_elements(GST_ELEMENT(self));
+            self->m_elements_linked = TRUE;
         }
         break;
     }
@@ -271,13 +310,76 @@ gst_hailofrontendbinsrc_change_state(GstElement *element, GstStateChange transit
 {
     GstStateChangeReturn result = GST_STATE_CHANGE_SUCCESS;
     GstHailoFrontendBinSrc *self = GST_HAILO_FRONTEND_BINSRC(element);
+
+    switch (transition)
+    {
+    case GST_STATE_CHANGE_PAUSED_TO_READY:
+    {
+        GST_DEBUG_OBJECT(self, "GST_STATE_CHANGE_PAUSED_TO_READY");
+        if (self->m_hdr_config.enabled)
+        {
+            GST_DEBUG_OBJECT(self, "Stopping HDR thread");
+            hdr_stop_loop();
+        }
+        break;
+    }
+    default:
+        break;
+    }
+
     result = GST_ELEMENT_CLASS(gst_hailofrontendbinsrc_parent_class)->change_state(element, transition);
 
     switch (transition)
     {
-    case GST_STATE_CHANGE_READY_TO_PAUSED:
+    case GST_STATE_CHANGE_NULL_TO_READY:
     {
-        GST_DEBUG_OBJECT(self, "GST_STATE_CHANGE_READY_TO_PAUSED");
+        GST_DEBUG_OBJECT(self, "GST_STATE_CHANGE_NULL_TO_READY");
+        if (self->m_hdr_config.enabled && result != GST_STATE_CHANGE_FAILURE)
+        {
+            GST_DEBUG_OBJECT(self, "Starting HDR thread");
+            hdr_hailort_params_t hailort_params;
+            // Initialize the Hailort configurations
+            hailort_params.hef_path = std::string("/usr/lib/medialib/hdr_config/hdr_3_exposures_fhd.hef");
+            hailort_params.group_id = self->m_hailort_config.device_id;
+            hailort_params.scheduler_threshold = 1;
+            hailort_params.scheduler_timeout_in_ms = 1000;
+            // Initialize the HDR configurations
+            hdr_init(hailort_params, &self->m_hdr_params);
+            self->m_hdr_thread = std::make_shared<std::thread>(hdr_loop, self->m_hdr_params.fd_video2, self->m_hdr_params.fd_video3, self->m_hdr_params.stitcher);
+        }
+        break;
+    }
+    case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
+    {
+        GST_DEBUG_OBJECT(self, "GST_STATE_CHANGE_PAUSED_TO_PLAYING");
+        if (self->m_hdr_config.enabled && result != GST_STATE_CHANGE_FAILURE)
+        {
+            GST_DEBUG_OBJECT(self, "Activate HDR thread");
+            // sleep for 1 second to allow the HDR thread to start
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            hdr_start_loop();
+        }
+        else
+        {
+            GST_DEBUG_OBJECT(self, "HDR is disabled %d, state retval %d", self->m_hdr_config.enabled, result);
+        }
+        break;
+    }
+    case GST_STATE_CHANGE_READY_TO_NULL:
+    {
+        GST_DEBUG_OBJECT(self, "GST_STATE_CHANGE_READY_TO_NULL");
+        if (self->m_hdr_config.enabled)
+        {
+            // Stop the HDR thread
+            if (self->m_hdr_thread)
+            {
+                GST_DEBUG_OBJECT(self, "Joining HDR thread");
+                self->m_hdr_thread->join();
+                hdr_finish(self->m_hdr_params.fd_video2, self->m_hdr_params.fd_video3, self->m_hdr_params.stitcher);
+                self->m_hdr_thread.reset();
+            }
+        }
+        break;
     }
     default:
         break;
@@ -368,7 +470,7 @@ gst_hailofrontendbinsrc_dispose(GObject *object)
     GST_DEBUG_OBJECT(self, "dispose");
 
     // Restore the default ISP configurations before closing
-    isp_utils::set_default_configuration();
+    // isp_utils::set_default_configuration();
 
     gst_hailofrontendbinsrc_reset(self);
 

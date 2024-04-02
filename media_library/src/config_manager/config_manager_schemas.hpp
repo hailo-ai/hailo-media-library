@@ -1368,6 +1368,31 @@ namespace config_schemas
   }
   )"_json;
 
+  static nlohmann::json hdr_config_schema = R"(
+  {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Media Library schema for HDR configuration",
+    "type": "object",
+    "properties": {
+      "hdr": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "enabled"
+        ]
+      }
+    },
+    "required": [
+      "hdr"
+    ]
+  }
+  )"_json;
+
   static nlohmann::json denoise_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",

@@ -40,8 +40,6 @@ static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE("sink",
                                                                     GST_STATIC_CAPS(
                                                                         "video/x-raw, "
                                                                         "format = (string) { NV12 }, "
-                                                                        "width = (int) 3840, "
-                                                                        "height = (int) 2160, "
                                                                     ));
 
 static GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE("src",
@@ -50,8 +48,6 @@ static GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE("src",
                                                                     GST_STATIC_CAPS(
                                                                         "video/x-raw, "
                                                                         "format = (string) { NV12 }, "
-                                                                        "width = (int) 3840, "
-                                                                        "height = (int) 2160, "
                                                                     ));
 
 #define _do_init \

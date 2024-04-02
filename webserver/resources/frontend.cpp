@@ -66,6 +66,9 @@ webserver::resources::FrontendResource::FrontendResource(std::shared_ptr<webserv
             "enabled": true,
             "magnification": 1.0
         },
+        "hdr": {
+            "enabled": false
+        },
         "digital_zoom": {
             "enabled": true,
             "mode": "DIGITAL_ZOOM_MODE_MAGNIFICATION",

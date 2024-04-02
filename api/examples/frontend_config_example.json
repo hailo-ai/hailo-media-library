@@ -82,6 +82,9 @@
     "hailort": {
         "device-id": "device0"
     },
+    "hdr": {
+        "enabled": false
+    },
     "denoise": {
         "enabled": false,
         "sensor": "imx678",

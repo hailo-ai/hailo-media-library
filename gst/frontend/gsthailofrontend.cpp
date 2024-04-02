@@ -37,7 +37,7 @@ static void gst_hailofrontend_set_property(GObject *object,
 static void gst_hailofrontend_get_property(GObject *object,
                                           guint property_id, GValue *value, GParamSpec *pspec);                                          
 static GstElement *gst_hailofrontend_init_queue(GstHailoFrontend *hailofrontend, bool leaky);
-static GstElement *gst_hailofrontend_init_capsfilter(GstHailoFrontend *hailofrontend, bool ranged);
+static GstElement *gst_hailofrontend_init_capsfilter(GstHailoFrontend *hailofrontend, bool rotated);
 static GstStateChangeReturn gst_hailofrontend_change_state(GstElement *element, GstStateChange transition);
 static void gst_hailofrontend_init_ghost_sink(GstHailoFrontend *hailofrontend);
 static GstPad *gst_hailofrontend_request_new_pad(GstElement *element, GstPadTemplate *templ, const gchar *name, const GstCaps *caps);
@@ -175,7 +175,7 @@ gst_hailofrontend_init_queue(GstHailoFrontend *hailofrontend, bool leaky)
 }
 
 static GstElement *
-gst_hailofrontend_init_capsfilter(GstHailoFrontend *hailofrontend, bool ranged)
+gst_hailofrontend_init_capsfilter(GstHailoFrontend *hailofrontend, bool rotated)
 {
     // caps between dewarp and multi_resize
     GstElement *capsfilter = gst_element_factory_make("capsfilter", NULL);
@@ -184,23 +184,38 @@ gst_hailofrontend_init_capsfilter(GstHailoFrontend *hailofrontend, bool ranged)
         return NULL;
     }
 
-    GstCaps *caps;
-    if (ranged) {
-        caps = gst_caps_new_simple("video/x-raw",
-                                    "format", G_TYPE_STRING, "NV12",
-                                    "width", GST_TYPE_INT_RANGE, 2160, 3840,
-                                    "height", GST_TYPE_INT_RANGE, 2160, 3840,
-                                    "framerate", GST_TYPE_FRACTION, 30, 1,
-                                    NULL);
-    } else  {
-        caps = gst_caps_new_simple("video/x-raw",
+    GstCaps *caps, *caps2;
+    caps = gst_caps_new_simple("video/x-raw",
                                     "format", G_TYPE_STRING, "NV12",
                                     "width", G_TYPE_INT, 3840,
                                     "height", G_TYPE_INT, 2160,
                                     "framerate", GST_TYPE_FRACTION, 30, 1,
                                     NULL);
+    caps2 = gst_caps_new_simple("video/x-raw",
+                                    "format", G_TYPE_STRING, "NV12",
+                                    "width", G_TYPE_INT, 1920,
+                                    "height", G_TYPE_INT, 1080,
+                                    "framerate", GST_TYPE_FRACTION, 30, 1,
+                                    NULL);
+    gst_caps_append(caps, caps2);
+    
+    
+    if (rotated) {
+        caps2 = gst_caps_new_simple("video/x-raw",
+                                    "format", G_TYPE_STRING, "NV12",
+                                    "width", G_TYPE_INT, 2160,
+                                    "height", G_TYPE_INT, 3840,
+                                    "framerate", GST_TYPE_FRACTION, 30, 1,
+                                    NULL);
+        gst_caps_append(caps, caps2);
+        caps2 = gst_caps_new_simple("video/x-raw",
+                                    "format", G_TYPE_STRING, "NV12",
+                                    "width", G_TYPE_INT, 1080,
+                                    "height", G_TYPE_INT, 1920,
+                                    "framerate", GST_TYPE_FRACTION, 30, 1,
+                                    NULL);
+        gst_caps_append(caps, caps2);
     }
-
     g_object_set(capsfilter, "caps", caps, NULL);
     gst_caps_unref(caps);
     return capsfilter;

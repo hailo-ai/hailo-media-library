@@ -236,18 +236,18 @@ std::string MediaLibraryFrontend::Impl::create_pipeline_string()
     {
     case FRONTEND_SRC_ELEMENT_APPSRC:
         pipeline << "appsrc name=src do-timestamp=true format=buffers block=true is-live=true max-buffers=5 max-bytes=0 ! ";
+        pipeline << "queue leaky=downstream max-size-buffers=1 max-size-time=0 max-size-bytes=0 ! ";
+        pipeline << "video/x-raw,format=NV12,width=3840,height=2160,framerate=30/1 ! ";
+        pipeline << "hailofrontend name=frontend config-string='" << std::string(m_json_config.dump()) << "' ";
         break;
     case FRONTEND_SRC_ELEMENT_V4L2SRC:
-        pipeline << "v4l2src name=src device=/dev/video0 io-mode=mmap ! ";
+        pipeline << "hailofrontendbinsrc name=frontend config-string='" << std::string(m_json_config.dump()) << "' ";
         break;
     default:
         LOGGER__ERROR("Invalid src element {}", m_src_element);
         throw new std::runtime_error("frontend src element not supported");
     }
 
-    pipeline << "queue leaky=downstream max-size-buffers=1 max-size-time=0 max-size-bytes=0 ! ";
-    pipeline << "video/x-raw,format=NV12,width=3840,height=2160,framerate=30/1 ! ";
-    pipeline << "hailofrontend name=frontend config-string='" << std::string(m_json_config.dump()) << "' ";
     for (frontend_output_stream_t s : outputs_expected.value())
     {
         pipeline << "frontend. ! ";

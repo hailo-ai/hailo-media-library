@@ -75,6 +75,9 @@ public:
         case ConfigSchema::CONFIG_SCHEMA_HAILORT:
             m_config_validator.set_root_schema(config_schemas::hailort_config_schema);
             break;
+        case ConfigSchema::CONFIG_SCHEMA_HDR:
+            m_config_validator.set_root_schema(config_schemas::hdr_config_schema);
+            break;
         case ConfigSchema::CONFIG_SCHEMA_DENOISE:
             m_config_validator.set_root_schema(config_schemas::denoise_config_schema);
             break;
@@ -181,6 +184,7 @@ template media_library_return ConfigManager::config_string_to_struct<ldc_config_
 template media_library_return ConfigManager::config_string_to_struct<denoise_config_t>(const std::string &user_config_string, denoise_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<defog_config_t>(const std::string &user_config_string, defog_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<hailort_t>(const std::string &user_config_string, hailort_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<hdr_config_t>(const std::string &user_config_string, hdr_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<encoder_config_t>(const std::string &user_config_string, encoder_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<vsm_config_t>(const std::string &user_config_string, vsm_config_t &conf);
 

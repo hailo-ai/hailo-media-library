@@ -35,6 +35,8 @@
 #include <tl/expected.hpp> 
 #include "media_library/denoise.hpp"
 #include "media_library/media_library_types.hpp"
+#include "media_library/config_manager.hpp"
+#include "hdr.hpp"
 #include "gsthailofrontend.hpp"
 
 G_BEGIN_DECLS
@@ -55,12 +57,20 @@ struct _GstHailoFrontendBinSrc
 
     gchar *config_file_path;
     std::string config_string;
+    std::string device_id;
+    std::string hdr_enabled;
 
     gboolean m_elements_linked;
     GstElement *m_v4l2src;
     GstElement *m_capsfilter;
     GstElement *m_queue;
     GstElement *m_frontend;
+    std::shared_ptr<std::thread> m_hdr_thread;
+    std::shared_ptr<ConfigManager> m_hailort_config_manager;
+    std::shared_ptr<ConfigManager> m_hdr_config_manager;
+    hailort_t m_hailort_config;
+    hdr_config_t m_hdr_config;
+    hdr_params_t m_hdr_params;
 
     media_library_return observe_denoising(const MediaLibraryDenoise::callbacks_t &callback) {
         GstHailoFrontend* frontend = GST_HAILO_FRONTEND(m_frontend);

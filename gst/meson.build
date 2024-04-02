@@ -79,6 +79,7 @@ plugin_sources = [
     'defog/gsthailodefog.cpp',
     'frontend/gsthailofrontend.cpp',
     'frontend/gsthailofrontendbinsrc.cpp',
+    'frontend/hdr.cpp',
     'encodebin/gsthailoencodebin.cpp',
     'upload/gsthailoupload.cpp'
 ]

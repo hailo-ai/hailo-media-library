@@ -134,6 +134,11 @@ struct hailort_t
     std::string device_id;
 };
 
+struct hdr_config_t
+{
+    bool enabled;
+};
+
 struct network_config_t
 {
     std::string network_path;

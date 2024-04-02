@@ -113,11 +113,10 @@ MEDIALIB_JSON_SERIALIZE_ENUM(denoise_method_t, {
                                                    {DENOISE_METHOD_VD3, "HIGH_PERFORMANCE"},
                                                })
 
-
 MEDIALIB_JSON_SERIALIZE_ENUM(codec_t, {
-                                        {CODEC_TYPE_H264, "CODEC_TYPE_H264"},
-                                        {CODEC_TYPE_HEVC, "CODEC_TYPE_HEVC"},
-                                      })                                   
+                                          {CODEC_TYPE_H264, "CODEC_TYPE_H264"},
+                                          {CODEC_TYPE_HEVC, "CODEC_TYPE_HEVC"},
+                                      })
 
 //------------------------ roi_t ------------------------
 
@@ -412,11 +411,11 @@ void to_json(nlohmann::json &j, const rate_control_config_t &rc_conf)
         {"picture_skip", rc_conf.picture_skip},
         {"ctb_rc", rc_conf.ctb_rc},
         {"hrd", rc_conf.hrd},
-        {"block_rc_size", rc_conf.block_rc_size}, 
+        {"block_rc_size", rc_conf.block_rc_size},
         {"monitor_frames", rc_conf.monitor_frames},
-        {"gop_length", rc_conf.gop_length}, 
+        {"gop_length", rc_conf.gop_length},
         {"bitrate", rc_conf.bitrate},
-        {"quantization", rc_conf.quantization},	
+        {"quantization", rc_conf.quantization},
     };
 }
 
@@ -644,7 +643,7 @@ void from_json(const nlohmann::json &j, pre_proc_op_configurations &pp_conf)
 
 void to_json(nlohmann::json &j, const multi_resize_config_t &mresize_conf)
 {
-    // Although multi_resize_config_t has an input_video_config member, it is 
+    // Although multi_resize_config_t has an input_video_config member, it is
     // not to be set/changed from json. It is set by the application.
     j = nlohmann::json{
         {"output_video", mresize_conf.output_video_config},
@@ -654,7 +653,7 @@ void to_json(nlohmann::json &j, const multi_resize_config_t &mresize_conf)
 
 void from_json(const nlohmann::json &j, multi_resize_config_t &mresize_conf)
 {
-    // Although multi_resize_config_t has an input_video_config member, it is 
+    // Although multi_resize_config_t has an input_video_config member, it is
     // not to be set/changed from json. It is set by the application.
     j.at("output_video").get_to(mresize_conf.output_video_config);
     j.at("digital_zoom").get_to(mresize_conf.digital_zoom_config);
@@ -664,7 +663,7 @@ void from_json(const nlohmann::json &j, multi_resize_config_t &mresize_conf)
 
 void to_json(nlohmann::json &j, const ldc_config_t &ldc_conf)
 {
-    // Although ldc_config_t has an output_video_config member, it is 
+    // Although ldc_config_t has an output_video_config member, it is
     // not to be set/changed from json. It is set by the application.
     j = nlohmann::json{
         {"dewarp", ldc_conf.dewarp_config},
@@ -677,7 +676,7 @@ void to_json(nlohmann::json &j, const ldc_config_t &ldc_conf)
 
 void from_json(const nlohmann::json &j, ldc_config_t &ldc_conf)
 {
-    // Although ldc_config_t has an output_video_config member, it is 
+    // Although ldc_config_t has an output_video_config member, it is
     // not to be set/changed from json. It is set by the application.
     j.at("dewarp").get_to(ldc_conf.dewarp_config);
     j.at("dis").get_to(ldc_conf.dis_config);
@@ -692,8 +691,8 @@ void to_json(nlohmann::json &j, const hailort_t &hrt_conf)
 {
     j = nlohmann::json{
         {"hailort", {
-            {"device-id", hrt_conf.device_id},
-        }},
+                        {"device-id", hrt_conf.device_id},
+                    }},
     };
 }
 
@@ -757,12 +756,12 @@ void to_json(nlohmann::json &j, const denoise_config_t &d_conf)
 {
     j = nlohmann::json{
         {"denoise", {
-            {"enabled", d_conf.enabled},
-            {"sensor", d_conf.sensor},
-            {"method", d_conf.denoising_quality},
-            {"loopback-count", d_conf.loopback_count},
-            {"network", d_conf.network_config},
-        }},
+                        {"enabled", d_conf.enabled},
+                        {"sensor", d_conf.sensor},
+                        {"method", d_conf.denoising_quality},
+                        {"loopback-count", d_conf.loopback_count},
+                        {"network", d_conf.network_config},
+                    }},
     };
 }
 
@@ -782,9 +781,9 @@ void to_json(nlohmann::json &j, const defog_config_t &d_conf)
 {
     j = nlohmann::json{
         {"defog", {
-            {"enabled", d_conf.enabled},
-            {"network", d_conf.network_config},
-        }},
+                      {"enabled", d_conf.enabled},
+                      {"network", d_conf.network_config},
+                  }},
     };
 }
 
@@ -801,11 +800,11 @@ void to_json(nlohmann::json &j, const vsm_config_t &vsm_conf)
 {
     j = nlohmann::json{
         {"vsm", {
-            {"vsm_h_size", vsm_conf.vsm_h_size},
-            {"vsm_h_offset", vsm_conf.vsm_h_offset},
-            {"vsm_v_size", vsm_conf.vsm_v_size},
-            {"vsm_v_offset", vsm_conf.vsm_v_offset},
-        }},
+                    {"vsm_h_size", vsm_conf.vsm_h_size},
+                    {"vsm_h_offset", vsm_conf.vsm_h_offset},
+                    {"vsm_v_size", vsm_conf.vsm_v_size},
+                    {"vsm_v_offset", vsm_conf.vsm_v_offset},
+                }},
     };
 }
 
@@ -816,4 +815,21 @@ void from_json(const nlohmann::json &j, vsm_config_t &vsm_conf)
     vsm.at("vsm_h_offset").get_to(vsm_conf.vsm_h_offset);
     vsm.at("vsm_v_size").get_to(vsm_conf.vsm_v_size);
     vsm.at("vsm_v_offset").get_to(vsm_conf.vsm_v_offset);
+}
+
+//------------------------ hdr_config_t ------------------------
+
+void to_json(nlohmann::json &j, const hdr_config_t &hdr_conf)
+{
+    j = nlohmann::json{
+        {"hdr", {
+                    {"enabled", hdr_conf.enabled},
+                }},
+    };
+}
+
+void from_json(const nlohmann::json &j, hdr_config_t &hdr_conf)
+{
+    const auto &hdr = j.at("hdr");
+    hdr.at("enabled").get_to(hdr_conf.enabled);
 }

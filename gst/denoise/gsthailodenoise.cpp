@@ -262,7 +262,7 @@ gst_hailodenoise_configure_capsfilter(GstHailoDenoise *self)
         // Connect elements and pads in the bin
         gst_bin_add_many(GST_BIN(self), self->m_capsfilter, NULL);
         // set the m_capsfilter properties
-        g_object_set(self->m_capsfilter, "caps", gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "NV12", "width", G_TYPE_INT, 3840, "height", G_TYPE_INT, 2160, "framerate", GST_TYPE_FRACTION, 30, 1, NULL), NULL);
+        g_object_set(self->m_capsfilter, "caps", gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "NV12", "framerate", GST_TYPE_FRACTION, 30, 1, NULL), NULL);
     }
 }
 
