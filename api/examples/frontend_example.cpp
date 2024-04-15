@@ -118,6 +118,23 @@ void add_privacy_masks(PrivacyMaskBlenderPtr privacy_mask_blender)
     example_polygon2.vertices.push_back(vertex(2723, 550));
     example_polygon2.vertices.push_back(vertex(2600, 120));
     privacy_mask_blender->add_privacy_mask(example_polygon2);
+
+    polygon example_polygon3;
+    example_polygon3.id = "privacy_mask3";
+    example_polygon3.vertices.push_back(vertex(400, 3160));
+    example_polygon3.vertices.push_back(vertex(-100, 1860));
+    example_polygon3.vertices.push_back(vertex(900, 1860));
+    privacy_mask_blender->add_privacy_mask(example_polygon3);
+
+    polygon example_polygon4;
+    example_polygon4.id = "privacy_mask4";
+    example_polygon4.vertices.push_back(vertex(3500, 50));
+    example_polygon4.vertices.push_back(vertex(3600, -50));
+    example_polygon4.vertices.push_back(vertex(3900, 550));
+    example_polygon4.vertices.push_back(vertex(3800, 650));
+    privacy_mask_blender->add_privacy_mask(example_polygon4);
+
+
 }
 
 int update_privacy_masks(PrivacyMaskBlenderPtr privacy_mask_blender)

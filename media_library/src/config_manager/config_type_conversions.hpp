@@ -181,6 +181,42 @@ void from_json(const nlohmann::json &j, dis_debug_config_t &dis_debug)
     j.at("fix_stabilization_latitude").get_to(dis_debug.fix_stabilization_latitude);
 }
 
+//------------------------angular_dis----------------------------
+
+void to_json(nlohmann::json &j, const angular_dis_vsm_config_t &vsm_conf)
+{
+    j = nlohmann::json{
+        {"hoffset", vsm_conf.hoffset},
+        {"voffset", vsm_conf.voffset},
+        {"width", vsm_conf.width},
+        {"height", vsm_conf.height},
+        {"max_displacement", vsm_conf.max_displacement},
+    };
+}
+
+void from_json(const nlohmann::json &j, angular_dis_vsm_config_t &vsm_conf)
+{
+    j.at("hoffset").get_to(vsm_conf.hoffset);
+    j.at("voffset").get_to(vsm_conf.voffset);
+    j.at("width").get_to(vsm_conf.width);
+    j.at("height").get_to(vsm_conf.height);
+    j.at("max_displacement").get_to(vsm_conf.max_displacement);
+}
+
+void to_json(nlohmann::json &j, const angular_dis_config_t &ad_conf)
+{
+    j = nlohmann::json{
+        {"enabled", ad_conf.enabled},
+        {"vsm", ad_conf.vsm_config},
+    };
+}
+
+void from_json(const nlohmann::json &j, angular_dis_config_t &ad_conf)
+{
+    j.at("enabled").get_to(ad_conf.enabled);
+    j.at("vsm").get_to(ad_conf.vsm_config);
+}
+
 //------------------------encoder_config_t ------------------------
 
 void to_json(nlohmann::json &j, const input_config_t &in_conf)
@@ -428,6 +464,8 @@ void to_json(nlohmann::json &j, const dis_config_t &dis)
         {"std_multiplier", dis.std_multiplier},
         {"black_corners_correction_enabled", dis.black_corners_correction_enabled},
         {"black_corners_threshold", dis.black_corners_threshold},
+        {"average_luminance_threshold", dis.average_luminance_threshold},
+        {"angular_dis", dis.angular_dis_config},
         {"debug", dis.debug},
     };
 }
@@ -442,6 +480,8 @@ void from_json(const nlohmann::json &j, dis_config_t &dis)
     j.at("std_multiplier").get_to(dis.std_multiplier);
     j.at("black_corners_correction_enabled").get_to(dis.black_corners_correction_enabled);
     j.at("black_corners_threshold").get_to(dis.black_corners_threshold);
+    j.at("average_luminance_threshold").get_to(dis.average_luminance_threshold);
+    j.at("angular_dis").get_to(dis.angular_dis_config);
     j.at("debug").get_to(dis.debug);
 }
 
@@ -753,4 +793,27 @@ void from_json(const nlohmann::json &j, defog_config_t &d_conf)
     const auto &defog = j.at("defog");
     defog.at("enabled").get_to(d_conf.enabled);
     defog.at("network").get_to(d_conf.network_config);
+}
+
+//------------------------ vsm_config_t ------------------------
+
+void to_json(nlohmann::json &j, const vsm_config_t &vsm_conf)
+{
+    j = nlohmann::json{
+        {"vsm", {
+            {"vsm_h_size", vsm_conf.vsm_h_size},
+            {"vsm_h_offset", vsm_conf.vsm_h_offset},
+            {"vsm_v_size", vsm_conf.vsm_v_size},
+            {"vsm_v_offset", vsm_conf.vsm_v_offset},
+        }},
+    };
+}
+
+void from_json(const nlohmann::json &j, vsm_config_t &vsm_conf)
+{
+    const auto &vsm = j.at("vsm");
+    vsm.at("vsm_h_size").get_to(vsm_conf.vsm_h_size);
+    vsm.at("vsm_h_offset").get_to(vsm_conf.vsm_h_offset);
+    vsm.at("vsm_v_size").get_to(vsm_conf.vsm_v_size);
+    vsm.at("vsm_v_offset").get_to(vsm_conf.vsm_v_offset);
 }

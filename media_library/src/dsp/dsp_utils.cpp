@@ -22,6 +22,8 @@
  */
 #include "dsp_utils.hpp"
 #include "media_library_logger.hpp"
+#include "media_library_types.hpp"
+#include "dma_memory_allocator.hpp"
 
 /** @defgroup dsp_utils_definitions MediaLibrary DSP utilities CPP API
  * definitions
@@ -124,16 +126,28 @@ namespace dsp_utils
      * buffer
      * @return dsp_status
      */
-    dsp_status create_hailo_dsp_buffer(size_t size, void **buffer)
+    dsp_status create_hailo_dsp_buffer(size_t size, void **buffer, bool dma)
     {
         if (device != NULL)
         {
-            LOGGER__DEBUG("Creating dsp buffer with size {}", size);
-            dsp_status status = dsp_create_buffer(device, size, buffer);
-            if (status != DSP_SUCCESS)
+            if (dma)
             {
-                LOGGER__ERROR("Create buffer failed with status {}", status);
-                return status;
+                LOGGER__DEBUG("Creating dma buffer with size {}", size);
+                // dsp_status status = dsp_create_dma_buffer(device, size, buffer);
+                media_library_return status = DmaMemoryAllocator::get_instance().allocate_dma_buffer(size, buffer);
+                if (status != MEDIA_LIBRARY_SUCCESS)
+                {
+                    LOGGER__ERROR("Create dma buffer failed with status {}", status);
+                    return DSP_UNINITIALIZED;
+                }
+            } else {
+                LOGGER__DEBUG("Creating dsp buffer with size {}", size);
+                dsp_status status = dsp_create_buffer(device, size, buffer);
+                if (status != DSP_SUCCESS)
+                {
+                    LOGGER__ERROR("Create buffer failed with status {}", status);
+                    return status;
+                }
             }
         }
         else
@@ -227,53 +241,78 @@ namespace dsp_utils
     }
 
     /**
-     * Perform multiple crop and resize on the DSP
-     * The function calls the DSP library to perform crop and resize on a given
+     * Perform multiple crops and resizes on the DSP
+     * The function calls the DSP library to perform crops and resizes on a given
      * input buffer. DSP will place the results in the array of output buffer.
      *
-     * @param[in] input_image_properties pointer input buffer
-     * @param[in] dsp_interpolation_type interpolation type to use
-     * @param[out] output_image_properties_array array of output buffers
+     * @param[in] multi_crop_resize_params crop and resize metadata
      * @return dsp_status
      */
     dsp_status
-    perform_dsp_multi_resize(dsp_multi_resize_params_t *multi_resize_params,
-                             uint crop_start_x, uint crop_start_y, uint crop_end_x,
-                             uint crop_end_y)
+    perform_dsp_multi_resize(dsp_multi_crop_resize_params_t *multi_crop_resize_params)
     {
-        dsp_crop_api_t crop_params = {
-            .start_x = crop_start_x,
-            .start_y = crop_start_y,
-            .end_x = crop_end_x,
-            .end_y = crop_end_y,
-        };
-
-        return dsp_multi_crop_and_resize(device, multi_resize_params, &crop_params);
+        return dsp_multi_crop_and_resize(device, multi_crop_resize_params);
     }
 
+    /**
+     * Apply a privact mask and perform multiple crops and resizes on the DSP
+     * The function calls the DSP library to perform crops and resizes on a given
+     * input buffer. DSP will place the results in the array of output buffer.
+     *
+     * @param[in] multi_crop_resize_params crop and resize metadata
+     * @param[in] privacy_mask_params privacy mask metadata
+     * @return dsp_status
+     */
     dsp_status
-    perform_dsp_multi_resize(dsp_multi_resize_params_t *multi_resize_params,
-                             uint crop_start_x, uint crop_start_y, uint crop_end_x,
-                             uint crop_end_y, dsp_privacy_mask_t *privacy_mask_params)
+    perform_dsp_multi_resize(dsp_multi_crop_resize_params_t *multi_crop_resize_params, dsp_privacy_mask_t *privacy_mask_params)
     {
-        dsp_crop_api_t crop_params = {
-            .start_x = crop_start_x,
-            .start_y = crop_start_y,
-            .end_x = crop_end_x,
-            .end_y = crop_end_y,
-        };
+        return dsp_multi_crop_and_resize_privacy_mask(device, multi_crop_resize_params, privacy_mask_params);
+    }
 
-        return dsp_multi_crop_and_resize_privacy_mask(device, multi_resize_params, &crop_params, privacy_mask_params);
+    dsp_status perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
+                                  dsp_image_properties_t *output_image_properties,
+                                  dsp_dewarp_mesh_t *mesh,
+                                  dsp_interpolation_type_t interpolation,
+                                  const dsp_isp_vsm_t &isp_vsm,
+                                  const dsp_vsm_config_t &dsp_vsm_config,
+                                  const dsp_filter_angle_t &filter_angle,
+                                  uint16_t *cur_columns_sum,
+                                  uint16_t *cur_rows_sum,
+                                  bool do_mesh_correction)
+
+
+    {
+        dsp_dewarp_angular_dis_params_t dewarp_params = {
+            .src = input_image_properties,
+            .dst = output_image_properties,
+            .mesh = mesh,
+            .interpolation = interpolation,
+            .do_mesh_correction = do_mesh_correction,
+            .isp_vsm = isp_vsm,
+            .vsm =
+                {
+                    .config = dsp_vsm_config,
+                    .prev_rows_sum = cur_rows_sum,
+                    .prev_columns_sum = cur_columns_sum,
+                    .cur_rows_sum = cur_rows_sum,
+                    .cur_columns_sum = cur_columns_sum,
+                },
+            .filter_angle = filter_angle,
+        };
+        return dsp_rot_dis_dewarp(device, &dewarp_params);
     }
 
     dsp_status perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
                                   dsp_image_properties_t *output_image_properties,
                                   dsp_dewarp_mesh_t *mesh,
                                   dsp_interpolation_type_t interpolation)
+
+
     {
         return dsp_dewarp(device, input_image_properties, output_image_properties,
                           mesh, interpolation);
     }
+
 
     /**
      * Perform DSP blending using multiple overlays

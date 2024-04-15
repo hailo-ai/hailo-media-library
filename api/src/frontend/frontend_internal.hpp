@@ -1,8 +1,9 @@
+#pragma once
 #include "media_library/frontend.hpp"
 #include "media_library/privacy_mask.hpp"
+#include <gst/gst.h>
 #include <gst/app/gstappsink.h>
 #include <gst/app/gstappsrc.h>
-#include <gst/gst.h>
 #include <gst/video/video.h>
 #include <thread>
 
@@ -18,7 +19,8 @@ public:
     media_library_return subscribe(FrontendCallbacksMap callback);
     media_library_return start();
     media_library_return stop();
-    // media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
+    media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
+    media_library_return configure(std::string json_config);
 
     void on_need_data(GstAppSrc *appsrc, guint size);
     void on_enough_data(GstAppSrc *appsrc);
@@ -49,13 +51,11 @@ private:
     {
         gchar *name = gst_element_get_name(GST_ELEMENT(appsink));
         MediaLibraryFrontend::Impl *fe = static_cast<MediaLibraryFrontend::Impl *>(user_data);
-        return fe->on_new_sample(name, appsink);
+        GstFlowReturn ret = fe->on_new_sample(name, appsink);
+        g_free(name);
+        return ret;
     }
     void set_gst_callbacks();
-    void add_buffer_internal(GstBuffer *buffer);
-    // gboolean send_buffer();
-    // gboolean push_buffer(GstBuffer *buffer);
-    // GstBuffer *dequeue_buffer();
     std::string create_pipeline_string();
 
     frontend_src_element_t m_src_element;
@@ -67,8 +67,8 @@ private:
     std::map<output_stream_id_t, std::vector<FrontendWrapperCallback>> m_callbacks;
     PrivacyMaskBlenderPtr m_privacy_blender;
 
-    // std::queue<GstBuffer *> m_queue;
     GstAppSrc *m_appsrc;
+    GstCaps *m_appsrc_caps;
     GMainLoop *m_main_loop;
     std::shared_ptr<std::thread> m_main_loop_thread;
 };

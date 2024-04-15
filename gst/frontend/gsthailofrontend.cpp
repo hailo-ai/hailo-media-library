@@ -116,11 +116,21 @@ gst_hailofrontend_init(GstHailoFrontend *hailofrontend)
     hailofrontend->m_elements_linked = FALSE;
 
     // Prepare internal elements
+    // denoise
+    hailofrontend->m_denoise = gst_element_factory_make("hailodenoise", NULL);
+    if (nullptr == hailofrontend->m_denoise) {
+        GST_ELEMENT_ERROR(hailofrontend, RESOURCE, FAILED, ("Failed creating hailodenoise element in bin!"), (NULL));
+    }
+
+    // queue between denoise and dis_dewarp
+    hailofrontend->m_denoise_dis_queue = gst_hailofrontend_init_queue(hailofrontend, true);
+
     // dis_dewarp
     hailofrontend->m_dis_dewarp = gst_element_factory_make("hailodewarp", NULL);
     if (nullptr == hailofrontend->m_dis_dewarp) {
         GST_ELEMENT_ERROR(hailofrontend, RESOURCE, FAILED, ("Failed creating hailodewarp element in bin!"), (NULL));
     }
+
 
     // queue between dewarp and multi_resize
     hailofrontend->m_dewarp_mresize_queue = gst_hailofrontend_init_queue(hailofrontend, false);
@@ -132,15 +142,17 @@ gst_hailofrontend_init(GstHailoFrontend *hailofrontend)
     }
 
     // Add elements and pads in the bin
-    gst_bin_add_many(GST_BIN(hailofrontend), hailofrontend->m_dis_dewarp,
+    gst_bin_add_many(GST_BIN(hailofrontend), hailofrontend->m_denoise,
+                                             hailofrontend->m_denoise_dis_queue,
+                                             hailofrontend->m_dis_dewarp,
                                              hailofrontend->m_dewarp_mresize_queue,
                                              hailofrontend->m_multi_resize, NULL);
-    gst_hailofrontend_init_ghost_sink(hailofrontend);
 }
 
 static GstElement *
 gst_hailofrontend_init_queue(GstHailoFrontend *hailofrontend, bool leaky)
 {
+    // queue between dewarp and multi_resize
     GstElement *queue = gst_element_factory_make("queue", NULL);
     if (nullptr == queue) {
         GST_ELEMENT_ERROR(hailofrontend, RESOURCE, FAILED, ("Failed creating queue element in bin!"), (NULL));
@@ -149,7 +161,7 @@ gst_hailofrontend_init_queue(GstHailoFrontend *hailofrontend, bool leaky)
     // Passing 0 disables the features here
     g_object_set(queue, "max-size-time", (guint64)0, NULL);
     g_object_set(queue, "max-size-bytes", (guint)0, NULL);
-    g_object_set(queue, "max-size-buffers", (guint)2, NULL);
+    g_object_set(queue, "max-size-buffers", (guint)1, NULL);
     // Upon request, enable leaky queue (downstream)
     if (leaky) {
         g_object_set(queue, "leaky", (guint)2, NULL);
@@ -171,6 +183,7 @@ void gst_hailofrontend_set_property(GObject *object, guint property_id,
         GST_DEBUG_OBJECT(hailofrontend, "config_file_path: %s", hailofrontend->config_file_path);
 
         // set params for sub elements here
+        g_object_set(hailofrontend->m_denoise, "config-file-path", g_value_get_string(value), NULL);
         g_object_set(hailofrontend->m_dis_dewarp, "config-file-path", g_value_get_string(value), NULL);
         g_object_set(hailofrontend->m_multi_resize, "config-file-path", g_value_get_string(value), NULL);
 
@@ -184,10 +197,11 @@ void gst_hailofrontend_set_property(GObject *object, guint property_id,
     }
     case PROP_CONFIG_STRING:
     {
-        hailofrontend->config_string = g_strdup(g_value_get_string(value));
+        hailofrontend->config_string = std::string(g_value_get_string(value));
         GST_DEBUG_OBJECT(hailofrontend, "config-string: %s", hailofrontend->config_string.c_str());
 
         // set params for sub elements here
+        g_object_set(hailofrontend->m_denoise, "config-string", g_value_get_string(value), NULL);
         g_object_set(hailofrontend->m_dis_dewarp, "config-string", g_value_get_string(value), NULL);
         g_object_set(hailofrontend->m_multi_resize, "config-string", g_value_get_string(value), NULL);
 
@@ -259,7 +273,7 @@ gst_hailofrontend_change_state(GstElement *element, GstStateChange transition)
 void gst_hailofrontend_init_ghost_sink(GstHailoFrontend *hailofrontend)
 {
     // Get the connecting pad
-    GstPad *pad = gst_element_get_static_pad(hailofrontend->m_dis_dewarp, "sink");
+    GstPad *pad = gst_element_get_static_pad(hailofrontend->m_denoise, "sink");
 
     // Create a ghostpad and connect it to the bin
     GstPadTemplate *pad_tmpl = gst_static_pad_template_get(&sink_template);
@@ -331,8 +345,13 @@ gst_hailofrontend_link_elements(GstElement *element)
 {
   GstHailoFrontend *self = GST_HAILO_FRONTEND(element);
 
+  // Initialize the ghost sink pad
+  gst_hailofrontend_init_ghost_sink(self);
+
   // Link the elements
-  gboolean link_status = gst_element_link_many(self->m_dis_dewarp,
+  gboolean link_status = gst_element_link_many(self->m_denoise,
+                                               self->m_denoise_dis_queue,
+                                               self->m_dis_dewarp,
                                                self->m_dewarp_mresize_queue,
                                                self->m_multi_resize, NULL);
 

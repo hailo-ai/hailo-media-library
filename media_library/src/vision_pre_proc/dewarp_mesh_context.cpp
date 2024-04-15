@@ -388,8 +388,10 @@ media_library_return DewarpMeshContext::on_frame_vsm_update(struct hailo15_vsm &
         rotation_angle = m_pre_proc_configs.rotation_config.angle;
     FlipMirrorRot flip_mirror_rot = get_flip_value(flip_dir, rotation_angle);
 
+    std::shared_ptr<angular_dis_params_t> angular_dis_config = std::make_shared<angular_dis_params_t>();
+
     RetCodes ret = dis_generate_grid(m_dis_ctx, m_input_width, m_input_height, vsm.dx,
-                                     vsm.dy, 0, flip_mirror_rot, &mesh);
+                                     vsm.dy, 0, flip_mirror_rot, angular_dis_config, &mesh);
     if (ret != DIS_OK)
     {
         LOGGER__ERROR("Failed to update mesh with VSM, status: {}", ret);

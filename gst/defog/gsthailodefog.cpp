@@ -161,7 +161,7 @@ void gst_hailodefog_set_property(GObject *object, guint property_id,
     }
     case PROP_CONFIG_STRING:
     {
-        hailodefog->config_string = g_strdup(g_value_get_string(value));
+        hailodefog->config_string = std::string(g_value_get_string(value));
         gstmedialibcommon::strip_string_syntax(hailodefog->config_string);
 
         if (hailodefog->medialib_defog == nullptr)

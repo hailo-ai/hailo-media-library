@@ -160,12 +160,7 @@ std::string MediaLibraryEncoder::Impl::create_pipeline_string(
     nlohmann::json encode_osd_json_config)
 {
     std::string pipeline = "";
-    std::ostringstream caps;
     auto json_osd_encoder_config = encode_osd_json_config.dump();
-    caps << "video/x-raw,format=" << m_input_params.format
-         << ",width=" << m_input_params.width;
-    caps << ",height=" << m_input_params.height
-         << ",framerate=" << m_input_params.framerate << "/1";
 
     std::ostringstream caps2;
     caps2 << "video/x-h264,framerate=" << m_input_params.framerate << "/1";
@@ -175,15 +170,14 @@ std::string MediaLibraryEncoder::Impl::create_pipeline_string(
         "max-buffers=1 name=encoder_src ! "
         "queue name=" +
         std::string(ENCODER_QUEUE_NAME) + " leaky=no max-size-buffers=1 max-size-bytes=0 max-size-time=0 ! " +
-        caps.str() + " ! "
         "hailoencodebin config-string=" +
         "'" + // Add ' in case the json string contains spaces
         std::string(json_osd_encoder_config) +
         "'" + // Close '
         " name=" + m_name.c_str() +
-        " ! " + caps2.str() + " ! "
+        " ! " + caps2.str() + " ! " +
         "queue leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! "
-        "fpsdisplaysink signal-fps-measurements=true name=fpsdisplaysink "
+        "fpsdisplaysink fps-update-interval=2000 signal-fps-measurements=true name=fpsdisplaysink "
         "text-overlay=false sync=false video-sink=\"appsink sync=false max-buffers=1 qos=false "
         "name=encoder_sink\"";
 
@@ -205,6 +199,7 @@ void MediaLibraryEncoder::Impl::on_fps_measurement(GstElement *fpsdisplaysink,
     gchar *name;
     g_object_get(G_OBJECT(fpsdisplaysink), "name", &name, NULL);
     std::cout << name << ", DROP RATE: " << droprate << " FPS: " << fps << " AVG_FPS: " << avgfps << std::endl;
+    g_free(name);
 }
 
 /**
@@ -396,6 +391,18 @@ std::shared_ptr<osd::Blender> MediaLibraryEncoder::get_blender()
 
 media_library_return MediaLibraryEncoder::Impl::configure(encoder_config_t &config)
 {
+    m_input_params.format = config.stream.input_stream.format;
+    m_input_params.width = config.stream.input_stream.width;
+    m_input_params.height = config.stream.input_stream.height;
+    m_input_params.framerate = config.stream.input_stream.framerate;
+    m_appsrc_caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING,
+                                        m_input_params.format.c_str(), "width",
+                                        G_TYPE_INT, m_input_params.width, "height",
+                                        G_TYPE_INT, m_input_params.height,
+                                        "framerate", GST_TYPE_FRACTION,
+                                        m_input_params.framerate, 1, NULL),
+    g_object_set(G_OBJECT(m_appsrc), "caps", m_appsrc_caps, NULL);
+
     GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
     if (encoder_bin == nullptr)
     {
@@ -404,6 +411,25 @@ media_library_return MediaLibraryEncoder::Impl::configure(encoder_config_t &conf
     }
 
     g_object_set(encoder_bin, "config", config, NULL);
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return MediaLibraryEncoder::set_force_videorate(bool force)
+{
+    return m_impl->set_force_videorate(force);
+}
+
+media_library_return MediaLibraryEncoder::Impl::set_force_videorate(bool force)
+{
+    GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
+    if (encoder_bin == nullptr)
+    {
+        std::cout << "Got null encoder bin element in get_config" << std::endl;
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    g_object_set(encoder_bin, "force-videorate", force, NULL);
+    gst_object_unref(encoder_bin);
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -419,6 +445,7 @@ encoder_config_t MediaLibraryEncoder::Impl::get_config()
     gpointer value = nullptr;
     g_object_get(encoder_bin, "config", &value, NULL);
     config = *reinterpret_cast<encoder_config_t *>(value);
+    gst_object_unref(encoder_bin);
     return config;
 }
 

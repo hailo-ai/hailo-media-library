@@ -59,7 +59,7 @@ namespace dsp_utils
 
   dsp_status release_device();
   dsp_status acquire_device();
-  dsp_status create_hailo_dsp_buffer(size_t size, void **buffer);
+  dsp_status create_hailo_dsp_buffer(size_t size, void **buffer, bool dma = false);
   dsp_status release_hailo_dsp_buffer(void *buffer);
 
   dsp_status
@@ -69,20 +69,29 @@ namespace dsp_utils
                           dsp_interpolation_type_t dsp_interpolation_type);
 
   dsp_status
-  perform_dsp_multi_resize(dsp_multi_resize_params_t *multi_resize_params,
-                           uint crop_start_x, uint crop_start_y, uint crop_end_x,
-                           uint crop_end_y);
+  perform_dsp_multi_resize(dsp_multi_crop_resize_params_t *multi_crop_resize_params);
 
   dsp_status 
-  perform_dsp_multi_resize(dsp_multi_resize_params_t *multi_resize_params,
-                             uint crop_start_x, uint crop_start_y, uint crop_end_x,
-                             uint crop_end_y, dsp_privacy_mask_t *privacy_mask_params);
+  perform_dsp_multi_resize(dsp_multi_crop_resize_params_t *multi_crop_resize_params, dsp_privacy_mask_t *privacy_mask_params);
+
+  dsp_status 
+  perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
+                                dsp_image_properties_t *output_image_properties,
+                                dsp_dewarp_mesh_t *mesh,
+                                dsp_interpolation_type_t interpolation,
+                                const dsp_isp_vsm_t &isp_vsm,
+                                const dsp_vsm_config_t &dsp_vsm_config,
+                                const dsp_filter_angle_t &filter_angle,
+                                uint16_t *cur_columns_sum,
+                                uint16_t *cur_rows_sum,
+                                bool do_mesh_correction);
 
   dsp_status 
   perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
                                 dsp_image_properties_t *output_image_properties,
                                 dsp_dewarp_mesh_t *mesh,
                                 dsp_interpolation_type_t interpolation);
+
 
   dsp_status perform_dsp_multiblend(dsp_image_properties_t *image_frame,
                                     dsp_overlay_properties_t *overlay,

@@ -4,6 +4,7 @@
 #include <httplib.h>
 #include <mutex>
 #include "common/isp/v4l2_ctrl.hpp"
+#include <gst/gst.h>
 
 #ifndef MEDIALIB_LOCAL_SERVER
 #include "privacy_mask_types.hpp"
@@ -147,7 +148,7 @@ namespace webserver
             void http_register(std::shared_ptr<httplib::Server> srv) override;
             std::string name() override { return "ai"; }
             ResourceType get_type() override { return RESOURCE_AI; }
-            std::string get_ai_config(AiApplications app);
+            nlohmann::json get_ai_config(AiApplications app);
             std::vector<AiApplications> get_enabled_applications();
 
         private:
@@ -161,10 +162,14 @@ namespace webserver
         class FrontendResource : public Resource
         {
         public:
-            FrontendResource();
+            FrontendResource(std::shared_ptr<webserver::resources::AiResource> ai_res);
             void http_register(std::shared_ptr<httplib::Server> srv) override;
             std::string name() override { return "frontend"; }
             ResourceType get_type() override { return RESOURCE_FRONTEND; }
+            nlohmann::json get_frontend_config();
+
+        private:
+            std::shared_ptr<webserver::resources::AiResource> m_ai_resource;
         };
 
         class IspResource : public Resource
@@ -190,8 +195,8 @@ namespace webserver
             class IspResourceState : public ResourceState
             {
             public:
-                bool should_restart_stream;
-                IspResourceState(bool should_restart_stream) : should_restart_stream(should_restart_stream) {}
+                bool isp_3aconfig_updated;
+                IspResourceState(bool isp_3aconfig_updated) : isp_3aconfig_updated(isp_3aconfig_updated) {}
             };
             IspResource(std::shared_ptr<AiResource> ai_res);
             void http_register(std::shared_ptr<httplib::Server> srv) override;
@@ -228,6 +233,7 @@ namespace webserver
             std::string name() override { return "encoder"; }
             ResourceType get_type() override { return RESOURCE_ENCODER; }
             encoder_control_t get_encoder_control();
+            void apply_config(GstElement *encoder_element);
 
         private:
             encoder_control_t m_encoder_control;

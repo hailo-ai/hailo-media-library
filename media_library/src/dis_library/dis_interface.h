@@ -86,6 +86,7 @@ extern "C"
                                float motion_x, float motion_y,
                                int32_t panning,
                                FlipMirrorRot flip_mirror_rot,
+                               std::shared_ptr<angular_dis_params_t> angular_dis_params,
                                DewarpT *grid);
 
     /// @brief Calculates grid for dewarping the input frame only.

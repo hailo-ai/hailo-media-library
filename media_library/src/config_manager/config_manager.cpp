@@ -69,6 +69,9 @@ public:
         case ConfigSchema::CONFIG_SCHEMA_LDC:
             m_config_validator.set_root_schema(config_schemas::ldc_config_schema);
             break;
+        case ConfigSchema::CONFIG_SCHEMA_VSM:
+            m_config_validator.set_root_schema(config_schemas::vsm_config_schema);
+            break;
         case ConfigSchema::CONFIG_SCHEMA_HAILORT:
             m_config_validator.set_root_schema(config_schemas::hailort_config_schema);
             break;
@@ -179,6 +182,7 @@ template media_library_return ConfigManager::config_string_to_struct<denoise_con
 template media_library_return ConfigManager::config_string_to_struct<defog_config_t>(const std::string &user_config_string, defog_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<hailort_t>(const std::string &user_config_string, hailort_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<encoder_config_t>(const std::string &user_config_string, encoder_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<vsm_config_t>(const std::string &user_config_string, vsm_config_t &conf);
 
 tl::expected<std::string, media_library_return> ConfigManager::parse_config(std::string config_string, std::string entry)
 {

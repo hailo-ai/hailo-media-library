@@ -23,7 +23,7 @@
 #include "gsthailodewarp.hpp"
 #include "common/gstmedialibcommon.hpp"
 #include "buffer_utils/buffer_utils.hpp"
-#include "hailo_v4l2/hailo_vsm.h"
+#include "hailo_v4l2/hailo_v4l2.h"
 #include "hailo_v4l2/hailo_v4l2_meta.h"
 #include <gst/video/video.h>
 #include <tl/expected.hpp>
@@ -584,13 +584,19 @@ static void gst_hailo_dewarp_set_property(GObject *object, guint property_id, co
         self->config_file_path = g_value_dup_string(value);
         GST_DEBUG_OBJECT(self, "config_file_path: %s", self->config_file_path);
         self->config_string = gstmedialibcommon::read_json_string_from_file(self->config_file_path);
-
         if (self->medialib_dewarp == nullptr)
         {
             gst_hailo_dewarp_create(self);
         }
         else
         {
+            bool enabled_ops = self->medialib_dewarp->check_ops_enabled_from_config_string(self->config_string);
+
+            if (!enabled_ops)
+            {
+                break;
+            }
+
             media_library_return config_status = self->medialib_dewarp->configure(self->config_string);
             if (config_status != MEDIA_LIBRARY_SUCCESS)
                 GST_ERROR_OBJECT(self, "configuration error: %d", config_status);
@@ -599,7 +605,7 @@ static void gst_hailo_dewarp_set_property(GObject *object, guint property_id, co
     }
     case PROP_CONFIG_STRING:
     {
-        self->config_string = g_strdup(g_value_get_string(value));
+        self->config_string = std::string(g_value_get_string(value));
         gstmedialibcommon::strip_string_syntax(self->config_string);
 
         if (self->medialib_dewarp == nullptr)
@@ -608,6 +614,12 @@ static void gst_hailo_dewarp_set_property(GObject *object, guint property_id, co
         }
         else
         {
+            bool enabled_ops = self->medialib_dewarp->check_ops_enabled_from_config_string(self->config_string);
+
+            if (!enabled_ops) 
+            {
+                break;
+            }
             media_library_return config_status = self->medialib_dewarp->configure(self->config_string);
             if (config_status != MEDIA_LIBRARY_SUCCESS)
                 GST_ERROR_OBJECT(self, "configuration error: %d", config_status);

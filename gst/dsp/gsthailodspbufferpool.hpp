@@ -3,6 +3,7 @@
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <gst/gstbufferpool.h>
+#include "media_library/dma_memory_allocator.hpp"
 
 G_BEGIN_DECLS
 
@@ -20,6 +21,7 @@ struct _GstHailoDspBufferPool
   GstBufferPool parent;
   guint padding;
   GstStructure *config;
+  DmaMemoryAllocator *memory_allocator;
 };
 
 struct _GstHailoDspBufferPoolClass

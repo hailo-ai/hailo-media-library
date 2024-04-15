@@ -1,6 +1,29 @@
 #include "resources.hpp"
 #include <iostream>
 
+std::string VD_M_NETWORK_CONFIG = R"({
+            "network_path": "/usr/lib/medialib/denoise_config/vd_m_imx678.hef",
+            "y_channel": "model/input_layer1",
+            "uv_channel": "model/input_layer4",
+            "feedback_y_channel": "model/input_layer3",
+            "feedback_uv_channel": "model/input_layer2",
+            "output_y_channel": "model/conv17",
+            "output_uv_channel": "model/conv14"
+        })";
+
+std::string VD_L_NETWORK_CONFIG = R"({
+            "network_path": "/usr/lib/medialib/denoise_config/vd_l_imx678.hef",
+            "y_channel": "model/input_layer1",
+            "uv_channel": "model/input_layer4",
+            "feedback_y_channel": "model/input_layer3",
+            "feedback_uv_channel": "model/input_layer2",
+            "output_y_channel": "model/conv17",
+            "output_uv_channel": "model/conv14"
+        })";
+
+#define DENOISE_NETWORK_CONFIG(n) n == "Large" ? VD_L_NETWORK_CONFIG : VD_M_NETWORK_CONFIG
+#define DENOISE_METHOD_CONFIG(n) n == "Large" ? "HIGH_QUALITY" : "BALANCED"
+
 webserver::resources::AiResource::AiResource() : Resource()
 {
     m_default_config = R"(
@@ -9,7 +32,8 @@ webserver::resources::AiResource::AiResource() : Resource()
             "enabled": true
         },
         "denoise": {
-            "enabled": false
+            "enabled": false,
+            "network": "Medium"
         },
         "defog": {
             "enabled": false
@@ -17,40 +41,33 @@ webserver::resources::AiResource::AiResource() : Resource()
     })";
     m_config = nlohmann::json::parse(m_default_config);
     m_denoise_config = nlohmann::json::parse(R"({
-        "hailort": {
-            "device-id": "device0"
-        },
-        "denoise": {
-            "enabled": false,
-            "sensor": "imx678",
-            "method": "HIGH_QUALITY",
-            "loopback-count": 1,
-            "network": {
-                "network_path": "/home/root/apps/internals/frontend_pipelines/resources/VD_M2_IMX678.hef",
-                "y_channel": "model/input_layer1",
-                "uv_channel": "model/input_layer4",
-                "feedback_y_channel": "model/input_layer3",
-                "feedback_uv_channel": "model/input_layer2",
-                "output_y_channel": "model/conv17",
-                "output_uv_channel": "model/conv14"
-            }
+        "enabled": false,
+        "sensor": "imx678",
+        "method": "BALANCED",
+        "loopback-count": 1,
+        "network": {
+            "network_path": "/usr/lib/medialib/denoise_config/vd_m_imx678.hef",
+            "y_channel": "model/input_layer1",
+            "uv_channel": "model/input_layer4",
+            "feedback_y_channel": "model/input_layer3",
+            "feedback_uv_channel": "model/input_layer2",
+            "output_y_channel": "model/conv17",
+            "output_uv_channel": "model/conv14"
         }
     })");
     m_defog_config = nlohmann::json::parse(R"({
-        "hailort": {
-            "device-id": "device0"
-        },
-        "defog": {
-            "enabled": false,
-            "network": {
-                "network_path": "/home/root/apps/internals/frontend_pipelines/resources/dehazenet.hef",
-                "y_channel": "dehazenet/input_layer1",
-                "uv_channel": "dehazenet/input_layer2",
-                "output_y_channel": "dehazenet/conv17",
-                "output_uv_channel": "dehazenet/ew_add1"
-            }
+        "enabled": false,
+        "network": {
+            "network_path": "/usr/lib/medialib/defog_config/dehazenet.hef",
+            "y_channel": "dehazenet/input_layer1",
+            "uv_channel": "dehazenet/input_layer2",
+            "output_y_channel": "dehazenet/conv17",
+            "output_uv_channel": "dehazenet/ew_add1"
         }
     })");
+
+    m_denoise_config["enabled"] = m_config["denoise"]["enabled"];
+    m_defog_config["enabled"] = m_config["defog"]["enabled"];
 }
 
 std::vector<webserver::resources::AiResource::AiApplications> webserver::resources::AiResource::get_enabled_applications()
@@ -98,6 +115,14 @@ void webserver::resources::AiResource::http_patch(nlohmann::json body)
     m_config.merge_patch(body);
     auto current_enabled_apps = this->get_enabled_applications();
 
+    // if denoise is enabled with Large network, disable all other applications
+    if (std::find(current_enabled_apps.begin(), current_enabled_apps.end(), AiApplications::AI_APPLICATION_DENOISE) != current_enabled_apps.end() &&
+        m_config["denoise"]["network"] == "Large")
+    {
+        m_config["detection"]["enabled"] = false;
+        m_config["defog"]["enabled"] = false;
+    }
+
     // if denoise in current but not in prev, disable defog
     if (std::find(current_enabled_apps.begin(), current_enabled_apps.end(), AiApplications::AI_APPLICATION_DENOISE) != current_enabled_apps.end() &&
         std::find(prev_enabled_apps.begin(), prev_enabled_apps.end(), AiApplications::AI_APPLICATION_DENOISE) == prev_enabled_apps.end())
@@ -113,8 +138,13 @@ void webserver::resources::AiResource::http_patch(nlohmann::json body)
         m_config["denoise"]["enabled"] = false;
     }
 
-    m_defog_config["defog"]["enabled"] = m_config["defog"]["enabled"];
-    m_denoise_config["denoise"]["enabled"] = m_config["denoise"]["enabled"];
+    std::string j = DENOISE_NETWORK_CONFIG(m_config["denoise"]["network"]);
+    m_denoise_config["network"] = nlohmann::json::parse(j);
+    m_denoise_config["method"] = DENOISE_METHOD_CONFIG(m_config["denoise"]["network"]);
+    m_defog_config["enabled"] = m_config["defog"]["enabled"];
+    m_denoise_config["enabled"] = m_config["denoise"]["enabled"];
+
+    std::cout << "finished updating AI config, sending CB" << std::endl;
 
     on_resource_change(this->parse_state(this->get_enabled_applications(), prev_enabled_apps));
 }
@@ -131,11 +161,11 @@ void webserver::resources::AiResource::http_register(std::shared_ptr<httplib::Se
                     res.set_content(this->to_string(), "application/json"); });
 }
 
-std::string webserver::resources::AiResource::get_ai_config(AiApplications app)
+nlohmann::json webserver::resources::AiResource::get_ai_config(AiApplications app)
 {
     if (app == AiApplications::AI_APPLICATION_DENOISE)
-        return m_denoise_config.dump();
+        return m_denoise_config;
     if (app == AiApplications::AI_APPLICATION_DEFOG)
-        return m_defog_config.dump();
+        return m_defog_config;
     return "";
 }

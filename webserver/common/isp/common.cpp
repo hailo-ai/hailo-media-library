@@ -2,12 +2,18 @@
 #include <cstring>
 #include <stdio.h>
 
+#ifdef MEDIALIB_LOCAL_SERVER
+void isp_utils::set_default_configuration() {}
+void isp_utils::set_denoise_configuration() {}
+void isp_utils::set_backlight_configuration() {}
+#endif
+
 void webserver::common::update_3a_config(bool enabled)
 {
 
 #ifdef MEDIALIB_LOCAL_SERVER
     return;
-#endif
+#else
     // Read JSON file
     std::ifstream file(TRIPLE_A_CONFIG_PATH);
     if (!file.is_open())
@@ -42,6 +48,7 @@ void webserver::common::update_3a_config(bool enabled)
 
     outFile << config.dump(); // 4 is the indentation level for pretty printing
     outFile.close();
+#endif
 }
 
 void webserver::common::from_json(const nlohmann::json &json, webserver::common::stream_isp_params_t &params)

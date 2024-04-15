@@ -60,6 +60,9 @@ struct _GstHailoDenoise
     GstBin base_hailodenoise;
     GstPad *sinkpad;
     GstPad *srcpad;
+    gulong sink_probe_id;
+    gulong src_probe_id;
+
     
     gchar *config_file_path;
     std::string config_string;
@@ -67,7 +70,9 @@ struct _GstHailoDenoise
 
     gboolean m_configured;
     gboolean m_elements_linked;
+    gboolean m_flushing;
     GstElement *m_hailonet;
+    GstElement *m_capsfilter;
 
     std::unique_ptr<std::condition_variable> m_condvar;
     std::shared_ptr<std::mutex> m_mutex;

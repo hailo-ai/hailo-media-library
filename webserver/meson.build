@@ -17,7 +17,7 @@ sources = ['main.cpp',
 ]
 
 # Add any additional dependencies here
-dependencies = [dependency('threads'), dependency('glib-2.0'), gstreamer_deps, media_library_frontend_dep]
+dependencies = [dependency('threads'), dependency('glib-2.0'), gstreamer_deps, media_library_frontend_dep, media_library_common_dep]
 
 executable('medialib-webserver',
   sources,

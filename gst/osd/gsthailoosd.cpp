@@ -118,6 +118,7 @@ gst_hailoosd_init(GstHailoOsd *hailoosd)
     hailoosd->config_path = "";
     hailoosd->config_str = "";
     hailoosd->wait_for_writable_buffer = false;
+    hailoosd->initialized = false;
 }
 
 void gst_hailoosd_set_property(GObject *object, guint property_id,
@@ -133,8 +134,15 @@ void gst_hailoosd_set_property(GObject *object, guint property_id,
         hailoosd->config_path = g_strdup(g_value_get_string(value));
         break;
     case PROP_CONFIG_STR:
-        hailoosd->config_str = g_strdup(g_value_get_string(value));
+    {
+
+        hailoosd->config_str = g_strdup(g_value_get_string(value));       
+        if (hailoosd->initialized) {
+            std::string new_config_str(hailoosd->config_str);
+            hailoosd->blender->configure(new_config_str);
+        }
         break;
+    }
     case PROP_WAIT_FOR_WRITABLE_BUFFER:
         hailoosd->wait_for_writable_buffer = g_value_get_boolean(value);
         break;
@@ -174,10 +182,12 @@ void gst_hailoosd_get_property(GObject *object, guint property_id,
 void gst_hailoosd_dispose(GObject *object)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(object);
-
     GST_DEBUG_OBJECT(hailoosd, "dispose");
 
     /* clean up as possible.  may be called multiple times */
+
+    // Release overlays
+    hailoosd->blender = nullptr;
 
     G_OBJECT_CLASS(gst_hailoosd_parent_class)->dispose(object);
 }
@@ -197,8 +207,16 @@ static gboolean gst_hailoosd_start(GstBaseTransform *trans)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
 
+
+    if(hailoosd->blender != nullptr)
+    {
+        GST_DEBUG_OBJECT(hailoosd, "Blender object already exists, skipping creation");
+        return TRUE;
+    }
+
     std::string config_str = hailoosd->config_str;
     std::string config_path = hailoosd->config_path;
+    hailoosd->initialized = true;
 
     if (config_str != "" && config_path == "")
     {
@@ -268,9 +286,6 @@ static gboolean
 gst_hailoosd_stop(GstBaseTransform *trans)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
-
-    // Release overlays
-    hailoosd->blender = nullptr;
 
     GST_DEBUG_OBJECT(hailoosd, "stop");
 

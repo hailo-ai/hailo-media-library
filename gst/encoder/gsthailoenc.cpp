@@ -28,6 +28,7 @@
 #include <pthread.h>
 #include <sstream>
 #include <thread>
+#include <gst/allocators/gstfdmemory.h>
 #include "gsthailoenc.hpp"
 #include "buffer_utils/buffer_utils.hpp"
 
@@ -714,7 +715,7 @@ static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc *hailoenc,
   uint32_t stride = 0;
   int ewl_ret;
 
-  HailoMediaLibraryBufferPtr hailo_buffer = hailo_buffer_from_gst_buffer(frame->input_buffer, hailoenc->input_state->caps);
+  HailoMediaLibraryBufferPtr hailo_buffer = hailo_buffer_from_gst_buffer(frame->input_buffer, hailoenc->input_state->caps, false);
 
   if (!hailo_buffer)
   {
@@ -730,7 +731,7 @@ static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc *hailoenc,
 
   if (luma == nullptr || chroma == nullptr || luma_size == 0 || chroma_size == 0)
   {
-    GST_ERROR_OBJECT(hailoenc, "Could not get input buffer luma and chroma");
+     GST_ERROR_OBJECT(hailoenc, "luma %p luma_size %zu chroma %p chroma_size %zu", luma, luma_size, chroma, chroma_size);
     return GST_FLOW_ERROR;
   }
 
@@ -1013,6 +1014,7 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
   enc_ret = EncodeFrame(enc_params, hailoenc->encoder_instance, &gst_hailoenc_slice_ready, hailoenc);
   clock_gettime(CLOCK_MONOTONIC, &end_encode);
   GST_DEBUG_OBJECT(hailoenc, "Encode took %lu milliseconds", (long)media_library_difftimespec_ms(end_encode, start_encode));
+  GST_DEBUG_OBJECT(hailoenc, "Encode performance is %d cycles", VCEncGetPerformance(hailoenc->encoder_instance));
 
   switch (enc_ret)
   {

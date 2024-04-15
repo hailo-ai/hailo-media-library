@@ -48,6 +48,7 @@ struct _GstHailoOsd
     const gchar *config_str;
     std::shared_ptr<osd::Blender> blender;
     gboolean wait_for_writable_buffer;
+    bool initialized;
 };
 
 struct _GstHailoOsdClass

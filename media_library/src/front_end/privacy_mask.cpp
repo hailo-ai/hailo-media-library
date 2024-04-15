@@ -39,6 +39,7 @@ PrivacyMaskBlender::PrivacyMaskBlender()
   m_privacy_mask_mutex = std::make_shared<std::mutex>();
 
   m_buffer_pool = NULL;
+  m_update_required = true;
   m_latest_privacy_mask_data = NULL;
 }
 
@@ -59,6 +60,12 @@ PrivacyMaskBlender::PrivacyMaskBlender(uint frame_width, uint frame_height)
 
 PrivacyMaskBlender::~PrivacyMaskBlender()
 {
+    std::unique_lock<std::mutex> lock(*m_privacy_mask_mutex);
+    if (m_latest_privacy_mask_data != NULL)
+    {
+      m_latest_privacy_mask_data->bitmask.decrease_ref_count();
+      m_latest_privacy_mask_data = NULL;
+    }
     m_privacy_masks.clear();
     dsp_status status = dsp_utils::release_device();
     if (status != DSP_SUCCESS)
@@ -113,8 +120,9 @@ media_library_return PrivacyMaskBlender::init_buffer_pool()
     // Round bytes_per_line to be a multiple of byte_size (8)
     uint bytes_per_line = (frame_width + 7) & ~7;
     uint frame_height = m_frame_height/4;
+    std::string name = "privacy_mask";
     // TODO: set pool size
-    m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(frame_width, frame_height, DSP_IMAGE_FORMAT_GRAY8, 1, CMA, bytes_per_line);
+    m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(frame_width, frame_height, DSP_IMAGE_FORMAT_GRAY8, 1, CMA, bytes_per_line, name);
     if (m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
       LOGGER__ERROR("PrivacyMaskBlender::PrivacyMaskBlender: Failed to initialize buffer pool");
@@ -127,7 +135,7 @@ media_library_return PrivacyMaskBlender::init_buffer_pool()
 
 void PrivacyMaskBlender::clean_latest_privacy_mask_data()
 {
-  if (m_latest_privacy_mask_data != NULL)
+  if (m_update_required && m_latest_privacy_mask_data != NULL)
   {
     m_latest_privacy_mask_data->bitmask.decrease_ref_count();
     m_latest_privacy_mask_data = NULL;
@@ -155,7 +163,7 @@ media_library_return PrivacyMaskBlender::add_privacy_mask(const polygon &privacy
   // rotate_polygon(polygon, rotation_angle, m_frame_width, m_frame_height);
   m_privacy_masks.emplace_back(polygon);
 
-  clean_latest_privacy_mask_data();
+  m_update_required = true;
 
   return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
@@ -182,7 +190,7 @@ media_library_return PrivacyMaskBlender::set_privacy_mask(const polygon &privacy
   // Update polygon
   privacy_mask_to_update->vertices = privacy_mask.vertices;
 
-  clean_latest_privacy_mask_data();
+  m_update_required = true;
 
   // double rotation_angle = m_rotation;
   // rotate_polygon(privacy_mask_to_update, rotation_angle, m_frame_width, m_frame_height);
@@ -201,7 +209,7 @@ media_library_return PrivacyMaskBlender::remove_privacy_mask(const std::string &
   }
   m_privacy_masks.erase(it);
 
-  clean_latest_privacy_mask_data();
+  m_update_required = true;
 
   return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
@@ -241,7 +249,7 @@ media_library_return PrivacyMaskBlender::set_rotation(const rotation_angle_t &ro
     std::swap(m_frame_width, m_frame_height);
   }
 
-  clean_latest_privacy_mask_data();
+  m_update_required = true;
 
   // Initialize buffer pool with new dimensions
   if (init_buffer_pool() != media_library_return::MEDIA_LIBRARY_SUCCESS)
@@ -288,7 +296,7 @@ media_library_return PrivacyMaskBlender::set_frame_size(const uint &width, const
   m_frame_width = width;
   m_frame_height = height;
 
-  clean_latest_privacy_mask_data();
+  m_update_required = true;
 
   // Initialize buffer pool
   if (init_buffer_pool() != media_library_return::MEDIA_LIBRARY_SUCCESS)
@@ -313,10 +321,14 @@ tl::expected<std::vector<polygon>, media_library_return> PrivacyMaskBlender::get
 
 tl::expected<PrivacyMaskDataPtr, media_library_return> PrivacyMaskBlender::blend()
 {
-  if(m_latest_privacy_mask_data != NULL)
+  std::unique_lock<std::mutex> lock(*m_privacy_mask_mutex);
+  
+  if(!m_update_required && m_latest_privacy_mask_data != NULL)
   {
     return m_latest_privacy_mask_data;
   }
+
+  clean_latest_privacy_mask_data();
 
   m_latest_privacy_mask_data = std::make_shared<privacy_mask_data_t>();
   if (m_privacy_masks.empty())
@@ -338,12 +350,15 @@ tl::expected<PrivacyMaskDataPtr, media_library_return> PrivacyMaskBlender::blend
     return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
   }
   
-  std::unique_lock<std::mutex> lock(*m_privacy_mask_mutex);
+  m_latest_privacy_mask_data->bitmask.sync_start();
   if (write_polygons_to_privacy_mask_data(m_privacy_masks, m_frame_width, m_frame_height, m_color, m_latest_privacy_mask_data) != media_library_return::MEDIA_LIBRARY_SUCCESS)
   {
     LOGGER__ERROR("PrivacyMaskBlender::blend: Failed to write polygon");
+    m_latest_privacy_mask_data->bitmask.sync_end();
     return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
   }
 
+  m_latest_privacy_mask_data->bitmask.sync_end();
+  m_update_required = false;
   return m_latest_privacy_mask_data;
 }

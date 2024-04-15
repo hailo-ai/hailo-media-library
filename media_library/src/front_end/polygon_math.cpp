@@ -7,6 +7,7 @@
 
 #include <vector>
 #include <algorithm>
+#include <cmath>
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
@@ -69,13 +70,7 @@ static void fill_packaged_array_with_line(uint width, uint y, uint x1, uint x2, 
 {
     uint offset_mod, packaged_array_offset, num_of_bytes, bytes_mod = 0;
     uint8_t byte_mask;
-    int num_of_pixels;
-
-    // x1 could be simaller to x2 - in this case we should set only one pixel
-    if (x1 == x2)
-        num_of_pixels = 1;
-    else
-        num_of_pixels = (x2 - x1);
+    int num_of_pixels = (x2 - x1) + 1;
 
     // Create a mask for the first byte
     offset_mod = (y * width + x1) % 8;
@@ -274,13 +269,6 @@ static std::vector<Point> convert_vertices_to_points(const std::vector<privacy_m
     {
         int x = vertex.x;
         int y = vertex.y;
-        // cap to 0 if negative
-        x = std::max(x, 0);
-        y = std::max(y, 0);
-
-        // cap to frame width/height if larger
-        x = std::min(x, (int)frame_width);
-        y = std::min(y, (int)frame_height);
 
         Point point(x * PRIVACY_MASK_QUANTIZATION, y * PRIVACY_MASK_QUANTIZATION);
         points.emplace_back(point);
@@ -290,6 +278,12 @@ static std::vector<Point> convert_vertices_to_points(const std::vector<privacy_m
         max_x = std::max(max_x, point.x);
         max_y = std::max(max_y, point.y);
     }
+
+    // CLIP min and max to be within the bitmask
+    min_x = std::clamp(min_x, 0, (int)(frame_width * PRIVACY_MASK_QUANTIZATION));
+    min_y = std::clamp(min_y, 0, (int)(frame_height * PRIVACY_MASK_QUANTIZATION));
+    max_x = std::clamp(max_x, 0, (int)(frame_width * PRIVACY_MASK_QUANTIZATION));
+    max_y = std::clamp(max_y, 0, (int)(frame_height * PRIVACY_MASK_QUANTIZATION));
 
     roi.x = min_x;
     roi.y = min_y;
@@ -516,7 +510,7 @@ media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mas
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
     // memcopy packaged array to privacy_mask_data void pointer bit mask
-    memcpy(privacy_mask_data->bitmask.hailo_pix_buffer->planes[0].userptr, packaged_array.data(), packaged_array_size);
+    memcpy(privacy_mask_data->bitmask.get_plane(0), packaged_array.data(), packaged_array_size);
 
     clock_gettime(CLOCK_MONOTONIC, &end_fill_polly);
     [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_fill_polly, start_fill_polly);

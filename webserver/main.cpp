@@ -3,7 +3,7 @@
 #include "pipeline/pipeline.hpp"
 #include "resources/resources.hpp"
 #include "resources/repository.hpp"
-
+#include "common/common.hpp"
 #include <chrono>
 #include <thread>
 
@@ -37,13 +37,12 @@ int main(int argc, char *argv[])
         }
     }
 
-    auto isp_resource = std::static_pointer_cast<webserver::resources::IspResource>(pipeline->get_resources()->get(webserver::resources::RESOURCE_ISP));
-    isp_resource->override_configurations();
-
     pipeline->start();
 
     // Part of the logic involels sleeping for a second and then inspecting ISP parameters
     std::this_thread::sleep_for(std::chrono::seconds(1));
+    auto isp_resource = std::static_pointer_cast<webserver::resources::IspResource>(pipeline->get_resources()->get(webserver::resources::RESOURCE_ISP));
+    isp_utils::set_backlight_configuration(); // backlight is default config for isp
     isp_resource->init();
 
     svr->listen("0.0.0.0", 8080);

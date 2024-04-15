@@ -45,6 +45,7 @@ enum encoder_stream_restart_t
   STREAM_RESTART,
   STREAM_RESTART_HARD
 };
+
 enum encoder_config_type_t
 {
   ENCODER_CONFIG_RATE_CONTROL = 0,
@@ -60,6 +61,14 @@ struct EncoderCounters
   u32 idr_interval;
   i32 last_idr_picture_cnt;
   u32 validencodedframenumber;
+};
+
+enum encoder_state_t
+{
+  ENCODER_STATE_UNINITIALIZED = 0,
+  ENCODER_STATE_INITIALIZED,
+  ENCODER_STATE_START,
+  ENCODER_STATE_STOP
 };
 
 class Encoder::Impl final
@@ -98,6 +107,8 @@ private:
   std::unique_ptr<gopConfig> m_gop_cfg;
   MediaLibraryBufferPoolPtr m_buffer_pool;
   encoder_stream_restart_t m_stream_restart;
+  encoder_state_t m_state;
+
   std::vector<encoder_config_type_t> m_update_required;
 
 public:
@@ -112,6 +123,8 @@ public:
   encoder_config_t get_config();
   EncoderOutputBuffer start();
   EncoderOutputBuffer stop();
+  media_library_return init();
+  media_library_return dispose();
 
   // static const char *json_schema const get_json_schema() const;
   // static const char * const load_json_schema() const;

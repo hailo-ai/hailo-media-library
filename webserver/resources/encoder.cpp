@@ -1,4 +1,5 @@
 #include "resources.hpp"
+// #include "media_library/encoder_config.hpp"
 #include <iostream>
 
 void webserver::resources::to_json(nlohmann::json &j, const webserver::resources::EncoderResource::encoder_control_t &b)
@@ -122,7 +123,7 @@ void webserver::resources::EncoderResource::set_encoder_control(webserver::resou
 {
     m_config["rate_control"]["bitrate"]["target_bitrate"] = encoder_control.bitrate;
     m_config["rate_control"]["picture-rc"] = encoder_control.bitrate_control == webserver::resources::EncoderResource::VBR ? 0 : 1;
-    m_config["rate_control"]["tolerance_moving_bitrate"] = encoder_control.bitrate_control == webserver::resources::EncoderResource::VBR ? 2000 : 0;
+    m_config["rate_control"]["bitrate"]["tolerance_moving_bitrate"] = encoder_control.bitrate_control == webserver::resources::EncoderResource::VBR ? 2000 : 0;
     on_resource_change(std::make_shared<webserver::resources::ResourceState>(ConfigResourceState(this->to_string())));
 }
 
@@ -152,4 +153,16 @@ void webserver::resources::EncoderResource::http_register(std::shared_ptr<httpli
                 encoder_control = get_encoder_control();
                 nlohmann::json j_out = encoder_control;
                 res.set_content(j_out.dump(), "application/json"); });
+}
+
+void webserver::resources::EncoderResource::apply_config(GstElement *encoder_element)
+{
+    // gpointer value = nullptr;
+    // g_object_get(G_OBJECT(encoder_element), "config", &value, NULL);
+    // auto enc_config = m_config;
+    // encoder_config_t *config = reinterpret_cast<encoder_config_t *>(value);
+    // config->rate_control.bitrate.target_bitrate = enc_config["rate_control"]["bitrate"]["target_bitrate"];
+    // config->rate_control.picture_rc = enc_config["rate_control"]["picture-rc"];
+    // config->rate_control.bitrate.tolerance_moving_bitrate = enc_config["rate_control"]["bitrate"]["tolerance_moving_bitrate"];
+    // g_object_set(G_OBJECT(encoder_element), "config", config, NULL);
 }

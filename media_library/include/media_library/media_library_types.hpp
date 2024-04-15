@@ -36,16 +36,17 @@
 
 enum media_library_return
 {
-    MEDIA_LIBRARY_SUCCESS = 0,
-    MEDIA_LIBRARY_ERROR,
-    MEDIA_LIBRARY_INVALID_ARGUMENT,
-    MEDIA_LIBRARY_CONFIGURATION_ERROR,
-    MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR,
-    MEDIA_LIBRARY_DSP_OPERATION_ERROR,
-    MEDIA_LIBRARY_UNINITIALIZED,
-    MEDIA_LIBRARY_OUT_OF_RESOURCES,
-    MEDIA_LIBRARY_ENCODER_ENCODE_ERROR,
-    MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS,
+  MEDIA_LIBRARY_SUCCESS = 0,
+  MEDIA_LIBRARY_ERROR,
+  MEDIA_LIBRARY_INVALID_ARGUMENT,
+  MEDIA_LIBRARY_CONFIGURATION_ERROR,
+  MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR,
+  MEDIA_LIBRARY_DSP_OPERATION_ERROR,
+  MEDIA_LIBRARY_UNINITIALIZED,
+  MEDIA_LIBRARY_OUT_OF_RESOURCES,
+  MEDIA_LIBRARY_ENCODER_ENCODE_ERROR,
+  MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS,
+  MEDIA_LIBRARY_BUFFER_NOT_FOUND,
 
     /** Max enum value to maintain ABI Integrity */
     MEDIA_LIBRARY_MAX = INT_MAX
@@ -118,6 +119,14 @@ struct roi_t
     uint32_t y;
     uint32_t width;
     uint32_t height;
+};
+
+struct vsm_config_t
+{
+    uint32_t vsm_h_size;
+    uint32_t vsm_h_offset;
+    uint32_t vsm_v_size;
+    uint32_t vsm_v_offset;
 };
 
 struct hailort_t
@@ -454,6 +463,14 @@ public:
     denoise_method_t denoising_quality;
     uint32_t loopback_count;
     feedback_network_config_t network_config;
+
+    denoise_config_t()
+    {
+        enabled = false;
+        sensor = "imx678";
+        denoising_quality = DENOISE_METHOD_VD2;
+        loopback_count = 1;
+    }
 
     media_library_return update(denoise_config_t &denoise_configs)
     {

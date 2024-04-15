@@ -50,7 +50,7 @@ webserver::resources::OsdResource::OsdResource() : Resource()
             })"),
         nlohmann::json::parse(R"({
                 "id": "example_text2",
-                "label": "Demo Application",
+                "label": "DemoApplication",
                 "font_size": 100,
                 "line_thickness": 3,
                 "rgb": [

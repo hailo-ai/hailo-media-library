@@ -88,6 +88,8 @@ public:
      * @param[in] config_string - configuration json as string
      * @return media_library_return - status of the configuration operation
      */
+    bool check_ops_enabled_from_config_string(std::string config_string);
+    
     media_library_return configure(std::string config_string);
 
     /**

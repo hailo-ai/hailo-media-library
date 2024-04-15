@@ -34,7 +34,7 @@
 #include "visionpreproc/gsthailovisionpreproc.hpp"
 #include "multi_resize/gsthailomultiresize.hpp"
 #include "dewarp/gsthailodewarp.hpp"
-#include "denoise/gsthailodenoise.hpp"
+#include "denoise/gstnativedenoise.hpp"
 #include "defog/gsthailodefog.hpp"
 #include "frontend/gsthailofrontend.hpp"
 #include "frontend/gsthailofrontendbinsrc.hpp"

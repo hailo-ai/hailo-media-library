@@ -1,4 +1,4 @@
-#include "hailo_v4l2/hailo_vsm.h"
+#include "hailo_v4l2/hailo_v4l2.h"
 #include "hailo_v4l2/hailo_v4l2_meta.h"
 #include <gst/check/check.h>
 #include <gst/check/gstcheck.h>

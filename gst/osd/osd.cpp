@@ -289,4 +289,6 @@ namespace osd
     {
         return internal_calculate_text_size(label, font_path, font_size, line_thickness);
     }
+
+    media_library_return Blender::configure(const std::string &config) { return m_impl->configure(config); }
 }

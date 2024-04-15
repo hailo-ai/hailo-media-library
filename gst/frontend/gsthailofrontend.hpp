@@ -36,7 +36,7 @@
 #include <tl/expected.hpp> 
 #include "media_library/denoise.hpp"
 #include "media_library/media_library_types.hpp"
-#include "denoise/gsthailodenoise.hpp"
+#include "denoise/gstnativedenoise.hpp"
 
 G_BEGIN_DECLS
 
@@ -59,6 +59,8 @@ struct _GstHailoFrontend
     std::string config_string;
 
     gboolean m_elements_linked;
+    GstElement *m_denoise;
+    GstElement *m_denoise_dis_queue;
     GstElement *m_dis_dewarp;
     GstElement *m_dewarp_mresize_queue;
     GstElement *m_multi_resize;

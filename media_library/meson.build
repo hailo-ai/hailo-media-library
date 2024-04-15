@@ -10,6 +10,7 @@ common_sourcs = [
     'src/dsp/dsp_utils.cpp',
     'src/isp/isp_utils.cpp',
     'src/buffer_pool/buffer_pool.cpp',
+    'src/buffer_pool/dma_memory_allocator.cpp',
     'src/utils/media_library_logger.cpp',
     'src/config_manager/config_manager.cpp'
 ]
@@ -61,7 +62,7 @@ media_library_frontend_lib = shared_library('hailo_media_library_frontend',
     frontend_sources,
     cpp_args: common_args,
     include_directories: [incdir, dis_incdir, utils_incdir],
-    dependencies : [opencv_dep,  dsp_dep, dis_library_dep, spdlog_dep, json_dep, expected_dep, media_library_common_dep],
+    dependencies : [opencv_dep,  dsp_dep, dis_library_dep, spdlog_dep, json_dep, expected_dep, media_library_common_dep, libhailort_dep],
     version: meson.project_version(),
     install: true,
     install_dir: get_option('libdir'),

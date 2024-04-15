@@ -2,6 +2,7 @@
 #include "media_library/media_library_logger.hpp"
 #include "frontend_internal.hpp"
 #include "gsthailobuffermeta.hpp"
+#include "buffer_utils.hpp"
 
 #define OUTPUT_SINK_ID(idx) ("sink" + std::to_string(idx))
 #define OUTPUT_FPS_SINK_ID(idx) ("fpsdisplaysink" + std::to_string(idx))
@@ -30,6 +31,11 @@ media_library_return MediaLibraryFrontend::stop()
     return m_impl->stop();
 }
 
+media_library_return MediaLibraryFrontend::configure(std::string json_config)
+{
+    return m_impl->configure(json_config);
+}
+
 media_library_return MediaLibraryFrontend::subscribe(FrontendCallbacksMap callbacks)
 {
     return m_impl->subscribe(callbacks);
@@ -37,8 +43,27 @@ media_library_return MediaLibraryFrontend::subscribe(FrontendCallbacksMap callba
 
 media_library_return MediaLibraryFrontend::add_buffer(HailoMediaLibraryBufferPtr ptr)
 {
-    // return m_impl->add_buffer(ptr);
+    return m_impl->add_buffer(ptr);
     return MEDIA_LIBRARY_ERROR;
+}
+
+media_library_return
+MediaLibraryFrontend::Impl::add_buffer(HailoMediaLibraryBufferPtr ptr)
+{
+    GstBuffer *gst_buffer = gst_buffer_from_hailo_buffer(ptr, m_appsrc_caps);
+    if (!gst_buffer)
+    {
+        GST_ERROR_OBJECT(m_appsrc, "Frontend add_buffer failed to get GstBuffer from HailoMediaLibraryBuffer");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(m_appsrc), gst_buffer);
+    if (ret != GST_FLOW_OK)
+    {
+        GST_ERROR_OBJECT(m_appsrc, "Failed to push buffer to appsrc");
+        return MEDIA_LIBRARY_ERROR;
+    }
+    return MEDIA_LIBRARY_SUCCESS;
 }
 
 tl::expected<std::vector<frontend_output_stream_t>, media_library_return> MediaLibraryFrontend::get_outputs_streams()
@@ -48,8 +73,6 @@ tl::expected<std::vector<frontend_output_stream_t>, media_library_return> MediaL
 
 tl::expected<std::shared_ptr<MediaLibraryFrontend::Impl>, media_library_return> MediaLibraryFrontend::Impl::create(frontend_src_element_t src_element, std::string config)
 {
-    if (src_element == FRONTEND_SRC_ELEMENT_APPSRC)
-        throw new std::runtime_error("FRONTEND_SRC_ELEMENT_APPSRC not supported yet");
     media_library_return status;
     std::shared_ptr<MediaLibraryFrontend::Impl> fe = std::make_shared<MediaLibraryFrontend::Impl>(src_element, config, status);
     if (status != MEDIA_LIBRARY_SUCCESS)
@@ -74,6 +97,17 @@ MediaLibraryFrontend::Impl::Impl(frontend_src_element_t src_element, std::string
         return;
     }
 
+    if (m_src_element == FRONTEND_SRC_ELEMENT_APPSRC)
+    {
+        GstElement *appsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "src");
+        m_appsrc = GST_APP_SRC(appsrc);
+        m_appsrc_caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING,
+                                            "NV12", "width", G_TYPE_INT, 3840, "height",
+                                            G_TYPE_INT, 2160, "framerate", GST_TYPE_FRACTION,
+                                            30, 1, NULL),
+        g_object_set(G_OBJECT(m_appsrc), "caps", m_appsrc_caps, NULL);
+    }
+
     m_main_loop = g_main_loop_new(NULL, FALSE);
 
     set_gst_callbacks();
@@ -83,6 +117,8 @@ MediaLibraryFrontend::Impl::Impl(frontend_src_element_t src_element, std::string
 
 MediaLibraryFrontend::Impl::~Impl()
 {
+    if (m_src_element == FRONTEND_SRC_ELEMENT_APPSRC)
+        gst_caps_unref(m_appsrc_caps);
     gst_object_unref(m_pipeline);
 }
 
@@ -149,6 +185,20 @@ media_library_return MediaLibraryFrontend::Impl::stop()
     return MEDIA_LIBRARY_SUCCESS;
 }
 
+media_library_return MediaLibraryFrontend::Impl::configure(std::string json_config)
+{
+    m_json_config = nlohmann::json::parse(json_config);
+    GstElement *frontend = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
+    if (frontend == nullptr)
+    {
+        LOGGER__ERROR("Failed to get frontend element");
+        return MEDIA_LIBRARY_ERROR;
+    }
+    g_object_set(G_OBJECT(frontend), "config-string", json_config.c_str(), NULL);
+    gst_object_unref(frontend);
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
 tl::expected<std::vector<frontend_output_stream_t>, media_library_return> MediaLibraryFrontend::Impl::get_outputs_streams()
 {
     if (!m_output_streams.empty())
@@ -185,7 +235,7 @@ std::string MediaLibraryFrontend::Impl::create_pipeline_string()
     switch (m_src_element)
     {
     case FRONTEND_SRC_ELEMENT_APPSRC:
-        pipeline << "appsrc name=src do-timestamp=true format=buffers is-live=true max-bytes=0 ! ";
+        pipeline << "appsrc name=src do-timestamp=true format=buffers block=true is-live=true max-buffers=5 max-bytes=0 ! ";
         break;
     case FRONTEND_SRC_ELEMENT_V4L2SRC:
         pipeline << "v4l2src name=src device=/dev/video0 io-mode=mmap ! ";
@@ -195,14 +245,14 @@ std::string MediaLibraryFrontend::Impl::create_pipeline_string()
         throw new std::runtime_error("frontend src element not supported");
     }
 
-    pipeline << "queue leaky=no max-size-buffers=5 max-size-time=0 max-size-bytes=0 ! ";
+    pipeline << "queue leaky=downstream max-size-buffers=1 max-size-time=0 max-size-bytes=0 ! ";
     pipeline << "video/x-raw,format=NV12,width=3840,height=2160,framerate=30/1 ! ";
     pipeline << "hailofrontend name=frontend config-string='" << std::string(m_json_config.dump()) << "' ";
     for (frontend_output_stream_t s : outputs_expected.value())
     {
         pipeline << "frontend. ! ";
         pipeline << "queue leaky=no max-size-buffers=3 max-size-time=0 max-size-bytes=0 ! ";
-        pipeline << "fpsdisplaysink signal-fps-measurements=true name=fpsdisplay" << s.id << " text-overlay=false sync=false video-sink=\"appsink qos=false wait-on-eos=false name=" << s.id << "\" ";
+        pipeline << "fpsdisplaysink fps-update-interval=2000 signal-fps-measurements=true name=fpsdisplay" << s.id << " text-overlay=false sync=false video-sink=\"appsink qos=false wait-on-eos=false max-buffers=1 name=" << s.id << "\" ";
     }
 
     auto pipeline_str = pipeline.str();
@@ -233,8 +283,6 @@ void MediaLibraryFrontend::Impl::set_gst_callbacks()
         GstAppSrcCallbacks appsrc_callbacks = {NULL};
         GstElement *appsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "src");
         m_appsrc = GST_APP_SRC(appsrc);
-        appsrc_callbacks.need_data = need_data;
-        appsrc_callbacks.enough_data = enough_data;
         gst_app_src_set_callbacks(GST_APP_SRC(appsrc), &appsrc_callbacks, (void *)this, NULL);
         gst_object_unref(appsrc);
     }

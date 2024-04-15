@@ -98,6 +98,7 @@ RetCodes dis_generate_grid(void *ctx,
                            float motion_x, float motion_y,
                            int32_t panning,
                            FlipMirrorRot flip_mirror_rot,
+                           std::shared_ptr<angular_dis_params_t> angular_dis_params,
                            DewarpT *grid)
 {
     if (ctx == nullptr)
@@ -115,7 +116,7 @@ RetCodes dis_generate_grid(void *ctx,
     }
 
     RetCodes ret = dis.generate_grid(vec2{motion_x, motion_y}, panning, flip_mirror_rot,
-                                     *grid); // output in grid->mesh_table[]
+                                     angular_dis_params, *grid); // output in grid->mesh_table[]
 
     return ret;
 }

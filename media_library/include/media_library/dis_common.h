@@ -85,6 +85,27 @@ struct dis_debug_config_t
     float fix_stabilization_latitude;
 };
 
+struct angular_dis_vsm_config_t
+{
+    /** Horizontal offset to the start of the VSM window */
+    size_t hoffset;
+    /** Vertical offset to the start of the VSM window */
+    size_t voffset;
+    /** Width of the VSM window */
+    size_t width;
+    /** Height of the VSM window */
+    size_t height;
+    /** Maximum displacement allowed in the VSM window (in pixels, in both horizontal and vertical directions)
+     *  Calculated as: (16 * segments_count) / 2 */
+    size_t max_displacement;
+};
+
+struct angular_dis_config_t
+{
+    bool enabled;
+    angular_dis_vsm_config_t vsm_config;
+};
+
 /**
  * @struct dis_config_t
  * @brief Configuration for DIS library
@@ -159,6 +180,20 @@ struct dis_config_t
      * Values : 0-1, recommended 0.2-0.5, default 0.2, dimensionless.
      */
     float black_corners_threshold;
+
+    /**
+     * For low light conditions, the stabilizer causes some noise in the output video.
+     * To avoid this, the stabilizer can be disabled when the average luminance of the frame is below a certain threshold.
+     * The threshold is set in the range [0, 255].
+     * If the average luminance of the frame is below the threshold, the stabilizer is disabled.
+     * If the average luminance of the frame is above the threshold, the stabilizer is enabled.
+     * If the threshold is set to 0, the stabilizer is always enabled.
+     * If the threshold is set to 255, the stabilizer is always disabled.
+     */
+    uint8_t average_luminance_threshold;
+
+    // Angular Digital Image Stabilization
+    angular_dis_config_t angular_dis_config;
 
     // Debug
     dis_debug_config_t debug;

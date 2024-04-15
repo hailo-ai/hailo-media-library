@@ -24,6 +24,7 @@
 #include "common/gstmedialibcommon.hpp"
 
 #include <gst/gst.h>
+#include <gst/allocators/gstfdmemory.h>
 #include <gst/video/video.h>
 #include <dlfcn.h>
 #include <map>
@@ -45,15 +46,20 @@ static void gst_hailodenoise_init_ghost_src(GstHailoDenoise *hailodenoise);
 static GstPadProbeReturn gst_hailodenoise_sink_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDenoise *hailodenoise);
 static GstPadProbeReturn gst_hailodenoise_src_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDenoise *hailodenoise);
 static gboolean gst_hailodenoise_create(GstHailoDenoise *self);
-static gboolean gst_hailodenoise_configure_hailonet(GstHailoDenoise *self);
+static void gst_hailodenoise_configure_hailonet(GstHailoDenoise *self);
+static void gst_hailodenoise_configure_capsfilter(GstHailoDenoise *self);
+static void gst_hailodenoise_release_hailonet(GstHailoDenoise *self);
+static void gst_hailodenoise_release_capsfilter(GstHailoDenoise *self);
 static void gst_hailodenoise_payload_tensor_meta(GstBuffer *buffer, GstBuffer *payload, std::string layer_name, hailo_format_order_t format_order);
-static std::map<std::string, GstBuffer*> gst_hailodenoise_get_tensor_meta_from_buffer(GstBuffer *buffer);
+static std::map<std::string, GstBuffer *> gst_hailodenoise_get_tensor_meta_from_buffer(GstBuffer *buffer);
 static void gst_hailodenoise_queue_buffer(GstHailoDenoise *self, GstBuffer *buffer);
-static GstBuffer* gst_hailodenoise_dequeue_buffer(GstHailoDenoise *self);
+static GstBuffer *gst_hailodenoise_dequeue_buffer(GstHailoDenoise *self);
 static gboolean gst_hailodenoise_remove_tensor_meta(GstBuffer *buffer);
 static gboolean gst_hailodenoise_remove_tensors(GstBuffer *buffer);
 static void gst_hailodenoise_clear_loopback_queue(GstHailoDenoise *self);
 static gboolean gst_hailodenoise_erase_tensors(GstBuffer *buffer);
+static gboolean gst_hailodenoise_remove_tensors_by_direction(GstBuffer *buffer, hailo_stream_direction_t direction);
+static GstBuffer *gst_hailodenoise_buffer_from_tensors(GstHailoDenoise *self, GstBuffer *buffer, GstBuffer *y_buf, GstBuffer *uv_buf);
 
 enum
 {
@@ -81,7 +87,7 @@ gst_hailodenoise_class_init(GstHailoDenoiseClass *klass)
 {
     GObjectClass *gobject_class = G_OBJECT_CLASS(klass);
     GstElementClass *element_class = GST_ELEMENT_CLASS(klass);
-    
+
     gst_element_class_add_static_pad_template(element_class, &src_template);
     gst_element_class_add_static_pad_template(element_class, &sink_template);
 
@@ -93,19 +99,18 @@ gst_hailodenoise_class_init(GstHailoDenoiseClass *klass)
     gobject_class->get_property = gst_hailodenoise_get_property;
 
     g_object_class_install_property(gobject_class, PROP_CONFIG_FILE_PATH,
-                                  g_param_spec_string("config-file-path", "Config file path",
-                                                      "JSON config file path to load",
-                                                      "",
-                                                      (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                    g_param_spec_string("config-file-path", "Config file path",
+                                                        "JSON config file path to load",
+                                                        "",
+                                                        (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 
     g_object_class_install_property(gobject_class, PROP_CONFIG_STRING,
-                                  g_param_spec_string("config-string", "Config string",
-                                                      "JSON config string to load",
-                                                      "",
-                                                      (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                    g_param_spec_string("config-string", "Config string",
+                                                        "JSON config string to load",
+                                                        "",
+                                                        (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 
     element_class->change_state = GST_DEBUG_FUNCPTR(gst_hailodenoise_change_state);
-
 }
 
 static void
@@ -121,17 +126,13 @@ gst_hailodenoise_init(GstHailoDenoise *hailodenoise)
     hailodenoise->m_mutex = std::make_shared<std::mutex>();
     hailodenoise->m_condvar = std::make_unique<std::condition_variable>();
     hailodenoise->m_loopback_queue = std::queue<GstBuffer *>();
+    hailodenoise->m_flushing = false;
     gst_hailodenoise_create(hailodenoise);
 
-    // Prepare internal elements
-
-    // hailonet2 to perform the denoising
-    hailodenoise->m_hailonet = gst_element_factory_make("hailonet2", NULL);
-
-    // Connect elements and pads in the bin
-    gst_bin_add_many(GST_BIN(hailodenoise), hailodenoise->m_hailonet, NULL);
-    gst_hailodenoise_init_ghost_sink(hailodenoise);
-    gst_hailodenoise_init_ghost_src(hailodenoise);
+    // hailonet to perform the denoising
+    hailodenoise->m_hailonet = NULL;
+    // capsfilter to set the input format
+    hailodenoise->m_capsfilter = NULL;
 }
 
 void gst_hailodenoise_set_property(GObject *object, guint property_id,
@@ -140,7 +141,18 @@ void gst_hailodenoise_set_property(GObject *object, guint property_id,
     GstHailoDenoise *hailodenoise = GST_HAILO_DENOISE(object);
 
     GST_DEBUG_OBJECT(hailodenoise, "set_property");
-
+    GstState state, pending;
+    GstStateChangeReturn ret = gst_element_get_state(GST_ELEMENT(hailodenoise), &state, &pending, 0);
+    if (ret != GST_STATE_CHANGE_SUCCESS)
+    {
+        GST_ERROR_OBJECT(hailodenoise, "Failed to get state");
+        return;
+    }
+    if (state != GST_STATE_NULL)
+    {
+        GST_WARNING_OBJECT(hailodenoise, "Cannot set properties while the element is in non-NULL state, please set properties before playing the pipeline");
+        return;
+    }
     switch (property_id)
     {
     // Handle property assignments here
@@ -152,40 +164,49 @@ void gst_hailodenoise_set_property(GObject *object, guint property_id,
 
         media_library_return config_status = hailodenoise->medialib_denoise->configure(hailodenoise->config_string);
         if (config_status != MEDIA_LIBRARY_SUCCESS)
-            GST_ERROR_OBJECT(hailodenoise, "configuration error: %d", config_status);
-
-        gst_hailodenoise_configure_hailonet(hailodenoise);
-        hailodenoise->m_configured = TRUE;
-
-        // Now that configuration is known, link the elements
-        if (hailodenoise->m_elements_linked == FALSE) 
         {
-          hailodenoise->m_elements_linked = TRUE;
+            GST_ERROR_OBJECT(hailodenoise, "configuration error: %d", config_status);
+            return;
         }
         break;
     }
     case PROP_CONFIG_STRING:
     {
-        hailodenoise->config_string = g_strdup(g_value_get_string(value));
+        hailodenoise->config_string = std::string(g_value_get_string(value));
         gstmedialibcommon::strip_string_syntax(hailodenoise->config_string);
 
         media_library_return config_status = hailodenoise->medialib_denoise->configure(hailodenoise->config_string);
         if (config_status != MEDIA_LIBRARY_SUCCESS)
-            GST_ERROR_OBJECT(hailodenoise, "configuration error: %d", config_status);
-
-        gst_hailodenoise_configure_hailonet(hailodenoise);
-        hailodenoise->m_configured = TRUE;
-
-        // Now that configuration is known, link the elements
-        if (hailodenoise->m_elements_linked == FALSE) 
         {
-          hailodenoise->m_elements_linked = TRUE;
+            GST_ERROR_OBJECT(hailodenoise, "configuration error: %d", config_status);
+            return;
         }
         break;
     }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
-        break;
+        return;
+    }
+
+    if (hailodenoise->medialib_denoise->is_enabled())
+    {
+        gst_hailodenoise_release_capsfilter(hailodenoise);
+        gst_hailodenoise_configure_hailonet(hailodenoise);
+    }
+    else
+    {
+        gst_hailodenoise_release_hailonet(hailodenoise);
+        gst_hailodenoise_configure_capsfilter(hailodenoise);
+    }
+    gst_hailodenoise_init_ghost_sink(hailodenoise);
+    gst_hailodenoise_init_ghost_src(hailodenoise);
+
+    hailodenoise->m_configured = TRUE;
+
+    // Now that configuration is known, link the elements
+    if (hailodenoise->m_elements_linked == FALSE)
+    {
+        hailodenoise->m_elements_linked = TRUE;
     }
 }
 
@@ -231,38 +252,87 @@ gst_hailodenoise_create(GstHailoDenoise *self)
     return TRUE;
 }
 
-static gboolean
+static void
+gst_hailodenoise_configure_capsfilter(GstHailoDenoise *self)
+{
+
+    if (!self->m_capsfilter)
+    {
+        self->m_capsfilter = gst_element_factory_make("capsfilter", NULL);
+        // Connect elements and pads in the bin
+        gst_bin_add_many(GST_BIN(self), self->m_capsfilter, NULL);
+        // set the m_capsfilter properties
+        g_object_set(self->m_capsfilter, "caps", gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "NV12", "width", G_TYPE_INT, 3840, "height", G_TYPE_INT, 2160, "framerate", GST_TYPE_FRACTION, 30, 1, NULL), NULL);
+    }
+}
+
+static void
+gst_hailodenoise_release_capsfilter(GstHailoDenoise *self)
+{
+    if (self->m_capsfilter)
+    {
+        gst_element_set_state(self->m_capsfilter, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(self), self->m_capsfilter);
+        gst_object_unref(self->m_capsfilter);
+        self->m_capsfilter = NULL;
+    }
+}
+
+static void
 gst_hailodenoise_configure_hailonet(GstHailoDenoise *self)
 {
+    if (!self->m_hailonet)
+    {
+        self->m_hailonet = gst_element_factory_make("hailonet", NULL);
+        // Connect elements and pads in the bin
+        gst_bin_add_many(GST_BIN(self), self->m_hailonet, NULL);
+    }
     // get the hailort configurations from medialib_denoise, and set m_hailonet properties using the found config
     hailort_t hailort_configs = self->medialib_denoise->get_hailort_configs();
     denoise_config_t denoise_configs = self->medialib_denoise->get_denoise_configs();
     // set the hailonet properties
-    if (!self->m_configured)
-    {
-        // Some HailoRT parameters cannot be changed once configured
-        g_object_set(self->m_hailonet, "hef-path", denoise_configs.network_config.network_path.c_str(), NULL);
-        g_object_set(self->m_hailonet, "input-from-meta", true, NULL);
-        g_object_set(self->m_hailonet, "no-transform", true, NULL);
-        g_object_set(self->m_hailonet, "scheduling-algorithm", 1, NULL);
-        g_object_set(self->m_hailonet, "outputs-min-pool-size", 0, NULL);
-        g_object_set(self->m_hailonet, "outputs-max-pool-size", 4, NULL); // hailonet will hold two internal queues of outputs-max-pool-size
-        g_object_set(self->m_hailonet, "vdevice-group-id", hailort_configs.device_id.c_str(), NULL);
-    }
+    // Some HailoRT parameters cannot be changed once configured
+    g_object_set(self->m_hailonet, "hef-path", denoise_configs.network_config.network_path.c_str(), NULL);
+    g_object_set(self->m_hailonet, "input-from-meta", true, NULL);
+    g_object_set(self->m_hailonet, "no-transform", true, NULL);
+    g_object_set(self->m_hailonet, "scheduling-algorithm", 1, NULL);
+    g_object_set(self->m_hailonet, "outputs-min-pool-size", 0, NULL);
+    g_object_set(self->m_hailonet, "outputs-max-pool-size", denoise_configs.loopback_count+1, NULL); // hailonet will hold two internal queues of outputs-max-pool-size
+    g_object_set(self->m_hailonet, "vdevice-group-id", hailort_configs.device_id.c_str(), NULL);
     g_object_set(self->m_hailonet, "pass-through", !denoise_configs.enabled, NULL);
 
     // reset the loopback counter for the next time we enable
     self->m_loop_counter = 0;
     // Clear the loopback queue since those buffers are not valid for the next time we enable
     gst_hailodenoise_clear_loopback_queue(self);
-    return TRUE;
 }
 
-static void 
+static void
+gst_hailodenoise_release_hailonet(GstHailoDenoise *self)
+{
+    if (self->m_hailonet)
+    {
+        gst_element_set_state(self->m_hailonet, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(self), self->m_hailonet);
+        gst_object_unref(self->m_hailonet);
+        self->m_hailonet = NULL;
+    }
+}
+
+static void
 gst_hailodenoise_init_ghost_sink(GstHailoDenoise *hailodenoise)
 {
+    GstPad *pad = NULL;
+    GST_DEBUG_OBJECT(hailodenoise, "Initializing ghost sink pad");
     // Get the connecting pad
-    GstPad *pad = gst_element_get_static_pad(hailodenoise->m_hailonet, "sink");
+    if (hailodenoise->medialib_denoise->is_enabled())
+    {
+        pad = gst_element_get_static_pad(hailodenoise->m_hailonet, "sink");
+    }
+    else
+    {
+        pad = gst_element_get_static_pad(hailodenoise->m_capsfilter, "sink");
+    }
 
     // Create a ghostpad and connect it to the bin
     GstPadTemplate *pad_tmpl = gst_static_pad_template_get(&sink_template);
@@ -270,9 +340,12 @@ gst_hailodenoise_init_ghost_sink(GstHailoDenoise *hailodenoise)
     gst_pad_set_active(hailodenoise->sinkpad, TRUE);
     gst_element_add_pad(GST_ELEMENT(hailodenoise), hailodenoise->sinkpad);
 
-    // Add a probe for internal logic
-    gst_pad_add_probe(hailodenoise->sinkpad, static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM | GST_PAD_PROBE_TYPE_BUFFER),
-                      (GstPadProbeCallback)gst_hailodenoise_sink_probe, hailodenoise, NULL);
+    if (hailodenoise->medialib_denoise->is_enabled())
+    {
+        // Add a probe for internal logic
+        hailodenoise->sink_probe_id = gst_pad_add_probe(hailodenoise->sinkpad, static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM | GST_PAD_PROBE_TYPE_BUFFER),
+                                                        (GstPadProbeCallback)gst_hailodenoise_sink_probe, hailodenoise, NULL);
+    }
 
     // Cleanup
     gst_object_unref(pad_tmpl);
@@ -282,8 +355,17 @@ gst_hailodenoise_init_ghost_sink(GstHailoDenoise *hailodenoise)
 static void
 gst_hailodenoise_init_ghost_src(GstHailoDenoise *hailodenoise)
 {
+    GstPad *pad = NULL;
+    GST_DEBUG_OBJECT(hailodenoise, "Initializing ghost src pad");
     // Get the connecting pad
-    GstPad *pad = gst_element_get_static_pad(hailodenoise->m_hailonet, "src");
+    if (hailodenoise->medialib_denoise->is_enabled())
+    {
+        pad = gst_element_get_static_pad(hailodenoise->m_hailonet, "src");
+    }
+    else
+    {
+        pad = gst_element_get_static_pad(hailodenoise->m_capsfilter, "src");
+    }
 
     // Create a ghostpad and connect it to the bin
     GstPadTemplate *pad_tmpl = gst_static_pad_template_get(&src_template);
@@ -291,9 +373,12 @@ gst_hailodenoise_init_ghost_src(GstHailoDenoise *hailodenoise)
     gst_pad_set_active(hailodenoise->srcpad, TRUE);
     gst_element_add_pad(GST_ELEMENT(hailodenoise), hailodenoise->srcpad);
 
-    // Add a probe for internal logic
-    gst_pad_add_probe(hailodenoise->srcpad, static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM | GST_PAD_PROBE_TYPE_BUFFER),
-                      (GstPadProbeCallback)gst_hailodenoise_src_probe, hailodenoise, NULL);
+    if (hailodenoise->medialib_denoise->is_enabled())
+    {
+        // Add a probe for internal logic
+        hailodenoise->src_probe_id = gst_pad_add_probe(hailodenoise->srcpad, static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM | GST_PAD_PROBE_TYPE_BUFFER),
+                                                       (GstPadProbeCallback)gst_hailodenoise_src_probe, hailodenoise, NULL);
+    }
 
     // Cleanup
     gst_object_unref(pad_tmpl);
@@ -303,9 +388,45 @@ gst_hailodenoise_init_ghost_src(GstHailoDenoise *hailodenoise)
 static GstStateChangeReturn
 gst_hailodenoise_change_state(GstElement *element, GstStateChange transition)
 {
+    GstHailoDenoise *hailodenoise = GST_HAILO_DENOISE(element);
+    // If transition is PAUSED to READY, remove the probes
+    switch (transition)
+    {
+    case GST_STATE_CHANGE_PLAYING_TO_PAUSED:
+        if (hailodenoise->medialib_denoise->is_enabled())
+        {
+            // Set pass-through as true.
+            g_object_set(hailodenoise->m_hailonet, "pass-through", true, NULL);
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+        break;
+    case GST_STATE_CHANGE_PAUSED_TO_READY:
+    {
+        if (hailodenoise->medialib_denoise->is_enabled())
+        {
+            // Set flushing as true.
+            hailodenoise->m_flushing = true;
+            // Remove the probes
+            gst_pad_remove_probe(hailodenoise->sinkpad, hailodenoise->sink_probe_id);
+            gst_pad_remove_probe(hailodenoise->srcpad, hailodenoise->src_probe_id);
+            // Clear the loopback queue since those buffers are not valid for the next time we enable
+            gst_hailodenoise_clear_loopback_queue(hailodenoise);
+        }
+        break;
+    }
+    default:
+        break;
+    }
+
     GstStateChangeReturn ret = GST_ELEMENT_CLASS(gst_hailodenoise_parent_class)->change_state(element, transition);
-    if (GST_STATE_CHANGE_FAILURE == ret) {
+    if (GST_STATE_CHANGE_FAILURE == ret)
+    {
         return ret;
+    }
+    if (transition == GST_STATE_CHANGE_PAUSED_TO_READY)
+    {
+        // Set flushing to false again
+        hailodenoise->m_flushing = false;
     }
     return ret;
 }
@@ -386,6 +507,47 @@ gst_hailodenoise_remove_tensors(GstBuffer *buffer)
     return true;
 }
 
+static gboolean
+gst_hailodenoise_remove_tensors_by_direction(GstBuffer *buffer, hailo_stream_direction_t direction)
+{
+    guint count = 0;
+    gpointer state = NULL;
+    GstMeta *meta;
+    GstParentBufferMeta *pmeta;
+    GstMapInfo info;
+    std::vector<GstMeta *> meta_vector;
+    gboolean ret = false;
+    if (buffer == nullptr)
+    {
+        g_print("gst_hailodenoise_remove_tensors_by_direction: Buffer is null\n");
+        return ret;
+    }
+    while ((meta = gst_buffer_iterate_meta_filtered(buffer, &state, GST_PARENT_BUFFER_META_API_TYPE)))
+    {
+        pmeta = reinterpret_cast<GstParentBufferMeta *>(meta);
+        (void)gst_buffer_map(pmeta->buffer, &info, GstMapFlags(GST_VIDEO_FRAME_MAP_FLAG_NO_REF));
+        // check if the buffer has tensor metadata
+        if (!gst_buffer_get_meta(pmeta->buffer, g_type_from_name(TENSOR_META_API_NAME)))
+        {
+            gst_buffer_unmap(pmeta->buffer, &info);
+            continue;
+        }
+        const hailo_vstream_info_t vstream_info = reinterpret_cast<GstHailoTensorMeta *>(gst_buffer_get_meta(pmeta->buffer, g_type_from_name(TENSOR_META_API_NAME)))->info;
+        if (vstream_info.direction == direction)
+        {
+            meta_vector.emplace_back(std::move(meta));
+        }
+        gst_buffer_unmap(pmeta->buffer, &info);
+    }
+    for (auto meta : meta_vector)
+    {
+        ret = gst_buffer_remove_meta(buffer, meta);
+        if (ret == false)
+            return ret;
+    }
+    return ret;
+}
+
 static void
 gst_hailodenoise_payload_tensor_meta(GstBuffer *buffer, GstBuffer *payload, std::string layer_name, hailo_format_order_t format_order)
 {
@@ -400,10 +562,10 @@ gst_hailodenoise_payload_tensor_meta(GstBuffer *buffer, GstBuffer *payload, std:
     gst_buffer_add_parent_buffer_meta(buffer, payload);
 }
 
-static std::map<std::string, GstBuffer*>
+static std::map<std::string, GstBuffer *>
 gst_hailodenoise_get_tensor_meta_from_buffer(GstBuffer *buffer)
 {
-    std::map<std::string, GstBuffer*> meta_vector;
+    std::map<std::string, GstBuffer *> meta_vector;
 
     gpointer state = NULL;
     GstMeta *meta;
@@ -417,7 +579,7 @@ gst_hailodenoise_get_tensor_meta_from_buffer(GstBuffer *buffer)
     while ((meta = gst_buffer_iterate_meta_filtered(buffer, &state, GST_PARENT_BUFFER_META_API_TYPE)))
     {
         pmeta = reinterpret_cast<GstParentBufferMeta *>(meta);
-        (void)gst_buffer_map(pmeta->buffer, &info, GstMapFlags(GST_VIDEO_FRAME_MAP_FLAG_NO_REF));
+        (void)gst_buffer_map(pmeta->buffer, &info, GstMapFlags(GST_MAP_READ));
         // check if the buffer has tensor metadata
         if (!gst_buffer_get_meta(pmeta->buffer, g_type_from_name(TENSOR_META_API_NAME)))
         {
@@ -436,7 +598,8 @@ static GstPadProbeReturn
 gst_hailodenoise_sink_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDenoise *hailodenoise)
 {
     // Handle incoming data
-    if (!(info->type & GST_PAD_PROBE_TYPE_BUFFER)) {
+    if (!(info->type & GST_PAD_PROBE_TYPE_BUFFER))
+    {
         // probe recieved something other than a buffer, pass it immediately
         return GST_PAD_PROBE_PASS;
     }
@@ -457,38 +620,81 @@ gst_hailodenoise_sink_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDenoise 
     feedback_network_config_t net_configs = hailodenoise->medialib_denoise->get_denoise_configs().network_config;
     uint loopback = hailodenoise->medialib_denoise->get_denoise_configs().loopback_count;
 
-    // Retrieve the plane data from the incoming buffer
-    GstVideoFrame frame;
-    GstVideoInfo video_info;
-    GstCaps *caps = gst_pad_get_current_caps(pad);
-    gst_video_info_from_caps(&video_info, caps);
-    gst_caps_unref(caps);
-    gst_video_frame_map(&frame, &video_info, buffer, GST_MAP_READ);
-    // retrieve the y and uv channels
-    uint8_t *y_channel = reinterpret_cast<uint8_t *>(GST_VIDEO_FRAME_PLANE_DATA(&frame, 0));
-    uint8_t *uv_channel = reinterpret_cast<uint8_t *>(GST_VIDEO_FRAME_PLANE_DATA(&frame, 1));
-    gsize y_channel_size = GST_VIDEO_FRAME_COMP_STRIDE(&frame, 0) * GST_VIDEO_FRAME_HEIGHT(&frame);
-    gsize uv_channel_size = GST_VIDEO_FRAME_COMP_STRIDE(&frame, 1) * GST_VIDEO_FRAME_HEIGHT(&frame) / 2;
-    gst_video_frame_unmap(&frame);
+    // Check incoming memory for separate planes
+    guint incoming_memory_count = gst_buffer_n_memory(buffer);
+    if (incoming_memory_count != 2)
+    {
+        GST_ERROR_OBJECT(hailodenoise, "Incoming video frame is not split into 2 planes!");
+        return GST_PAD_PROBE_REMOVE;
+    }
 
     // Y
-    GstBuffer *y_buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, y_channel, y_channel_size, 0, y_channel_size, NULL, NULL);
+    GstMemory *y_mem = gst_buffer_get_memory(buffer, 0);
+    if (!gst_is_fd_memory(y_mem))
+    {
+        GST_ERROR_OBJECT(hailodenoise, "Incoming Y plane is not fd memory");
+        return GST_PAD_PROBE_REMOVE;
+    }
+    GstBuffer *y_buffer = gst_buffer_new();
+    gst_buffer_append_memory(y_buffer, y_mem);
     gst_hailodenoise_payload_tensor_meta(buffer, y_buffer, net_configs.y_channel, HAILO_FORMAT_ORDER_NHCW);
 
     // UV
-    GstBuffer *uv_buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, uv_channel, uv_channel_size, 0, uv_channel_size, NULL, NULL);
+    GstMemory *uv_mem = gst_buffer_get_memory(buffer, 1);
+    if (!gst_is_fd_memory(uv_mem))
+    {
+        GST_ERROR_OBJECT(hailodenoise, "Incoming UV plane is not fd memory");
+        return GST_PAD_PROBE_REMOVE;
+    }
+    GstBuffer *uv_buffer = gst_buffer_new();
+    gst_buffer_append_memory(uv_buffer, uv_mem);
     gst_hailodenoise_payload_tensor_meta(buffer, uv_buffer, net_configs.uv_channel, HAILO_FORMAT_ORDER_NHWC);
 
-    if (hailodenoise->m_loop_counter < loopback || !hailodenoise->medialib_denoise->is_enabled())
+
+
+
+                // // Retrieve the plane data from the incoming buffer
+                // GstVideoFrame frame;
+                // GstVideoInfo video_info;
+                // GstCaps *caps = gst_pad_get_current_caps(pad);
+                // gst_video_info_from_caps(&video_info, caps);
+                // gst_caps_unref(caps);
+                // gst_video_frame_map(&frame, &video_info, buffer, GST_MAP_READ);
+                // // retrieve the y and uv channels
+                // uint8_t *y_channel = reinterpret_cast<uint8_t *>(GST_VIDEO_FRAME_PLANE_DATA(&frame, 0));
+                // uint8_t *uv_channel = reinterpret_cast<uint8_t *>(GST_VIDEO_FRAME_PLANE_DATA(&frame, 1));
+                // gsize y_channel_size = GST_VIDEO_FRAME_COMP_STRIDE(&frame, 0) * GST_VIDEO_FRAME_HEIGHT(&frame);
+                // gsize uv_channel_size = GST_VIDEO_FRAME_COMP_STRIDE(&frame, 1) * GST_VIDEO_FRAME_HEIGHT(&frame) / 2;
+                // gst_video_frame_unmap(&frame);
+
+                // // Y
+                // GstBuffer *y_buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, y_channel, y_channel_size, 0, y_channel_size, NULL, NULL);
+                // gst_hailodenoise_payload_tensor_meta(buffer, y_buffer, net_configs.y_channel, HAILO_FORMAT_ORDER_NHCW);
+
+                // // UV
+                // GstBuffer *uv_buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, uv_channel, uv_channel_size, 0, uv_channel_size, NULL, NULL);
+                // gst_hailodenoise_payload_tensor_meta(buffer, uv_buffer, net_configs.uv_channel, HAILO_FORMAT_ORDER_NHWC);
+
+    if (hailodenoise->m_loop_counter >= 0 || !hailodenoise->medialib_denoise->is_enabled())
     {
+                // // Y Feedback
+                // GstBuffer *feedback_y_buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, y_channel, y_channel_size, 0, y_channel_size, NULL, NULL);
+                // gst_hailodenoise_payload_tensor_meta(buffer, feedback_y_buffer, net_configs.feedback_y_channel, HAILO_FORMAT_ORDER_NHCW);
+
+                // // UV Feedback
+                // GstBuffer *feedback_uv_buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, uv_channel, uv_channel_size, 0, uv_channel_size, NULL, NULL);
+                // gst_hailodenoise_payload_tensor_meta(buffer, feedback_uv_buffer, net_configs.feedback_uv_channel, HAILO_FORMAT_ORDER_NHWC);
+
         // Y Feedback
-        GstBuffer *feedback_y_buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, y_channel, y_channel_size, 0, y_channel_size, NULL, NULL);
+        GstBuffer *feedback_y_buffer = gst_buffer_new();
+        gst_buffer_append_memory(feedback_y_buffer, y_mem);
         gst_hailodenoise_payload_tensor_meta(buffer, feedback_y_buffer, net_configs.feedback_y_channel, HAILO_FORMAT_ORDER_NHCW);
 
         // UV Feedback
-        GstBuffer *feedback_uv_buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, uv_channel, uv_channel_size, 0, uv_channel_size, NULL, NULL);
-        gst_hailodenoise_payload_tensor_meta(buffer, feedback_uv_buffer, net_configs.feedback_uv_channel, HAILO_FORMAT_ORDER_NHWC);
-
+        GstBuffer *feedback_uv_buffer = gst_buffer_new();
+        gst_buffer_append_memory(feedback_uv_buffer, uv_mem);
+        gst_hailodenoise_payload_tensor_meta(buffer, feedback_uv_buffer, net_configs.feedback_uv_channel, HAILO_FORMAT_ORDER_NHCW);
+        
         // Increment the loop counter
         hailodenoise->m_loop_counter++;
     }
@@ -496,22 +702,45 @@ gst_hailodenoise_sink_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDenoise 
     {
         // Get the next buffer from the loopback queue
         GstBuffer *loopback_buffer = gst_hailodenoise_dequeue_buffer(hailodenoise);
+        if (!loopback_buffer)
+        {
+            if (hailodenoise->m_flushing)
+            {
+                GST_INFO_OBJECT(hailodenoise, "Flushing, drop frame, do not loop-back");
+            }
+            else
+            {
+                GST_ERROR_OBJECT(hailodenoise, "Loopback buffer is null");
+            }
+            return GST_PAD_PROBE_REMOVE;
+        }
 
         // Retrieve the plane data from the loopback buffer
-        std::map<std::string, GstBuffer*> loopback_tensors = gst_hailodenoise_get_tensor_meta_from_buffer(loopback_buffer);
+        std::map<std::string, GstBuffer *> loopback_tensors = gst_hailodenoise_get_tensor_meta_from_buffer(loopback_buffer);
 
         // Y
         GstBuffer *y_tensor_buffer = loopback_tensors[net_configs.output_y_channel];
-        (void)gst_hailodenoise_remove_tensor_meta(y_tensor_buffer);  // Clean out the old tensor meta
+        // GstMemory *y_mem = gst_buffer_get_memory(y_tensor_buffer, 0);
+        // if (!gst_is_fd_memory(y_mem))
+        // {
+        //     GST_ERROR_OBJECT(self, "Loopback tensor Y plane mem %p is not fd memory", (void*)y_mem);
+        //     gst_memory_unref(y_mem);
+        //     gst_buffer_unref(gst_outbuf);
+        //     return NULL;
+        // } else {
+        //     GST_ERROR_OBJECT(self, "Loopback tensor Y plane mem %p is fd memory, fd is %d", (void*)y_mem, gst_fd_memory_get_fd(y_mem));
+        // }
+        // gst_memory_unref(y_mem);
+        (void)gst_hailodenoise_remove_tensor_meta(y_tensor_buffer); // Clean out the old tensor meta
         gst_hailodenoise_payload_tensor_meta(buffer, y_tensor_buffer, net_configs.feedback_y_channel, HAILO_FORMAT_ORDER_NHCW);
-      
+
         // UV
         GstBuffer *uv_tensor_buffer = loopback_tensors[net_configs.output_uv_channel];
         (void)gst_hailodenoise_remove_tensor_meta(uv_tensor_buffer); // Clean out the old tensor meta
         gst_hailodenoise_payload_tensor_meta(buffer, uv_tensor_buffer, net_configs.feedback_uv_channel, HAILO_FORMAT_ORDER_NHWC);
 
         // Unref the loopback buffer
-        (void)gst_hailodenoise_remove_tensors(loopback_buffer);
+        // (void)gst_hailodenoise_remove_tensors(loopback_buffer);
         gst_buffer_unref(loopback_buffer);
     }
 
@@ -521,8 +750,10 @@ gst_hailodenoise_sink_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDenoise 
 static GstPadProbeReturn
 gst_hailodenoise_src_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDenoise *hailodenoise)
 {
+    auto time_start = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     // Handle outgoing data
-    if (!(info->type & GST_PAD_PROBE_TYPE_BUFFER)) {
+    if (!(info->type & GST_PAD_PROBE_TYPE_BUFFER))
+    {
         // probe recieved something other than a buffer, pass it immediately
         return GST_PAD_PROBE_PASS;
     }
@@ -549,7 +780,7 @@ gst_hailodenoise_src_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDenoise *
     feedback_network_config_t net_configs = hailodenoise->medialib_denoise->get_denoise_configs().network_config;
 
     // Retrieve the tensor data from the incoming buffer
-    std::map<std::string, GstBuffer*> output_tensors = gst_hailodenoise_get_tensor_meta_from_buffer(buffer);
+    std::map<std::string, GstBuffer *> output_tensors = gst_hailodenoise_get_tensor_meta_from_buffer(buffer);
     // Y
     GstBuffer *y_tensor_buffer = output_tensors[net_configs.output_y_channel];
     // UV
@@ -559,45 +790,69 @@ gst_hailodenoise_src_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDenoise *
     {
         GST_INFO_OBJECT(hailodenoise, "We are in closing/flushing stage. Drop frame, do not loop-back");
         return GST_PAD_PROBE_DROP;
-    } 
+    }
+
+    // GstMemory *y_mem = gst_buffer_get_memory(y_tensor_buffer, 0);
+    // if (!gst_is_fd_memory(y_mem))
+    // {
+    //     GST_ERROR_OBJECT(hailodenoise, "Tensor Y plane mem %p is not fd memory", (void*)y_mem);
+    //     return GST_PAD_PROBE_REMOVE;
+    // } else {
+    //     GST_ERROR_OBJECT(hailodenoise, "Tensor Y plane mem %p is fd memory, fd is %d", (void*)y_mem, gst_fd_memory_get_fd(y_mem));
+    // }
+
+            // // Get the planes to replace in the incoming buffer
+            // GstVideoFrame frame;
+            // GstVideoInfo video_info;
+            // GstCaps *caps = gst_pad_get_current_caps(pad);
+            // gst_video_info_from_caps(&video_info, caps);
+            // gst_caps_unref(caps);
+            // gst_video_frame_map(&frame, &video_info, buffer, GstMapFlags(GST_VIDEO_FRAME_MAP_FLAG_NO_REF));
+            // uint8_t *y_channel = reinterpret_cast<uint8_t *>(GST_VIDEO_FRAME_PLANE_DATA(&frame, 0));
+            // uint8_t *uv_channel = reinterpret_cast<uint8_t *>(GST_VIDEO_FRAME_PLANE_DATA(&frame, 1));
+            // gst_video_frame_unmap(&frame);
+
+            // // Copy the tensor data into the planes
+            // // Y
+            // GstMapInfo y_info;
+            // (void)gst_buffer_map(y_tensor_buffer, &y_info, GstMapFlags(GST_VIDEO_FRAME_MAP_FLAG_NO_REF));
+            // uint8_t *y_tensor_data = reinterpret_cast<uint8_t *>(y_info.data);
+            // memcpy(y_channel, y_tensor_data, y_info.size);
+            // gst_buffer_unmap(y_tensor_buffer, &y_info);
+
+            // // UV
+            // GstMapInfo uv_info;
+            // (void)gst_buffer_map(uv_tensor_buffer, &uv_info, GstMapFlags(GST_VIDEO_FRAME_MAP_FLAG_NO_REF));
+            // uint8_t *uv_tensor_data = reinterpret_cast<uint8_t *>(uv_info.data);
+            // memcpy(uv_channel, uv_tensor_data, uv_info.size);
+            // gst_buffer_unmap(uv_tensor_buffer, &uv_info);
+
+            // // create a new empty gstbuffer and payload the tensors to it
+            // GstBuffer *loopback_payload = gst_buffer_new();
+            // gst_buffer_add_parent_buffer_meta(loopback_payload, y_tensor_buffer);
+            // gst_buffer_add_parent_buffer_meta(loopback_payload, uv_tensor_buffer);
+
+            // // Copy is done, remove the tensors from the buffer
+            // (void)gst_hailodenoise_remove_tensors(buffer);
+
+            // // Loop-back the denoised buffer
+            // gst_hailodenoise_queue_buffer(hailodenoise, loopback_payload);
+
+    // Create a new buffer that holds the denoised image tensors
+    GstBuffer *denoised_buffer = gst_hailodenoise_buffer_from_tensors(hailodenoise, buffer, y_tensor_buffer, uv_tensor_buffer);
+    std::cout << "---> original buffer: " << buffer << std::endl;
+    std::cout << "---> denoised_buffer: " << denoised_buffer << std::endl;
+
+    // Cleanup and loop-back the denoised buffer
+    gst_buffer_unref(buffer);
+    // gst_hailodenoise_queue_buffer(hailodenoise, denoised_buffer);
     
-    // Get the planes to replace in the incoming buffer
-    GstVideoFrame frame;
-    GstVideoInfo video_info;
-    GstCaps *caps = gst_pad_get_current_caps(pad);
-    gst_video_info_from_caps(&video_info, caps);
-    gst_caps_unref(caps);
-    gst_video_frame_map(&frame, &video_info, buffer, GstMapFlags(GST_VIDEO_FRAME_MAP_FLAG_NO_REF));
-    uint8_t *y_channel = reinterpret_cast<uint8_t *>(GST_VIDEO_FRAME_PLANE_DATA(&frame, 0));
-    uint8_t *uv_channel = reinterpret_cast<uint8_t *>(GST_VIDEO_FRAME_PLANE_DATA(&frame, 1));
-    gst_video_frame_unmap(&frame);
+    // Set the denoised buffer as the outgoing buffer
+    GST_PAD_PROBE_INFO_DATA(info) = denoised_buffer;
 
-    // Copy the tensor data into the planes
-    // Y
-    GstMapInfo y_info;
-    (void)gst_buffer_map(y_tensor_buffer, &y_info, GstMapFlags(GST_VIDEO_FRAME_MAP_FLAG_NO_REF));
-    uint8_t *y_tensor_data = reinterpret_cast<uint8_t *>(y_info.data);
-    memcpy(y_channel, y_tensor_data, y_info.size);
-    gst_buffer_unmap(y_tensor_buffer, &y_info);
-
-    // UV
-    GstMapInfo uv_info;
-    (void)gst_buffer_map(uv_tensor_buffer, &uv_info, GstMapFlags(GST_VIDEO_FRAME_MAP_FLAG_NO_REF));
-    uint8_t *uv_tensor_data = reinterpret_cast<uint8_t *>(uv_info.data);
-    memcpy(uv_channel, uv_tensor_data, uv_info.size);
-    gst_buffer_unmap(uv_tensor_buffer, &uv_info);
-
-    // create a new empty gstbuffer and payload the tensors to it
-    GstBuffer *loopback_payload = gst_buffer_new();
-    gst_buffer_add_parent_buffer_meta(loopback_payload, y_tensor_buffer);
-    gst_buffer_add_parent_buffer_meta(loopback_payload, uv_tensor_buffer);
-
-    // Copy is done, remove the tensors from the buffer
-    (void)gst_hailodenoise_remove_tensors(buffer);
-
-    // Loop-back the denoised buffer
-    gst_hailodenoise_queue_buffer(hailodenoise, loopback_payload);
-
+    auto time_end = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    float src_fps = 1000000 / (time_end - time_start);
+    g_print("GstHailoDenoise: src pad took %ld us, fps: %f\n", time_end - time_start, src_fps);
     return GST_PAD_PROBE_PASS;
 }
 
@@ -606,17 +861,21 @@ gst_hailodenoise_queue_buffer(GstHailoDenoise *self, GstBuffer *buffer)
 {
     std::unique_lock<std::mutex> lock(*(self->m_mutex));
     self->m_condvar->wait(lock, [self]
-                    { return self->m_loopback_queue.size() < self->m_queue_size; });
+                          { return self->m_loopback_queue.size() < self->m_queue_size; });
     self->m_loopback_queue.push(buffer);
     self->m_condvar->notify_one();
 }
 
-static GstBuffer*
+static GstBuffer *
 gst_hailodenoise_dequeue_buffer(GstHailoDenoise *self)
 {
     std::unique_lock<std::mutex> lock(*(self->m_mutex));
     self->m_condvar->wait(lock, [self]
-                    { return !self->m_loopback_queue.empty(); });
+                          { return !self->m_loopback_queue.empty() || self->m_flushing; });
+    if (self->m_loopback_queue.empty())
+    {
+        return nullptr;
+    }
     GstBuffer *buffer = self->m_loopback_queue.front();
     self->m_loopback_queue.pop();
     self->m_condvar->notify_one();
@@ -634,4 +893,78 @@ gst_hailodenoise_clear_loopback_queue(GstHailoDenoise *self)
         gst_buffer_unref(buffer);
     }
     self->m_condvar->notify_one();
+}
+
+static GstBuffer*
+gst_hailodenoise_buffer_from_tensors(GstHailoDenoise *self, GstBuffer *buffer, GstBuffer *y_buf, GstBuffer *uv_buf)
+{
+    // Create a new buffer that mirrors meta of the incoming buffer
+    GstBuffer *gst_outbuf = gst_buffer_new();
+            gst_buffer_add_parent_buffer_meta(gst_outbuf, y_buf);
+            gst_buffer_add_parent_buffer_meta(gst_outbuf, uv_buf);
+            GST_BUFFER_PTS(gst_outbuf) = GST_BUFFER_PTS(buffer);
+            GST_BUFFER_OFFSET(gst_outbuf) = GST_BUFFER_OFFSET(buffer);
+            GST_BUFFER_DURATION(gst_outbuf) = GST_BUFFER_DURATION(buffer);
+            GstVideoMeta *upstream_video_meta = gst_buffer_get_video_meta(buffer);
+            (void)gst_buffer_add_video_meta_full(gst_outbuf,
+                                                upstream_video_meta->flags,
+                                                upstream_video_meta->format,
+                                                upstream_video_meta->width,
+                                                upstream_video_meta->height,
+                                                upstream_video_meta->n_planes,
+                                                upstream_video_meta->offset,
+                                                upstream_video_meta->stride);
+
+    // gst_buffer_copy_into(gst_outbuf, buffer, GST_BUFFER_COPY_METADATA, 0, 0);
+    GST_ERROR_OBJECT(self, "N memories in gst_outbuf before insert is %d", gst_buffer_n_memory(gst_outbuf));
+
+            // // Map the tensors as the memory of the new buffer
+            // GstMapInfo y_info;
+            // GstMapInfo uv_info;
+
+    // Extract the channel data
+    GstMemory *y_mem = gst_buffer_get_memory(y_buf, 0);
+    if (!gst_is_fd_memory(y_mem))
+    {
+        GST_ERROR_OBJECT(self, "Tensor Y plane mem %p is not fd memory", (void*)y_mem);
+        gst_memory_unref(y_mem);
+        gst_buffer_unref(gst_outbuf);
+        return NULL;
+    } else {
+        GST_ERROR_OBJECT(self, "Tensor Y plane mem %p is fd memory, fd is %d", (void*)y_mem, gst_fd_memory_get_fd(y_mem));
+    }
+
+    GstMemory *uv_mem = gst_buffer_get_memory(uv_buf, 0);
+    if (!gst_is_fd_memory(uv_mem))
+    {
+        GST_ERROR_OBJECT(self, "Tensor UV plane mem %p is not fd memory", (void*)uv_mem);
+        gst_memory_unref(uv_mem);
+        gst_buffer_unref(gst_outbuf);
+        return NULL;
+    } else {
+        GST_ERROR_OBJECT(self, "Tensor UV plane mem %p is fd memory, fd is %d", (void*)uv_mem, gst_fd_memory_get_fd(uv_mem));
+    }
+
+            // (void)gst_memory_map(y_mem, &y_info, GST_MAP_READ);
+            // (void)gst_memory_map(uv_mem, &uv_info, GST_MAP_READ);
+            // uint8_t *y_tensor_data = reinterpret_cast<uint8_t *>(y_info.data);
+            // uint8_t *uv_tensor_data = reinterpret_cast<uint8_t *>(uv_info.data);
+            // // print address of y_tensor_data
+            // g_print("---> y_tensor_data: %p\n", (void*)y_tensor_data);
+            // g_print("---> uv_tensor_data: %p\n", (void*)uv_tensor_data);
+    // Insert the channel data into the new buffer
+    gst_buffer_insert_memory(gst_outbuf, 0, y_mem);  // insert y channel at 0
+    gst_buffer_insert_memory(gst_outbuf, 1, uv_mem); // insert uv channel at 1
+    GST_ERROR_OBJECT(self, "N memories in gst_outbuf after insert is %d", gst_buffer_n_memory(gst_outbuf));
+            // gst_buffer_insert_memory(gst_outbuf, 0, 
+            //     gst_memory_new_wrapped(GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS, y_tensor_data, y_info.size, 0, y_info.size, NULL, NULL));  // insert y channel at 0
+            // gst_buffer_insert_memory(gst_outbuf, 1, 
+            //     gst_memory_new_wrapped(GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS, uv_tensor_data, uv_info.size, 0, uv_info.size, NULL, NULL));  // insert uv channel at 1
+    
+            // Cleanup
+            // gst_memory_unmap(y_mem, &y_info);
+            // gst_memory_unmap(uv_mem, &uv_info);
+            // gst_memory_unref(y_mem);
+            // gst_memory_unref(uv_mem);
+    return gst_outbuf;
 }

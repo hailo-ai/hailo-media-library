@@ -248,6 +248,7 @@ namespace osd
         std::shared_future<media_library_return> set_overlay_async(const DateTimeOverlay &overlay);
         std::shared_future<media_library_return> set_overlay_async(const CustomOverlay &overlay);
 
+        media_library_return configure(const std::string &config);
         /**
          * @brief Remove an exiting overlay
          * @details Subsequent calls to :blend will no longer blend the overlay

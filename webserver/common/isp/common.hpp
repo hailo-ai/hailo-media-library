@@ -12,6 +12,18 @@
 #define IOCTL_TRIES_COUNT 3
 #define IOCTL_CLEAR(x) memset(&(x), 0, sizeof(x))
 
+#ifndef MEDIALIB_LOCAL_SERVER
+#include "media_library/isp_utils.hpp"
+#else
+// functions so isp_utils wont break local compilcation
+namespace isp_utils
+{
+    void set_default_configuration();
+    void set_denoise_configuration();
+    void set_backlight_configuration();
+}
+#endif
+
 namespace webserver
 {
     namespace common

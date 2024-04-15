@@ -75,6 +75,7 @@ public:
     media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
     std::shared_ptr<osd::Blender> get_blender();
     media_library_return configure(encoder_config_t &config);
+    media_library_return set_force_videorate(bool force);
     encoder_config_t get_config();
     GstFlowReturn add_gst_buffer(GstBuffer *buffer);
 

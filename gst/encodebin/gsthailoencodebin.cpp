@@ -53,6 +53,7 @@ typedef enum
     PROP_BLENDER,
     PROP_QUEUE_SIZE,
     PROP_ENFORCE_CAPS,
+    PROP_FORCE_VIDEORATE,
 } hailoencodebin_prop_t;
 
 // Pad Templates
@@ -125,6 +126,11 @@ gst_hailoencodebin_class_init(GstHailoEncodeBinClass *klass)
                                     g_param_spec_boolean("enforce-caps", "Enforece caps",
                                                          "Enforce caps on the input/output pad of the bin",
                                                          TRUE,
+                                                         (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(gobject_class, PROP_FORCE_VIDEORATE,
+                                    g_param_spec_boolean("force-videorate", "Force videorate",
+                                                         "Force videorate to not be only drop-only",
+                                                         FALSE,
                                                          (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 }
 
@@ -222,7 +228,7 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id,
     }
     case PROP_CONFIG_STRING:
     {
-        hailoencodebin->config_string = g_strdup(g_value_get_string(value));
+        hailoencodebin->config_string = std::string(g_value_get_string(value));
         GST_DEBUG_OBJECT(hailoencodebin, "config-string: %s", hailoencodebin->config_string.c_str());
 
         // set params for sub elements here
@@ -260,6 +266,12 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id,
         hailoencodebin->queue_size = g_value_get_uint(value);
         g_object_set(hailoencodebin->m_queue_videorate, "max-size-buffers", hailoencodebin->queue_size, NULL);
         g_object_set(hailoencodebin->m_queue_encoder, "max-size-buffers", hailoencodebin->queue_size, NULL);
+        break;
+    }
+    case PROP_FORCE_VIDEORATE:
+    {
+        gboolean force = g_value_get_boolean(value);
+        g_object_set(hailoencodebin->m_videorate, "drop-only", !force, NULL);
         break;
     }
     default:
@@ -317,6 +329,13 @@ void gst_hailoencodebin_get_property(GObject *object, guint property_id,
         gboolean enforce;
         g_object_get(hailoencodebin->m_encoder, "enforce-caps", &enforce, NULL);
         g_value_set_boolean(value, enforce);
+        break;
+    }
+    case PROP_FORCE_VIDEORATE:
+    {
+        gboolean force;
+        g_object_get(hailoencodebin->m_videorate, "drop-only", &force, NULL);
+        g_value_set_boolean(value, !force);
         break;
     }
     default:

@@ -152,6 +152,13 @@ public:
   encoder_config_t get_config();
 
   /**
+   * @brief Forces videorate to reuse frames if needed.
+   * @param[in] force - true to force videorate, false to disable
+   * @return media_library_return - status of the set_force_videorate operation
+  */
+  media_library_return set_force_videorate(bool force = true);
+
+  /**
    * @brief Constructor for the encoder module
    *
    * @param[in] impl - shared pointer to the implementation object

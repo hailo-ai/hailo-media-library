@@ -430,7 +430,8 @@ media_library_return MediaLibraryVisionPreProc::Impl::perform_dewarp(
     clock_gettime(CLOCK_MONOTONIC, &start_dewarp);
     dsp_status ret = dsp_utils::perform_dsp_dewarp(
         input_buffer.hailo_pix_buffer.get(),
-        dewarp_output_buffer.hailo_pix_buffer.get(), mesh,
+        dewarp_output_buffer.hailo_pix_buffer.get(),
+        mesh,
         m_pre_proc_configs.dewarp_config.interpolation_type);
     clock_gettime(CLOCK_MONOTONIC, &end_dewarp);
     [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_dewarp, start_dewarp);
@@ -461,8 +462,11 @@ media_library_return MediaLibraryVisionPreProc::Impl::perform_multi_resize(
         return MEDIA_LIBRARY_ERROR;
     }
 
-    dsp_multi_resize_params_t multi_resize_params = {
+    dsp_crop_resize_params_t crop_resize_params;
+    dsp_multi_crop_resize_params_t multi_crop_resize_params = {
         .src = input_buffer.hailo_pix_buffer.get(),
+        .crop_resize_params = &crop_resize_params,
+        .crop_resize_params_count = 1,
         .interpolation = m_pre_proc_configs.output_video_config.interpolation_type,
     };
 
@@ -484,7 +488,7 @@ media_library_return MediaLibraryVisionPreProc::Impl::perform_multi_resize(
             return MEDIA_LIBRARY_ERROR;
         }
 
-        multi_resize_params.dst[num_bufs_to_resize] = output_frame;
+        crop_resize_params.dst[num_bufs_to_resize] = output_frame;
         LOGGER__DEBUG("Multi resize output frame ({}) - y_ptr = {}, uv_ptr = {}. dims: width {} output frame height {}", i, fmt::ptr(output_frame->planes[0].userptr), fmt::ptr(output_frame->planes[1].userptr), output_frame->width, output_frame->height);
         num_bufs_to_resize++;
     }
@@ -546,8 +550,15 @@ media_library_return MediaLibraryVisionPreProc::Impl::perform_multi_resize(
 
     // Perform multi resize
     LOGGER__DEBUG("Performing multi resize on the DSP with digital zoom ROI: start_x {} start_y {} end_x {} end_y {}", start_x, start_y, end_x, end_y);
+    dsp_roi_t crop = {
+        .start_x = start_x,
+        .start_y = start_y,
+        .end_x = end_x,
+        .end_y = end_y
+    };
+    crop_resize_params.crop = &crop;
     clock_gettime(CLOCK_MONOTONIC, &start_resize);
-    dsp_status ret = dsp_utils::perform_dsp_multi_resize(&multi_resize_params, start_x, start_y, end_x, end_y);
+    dsp_status ret = dsp_utils::perform_dsp_multi_resize(&multi_crop_resize_params);
     clock_gettime(CLOCK_MONOTONIC, &end_resize);
     [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_resize, start_resize);
     LOGGER__TRACE("perform_multi_resize took {} milliseconds ({} fps)", ms, 1000 / ms);

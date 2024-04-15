@@ -1,5 +1,6 @@
 cdata = configuration_data()
-cdata.merge_from(core_conf)
+cdata.set('PACKAGE', '"@0@"'.format(meson.project_name()))
+cdata.set('VERSION', '"@0@"'.format(meson.project_version()))
 
 doxygen = find_program('doxygen', required : true)
 

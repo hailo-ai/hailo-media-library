@@ -24,19 +24,6 @@ encoder_dep = declare_dependency(
   link_with : encoder_lib)
 
 ################################################
-# VisionPreProc Example
-################################################
-vision_preproc_example_src = ['examples/vision_preproc_example.cpp']
-
-executable('vision_preproc_example',
-  vision_preproc_example_src,
-  dependencies : gstreamer_deps + [media_library_frontend_dep, gstmedialibrary_utils_dep, encoder_dep],
-  gnu_symbol_visibility : 'default',
-  install: true,
-  install_dir: get_option('bindir'),
-)
-
-################################################
 # Frontend Example
 ################################################
 frontend_example_src = ['examples/frontend_example.cpp']
@@ -48,6 +35,32 @@ executable('frontend_example',
   install: true,
   install_dir: get_option('bindir'),
 )
+
+
+################################################
+# Frontend with HRT Example
+################################################
+
+hailort_dep = [
+    meson.get_compiler('cpp').find_library('hailort', required: true),
+]
+hailort_inc_dirs = include_directories(
+    sysroot + '/usr/include/hailo',
+    is_system: true
+)
+
+
+native_frontend_example_src = ['examples/native/main.cpp']
+
+executable('native_frontend_example',
+  native_frontend_example_src,
+  include_directories: hailort_inc_dirs,
+  dependencies : gstreamer_deps + [media_library_frontend_dep, gstmedialibrary_utils_dep, encoder_dep, hailort_dep, opencv_dep],
+  gnu_symbol_visibility : 'default',
+  install: true,
+  install_dir: get_option('bindir'),
+)
+
 
 polygon_example_src = ['examples/polygon_example.cpp']
 

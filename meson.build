@@ -14,13 +14,13 @@ add_global_arguments('-fconcepts', language : 'cpp')
 
 pkgc = import('pkgconfig')
 targets = get_option('targets')
-subdir('common_meson')
 
 if 'docs' in targets
     subdir('docs')
     subdir_done()
 endif
 
+subdir('common_meson')
 
 # Gstreamer Dependencies
 gst_req = '>= 1.0.0'
@@ -32,8 +32,10 @@ gst_app_dep = dependency('gstreamer-app-1.0', version : gst_req,
   fallback : ['gstreamer', 'gst_app_dep'])
 gstvideo_dep = dependency('gstreamer-video-1.0', version : gst_req,
   fallback : ['gst-plugins-base', 'video_dep'])
+gstallocators_dep = dependency('gstreamer-allocators-1.0', version : gst_req,
+  fallback : ['gst-plugins-base', 'allocators_dep'])
 
-gstreamer_deps = [gst_dep, gst_base_dep, gstvideo_dep, gst_app_dep]
+gstreamer_deps = [gst_dep, gst_base_dep, gstvideo_dep, gst_app_dep, gstallocators_dep]
 rapidjson_dep = dependency('RapidJSON', method : 'pkg-config')
 json_dep = meson.get_compiler('cpp').find_library('libnlohmann_json_schema_validator', required: true, dirs: '/usr/lib/')
 opencv_dep = dependency('opencv4', version : '>= 4.0', method : 'pkg-config', include_type : 'system')
