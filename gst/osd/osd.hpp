@@ -37,6 +37,7 @@
 #include <tl/expected.hpp>
 
 #define DEFAULT_FONT_PATH "/usr/share/fonts/ttf/LiberationMono-Regular.ttf"
+#define DEFAULT_DATETIME_STRING "%d-%m-%Y %H:%M:%S"
 
 namespace osd
 {
@@ -53,8 +54,31 @@ namespace osd
         int blue;
     };
 
-    mat_dims calculate_text_size(const std::string &label, const std::string &font_path, int font_size, int line_thickness);
+    typedef enum {
+    /**
+     * A420 Format - planar 4:4:2:0 AYUV. Each component is 8bit \n
+     * For A420 format, the dimensions of the image, both width and height, need to be even numbers \n
+     * Four planes in the following order: Y plane, U plane, V plane, Alpha plane
+     */
+    A420,
 
+    /**
+     * ARGB - RGB with alpha channel first (packed) format. One plane, each color component is 8bit \n
+     * @code
+     * +--+--+--+--+ +--+--+--+--+
+     * |A0|R0|G0|B0| |A1|R1|G1|B1| ...
+     * +--+--+--+--+ +--+--+--+--+
+     * @endcode
+     */
+    ARGB,
+
+    /* Must be last */
+    COUNT,
+    /** Max enum value to maintain ABI Integrity */
+    ENUM = DSP_MAX_ENUM
+} custom_overlay_format;
+
+    mat_dims calculate_text_size(const std::string &label, const std::string &font_path, int font_size, int line_thickness);
 
     /**
      * @defgroup overlays Overlay structs
@@ -158,7 +182,13 @@ namespace osd
      */
     struct DateTimeOverlay : BaseTextOverlay
     {
+        /**
+         * format string for the datetime overlay. default is %d-%m-%Y %H:%M:%S", meaning "day-month-year hour:minute:second"
+         */
+        std::string datetime_format;
+
         DateTimeOverlay();
+        DateTimeOverlay(std::string _id, float _x, float _y, std::string datetime_format, rgb_color_t _rgb, rgb_color_t _rgb_background, std::string font_path, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy);
         DateTimeOverlay(std::string _id, float _x, float _y, rgb_color_t _rgb, rgb_color_t _rgb_background, std::string font_path, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy);
         DateTimeOverlay(std::string _id, float _x, float _y, rgb_color_t _rgb, rgb_color_t _rgb_background, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy);
         DateTimeOverlay(std::string _id, float _x, float _y, rgb_color_t _rgb, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy);
@@ -170,11 +200,13 @@ namespace osd
         float width;
         float height;
 
-        DspImagePropertiesPtr get_buffer() const { return m_buffer; }
         CustomOverlay() = default;
-        CustomOverlay(std::string id, float x, float y, float width, float height, DspImagePropertiesPtr buffer, unsigned int z_index);
-
+        CustomOverlay(std::string id, float x, float y, float width, float height, DspImagePropertiesPtr buffer, unsigned int z_index); //this is only in use for the get_metadata
+        CustomOverlay(std::string id, float x, float y, float width, float height, unsigned int z_index, custom_overlay_format format);
+        custom_overlay_format get_format() const { return m_format; }
+        DspImagePropertiesPtr get_buffer() const { return m_buffer; }
     private:
+        custom_overlay_format m_format;
         DspImagePropertiesPtr m_buffer;
     };
 
@@ -214,10 +246,11 @@ namespace osd
         media_library_return add_overlay(const TextOverlay &overlay);
         media_library_return add_overlay(const DateTimeOverlay &overlay);
         media_library_return add_overlay(const CustomOverlay &overlay);
+        media_library_return set_overlay_enabled(const std::string &id, bool enabled);
+
         std::shared_future<media_library_return> add_overlay_async(const ImageOverlay &overlay);
         std::shared_future<media_library_return> add_overlay_async(const TextOverlay &overlay);
         std::shared_future<media_library_return> add_overlay_async(const DateTimeOverlay &overlay);
-        std::shared_future<media_library_return> add_overlay_async(const CustomOverlay &overlay);
 
         /**
          * @brief Retrieve info of an existing overlay.
@@ -246,7 +279,6 @@ namespace osd
         std::shared_future<media_library_return> set_overlay_async(const ImageOverlay &overlay);
         std::shared_future<media_library_return> set_overlay_async(const TextOverlay &overlay);
         std::shared_future<media_library_return> set_overlay_async(const DateTimeOverlay &overlay);
-        std::shared_future<media_library_return> set_overlay_async(const CustomOverlay &overlay);
 
         media_library_return configure(const std::string &config);
         /**

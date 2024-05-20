@@ -36,6 +36,15 @@ executable('frontend_example',
   install_dir: get_option('bindir'),
 )
 
+executable('jpeg_frontend_example',
+  frontend_example_src,
+  cpp_args: ['-DUSE_JPEG_JSONS'],
+  dependencies : gstreamer_deps + [media_library_frontend_dep, gstmedialibrary_utils_dep, encoder_dep],
+  gnu_symbol_visibility : 'default',
+  install: true,
+  install_dir: get_option('bindir'),
+)
+
 
 ################################################
 # Frontend with HRT Example

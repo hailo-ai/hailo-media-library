@@ -1,10 +1,10 @@
 #pragma once
 #include <string>
 #include <nlohmann/json.hpp>
-#include <httplib.h>
 #include <mutex>
-#include "common/isp/v4l2_ctrl.hpp"
 #include <gst/gst.h>
+#include "common/isp/v4l2_ctrl.hpp"
+#include "common/httplib/httplib_utils.hpp"
 
 #ifndef MEDIALIB_LOCAL_SERVER
 #include "privacy_mask_types.hpp"
@@ -37,6 +37,7 @@ namespace webserver
     {
         enum ResourceType
         {
+            RESOURCE_WEBPAGE,
             RESOURCE_FRONTEND,
             RESOURCE_ENCODER,
             RESOURCE_OSD,
@@ -52,6 +53,7 @@ namespace webserver
         };
 
         NLOHMANN_JSON_SERIALIZE_ENUM(ResourceType, {
+                                                       {RESOURCE_WEBPAGE, "webpage"},
                                                        {RESOURCE_FRONTEND, "frontend"},
                                                        {RESOURCE_ENCODER, "encoder"},
                                                        {RESOURCE_OSD, "osd"},
@@ -96,7 +98,7 @@ namespace webserver
             virtual ~Resource() = default;
             virtual std::string name() = 0;
             virtual ResourceType get_type() = 0;
-            virtual void http_register(std::shared_ptr<httplib::Server> srv) = 0;
+            virtual void http_register(std::shared_ptr<HTTPServer> srv) = 0;
 
             virtual std::string to_string()
             {
@@ -127,6 +129,15 @@ namespace webserver
             }
         };
 
+        class WebpageResource : public Resource
+        {
+        public:
+            WebpageResource() = default;
+            void http_register(std::shared_ptr<HTTPServer> srv) override;
+            std::string name() override { return "webpage"; }
+            ResourceType get_type() override { return RESOURCE_WEBPAGE; }
+        };
+
         class AiResource : public Resource
         {
         public:
@@ -145,7 +156,7 @@ namespace webserver
             };
 
             AiResource();
-            void http_register(std::shared_ptr<httplib::Server> srv) override;
+            void http_register(std::shared_ptr<HTTPServer> srv) override;
             std::string name() override { return "ai"; }
             ResourceType get_type() override { return RESOURCE_AI; }
             nlohmann::json get_ai_config(AiApplications app);
@@ -163,7 +174,7 @@ namespace webserver
         {
         public:
             FrontendResource(std::shared_ptr<webserver::resources::AiResource> ai_res);
-            void http_register(std::shared_ptr<httplib::Server> srv) override;
+            void http_register(std::shared_ptr<HTTPServer> srv) override;
             std::string name() override { return "frontend"; }
             ResourceType get_type() override { return RESOURCE_FRONTEND; }
             nlohmann::json get_frontend_config();
@@ -179,17 +190,13 @@ namespace webserver
             std::shared_ptr<AiResource> m_ai_resource;
             stream_isp_params_t m_baseline_stream_params;
             int16_t m_baseline_wdr_params;
+            backlight_filter_t m_baseline_backlight_params;
+            tuning_profile_t m_tuning_profile;
             auto_exposure_t get_auto_exposure();
-            void set_auto_exposure(nlohmann::json &req, httplib::Response &res);
+            nlohmann::json set_auto_exposure(const nlohmann::json &req);
             bool set_auto_exposure(auto_exposure_t &ae);
             void on_ai_state_change(std::shared_ptr<AiResource::AiResourceState> state);
-
-            struct tuning_profile_context_t
-            {
-                tuning_profile_t current;
-                tuning_profile_t fallback;
-            };
-            tuning_profile_context_t m_tuning_profile;
+            void set_tuning_profile(webserver::common::tuning_profile_t);
 
         public:
             class IspResourceState : public ResourceState
@@ -199,12 +206,11 @@ namespace webserver
                 IspResourceState(bool isp_3aconfig_updated) : isp_3aconfig_updated(isp_3aconfig_updated) {}
             };
             IspResource(std::shared_ptr<AiResource> ai_res);
-            void http_register(std::shared_ptr<httplib::Server> srv) override;
+            void http_register(std::shared_ptr<HTTPServer> srv) override;
             std::string name() override { return "isp"; }
             ResourceType get_type() override { return RESOURCE_ISP; }
             ResourceBehaviorType get_behavior_type() override { return RESOURCE_BEHAVIOR_FUNCTIONAL; }
-            void override_configurations();
-            void init(bool set_auto_exposure = true, bool set_auto_wb = true);
+            void init(bool set_auto_wb = true);
         };
 
         class EncoderResource : public Resource
@@ -229,7 +235,7 @@ namespace webserver
             };
 
             EncoderResource();
-            void http_register(std::shared_ptr<httplib::Server> srv) override;
+            void http_register(std::shared_ptr<HTTPServer> srv) override;
             std::string name() override { return "encoder"; }
             ResourceType get_type() override { return RESOURCE_ENCODER; }
             encoder_control_t get_encoder_control();
@@ -251,7 +257,7 @@ namespace webserver
 
         public:
             OsdResource();
-            void http_register(std::shared_ptr<httplib::Server> srv) override;
+            void http_register(std::shared_ptr<HTTPServer> srv) override;
             std::string name() override { return "osd"; }
             ResourceType get_type() override { return RESOURCE_OSD; }
             nlohmann::json get_current_osd_config();
@@ -274,7 +280,7 @@ namespace webserver
 
         public:
             PrivacyMaskResource();
-            void http_register(std::shared_ptr<httplib::Server> srv) override;
+            void http_register(std::shared_ptr<HTTPServer> srv) override;
             std::string name() override { return "privacy_mask"; }
             ResourceType get_type() override { return RESOURCE_PRIVACY_MASK; }
             ResourceBehaviorType get_behavior_type() override { return RESOURCE_BEHAVIOR_CONFIG; }

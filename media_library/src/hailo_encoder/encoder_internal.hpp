@@ -124,6 +124,7 @@ public:
   EncoderOutputBuffer start();
   EncoderOutputBuffer stop();
   media_library_return init();
+  media_library_return release();
   media_library_return dispose();
 
   // static const char *json_schema const get_json_schema() const;
@@ -155,8 +156,8 @@ private:
   media_library_return
   encode_multiple_frames(std::vector<EncoderOutputBuffer> &outputs);
   uint32_t get_codec();
-  bool hard_restart_required(const encoder_config_t &new_config, bool gop_update_required);
-  bool gop_config_update_required(const encoder_config_t &new_config);
+  bool hard_restart_required(const hailo_encoder_config_t &new_config, bool gop_update_required);
+  bool gop_config_update_required(const hailo_encoder_config_t &new_config);
   VCEncProfile get_profile();
 };
 

@@ -63,9 +63,23 @@ media_library_return HailoBucket::allocate()
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return HailoBucket::free()
+media_library_return HailoBucket::free(bool fail_on_used_buffers)
 {
     std::unique_lock<std::mutex> lock(*m_bucket_mutex);
+
+    bool used_buffers_exist = !m_used_buffers.empty();
+    if (used_buffers_exist)
+    {
+        LOGGER__ERROR("There are still {} used buffers in the bucket, {} are free", m_used_buffers.size(), m_available_buffers.size());
+        for (intptr_t buffer_ptr : m_used_buffers)
+        {
+            LOGGER__INFO("Freeing bucket: buffer {} still used", (void*)buffer_ptr);
+            if(!fail_on_used_buffers)
+                m_available_buffers.push_front(buffer_ptr);
+        }
+        if(!fail_on_used_buffers)
+            m_used_buffers.clear();
+    }
 
     while (!m_available_buffers.empty())
     {
@@ -81,9 +95,8 @@ media_library_return HailoBucket::free()
         m_available_buffers.pop_front();
     }
 
-    if (!m_used_buffers.empty())
+    if(fail_on_used_buffers && used_buffers_exist)
     {
-        LOGGER__ERROR("There are still {} in the bucket, {} are free", m_used_buffers.size(), m_available_buffers.size());
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
@@ -179,15 +192,17 @@ MediaLibraryBufferPool::MediaLibraryBufferPool(uint width, uint height,
 {
 }
 
-MediaLibraryBufferPool::~MediaLibraryBufferPool() { free(); }
+MediaLibraryBufferPool::~MediaLibraryBufferPool() { 
+    free();
+}
 
-media_library_return MediaLibraryBufferPool::free()
+media_library_return MediaLibraryBufferPool::free(bool fail_on_used_buffers)
 {
     for (uint8_t i = 0; i < m_buckets.size(); i++)
     {
         HailoBucketPtr &bucket = m_buckets[i];
         LOGGER__DEBUG("{}: Freeing bucket {} of size {} num of buffers {}", m_name, i, bucket->m_buffer_size, bucket->m_num_buffers);
-        if (bucket->free() != MEDIA_LIBRARY_SUCCESS)
+        if (bucket->free(fail_on_used_buffers) != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR("{}: failed to free bucket {}", m_name, i);
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
@@ -399,6 +414,17 @@ void MediaLibraryBufferPool::log_decrease_ref_count(uint32_t plane_index, uint32
 {
     LOGGER__DEBUG("{}: Decreasing ref count of plane {} to {} for buffer index {}",
                   m_name, plane_index, ref_count, buffer_index);
+}
+
+int HailoBucket::available_buffers_count()
+{
+    std::unique_lock<std::mutex> lock(*m_bucket_mutex);
+    return m_available_buffers.size();
+}
+
+int MediaLibraryBufferPool::get_available_buffers_count()
+{
+    return m_buckets[0]->available_buffers_count();
 }
 
 media_library_return

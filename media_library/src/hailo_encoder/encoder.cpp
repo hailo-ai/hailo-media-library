@@ -40,6 +40,7 @@ Encoder::~Encoder() = default;
 Encoder::Impl::~Impl()
 {
     LOGGER__DEBUG("Encoder - Destructor");
+    release();
     dispose();
 }
 
@@ -95,6 +96,18 @@ Encoder::Impl::Impl(std::string json_string)
 
 media_library_return Encoder::Impl::dispose()
 {
+    media_library_return ret = MEDIA_LIBRARY_SUCCESS;
+    if(m_buffer_pool != nullptr)
+    {
+        ret = m_buffer_pool->free(false);
+        m_buffer_pool.reset();
+        m_buffer_pool = nullptr;
+    }
+    return ret;
+}
+
+media_library_return Encoder::Impl::release()
+{
     if (m_state == ENCODER_STATE_UNINITIALIZED)
     {
         LOGGER__DEBUG("Encoder - dispose requested - but it is already in uninitialized state");
@@ -109,9 +122,15 @@ media_library_return Encoder::Impl::dispose()
         EWLFreeLinear((const void *)m_ewl, &m_output_memory);
     if (NULL != m_ewl)
         (void)EWLRelease((const void *)m_ewl);
-
+    
     m_state = ENCODER_STATE_UNINITIALIZED;
+
     return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return Encoder::release()
+{
+    return m_impl->release();
 }
 
 media_library_return Encoder::dispose()
@@ -177,8 +196,8 @@ media_library_return Encoder::Impl::configure(const encoder_config_t &config)
 {
     m_update_required = {ENCODER_CONFIG_CODING_CONTROL, ENCODER_CONFIG_PRE_PROCESSING, ENCODER_CONFIG_RATE_CONTROL};
 
-    bool gop_update_required = gop_config_update_required(config);
-    bool hard_restart = hard_restart_required(config, gop_update_required);
+    bool gop_update_required = gop_config_update_required(std::get<hailo_encoder_config_t>(config));
+    bool hard_restart = hard_restart_required(std::get<hailo_encoder_config_t>(config), gop_update_required);
 
     // Gop change update required
     if (gop_update_required)
@@ -337,6 +356,18 @@ media_library_return Encoder::Impl::encode_header()
         return MEDIA_LIBRARY_ERROR;
     }
 
+    if (m_header.buffer != nullptr)
+    {
+        bool is_dmabuf = m_header.buffer->is_dmabuf();
+        if (is_dmabuf)
+            DmaMemoryAllocator::get_instance().dmabuf_sync_start(m_header.buffer->get_plane(0));
+        // Clear the header buffer
+        memset(static_cast<char *>(m_header.buffer->get_plane(0)), 0, m_header.buffer->get_plane_size(0));
+        if (is_dmabuf)
+            DmaMemoryAllocator::get_instance().dmabuf_sync_end(m_header.buffer->get_plane(0));
+        m_header.size = 0;
+    }
+
     auto ret = create_output_buffer(m_header);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
@@ -443,6 +474,7 @@ media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferP
     int ret;
     uint32_t num_of_planes = buf->get_num_of_planes();
     u32 *plane_ptr = nullptr;
+    int planeFd = -1;
     u32 plane_size = 0;
     std::array<u32 *, 3> bus_addresses = {&(m_enc_in.busLuma),
                                           &(m_enc_in.busChromaU),
@@ -455,20 +487,45 @@ media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferP
         return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
     }
 
-    for (uint32_t i = 0; i < num_of_planes; i++)
+    if (buf->is_dmabuf())
     {
-        plane_ptr = static_cast<u32 *>(buf->get_plane(i));
-        plane_size = buf->get_plane_size(i);
-        if (plane_ptr == nullptr || plane_size == 0)
+        for (uint32_t i = 0; i < num_of_planes; i++)
         {
-            LOGGER__ERROR("Could not get plane {} of buffer", i);
-            return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
+            planeFd = buf->get_fd(i);
+            if (planeFd <= 0)
+            {
+                LOGGER__ERROR("Could not get dmabuf fd of plane {}", i);
+                return MEDIA_LIBRARY_BUFFER_NOT_FOUND;
+            }
+            ret = EWLShareDmabuf(m_ewl, planeFd, bus_addresses[i]);
+            if (ret != EWL_OK)
+            {
+                LOGGER__ERROR("Could not get physical address of plane {}", i);
+                for (uint32_t j = 0; j < i; j++)
+                {
+                    EWLUnshareDmabuf(m_ewl, buf->get_fd(j));
+                }
+                return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
+            }
         }
-        ret = EWLGetBusAddress(m_ewl, plane_ptr, bus_addresses[i], plane_size);
-        if (ret != EWL_OK)
+    }
+    else
+    {
+        for (uint32_t i = 0; i < num_of_planes; i++)
         {
-            LOGGER__ERROR("Could not get physical address of plane {}", i);
-            return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
+            plane_ptr = static_cast<u32 *>(buf->get_plane(i));
+            plane_size = buf->get_plane_size(i);
+            if (plane_ptr == nullptr || plane_size == 0)
+            {
+                LOGGER__ERROR("Could not get plane {} of buffer", i);
+                return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
+            }
+            ret = EWLGetBusAddress(m_ewl, plane_ptr, bus_addresses[i], plane_size);
+            if (ret != EWL_OK)
+            {
+                LOGGER__ERROR("Could not get physical address of plane {}", i);
+                return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
+            }
         }
     }
     update_stride(buf->get_plane_stride(0));
@@ -495,7 +552,14 @@ Encoder::Impl::create_output_buffer(EncoderOutputBuffer &output_buf)
         }
         buffer_ptr = std::make_shared<hailo_media_library_buffer>(std::move(buffer));
     }
+
+    bool is_dmabuf = buffer_ptr->is_dmabuf();
+    if (is_dmabuf)
+        DmaMemoryAllocator::get_instance().dmabuf_sync_start(buffer_ptr->get_plane(0));
+        // Clear the header buffer
     memcpy(static_cast<char *>(buffer_ptr->get_plane(0)) + offset, m_enc_in.pOutBuf, m_enc_out.streamSize);
+    if (is_dmabuf)
+        DmaMemoryAllocator::get_instance().dmabuf_sync_end(buffer_ptr->get_plane(0));
     output_buf.buffer = buffer_ptr;
     output_buf.size = m_enc_out.streamSize + offset;
 
@@ -537,6 +601,23 @@ static int64_t time_diff(const struct timespec after,
            ((int64_t)after.tv_nsec - (int64_t)before.tv_nsec) / 1000000;
 }
 
+static void releaseDmabuf(HailoMediaLibraryBufferPtr buf, void *ewl)
+{
+    for (uint32_t i = 0; i < buf->get_num_of_planes(); i++)
+    {
+        int planeFd = buf->get_fd(i);
+        if (planeFd <= 0)
+        {
+            LOGGER__ERROR("Could not get dmabuf fd of plane {}", i);
+            continue;
+        }
+        if (EWLUnshareDmabuf(ewl, planeFd) != EWL_OK)
+        {
+            LOGGER__ERROR("Could not get physical address of plane {}", i);
+        }
+    }
+}
+
 media_library_return
 Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
                             std::vector<EncoderOutputBuffer> &outputs)
@@ -544,7 +625,6 @@ Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
     LOGGER__DEBUG("Encoder - encode_frame");
     VCEncRet enc_ret = VCENC_OK;
     media_library_return ret = MEDIA_LIBRARY_UNINITIALIZED;
-    hailo_media_library_buffer buffer;
     struct timespec start_encode, end_encode;
     ret = update_input_buffer(buf);
     if (ret != MEDIA_LIBRARY_SUCCESS)
@@ -591,6 +671,9 @@ Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
                 {
                     LOGGER__ERROR("Encoder - encode_frame - Failed to create "
                                   "output buffer");
+                    if (buf->is_dmabuf()){
+                        releaseDmabuf(buf, m_ewl);
+                    }
                     return ret;
                 }
                 outputs.emplace_back(std::move(output));
@@ -620,6 +703,9 @@ Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
         ret = MEDIA_LIBRARY_ENCODER_ENCODE_ERROR;
         break;
     }
+    }
+    if (buf->is_dmabuf()){
+        releaseDmabuf(buf, m_ewl);
     }
     return ret;
 }
@@ -659,12 +745,18 @@ Encoder::Impl::handle_frame(HailoMediaLibraryBufferPtr buf)
     {
         if (m_inputs.size() == (size_t)m_enc_in.gopSize - 1)
         {
+            buf->increase_ref_count();
             m_inputs.emplace_back(buf);
             ret = encode_multiple_frames(outputs);
+            for (auto &input : m_inputs)
+            {
+                input->decrease_ref_count();
+            }
             m_inputs.clear();
         }
         else if (m_inputs.size() < (size_t)m_enc_in.gopSize - 1)
         {
+            buf->increase_ref_count();
             m_inputs.emplace_back(buf);
             ret = MEDIA_LIBRARY_SUCCESS;
         }

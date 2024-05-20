@@ -438,7 +438,6 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(hailo
             {
                 m_timestamps[i] += frame_latency;
             } while (timestamp - m_timestamps[i] >= frame_latency * 2);
-            LOGGER__DEBUG("Skipping current frame to match framerate {}, no need to acquire buffer {}, counter is {}", output_framerate, i, m_frame_counter);
         }
         LOGGER__DEBUG("Acquiring buffer {}, target framerate is {}", i, output_framerate);
         // m_strict_framerate is true, using new frame counter logic
@@ -455,14 +454,14 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(hailo
         {
             LOGGER__DEBUG("Skipping current frame to match framerate {}, no need to acquire buffer {}, counter is {}", output_framerate, i, m_frame_counter);
             buffers.emplace_back(std::move(buffer));
-
             continue;
         }
 
         if (m_buffer_pools[i]->acquire_buffer(buffer) != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__ERROR("Failed to acquire buffer");
-            return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+            LOGGER__WARNING("Failed to acquire buffer, skipping buffer");
+            buffers.emplace_back(std::move(buffer));
+            continue;
         }
         buffer.isp_ae_fps = isp_ae_fps;
         buffers.emplace_back(std::move(buffer));
@@ -713,10 +712,6 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(hailo_media_lib
 
     // Perform multi resize
     media_lib_ret = perform_multi_resize(input_frame, output_frames);
-
-    // Unref the input frame
-    input_frame.decrease_ref_count();
-    // LOGGER__ERROR("decreased input frame ref count of buffer indexed: {}, plane 0 refcount: {}", input_frame.buffer_index, input_frame.refcount(0) );
 
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
         return media_lib_ret;

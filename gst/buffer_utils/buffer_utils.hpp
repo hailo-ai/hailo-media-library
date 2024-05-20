@@ -37,5 +37,7 @@ G_BEGIN_DECLS
 HailoMediaLibraryBufferPtr hailo_buffer_from_gst_buffer(GstBuffer *buffer, GstCaps *caps, bool gst_dma=true);
 GstBuffer *gst_buffer_from_hailo_buffer(HailoMediaLibraryBufferPtr hailo_buffer, GstCaps *caps);
 bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_properties_t &dsp_image_props, bool gst_dma=true);
+bool dma_buffer_sync_start(GstBuffer *buffer);
+bool dma_buffer_sync_end(GstBuffer *buffer);
 
 G_END_DECLS

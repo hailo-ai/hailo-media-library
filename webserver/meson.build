@@ -9,11 +9,13 @@ sources = ['main.cpp',
             'resources/repository.cpp',
             'resources/isp.cpp',
             'resources/privacy_mask.cpp',
+            'resources/webpage.cpp',
             'pipeline/pipeline.cpp',
             'pipeline/dummy_pipeline.cpp',
             'pipeline/pipeline_interface.cpp',
             'common/isp/v4l2_ctrl.cpp',
-            'common/isp/common.cpp'
+            'common/isp/common.cpp',
+            'common/httplib/httplib_utils.cpp'
 ]
 
 # Add any additional dependencies here

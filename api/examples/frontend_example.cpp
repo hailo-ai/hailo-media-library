@@ -3,14 +3,21 @@
 #include "media_library/frontend.hpp"
 #include "media_library/privacy_mask.hpp"
 #include "media_library/privacy_mask_types.hpp"
+#include "media_library/signal_utils.hpp"
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <tl/expected.hpp>
 
 #define FRONTEND_CONFIG_FILE "/usr/bin/frontend_config_example.json"
-#define ENCODER_OSD_CONFIG_FILE(id) get_encoder_osd_config_file(id)
-#define OUTPUT_FILE(id) get_output_file(id)
+#ifdef USE_JPEG_JSONS
+// Use jpeg encoder only for second file
+#define FILE_ID(id) ((id == "sink0") ? id : "jpeg_" + id)
+#else
+#define FILE_ID(id) (id)
+#endif
+#define ENCODER_OSD_CONFIG_FILE(id) get_encoder_osd_config_file(FILE_ID(id))
+#define OUTPUT_FILE(id) get_output_file(FILE_ID(id))
 
 struct MediaLibrary
 {
@@ -18,6 +25,8 @@ struct MediaLibrary
     std::map<output_stream_id_t, MediaLibraryEncoderPtr> encoders;
     std::map<output_stream_id_t, std::ofstream> output_files;
 };
+
+std::shared_ptr<MediaLibrary> m_media_lib;
 
 inline std::string get_encoder_osd_config_file(const std::string &id)
 {
@@ -133,8 +142,6 @@ void add_privacy_masks(PrivacyMaskBlenderPtr privacy_mask_blender)
     example_polygon4.vertices.push_back(vertex(3900, 550));
     example_polygon4.vertices.push_back(vertex(3800, 650));
     privacy_mask_blender->add_privacy_mask(example_polygon4);
-
-
 }
 
 int update_privacy_masks(PrivacyMaskBlenderPtr privacy_mask_blender)
@@ -161,8 +168,12 @@ int update_encoders_bitrate(std::map<output_stream_id_t, MediaLibraryEncoderPtr>
     for (const auto &entry : encoders)
     {
         encoder_config_t encoder_config = entry.second->get_config();
-        std::cout << "Encoder " << enc_i << " current bitrate: " << encoder_config.rate_control.bitrate.target_bitrate << " Setting to "  << new_bitrate << std::endl;
-        encoder_config.rate_control.bitrate.target_bitrate = new_bitrate;
+        if (std::holds_alternative<jpeg_encoder_config_t>(encoder_config)) {
+            continue;
+        }
+        hailo_encoder_config_t hailo_encoder_config = std::get<hailo_encoder_config_t>(encoder_config);
+        std::cout << "Encoder " << enc_i << " current bitrate: " << hailo_encoder_config.rate_control.bitrate.target_bitrate << " Setting to "  << new_bitrate << std::endl;
+        hailo_encoder_config.rate_control.bitrate.target_bitrate = new_bitrate;
         if (entry.second->configure(encoder_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
             std::cout << "Failed to configure Encoder " << enc_i << std::endl;
@@ -175,7 +186,27 @@ int update_encoders_bitrate(std::map<output_stream_id_t, MediaLibraryEncoderPtr>
 
 int main(int argc, char *argv[])
 {
-    std::shared_ptr<MediaLibrary> media_lib = std::make_shared<MediaLibrary>();
+    m_media_lib = std::make_shared<MediaLibrary>();
+
+    // register signal SIGINT and signal handler  
+    signal_utils::register_signal_handler([](int signal)
+                                        {
+                                        std::cout << "Stopping Pipeline..." << std::endl;
+                                        m_media_lib->frontend->stop();
+                                        for (const auto &entry : m_media_lib->encoders)
+                                        {
+                                            entry.second->stop();
+                                        }
+
+                                        // close all file in m_media_lib->output_files
+                                        for (auto &entry : m_media_lib->output_files)
+                                        {
+                                            entry.second.close();
+                                        }
+
+                                        // terminate program  
+                                        exit(signal);; });
+
 
     // Create and configure frontend
     std::string frontend_config_string = read_string_from_file(FRONTEND_CONFIG_FILE);
@@ -185,9 +216,9 @@ int main(int argc, char *argv[])
         std::cout << "Failed to create frontend" << std::endl;
         return 1;
     }
-    media_lib->frontend = frontend_expected.value();
+    m_media_lib->frontend = frontend_expected.value();
 
-    auto streams = media_lib->frontend->get_outputs_streams();
+    auto streams = m_media_lib->frontend->get_outputs_streams();
     if (!streams.has_value())
     {
         std::cout << "Failed to get stream ids" << std::endl;
@@ -205,54 +236,101 @@ int main(int argc, char *argv[])
             std::cout << "Failed to create encoder osd" << std::endl;
             return 1;
         }
-        media_lib->encoders[s.id] = encoder_expected.value();
+        m_media_lib->encoders[s.id] = encoder_expected.value();
 
         // create and configure output file
         std::string output_file_path = OUTPUT_FILE(s.id);
         delete_output_file(output_file_path);
-        media_lib->output_files[s.id].open(output_file_path.c_str(), std::ios::out | std::ios::binary | std::ios::app);
-        if (!media_lib->output_files[s.id].good())
+        m_media_lib->output_files[s.id].open(output_file_path.c_str(), std::ios::out | std::ios::binary | std::ios::app);
+        if (!m_media_lib->output_files[s.id].good())
         {
             std::cout << "Error occurred at writing time!" << std::endl;
             return 1;
         }
     }
-    subscribe_elements(media_lib);
+    subscribe_elements(m_media_lib);
 
     std::cout << "Starting frontend." << std::endl;
-    for (const auto &entry : media_lib->encoders)
+    for (const auto &entry : m_media_lib->encoders)
     {
         output_stream_id_t streamId = entry.first;
         MediaLibraryEncoderPtr encoder = entry.second;
         std::cout << "starting encoder for " << streamId << std::endl;
         encoder->start();
     }
-    media_lib->frontend->start();
-    PrivacyMaskBlenderPtr privacy_blender = media_lib->frontend->get_privacy_mask_blender();
+    m_media_lib->frontend->start();
+
+    // get blender
+    auto blender = m_media_lib->encoders["sink0"]->get_blender();
+
+    osd::CustomOverlay custom_overlay("custom_argb", 0.3, 0.5, 0.1, 0.1, 1, osd::custom_overlay_format::ARGB);
+    blender->add_overlay(custom_overlay); // this adds the overlay but does not show it yet, we need to set it as ready as shown below
+    auto custom_expected = blender->get_overlay("custom_argb");
+    auto existing_custom_overlay = std::static_pointer_cast<osd::CustomOverlay>(custom_expected.value());
+    DspImagePropertiesPtr dspbuffer = existing_custom_overlay->get_buffer();
+
+    uint32_t blue_argb = 0xFF0000FF; // Alpha: FF (fully opaque), Red: 00 (no intensity), Green: 00 (no intensity), Blue: FF (full intensity)
+
+    // Assuming each pixel in the buffer is represented by 4 bytes (ARGB format)
+    for (size_t i = 0; i < dspbuffer->planes[0].bytesused; i += 4)
+    {
+        // Set each pixel to blue
+        memcpy((int8_t *)(dspbuffer->planes[0].userptr) + i, &blue_argb, sizeof(uint32_t));
+    };
+
+    std::cout<<"Enable custom overlay"<<std::endl;
+    blender->set_overlay_enabled("custom_argb", true);
+    std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
+
+    std::cout<<"Disable custom overlay "<<std::endl;
+    blender->set_overlay_enabled("custom_argb", false);
+    std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
+
+    std::cout<<"Enable custom overlay"<<std::endl;
+    blender->set_overlay_enabled("custom_argb", true);
+    std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
+
+    //add another custom overlay but with format A420
+    osd::CustomOverlay custom_overlay2("custom_a420", 0.7, 0.7, 0.1, 0.1, 1, osd::custom_overlay_format::A420);
+    blender->add_overlay(custom_overlay2); // this adds the overlay but does not show it yet, we need to set it as ready as shown below
+    auto custom_expected2 = blender->get_overlay("custom_a420");
+    auto existing_custom_overlay2 = std::static_pointer_cast<osd::CustomOverlay>(custom_expected2.value());
+    DspImagePropertiesPtr dspbuffer2 = existing_custom_overlay2->get_buffer();
+
+    uint8_t blue_y=29,blue_u=255,blue_v=107,blue_a=255;
+    memset(dspbuffer2->planes[0].userptr, blue_y, dspbuffer2->planes[0].bytesused);
+    memset(dspbuffer2->planes[1].userptr, blue_u, dspbuffer2->planes[1].bytesused);
+    memset(dspbuffer2->planes[2].userptr, blue_v, dspbuffer2->planes[2].bytesused);
+    memset(dspbuffer2->planes[3].userptr, blue_a, dspbuffer2->planes[3].bytesused);
+
+    std::cout<<"Enable custom overlay"<<std::endl;
+    blender->set_overlay_enabled("custom_a420", true);
+
+    PrivacyMaskBlenderPtr privacy_blender = m_media_lib->frontend->get_privacy_mask_blender();
     add_privacy_masks(privacy_blender);
 
     std::cout << "Started playing for 30 seconds." << std::endl;
 
     std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
-    
+
     // Update privacy mask
     if (update_privacy_masks(privacy_blender) != 0)
         return 1;
 
-    if (update_encoders_bitrate(media_lib->encoders) != 0)
+    if (update_encoders_bitrate(m_media_lib->encoders) != 0)
         return 1;
 
-    std::this_thread::sleep_for(std::chrono::seconds(20)); // sleep for 20 seconds
+    std::this_thread::sleep_for(std::chrono::seconds(14)); // sleep for 14 seconds
 
     std::cout << "Stopping." << std::endl;
-    media_lib->frontend->stop();
-    for (const auto &entry : media_lib->encoders)
+    m_media_lib->frontend->stop();
+    for (const auto &entry : m_media_lib->encoders)
     {
         entry.second->stop();
     }
 
-    // close all file in media_lib->output_files
-    for (auto &entry : media_lib->output_files)
+    // close all file in m_media_lib->output_files
+    for (auto &entry : m_media_lib->output_files)
     {
         entry.second.close();
     }

@@ -24,6 +24,7 @@
 #include <iostream>
 #include <memory>
 #include <vector>
+#include <variant>
 
 // Open source includes
 #include "config_manager.hpp"
@@ -34,6 +35,13 @@ enum codec_t
 {
     CODEC_TYPE_H264,
     CODEC_TYPE_HEVC
+};
+
+enum deblocking_filter_type_t
+{
+    DEBLOCKING_FILTER_ENABLED,
+    DEBLOCKING_FILTER_DISABLED,
+    DEBLOCKING_FILTER_DISABLED_ON_SLICE_EDGES
 };
 
 struct input_config_t
@@ -53,9 +61,9 @@ struct output_config_t
 
 struct deblocking_filter_t
 {
-    std::string type;
-    uint32_t tc_offset;
-    uint32_t beta_offset;
+    deblocking_filter_type_t type;
+    int32_t tc_offset;
+    int32_t beta_offset;
     bool deblock_override;
 };
 
@@ -127,24 +135,28 @@ struct  rate_control_config_t
   bitrate_config_t bitrate;
 };
 
-struct stream_config_t
+struct jpeg_encoder_config_t
+{
+    input_config_t input_stream;
+    uint32_t n_threads;
+    uint32_t quality;
+};
+
+struct hailo_encoder_config_t
 {
     input_config_t input_stream;
     output_config_t output_stream;
-};
-
-struct encoder_config_t
-{
-    stream_config_t stream;
     gop_config_t gop;
     coding_control_config_t coding_control;
     rate_control_config_t rate_control;
 };
 
+typedef std::variant<jpeg_encoder_config_t, hailo_encoder_config_t> encoder_config_t;
 
 class EncoderConfig
 {
   private:
+    EncoderType type;
     std::shared_ptr<ConfigManager> m_config_manager;
     std::string m_json_string;
     nlohmann::json m_doc;
@@ -159,4 +171,6 @@ class EncoderConfig
     media_library_return configure(const std::string &config_path);
     media_library_return configure(const encoder_config_t &encoder_config);
     encoder_config_t get_config();
+    hailo_encoder_config_t get_hailo_config();
+    jpeg_encoder_config_t get_jpeg_config();
 };

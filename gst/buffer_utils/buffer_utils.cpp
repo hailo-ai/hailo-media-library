@@ -50,6 +50,8 @@ HailoMediaLibraryBufferPtr hailo_buffer_from_gst_buffer(GstBuffer *buffer, GstCa
     hailo_media_library_buffer hailo_buffer;
     if (hailo_buffer_meta)
     {
+        // increase ref count since this buffer already exists
+        hailo_buffer_meta->buffer_ptr->increase_ref_count();
         return hailo_buffer_meta->buffer_ptr;
     }
     video_info = gst_video_info_new_from_caps(caps);
@@ -219,9 +221,59 @@ static bool create_hailo_buffer_from_video_frame(GstVideoFrame *video_frame, hai
     return true;
 }
 
-int get_fd(GstVideoFrame *video_frame, int index)
+bool dma_buffer_sync_start(GstBuffer *buffer)
+{
+    bool ret = true;
+    guint memory_count = gst_buffer_n_memory(buffer);
+    for (guint i = 0; i < memory_count; i++)
+    {
+        int fd = -1;
+        GstMemory *memory = gst_buffer_peek_memory(buffer, i);
+        GstMapInfo memory_map_info;
+        gst_memory_map(memory, &memory_map_info, GST_MAP_READ);
+        void *buffer_ptr = memory_map_info.data;
+        if (DmaMemoryAllocator::get_instance().get_fd(buffer_ptr, fd) == MEDIA_LIBRARY_SUCCESS)
+        {
+            if (DmaMemoryAllocator::get_instance().dmabuf_sync_start(buffer_ptr) != MEDIA_LIBRARY_SUCCESS)
+                ret = false;
+        }
+
+        gst_memory_unmap(memory, &memory_map_info);
+    }
+
+    return ret;
+}
+
+bool dma_buffer_sync_end(GstBuffer *buffer)
+{
+    bool ret = true;
+    guint memory_count = gst_buffer_n_memory(buffer);
+    for (guint i = 0; i < memory_count; i++)
+    {
+        int fd = -1;
+        GstMemory *memory = gst_buffer_peek_memory(buffer, i);
+        GstMapInfo memory_map_info;
+        gst_memory_map(memory, &memory_map_info, GST_MAP_READ);
+        void *buffer_ptr = memory_map_info.data;
+        if (DmaMemoryAllocator::get_instance().get_fd(buffer_ptr, fd) == MEDIA_LIBRARY_SUCCESS)
+        {
+            if (DmaMemoryAllocator::get_instance().dmabuf_sync_end(buffer_ptr) != MEDIA_LIBRARY_SUCCESS)
+                ret = false;
+        }
+
+        gst_memory_unmap(memory, &memory_map_info);
+    }
+
+    return ret;
+}
+
+int get_fd(GstVideoFrame *video_frame, int index, bool gst_dma = true)
 {
     int fd = -1;
+    if (!gst_dma)
+    {
+        return fd;
+    }
 
     // First, try to get the fd using the DmaMemoryAllocator
     void *data = (void *)GST_VIDEO_FRAME_PLANE_DATA(video_frame, index);
@@ -278,6 +330,28 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
             .format = DSP_IMAGE_FORMAT_RGB};
         break;
     }
+    case GST_VIDEO_FORMAT_ARGB:
+    {
+        // ARGB is non-planar, since all channels are interleaved, we treat the whole image as 1 plane
+        void *data = (void *)GST_VIDEO_FRAME_PLANE_DATA(video_frame, 0);
+        size_t input_line_stride = GST_VIDEO_FRAME_PLANE_STRIDE(video_frame, 0);
+        size_t input_size = GST_VIDEO_FRAME_SIZE(video_frame);
+
+        // Allocate memory for the plane
+        dsp_data_plane_t *plane = new dsp_data_plane_t[1];
+        plane->userptr = data;
+        plane->bytesperline = input_line_stride;
+        plane->bytesused = input_size;
+
+        // Fill in dsp_image_properties_t values
+        dsp_image_props = (dsp_image_properties_t){
+            .width = image_width,
+            .height = image_height,
+            .planes = plane,
+            .planes_count = n_planes,
+            .format = DSP_IMAGE_FORMAT_ARGB};
+        break;
+    }
     case GST_VIDEO_FORMAT_YUY2:
     {
         GST_CAT_ERROR(GST_CAT_DEFAULT, "DSP image properties from GstVideoFrame failed: YUY2 not yet supported.");
@@ -290,7 +364,7 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
         void *y_channel_data = (void *)GST_VIDEO_FRAME_PLANE_DATA(video_frame, 0);
         size_t y_channel_stride = GST_VIDEO_FRAME_PLANE_STRIDE(video_frame, 0);
         size_t y_channel_size = y_channel_stride * image_height;
-        int y_channel_fd = get_fd(video_frame, 0);
+        int y_channel_fd = get_fd(video_frame, 0, gst_dma);
 
         dsp_data_plane_t y_plane_data = {
             .bytesperline = y_channel_stride,
@@ -309,7 +383,7 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
         void *uv_channel_data = (void *)GST_VIDEO_FRAME_PLANE_DATA(video_frame, 1);
         size_t uv_channel_stride = GST_VIDEO_FRAME_PLANE_STRIDE(video_frame, 1);
         size_t uv_channel_size = uv_channel_stride * image_height / 2;
-        int uv_channel_fd = get_fd(video_frame, 1);
+        int uv_channel_fd = get_fd(video_frame, 1, gst_dma);
 
         dsp_data_plane_t uv_plane_data = {
             .bytesperline = uv_channel_stride,
@@ -364,7 +438,7 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
             .bytesused = image_size,
         };
 
-        int channel_fd = get_fd(video_frame, 0);
+        int channel_fd = get_fd(video_frame, 0, gst_dma);
         if (channel_fd == -1)
         {
             plane_data.userptr = data;
@@ -407,7 +481,7 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
             size_t channel_size = channel_stride * image_height;
             if (i == 1 || i == 2)
                 channel_size /= 2;
-            int channel_fd = get_fd(video_frame, i);
+            int channel_fd = get_fd(video_frame, i, gst_dma);
 
             dsp_data_plane_t plane_data = {
                 .bytesperline = channel_stride,
@@ -434,7 +508,7 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
             .planes_count = n_planes,
             .format = DSP_IMAGE_FORMAT_A420};
 
-        if (get_fd(video_frame, 0) == -1)
+        if (get_fd(video_frame, 0, gst_dma) == -1)
         {
             // TODO: Remove in the future
             dsp_image_props.memory = DSP_MEMORY_TYPE_USERPTR;

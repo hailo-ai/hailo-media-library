@@ -16,7 +16,7 @@ namespace webserver
 
         public:
             IPipeline(WebserverResourceRepository resources);
-            virtual ~IPipeline();
+            virtual ~IPipeline() = default;
             virtual void start();
             virtual void stop();
             virtual WebserverResourceRepository get_resources() { return m_resources; };

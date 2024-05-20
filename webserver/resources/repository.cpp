@@ -11,6 +11,7 @@ WebserverResourceRepository webserver::resources::ResourceRepository::create()
     resources_vec.push_back(std::make_shared<webserver::resources::EncoderResource>());
     resources_vec.push_back(std::make_shared<webserver::resources::OsdResource>());
     resources_vec.push_back(std::make_shared<webserver::resources::PrivacyMaskResource>());
+    resources_vec.push_back(std::make_shared<webserver::resources::WebpageResource>());
 
     return std::make_shared<webserver::resources::ResourceRepository>(resources_vec);
 }

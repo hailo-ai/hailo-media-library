@@ -24,11 +24,6 @@ IPipeline::IPipeline(WebserverResourceRepository resources)
     gst_init(nullptr, nullptr);
 }
 
-IPipeline::~IPipeline()
-{
-    gst_object_unref(m_pipeline);
-}
-
 void IPipeline::start()
 {
     std::cout << "Starting pipeline" << std::endl;
@@ -52,6 +47,11 @@ void IPipeline::start()
 void IPipeline::stop()
 {
     std::cout << "Stopping pipeline" << std::endl;
+    if (!m_pipeline)
+    {
+        std::cout << "Pipeline is not running" << std::endl;
+        return;
+    }
     gboolean ret = gst_element_send_event(m_pipeline, gst_event_new_eos());
     if (!ret)
     {
@@ -61,7 +61,6 @@ void IPipeline::stop()
 
     std::cout << "Setting pipeline to NULL" << std::endl;
     gst_element_set_state(m_pipeline, GST_STATE_NULL);
-
-    gst_object_unref(m_pipeline);
     std::cout << "Pipeline stopped" << std::endl;
+    gst_object_unref(m_pipeline);
 }

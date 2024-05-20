@@ -48,7 +48,7 @@ mat_dims internal_calculate_text_size(const std::string &label, const std::strin
 class OverlayImpl
 {
 public:
-    OverlayImpl(std::string id, float x, float y, float width, float height, unsigned int z_index, unsigned int angle, osd::rotation_alignment_policy_t rotation_policy, bool ready_to_blend);
+    OverlayImpl(std::string id, float x, float y, float width, float height, unsigned int z_index, unsigned int angle, osd::rotation_alignment_policy_t rotation_policy, bool enabled);
     virtual ~OverlayImpl();
 
     virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(int frame_width, int frame_height);
@@ -60,7 +60,8 @@ public:
     void set_priority_iterator(std::set<OverlayImplPtr>::iterator priority_iterator);
 
     virtual std::shared_ptr<osd::Overlay> get_metadata() = 0;
-    bool get_ready_to_blend();
+    bool get_enabled();
+    void set_enabled(bool enabled);
     std::string get_id() { return m_id; }
 
 protected:
@@ -89,7 +90,10 @@ protected:
     unsigned int m_z_index;
     unsigned int m_angle;
     osd::rotation_alignment_policy_t m_rotation_policy;
-    bool m_ready_to_blend;
+    bool m_enabled;
+
+    std::shared_mutex m_overlay_mutex;
+
 };
 
 class CustomOverlayImpl;
@@ -106,6 +110,9 @@ public:
     virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(int frame_width, int frame_height);
 
     virtual std::shared_ptr<osd::Overlay> get_metadata();
+
+protected:
+    osd::custom_overlay_format m_format;
 };
 
 class ImageOverlayImpl;
@@ -175,12 +182,14 @@ public:
     virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(int frame_width, int frame_height);
     virtual std::shared_ptr<osd::Overlay> get_metadata();
 
-    static std::string select_chars_for_timestamp();
+    std::string select_chars_for_timestamp(std::string datetime_format);
+
 
 private:
     std::string m_datetime_str;
     int m_frame_width;
     int m_frame_height;
+    std::string m_datetime_format;
 };
 
 namespace osd
@@ -199,10 +208,10 @@ namespace osd
         media_library_return add_overlay(const TextOverlay &overlay);
         media_library_return add_overlay(const DateTimeOverlay &overlay);
         media_library_return add_overlay(const CustomOverlay &overlay);
+        media_library_return set_overlay_enabled(const std::string &id, bool enabled);
         std::shared_future<media_library_return> add_overlay_async(const ImageOverlay &overlay);
         std::shared_future<media_library_return> add_overlay_async(const TextOverlay &overlay);
         std::shared_future<media_library_return> add_overlay_async(const DateTimeOverlay &overlay);
-        std::shared_future<media_library_return> add_overlay_async(const CustomOverlay &overlay);
 
         media_library_return remove_overlay(const std::string &id);
         std::shared_future<media_library_return> remove_overlay_async(const std::string &id);
@@ -216,7 +225,6 @@ namespace osd
         std::shared_future<media_library_return> set_overlay_async(const ImageOverlay &overlay);
         std::shared_future<media_library_return> set_overlay_async(const TextOverlay &overlay);
         std::shared_future<media_library_return> set_overlay_async(const DateTimeOverlay &overlay);
-        std::shared_future<media_library_return> set_overlay_async(const CustomOverlay &overlay);
 
         media_library_return blend(dsp_image_properties_t &input_image_properties);
         media_library_return configure(const std::string &config);

@@ -225,7 +225,7 @@ int InitEncoderCodingConfig(EncoderParams *enc_params, VCEncInst *pEnc)
     codingCfg.vuiVideoFullRange = 0;
 
     /* Disabled */
-    codingCfg.seiMessages = 0;
+    codingCfg.seiMessages = 1;
     codingCfg.gdrDuration = 0;
     codingCfg.fieldOrder = 0;
 

@@ -117,7 +117,13 @@ MEDIALIB_JSON_SERIALIZE_ENUM(denoise_method_t, {
 MEDIALIB_JSON_SERIALIZE_ENUM(codec_t, {
                                         {CODEC_TYPE_H264, "CODEC_TYPE_H264"},
                                         {CODEC_TYPE_HEVC, "CODEC_TYPE_HEVC"},
-                                      })                                   
+                                      })
+
+MEDIALIB_JSON_SERIALIZE_ENUM(deblocking_filter_type_t, {
+                                        {DEBLOCKING_FILTER_ENABLED, "DEBLOCKING_FILTER_ENABLED"},
+                                        {DEBLOCKING_FILTER_DISABLED, "DEBLOCKING_FILTER_DISABLED"},
+                                        {DEBLOCKING_FILTER_DISABLED_ON_SLICE_EDGES, "DEBLOCKING_FILTER_DISABLED_ON_SLICE_EDGES"},
+                                      })
 
 //------------------------ roi_t ------------------------
 
@@ -251,20 +257,6 @@ void from_json(const nlohmann::json &j, output_config_t &out_conf)
     j.at("codec").get_to(out_conf.codec);
     j.at("profile").get_to(out_conf.profile);
     j.at("level").get_to(out_conf.level);
-}
-
-void to_json(nlohmann::json &j, const stream_config_t &stream_conf)
-{
-    j = nlohmann::json{
-        {"input_stream", stream_conf.input_stream},
-        {"output_stream", stream_conf.output_stream},
-    };
-}
-
-void from_json(const nlohmann::json &j, stream_config_t &stream_conf)
-{
-    j.at("input_stream").get_to(stream_conf.input_stream);
-    j.at("output_stream").get_to(stream_conf.output_stream);
 }
 
 void to_json(nlohmann::json &j, const gop_config_t &gop_conf)
@@ -433,22 +425,50 @@ void from_json(const nlohmann::json &j, rate_control_config_t &rc_conf)
     j.at("quantization").get_to(rc_conf.quantization);
 }
 
-void to_json(nlohmann::json &j, const encoder_config_t &enc_conf)
+void to_json(nlohmann::json &j, const hailo_encoder_config_t &enc_conf)
 {
     j = nlohmann::json{
-        {"config", enc_conf.stream},
-        {"gop_config", enc_conf.gop},
-        {"coding_cotnrol", enc_conf.coding_control},
-        {"rate_control", enc_conf.rate_control},
+        {"encoding",
+            {"input_stream", enc_conf.input_stream},
+            {"hailo_encoder",
+                {"config",
+                    {"output_stream", enc_conf.output_stream}
+                },
+                {"gop_config", enc_conf.gop},
+                {"coding_cotnrol", enc_conf.coding_control},
+                {"rate_control", enc_conf.rate_control},
+            }
+        }
     };
 }
 
-void from_json(const nlohmann::json &j, encoder_config_t &enc_conf)
+void from_json(const nlohmann::json &j, hailo_encoder_config_t &enc_conf)
 {
-    j.at("hailo_encoder").at("config").get_to(enc_conf.stream);
-    j.at("hailo_encoder").at("gop_config").get_to(enc_conf.gop);
-    j.at("hailo_encoder").at("coding_control").get_to(enc_conf.coding_control);
-    j.at("hailo_encoder").at("rate_control").get_to(enc_conf.rate_control);
+    j.at("encoding").at("input_stream").get_to(enc_conf.input_stream);
+    j.at("encoding").at("hailo_encoder").at("config").at("output_stream").get_to(enc_conf.output_stream);
+    j.at("encoding").at("hailo_encoder").at("gop_config").get_to(enc_conf.gop);
+    j.at("encoding").at("hailo_encoder").at("coding_control").get_to(enc_conf.coding_control);
+    j.at("encoding").at("hailo_encoder").at("rate_control").get_to(enc_conf.rate_control);
+}
+
+void to_json(nlohmann::json &j, const jpeg_encoder_config_t &enc_conf)
+{
+    j = nlohmann::json{
+        {"encoding",
+            {"input_stream", enc_conf.input_stream},
+            {"jpeg_encoder",
+                {"n_threads", enc_conf.n_threads},
+                {"quality", enc_conf.quality}
+            }
+        }
+    };
+}
+
+void from_json(const nlohmann::json &j, jpeg_encoder_config_t &enc_conf)
+{
+    j.at("encoding").at("input_stream").get_to(enc_conf.input_stream);
+    j.at("encoding").at("jpeg_encoder").at("n_threads").get_to(enc_conf.n_threads);
+    j.at("encoding").at("jpeg_encoder").at("quality").get_to(enc_conf.quality);
 }
 
 //------------------------ dis_config_t ------------------------

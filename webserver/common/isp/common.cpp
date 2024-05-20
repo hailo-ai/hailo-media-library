@@ -10,7 +10,6 @@ void isp_utils::set_backlight_configuration() {}
 
 void webserver::common::update_3a_config(bool enabled)
 {
-
 #ifdef MEDIALIB_LOCAL_SERVER
     return;
 #else
@@ -46,9 +45,45 @@ void webserver::common::update_3a_config(bool enabled)
         return;
     }
 
-    outFile << config.dump(); // 4 is the indentation level for pretty printing
+    outFile << config.dump();
     outFile.close();
 #endif
+}
+
+void webserver::common::update_3a_config(nlohmann::json config)
+{
+#ifdef MEDIALIB_LOCAL_SERVER
+    return;
+#else
+    // Write updated JSON back to file
+    std::ofstream outFile(TRIPLE_A_CONFIG_PATH);
+    if (!outFile.is_open())
+    {
+        std::cout << "Failed to open output file." << std::endl;
+        return;
+    }
+
+    outFile << config.dump();
+    outFile.close();
+#endif
+}
+
+nlohmann::json webserver::common::get_3a_config()
+{
+    nlohmann::json config;
+#ifndef MEDIALIB_LOCAL_SERVER
+    // Read JSON file
+    std::ifstream file(TRIPLE_A_CONFIG_PATH);
+    if (!file.is_open())
+    {
+        std::cout << "Failed to open JSON file." << std::endl;
+        return NULL;
+    }
+
+    file >> config;
+    file.close();
+#endif
+    return config;
 }
 
 void webserver::common::from_json(const nlohmann::json &json, webserver::common::stream_isp_params_t &params)
@@ -90,13 +125,15 @@ void webserver::common::from_json(const nlohmann::json &json, webserver::common:
     json.at("enabled").get_to(params.enabled);
     json.at("gain").get_to(params.gain);
     json.at("integration_time").get_to(params.integration_time);
+    json.at("backlight").get_to(params.backlight);
 }
 
 void webserver::common::to_json(nlohmann::json &json, const webserver::common::auto_exposure_t &params)
 {
     json = nlohmann::json{{"enabled", params.enabled},
                           {"gain", params.gain},
-                          {"integration_time", params.integration_time}};
+                          {"integration_time", params.integration_time},
+                          {"backlight", params.backlight}};
 }
 
 void webserver::common::from_json(const nlohmann::json &json, webserver::common::wide_dynamic_range_t &params)

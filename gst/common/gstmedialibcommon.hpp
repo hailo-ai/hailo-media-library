@@ -29,7 +29,7 @@
 
 namespace gstmedialibcommon {
 
-    inline std::string read_json_string_from_file(gchar *file_path)
+    inline std::string read_json_string_from_file(const gchar *file_path)
     {
         std::ifstream file_to_read;
         file_to_read.open(file_path);

@@ -355,6 +355,8 @@ media_library_return MediaLibraryDewarp::Impl::create_and_initialize_buffer_pool
     }
 
     auto bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width(width);
+    // Forcing output video buffer pool to be max 5 buffers.
+    m_ldc_configs.output_video_config.pool_max_buffers = 5;
     LOGGER__INFO("Creating buffer pool named {} for output resolution: width {} height {} in buffers size of {} and bytes per line {}", name, width, height, m_ldc_configs.output_video_config.pool_max_buffers, bytes_per_line);
     m_output_buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, m_ldc_configs.input_video_config.format, (uint)m_ldc_configs.output_video_config.pool_max_buffers, CMA, bytes_per_line, name);
     if (m_output_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
@@ -509,7 +511,6 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(hailo_media_library_
 
     if (validate_input_frame(input_frame) != MEDIA_LIBRARY_SUCCESS)
     {
-        input_frame.decrease_ref_count();
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
@@ -531,7 +532,7 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(hailo_media_library_
     }
 
     // Update mesh context if dis is enabled and vsm has changed
-    if (m_ldc_configs.dis_config.enabled && (input_frame.vsm.dx != m_last_vsm.dx || input_frame.vsm.dy != m_last_vsm.dy))
+    else if (m_ldc_configs.dis_config.enabled)
     {
         LOGGER__DEBUG("Updating vsm to dx {} dy {}", input_frame.vsm.dx, input_frame.vsm.dy);
         m_dewarp_mesh_ctx->on_frame_vsm_update(input_frame.vsm);
@@ -544,9 +545,6 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(hailo_media_library_
     media_lib_ret = perform_dewarp(input_frame, output_frame);
     output_frame.isp_ae_fps = input_frame.isp_ae_fps;
     output_frame.isp_ae_converged = input_frame.isp_ae_converged;
-
-    // Unref the input frame
-    input_frame.decrease_ref_count();
 
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
         return media_lib_ret;

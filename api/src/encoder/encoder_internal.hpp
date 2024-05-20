@@ -61,6 +61,7 @@ private:
     std::string m_json_config; // TODO: this should be const
     std::shared_ptr<osd::Blender> m_blender;
     appsrc_state m_appsrc_state;
+    EncoderType m_encoder_type;
 
 public:
     static tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>, media_library_return> create(std::string json_config, std::string name);
@@ -112,7 +113,7 @@ private:
     }
 
 private:
-    void set_gst_callbacks(GstElement *pipeline);
+    void set_gst_callbacks();
     GstFlowReturn add_buffer_internal(GstBuffer *buffer);
     std::string create_pipeline_string(nlohmann::json osd_json_config);
 };

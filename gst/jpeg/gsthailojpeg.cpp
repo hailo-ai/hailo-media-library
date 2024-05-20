@@ -279,8 +279,6 @@ void construct_internal_pipeline(GstHailoJpegEnc *hailojpegenc)
         g_object_set(jpegenc, "quality", hailojpegenc->jpeg_quality, NULL);
         g_object_set(jpegenc, "idct-method", hailojpegenc->jpeg_idct_method, NULL);
 
-        // don't forget to set properties!!!!!!
-
         hailojpegenc->m_jpegencs.push_back(jpegenc);
         if (!gst_bin_add(GST_BIN(hailojpegenc), jpegenc))
         {

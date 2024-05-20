@@ -65,7 +65,25 @@ media_library_return EncoderConfig::configure(const std::string &json_string)
         LOGGER__ERROR("encoder's JSON config conversion failed: {}", strapped_json);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-    m_doc = nlohmann::json::parse(strapped_json)["hailo_encoder"];
+
+    nlohmann::json parsed_json = nlohmann::json::parse(strapped_json);
+    std::string encoder_name;
+
+    type = ConfigManager::get_encoder_type(parsed_json);
+    switch (type)
+    {
+    case EncoderType::Jpeg:
+        encoder_name = "jpeg_encoder";
+        break;
+    case EncoderType::Hailo:
+        encoder_name = "hailo_encoder";
+        break;
+    case EncoderType::None:
+        // Should not get here, config_string_to_struct would have returned an error in this case
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    m_doc = parsed_json["encoding"][encoder_name];
     m_json_string = strapped_json;
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -81,11 +99,21 @@ encoder_config_t EncoderConfig::get_config()
     return m_config;
 }
 
+hailo_encoder_config_t EncoderConfig::get_hailo_config()
+{
+    return std::get<hailo_encoder_config_t>(m_config);
+}
+
+jpeg_encoder_config_t EncoderConfig::get_jpeg_config()
+{
+    return std::get<jpeg_encoder_config_t>(m_config);
+}
+
 const nlohmann::json &EncoderConfig::get_doc() const { return m_doc; }
 
-bool Encoder::Impl::gop_config_update_required(const encoder_config_t &new_config)
+bool Encoder::Impl::gop_config_update_required(const hailo_encoder_config_t &new_config)
 {
-    encoder_config_t current_config = m_config->get_config();
+    hailo_encoder_config_t current_config = m_config->get_hailo_config();
     if(new_config.gop.gop_size != current_config.gop.gop_size || new_config.gop.b_frame_qp_delta != current_config.gop.b_frame_qp_delta)
     {
         return true;
@@ -94,22 +122,22 @@ bool Encoder::Impl::gop_config_update_required(const encoder_config_t &new_confi
     return false;
 }
 
-bool Encoder::Impl::hard_restart_required(const encoder_config_t &new_config, bool gop_update_required)
+bool Encoder::Impl::hard_restart_required(const hailo_encoder_config_t &new_config, bool gop_update_required)
 {
-    encoder_config_t current_config = m_config->get_config();
+    hailo_encoder_config_t current_config = m_config->get_hailo_config();
     // Output stream configs requires hard restart
-    if((new_config.stream.output_stream.codec != current_config.stream.output_stream.codec) || \
-    (new_config.stream.output_stream.level != current_config.stream.output_stream.level) || \
-    (new_config.stream.output_stream.profile != current_config.stream.output_stream.profile))
+    if((new_config.output_stream.codec != current_config.output_stream.codec) || \
+    (new_config.output_stream.level != current_config.output_stream.level) || \
+    (new_config.output_stream.profile != current_config.output_stream.profile))
     {
         return true;
     }
 
     // Input stream configs requires hard restart
-    if((new_config.stream.input_stream.width != current_config.stream.input_stream.width) || \
-    (new_config.stream.input_stream.height != current_config.stream.input_stream.height) || \
-    (new_config.stream.input_stream.framerate != current_config.stream.input_stream.framerate) || \
-    (new_config.stream.input_stream.format != current_config.stream.input_stream.format))
+    if((new_config.input_stream.width != current_config.input_stream.width) || \
+    (new_config.input_stream.height != current_config.input_stream.height) || \
+    (new_config.input_stream.framerate != current_config.input_stream.framerate) || \
+    (new_config.input_stream.format != current_config.input_stream.format))
     {
         return true;
     }
@@ -125,7 +153,7 @@ bool Encoder::Impl::hard_restart_required(const encoder_config_t &new_config, bo
 
 uint32_t Encoder::Impl::get_codec()
 {
-    auto output_stream = m_config->get_config().stream.output_stream;
+    auto output_stream = m_config->get_hailo_config().output_stream;
     if (output_stream.codec == CODEC_TYPE_H264)
         return 1;
     else if (output_stream.codec == CODEC_TYPE_HEVC)
@@ -136,7 +164,7 @@ uint32_t Encoder::Impl::get_codec()
 
 VCEncProfile Encoder::Impl::get_profile()
 {
-    auto output_stream = m_config->get_config().stream.output_stream;
+    auto output_stream = m_config->get_hailo_config().output_stream;
     std::string profile = output_stream.profile;
     if (profile == "VCENC_H264_BASE_PROFILE")
         return VCENC_H264_BASE_PROFILE;
@@ -219,7 +247,7 @@ void Encoder::Impl::create_gop_config()
 {
     LOGGER__DEBUG("Encoder - init_gop_config");
     auto codec = get_codec();
-    auto gop_config_json = m_config->get_config().gop;
+    auto gop_config_json = m_config->get_hailo_config().gop;
     int32_t bframe_qp_delta = gop_config_json.b_frame_qp_delta;
     int32_t gop_size = gop_config_json.gop_size;
     memset(&m_enc_in.gopConfig, 0, sizeof(VCEncGopConfig));
@@ -229,7 +257,7 @@ void Encoder::Impl::create_gop_config()
 
 int Encoder::Impl::init_gop_config()
 {
-    auto gop_config = m_config->get_config().gop;
+    auto gop_config = m_config->get_hailo_config().gop;
     auto codec = get_codec();
 
     memset(&m_enc_in.gopConfig, 0, sizeof(VCEncGopConfig));
@@ -245,7 +273,7 @@ VCEncRet Encoder::Impl::init_rate_control_config()
     LOGGER__DEBUG("Encoder - init_rate_control_config");
     VCEncRet ret = VCENC_OK;
 
-    auto rate_control = m_config->get_config().rate_control;
+    auto rate_control = m_config->get_hailo_config().rate_control;
     /* Encoder setup: rate control */
     if ((ret = VCEncGetRateCtrl(m_inst, &m_vc_rate_cfg)) != VCENC_OK)
     {
@@ -312,7 +340,7 @@ VCEncRet Encoder::Impl::init_coding_control_config()
 {
     LOGGER__DEBUG("Encoder - init_coding_control_config");
     VCEncRet ret = VCENC_OK;
-    auto coding_control = m_config->get_config().coding_control;
+    auto coding_control = m_config->get_hailo_config().coding_control;
 
     /* Encoder setup: coding control */
     if ((ret = VCEncGetCodingCtrl(m_inst, &m_vc_coding_cfg)) != VCENC_OK)
@@ -323,17 +351,17 @@ VCEncRet Encoder::Impl::init_coding_control_config()
 
     m_vc_coding_cfg.sliceSize = 0;
     m_vc_coding_cfg.disableDeblockingFilter = 0;
-    m_vc_coding_cfg.tc_Offset = -2;
-    m_vc_coding_cfg.beta_Offset = 5;
+    m_vc_coding_cfg.tc_Offset = coding_control.deblocking_filter.tc_offset;
+    m_vc_coding_cfg.beta_Offset = coding_control.deblocking_filter.beta_offset;
     m_vc_coding_cfg.enableSao = 1;
-    m_vc_coding_cfg.enableDeblockOverride = 0;
-    m_vc_coding_cfg.deblockOverride = 0;
+    m_vc_coding_cfg.enableDeblockOverride = coding_control.deblocking_filter.deblock_override ? 1 : 0;
+    m_vc_coding_cfg.deblockOverride = coding_control.deblocking_filter.deblock_override ? 1 : 0;
     m_vc_coding_cfg.enableCabac = 1;
     m_vc_coding_cfg.cabacInitFlag = 0;
     m_vc_coding_cfg.vuiVideoFullRange = 0;
+    m_vc_coding_cfg.seiMessages = coding_control.sei_messages ? 1 : 0;
 
     /* Disabled */
-    m_vc_coding_cfg.seiMessages = 0;
     m_vc_coding_cfg.gdrDuration = 0;
     m_vc_coding_cfg.fieldOrder = 0;
 
@@ -390,7 +418,7 @@ VCEncRet Encoder::Impl::init_preprocessing_config()
         VCEncRelease(m_inst);
         return ret;
     }
-    auto input_stream = m_config->get_config().stream.input_stream;
+    auto input_stream = m_config->get_hailo_config().input_stream;
 
     m_vc_pre_proc_cfg.inputType =
         get_input_format(std::string(input_stream.format));
@@ -456,8 +484,8 @@ VCEncRet Encoder::Impl::init_encoder_config()
     memset(&m_vc_cfg, 0, sizeof(m_vc_cfg));
     LOGGER__DEBUG("Encoder - init_encoder_config");
     VCEncRet ret = VCENC_OK;
-    auto input_stream = m_config->get_config().stream.input_stream;
-    auto output_stream = m_config->get_config().stream.output_stream;
+    auto input_stream = m_config->get_hailo_config().input_stream;
+    auto output_stream = m_config->get_hailo_config().output_stream;
 
     m_input_stride = input_stream.width;
 

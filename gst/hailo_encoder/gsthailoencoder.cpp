@@ -39,12 +39,12 @@ Property Definitions
 *******************/
 enum
 {
-  PROP_0,
-  PROP_CONFIG_STRING,
-  PROP_CONFIG_PATH,
-  PROP_CONFIG,
-  PROP_ENFORCE_CAPS,
-  NUM_OF_PROPS,
+    PROP_0,
+    PROP_CONFIG_STRING,
+    PROP_CONFIG_PATH,
+    PROP_CONFIG,
+    PROP_ENFORCE_CAPS,
+    NUM_OF_PROPS,
 };
 
 /************
@@ -142,8 +142,8 @@ gst_hailo_encoder_class_init(GstHailoEncoderClass *klass)
                                                          (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 
     g_object_class_install_property(gobject_class, PROP_CONFIG,
-                                  g_param_spec_pointer("config", "Encoder config", "Encoder config as encoder_config_t",
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                    g_param_spec_pointer("config", "Encoder config", "Encoder config as encoder_config_t",
+                                                         (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 
     venc_class->open = gst_hailo_encoder_open;
     venc_class->start = gst_hailo_encoder_start;
@@ -175,99 +175,99 @@ static void
 gst_hailo_encoder_get_property(GObject *object,
                                guint prop_id, GValue *value, GParamSpec *pspec)
 {
-  GstHailoEncoder *hailoencoder = (GstHailoEncoder *)(object);
+    GstHailoEncoder *hailoencoder = (GstHailoEncoder *)(object);
 
-  switch (prop_id)
-  {
-  case PROP_CONFIG_STRING:
-  {
-    g_value_set_string(value, hailoencoder->config.c_str());
-    break;
-  }
-  case PROP_CONFIG_PATH:
-  {
-    g_value_set_string(value, hailoencoder->config_path.c_str());
-    break;
-  }
-  case PROP_CONFIG:
-  {
-    if(hailoencoder->encoder)
+    switch (prop_id)
     {
-      hailoencoder->encoder_config = std::make_shared<encoder_config_t>(hailoencoder->encoder->get_config());
-      g_value_set_pointer(value, hailoencoder->encoder_config.get());
-    }
-    else
+    case PROP_CONFIG_STRING:
     {
-      g_value_set_pointer(value, nullptr);
+        g_value_set_string(value, hailoencoder->config.c_str());
+        break;
     }
-    break;
-  }
-  case PROP_ENFORCE_CAPS:
-  {
-    g_value_set_boolean(value, hailoencoder->enforce_caps);
-    break;
-  }
-  default:
-  {
-    G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
-    break;
-  }
-  }
+    case PROP_CONFIG_PATH:
+    {
+        g_value_set_string(value, hailoencoder->config_path.c_str());
+        break;
+    }
+    case PROP_CONFIG:
+    {
+        if (hailoencoder->encoder)
+        {
+            hailoencoder->encoder_config = std::make_shared<encoder_config_t>(hailoencoder->encoder->get_config());
+            g_value_set_pointer(value, hailoencoder->encoder_config.get());
+        }
+        else
+        {
+            g_value_set_pointer(value, nullptr);
+        }
+        break;
+    }
+    case PROP_ENFORCE_CAPS:
+    {
+        g_value_set_boolean(value, hailoencoder->enforce_caps);
+        break;
+    }
+    default:
+    {
+        G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
+        break;
+    }
+    }
 }
 
 static void
 gst_hailo_encoder_set_property(GObject *object,
                                guint prop_id, const GValue *value, GParamSpec *pspec)
 {
-  std::string encoder_config_path;
-  GstHailoEncoder *hailoencoder = (GstHailoEncoder *)(object);
+    std::string encoder_config_path;
+    GstHailoEncoder *hailoencoder = (GstHailoEncoder *)(object);
 
-  switch (prop_id)
-  {
-  case PROP_CONFIG_STRING:
-  {
-    hailoencoder->config = std::string(g_value_get_string(value));
-    break;
-  }
-  case PROP_CONFIG_PATH:
-  {
-    // Why do we need two lines instead of one? Good question! 
-    // For some odd reason, its not working when we use g_value_get_string directly
-    encoder_config_path  = std::string(g_value_get_string(value));
-    hailoencoder->config_path = encoder_config_path;
-    break;
-  }
-  case PROP_CONFIG:
-  {
-    if (hailoencoder->encoder)
+    switch (prop_id)
     {
-      encoder_config_t *encoder_config = static_cast<encoder_config_t *>(g_value_get_pointer(value));
-      if (hailoencoder->encoder->configure(*encoder_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
-      {
-        GST_ERROR_OBJECT(hailoencoder, "Failed to configure encoder");
-      }
-      else
-      {
-          hailoencoder->encoder_config = std::make_shared<encoder_config_t>(*encoder_config);
-      }
-    }
-    else
+    case PROP_CONFIG_STRING:
     {
-      GST_ERROR_OBJECT(hailoencoder, "Encoder instance not initialized");
+        hailoencoder->config = std::string(g_value_get_string(value));
+        break;
     }
-    break;
-  }
-  case PROP_ENFORCE_CAPS:
-  {
-    hailoencoder->enforce_caps = g_value_get_boolean(value);
-    break;
-  }
-  default:
-  {
-    G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
-    break;
-  }
-  }
+    case PROP_CONFIG_PATH:
+    {
+        // Why do we need two lines instead of one? Good question!
+        // For some odd reason, its not working when we use g_value_get_string directly
+        encoder_config_path = std::string(g_value_get_string(value));
+        hailoencoder->config_path = encoder_config_path;
+        break;
+    }
+    case PROP_CONFIG:
+    {
+        if (hailoencoder->encoder)
+        {
+            encoder_config_t *encoder_config = static_cast<encoder_config_t *>(g_value_get_pointer(value));
+            if (hailoencoder->encoder->configure(*encoder_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+            {
+                GST_ERROR_OBJECT(hailoencoder, "Failed to configure encoder");
+            }
+            else
+            {
+                hailoencoder->encoder_config = std::make_shared<encoder_config_t>(*encoder_config);
+            }
+        }
+        else
+        {
+            GST_ERROR_OBJECT(hailoencoder, "Encoder instance not initialized");
+        }
+        break;
+    }
+    case PROP_ENFORCE_CAPS:
+    {
+        hailoencoder->enforce_caps = g_value_get_boolean(value);
+        break;
+    }
+    default:
+    {
+        G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
+        break;
+    }
+    }
 }
 
 static void
@@ -277,11 +277,6 @@ gst_hailo_encoder_finalize(GObject *object)
     GST_DEBUG_OBJECT(hailoencoder, "hailoencoder finalize callback");
 
     /* clean up remaining allocated data */
-    if (hailoencoder->encoder)
-    {
-        hailoencoder->encoder.reset();
-        hailoencoder->encoder = NULL;
-    }
 
     G_OBJECT_CLASS(parent_class)->finalize(object);
 }
@@ -295,10 +290,10 @@ gst_hailo_encoder_dispose(GObject *object)
     /* clean up as possible.  may be called multiple times */
     if (hailoencoder->encoder)
     {
+        hailoencoder->encoder->dispose();
         hailoencoder->encoder.reset();
         hailoencoder->encoder = nullptr;
     }
-
     G_OBJECT_CLASS(parent_class)->dispose(object);
 }
 
@@ -361,7 +356,7 @@ gst_hailo_encoder_getcaps(GstVideoEncoder *encoder, GstCaps *filter)
     else
     {
         GST_DEBUG_OBJECT(hailoencoder, "Getting caps from encoder instance");
-        input_config_t input_config = hailoencoder->encoder->get_config().stream.input_stream;
+        input_config_t input_config = std::get<hailo_encoder_config_t>(hailoencoder->encoder->get_config()).input_stream;
         caps = gst_caps_new_empty_simple("video/x-raw");
         gst_caps_set_simple(caps,
                             "format", G_TYPE_STRING, input_config.format.c_str(),
@@ -479,7 +474,7 @@ gst_hailo_encoder_open(GstVideoEncoder *encoder)
 
     hailoencoder->config = clean_config;
 
-    if(hailoencoder->encoder)
+    if (hailoencoder->encoder)
     {
         std::cout << "hailoencoder reusing encoder" << std::endl;
         hailoencoder->encoder->init();
@@ -515,7 +510,8 @@ static gboolean
 gst_hailo_encoder_stop(GstVideoEncoder *encoder)
 {
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
-    hailoencoder->encoder->dispose();
+    GST_DEBUG_OBJECT(hailoencoder, "hailoencoder stop callback");
+    hailoencoder->encoder->release();
     g_queue_free(hailoencoder->dts_queue);
     return TRUE;
 }
@@ -525,6 +521,7 @@ gst_hailo_encoder_finish(GstVideoEncoder *encoder)
 {
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
 
+    GST_DEBUG_OBJECT(hailoencoder, "hailoencoder finish callback");
     auto output = hailoencoder->encoder->stop();
     GstBuffer *eos_buffer = gst_hailo_encoder_get_output_buffer(hailoencoder, output);
     gst_buffer_add_hailo_buffer_meta(eos_buffer, output.buffer, output.size);
@@ -547,7 +544,6 @@ gst_hailo_encoder_handle_frame(GstVideoEncoder *encoder,
 
     if (frame->system_frame_number == 0)
     {
-
         switch (hailoencoder->encoder->get_gop_size())
         {
         case 1:
@@ -579,21 +575,28 @@ gst_hailo_encoder_handle_frame(GstVideoEncoder *encoder,
         input_frame = frame;
     }
 
-    HailoMediaLibraryBufferPtr hailo_buffer_ptr = hailo_buffer_from_gst_buffer(frame->input_buffer, hailoencoder->input_state->caps);
+    HailoMediaLibraryBufferPtr hailo_buffer_ptr = hailo_buffer_from_gst_buffer(input_frame->input_buffer, hailoencoder->input_state->caps);
     if (!hailo_buffer_ptr)
     {
         GST_ERROR_OBJECT(hailoencoder, "Could not get hailo buffer");
         return GST_FLOW_ERROR;
     }
     auto outputs = hailoencoder->encoder->handle_frame(hailo_buffer_ptr);
+    hailo_buffer_ptr->decrease_ref_count();
     gst_video_codec_frame_unref(input_frame);
 
-    for (EncoderOutputBuffer output : outputs)
+    for (EncoderOutputBuffer &output : outputs)
     {
         auto oldest_frame = gst_video_encoder_get_oldest_frame(encoder);
         oldest_frame->output_buffer = gst_hailo_encoder_get_output_buffer(hailoencoder, output);
+        // oldest_frame->dts = GPOINTER_TO_UINT(g_queue_pop_head(hailoencoder->dts_queue));
+        g_queue_pop_head(hailoencoder->dts_queue);
         gst_buffer_add_hailo_buffer_meta(oldest_frame->output_buffer, output.buffer, output.size);
-        gst_video_encoder_finish_frame(encoder, oldest_frame);
+        if (gst_video_encoder_finish_frame(encoder, oldest_frame) != GST_FLOW_OK)
+        {
+            GST_ERROR_OBJECT(hailoencoder, "Failed to finish frame");
+            return GST_FLOW_ERROR;
+        }
     }
 
     // if (is_keyframe && (frame == input_frame))

@@ -71,7 +71,7 @@ private:
     std::shared_ptr<std::mutex> m_bucket_mutex;
 
     media_library_return allocate();
-    media_library_return free();
+    media_library_return free(bool fail_on_used_buffers = true);
     media_library_return acquire(intptr_t *buffer_ptr);
     media_library_return release(intptr_t buffer_ptr);
 
@@ -88,6 +88,7 @@ public:
     // remove move assignment
     HailoBucket &operator=(HailoBucket &&) = delete;
     friend class MediaLibraryBufferPool;
+    int available_buffers_count();
 };
 using HailoBucketPtr = std::shared_ptr<HailoBucket>;
 
@@ -139,6 +140,7 @@ public:
 
     void log_increase_ref_count(uint32_t plane_index, uint32_t ref_count, uint32_t buffer_index);
     void log_decrease_ref_count(uint32_t plane_index, uint32_t ref_count, uint32_t buffer_index);
+    int get_available_buffers_count();
 
     /**
      * @brief Initialization of MediaLibraryBufferPool
@@ -151,7 +153,7 @@ public:
      * @brief Free all the allocated buffers
      * @return media_library_return
      */
-    media_library_return free();
+    media_library_return free(bool fail_on_used_buffers = true);
     /**
      * @brief Acquire a buffer from the pool
      *

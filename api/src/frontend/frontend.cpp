@@ -302,6 +302,7 @@ void MediaLibraryFrontend::Impl::set_gst_callbacks()
         {
             GstElement *fpssink = gst_bin_get_by_name(GST_BIN(m_pipeline), (std::string("fpsdisplay") + s.id).c_str());
             g_signal_connect(fpssink, "fps-measurements", G_CALLBACK(fps_measurement), this);
+            gst_object_unref(fpssink);
         }
         GstElement *appsink = gst_bin_get_by_name(GST_BIN(m_pipeline), s.id.c_str());
         gst_app_sink_set_callbacks(GST_APP_SINK(appsink), &appsink_callbacks, (void *)this, NULL);

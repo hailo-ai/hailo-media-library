@@ -84,7 +84,6 @@ public:
             return configured_infer_model_exp.status();
         }
         m_configured_infer_model = configured_infer_model_exp.release();
-        // m_configured_infer_model.set_scheduler_priority(10);
         m_configured_infer_model.set_scheduler_threshold(m_scheduler_threshold);
         m_configured_infer_model.set_scheduler_timeout(std::chrono::milliseconds(m_scheduler_timeout_in_ms));
 

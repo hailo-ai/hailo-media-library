@@ -39,14 +39,11 @@ namespace isp_utils
     void set_default_configuration()
     {
         override_file(ISP_DEFAULT_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
-        override_file(ISP_DEFAULT_SONY_CONFIG, SONY_CONFIG_PATH);
-    
     }
 
     void set_denoise_configuration()
     {
         override_file(ISP_DENOISE_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
-        override_file(ISP_DENOISE_SONY_CONFIG, SONY_CONFIG_PATH);
     }
 
     void set_backlight_configuration()

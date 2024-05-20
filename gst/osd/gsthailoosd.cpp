@@ -367,18 +367,17 @@ static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans,
     GST_DEBUG_OBJECT(hailoosd, "transform_ip");
 
     caps = gst_pad_get_current_caps(trans->sinkpad);
-
-    media_library_buffer = hailo_buffer_from_gst_buffer(buffer, caps);
+    media_library_buffer = hailo_buffer_from_gst_buffer(buffer, caps, false);
+    gst_caps_unref(caps);
 
     // perform blending
     ret = hailoosd->blender->blend(*media_library_buffer->hailo_pix_buffer.get());
+    media_library_buffer->decrease_ref_count();
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
         GST_ERROR_OBJECT(trans, "Failed to do blend (%d)", ret);
     }
     GST_DEBUG_OBJECT(trans, "blend done");
-
-    gst_caps_unref(caps);
 
     // check success status
     if (ret != MEDIA_LIBRARY_SUCCESS)

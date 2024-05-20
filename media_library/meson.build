@@ -12,6 +12,7 @@ common_sourcs = [
     'src/buffer_pool/buffer_pool.cpp',
     'src/buffer_pool/dma_memory_allocator.cpp',
     'src/utils/media_library_logger.cpp',
+    'src/utils/signal_utils.cpp',
     'src/config_manager/config_manager.cpp'
 ]
 

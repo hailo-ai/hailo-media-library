@@ -139,6 +139,14 @@ public:
      */
     static tl::expected<std::string, media_library_return> parse_config(std::string config_string, std::string entry);
 
+    /**
+    * @brief Retrieve the encoder type from an input JSON configuration
+    *
+    * @param[in] config_json - the user's configuration (as a json object)
+    * @return EncoderType
+    */
+    static EncoderType get_encoder_type(const nlohmann::json &config_json);
+
 private:
     nlohmann::json_schema::json_validator m_config_validator;
 
@@ -189,6 +197,11 @@ tl::expected<std::string, media_library_return> ConfigManager::parse_config(std:
     return ConfigManager::ConfigManagerImpl::parse_config(config_string, entry);
 }
 
+EncoderType ConfigManager::get_encoder_type(const nlohmann::json &config_json)
+{
+    return ConfigManager::ConfigManagerImpl::get_encoder_type(config_json);
+}
+
 //------------------------ ConfigManagerImpl ------------------------
 
 media_library_return ConfigManager::ConfigManagerImpl::validate_config(const nlohmann::json &user_config)
@@ -237,7 +250,22 @@ media_library_return ConfigManager::ConfigManagerImpl::config_string_to_struct(c
     // Convert JSON to struct
     try
     {
-        conf = user_config_json.get<TConf>();
+        if constexpr (std::is_same<TConf, encoder_config_t>::value) {
+            switch (get_encoder_type(user_config_json))
+            {
+            case EncoderType::Jpeg:
+                conf = user_config_json.get<jpeg_encoder_config_t>();
+                break;
+            case EncoderType::Hailo:
+                conf = user_config_json.get<hailo_encoder_config_t>();
+                break;
+            case EncoderType::None:
+                LOGGER__ERROR("Config Manager failed to convert JSON to struct: No supported encoder found");
+                return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+            }
+        } else {
+            conf = user_config_json.get<TConf>();
+        }
     }
     catch (const nlohmann::json::exception &e)
     {
@@ -267,4 +295,21 @@ tl::expected<std::string, media_library_return> ConfigManager::ConfigManagerImpl
 
     // return as a string
     return user_config_json[entry].dump();
+}
+
+EncoderType ConfigManager::ConfigManagerImpl::get_encoder_type(const nlohmann::json &config_json)
+{
+    if (!config_json.contains("encoding")) {
+        return EncoderType::None;
+    }
+
+    if (config_json["encoding"].contains("jpeg_encoder")) {
+        return EncoderType::Jpeg;
+    } 
+    
+    if (config_json["encoding"].contains("hailo_encoder")) {
+        return EncoderType::Hailo;
+    }
+
+    return EncoderType::None;
 }

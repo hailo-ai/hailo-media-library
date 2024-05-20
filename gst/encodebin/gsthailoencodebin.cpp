@@ -26,6 +26,11 @@
 #include <gst/video/video.h>
 #include <dlfcn.h>
 #include <unistd.h>
+#include <fstream>
+#include <nlohmann/json.hpp>
+
+#include "media_library/media_library_types.hpp"
+#include "common/gstmedialibcommon.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailoencodebin_debug_category);
 #define GST_CAT_DEFAULT gst_hailoencodebin_debug_category
@@ -36,6 +41,14 @@ static void gst_hailoencodebin_get_property(GObject *object,
                                             guint property_id, GValue *value, GParamSpec *pspec);
 static void gst_hailoencodebin_init_ghost_sink(GstHailoEncodeBin *hailoencodebin);
 static void gst_hailoencodebin_init_ghost_src(GstHailoEncodeBin *hailoencodebin);
+static const EncoderType gst_hailoencodebin_get_encoder_type(nlohmann::json &config_json);
+static nlohmann::json gst_hailoencodebin_get_encoder_json(const gchar *property_value, bool is_file);
+static void gst_hailoencodebin_set_encoder_properties(GstHailoEncodeBin *hailoencodebin,
+                                                      const char* config_property,
+                                                      const gchar *property_value,
+                                                      nlohmann::json &config_json);
+static gboolean gst_hailoencodebin_prepare_encoder_element(GstHailoEncodeBin *hailoencodebin,
+                                                           const char* config_property, const gchar *property_value);
 static gboolean gst_hailoencodebin_link_elements(GstElement *element);
 static void gst_hailoencodebin_dispose(GObject *object);
 static void gst_hailoencodebin_reset(GstHailoEncodeBin *self);
@@ -120,7 +133,7 @@ gst_hailoencodebin_class_init(GstHailoEncodeBinClass *klass)
     g_object_class_install_property(gobject_class, PROP_CONFIG,
                                     g_param_spec_pointer("config", "Config",
                                                          "Pointer to the config object",
-                                                        (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+                                                         (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 
     g_object_class_install_property(gobject_class, PROP_ENFORCE_CAPS,
                                     g_param_spec_boolean("enforce-caps", "Enforece caps",
@@ -141,6 +154,7 @@ gst_hailoencodebin_init(GstHailoEncodeBin *hailoencodebin)
     hailoencodebin->config_file_path = NULL;
     hailoencodebin->m_elements_linked = FALSE;
     hailoencodebin->queue_size = DEFAULT_QUEUE_SIZE;
+    hailoencodebin->encoder_type = EncoderType::None;
 
     // Prepare internal elements
     // osd
@@ -181,23 +195,14 @@ gst_hailoencodebin_init(GstHailoEncodeBin *hailoencodebin)
     g_object_set(hailoencodebin->m_queue_encoder, "max-size-bytes", (guint)0, NULL);
     g_object_set(hailoencodebin->m_queue_encoder, "max-size-buffers", (guint)hailoencodebin->queue_size, NULL);
 
-    // encoder
-    hailoencodebin->m_encoder = gst_element_factory_make("hailoencoder", NULL);
-    if (nullptr == hailoencodebin->m_encoder)
-    {
-        GST_ELEMENT_ERROR(hailoencodebin, RESOURCE, FAILED, ("Failed creating hailoencoder element in bin!"), (NULL));
-    }
-
     // Add elements and pads in the bin
     gst_bin_add_many(GST_BIN(hailoencodebin),
                      hailoencodebin->m_osd,
                      hailoencodebin->m_queue_videorate,
                      hailoencodebin->m_videorate,
                      hailoencodebin->m_queue_encoder,
-                     hailoencodebin->m_encoder,
                      NULL);
     gst_hailoencodebin_init_ghost_sink(hailoencodebin);
-    gst_hailoencodebin_init_ghost_src(hailoencodebin);
 }
 
 void gst_hailoencodebin_set_property(GObject *object, guint property_id,
@@ -216,13 +221,29 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id,
 
         // set params for sub elements here
         g_object_set(hailoencodebin->m_osd, "config-file-path", g_value_get_string(value), NULL);
-        g_object_set(hailoencodebin->m_encoder, "config-file-path", g_value_get_string(value), NULL);
+        if (hailoencodebin->m_encoder) {
+            nlohmann::json config_json = gst_hailoencodebin_get_encoder_json( g_value_get_string(value), false);
+            EncoderType encoder_type = gst_hailoencodebin_get_encoder_type(config_json);
+            if (hailoencodebin->encoder_type == encoder_type) {
+                gst_hailoencodebin_set_encoder_properties(hailoencodebin,
+                                                          "config-file-path", g_value_get_string(value), config_json);
+            } else {
+                GST_ELEMENT_ERROR(hailoencodebin,
+                                  RESOURCE, FAILED,
+                                  ("Changing encoder types after encoder element is created is not allowed"), (NULL));
+            }
+        }
 
         // Now that configuration is known, link the elements
         if (hailoencodebin->m_elements_linked == FALSE)
         {
-            gst_hailoencodebin_link_elements(GST_ELEMENT(hailoencodebin));
-            hailoencodebin->m_elements_linked = TRUE;
+            if (!hailoencodebin->m_encoder) {
+                gst_hailoencodebin_prepare_encoder_element(hailoencodebin, 
+                                                           "config-file-path", g_value_get_string(value));
+            }
+            if (gst_hailoencodebin_link_elements(GST_ELEMENT(hailoencodebin))) {
+                hailoencodebin->m_elements_linked = TRUE;
+            }
         }
         break;
     }
@@ -233,13 +254,28 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id,
 
         // set params for sub elements here
         g_object_set(hailoencodebin->m_osd, "config-string", g_value_get_string(value), NULL);
-        g_object_set(hailoencodebin->m_encoder, "config-string", g_value_get_string(value), NULL);
+        if (hailoencodebin->m_encoder) {
+            nlohmann::json config_json = gst_hailoencodebin_get_encoder_json( g_value_get_string(value), false);
+            EncoderType encoder_type = gst_hailoencodebin_get_encoder_type(config_json);
+            if (hailoencodebin->encoder_type == encoder_type) {
+                gst_hailoencodebin_set_encoder_properties(hailoencodebin, 
+                                                          "config-string", g_value_get_string(value), config_json);
+            } else {
+                GST_ELEMENT_ERROR(hailoencodebin,
+                                  RESOURCE, FAILED,
+                                  ("Changing encoder types after encoder element is created is not allowed"), (NULL));
+            }
+        }
 
         // Now that configuration is known, link the elements
         if (hailoencodebin->m_elements_linked == FALSE)
         {
-            gst_hailoencodebin_link_elements(GST_ELEMENT(hailoencodebin));
-            hailoencodebin->m_elements_linked = TRUE;
+            if (!hailoencodebin->m_encoder) {
+                gst_hailoencodebin_prepare_encoder_element(hailoencodebin, "config-string", g_value_get_string(value));
+            }
+            if (gst_hailoencodebin_link_elements(GST_ELEMENT(hailoencodebin))) {
+                hailoencodebin->m_elements_linked = TRUE;
+            }
         }
         break;
     }
@@ -378,6 +414,116 @@ void gst_hailoencodebin_init_ghost_src(GstHailoEncodeBin *hailoencodebin)
     gst_object_unref(pad);
 }
 
+static const char*
+gst_hailoencodebin_get_encoder_element_name(const EncoderType encoder_type)
+{
+    switch (encoder_type) 
+    {
+    case EncoderType::Hailo:
+        return "hailoencoder";
+    case EncoderType::Jpeg:
+        return "hailojpegenc";
+    default:
+        return nullptr;
+    }
+}
+
+static const EncoderType
+gst_hailoencodebin_get_encoder_type(nlohmann::json &config_json)
+{
+    if (config_json.is_discarded() || !config_json.contains("encoding")) {
+        return EncoderType::None;
+    }
+
+    if (config_json["encoding"].contains("jpeg_encoder")) {
+        return EncoderType::Jpeg;
+    }
+
+    if (config_json["encoding"].contains("hailo_encoder")) {
+        return EncoderType::Hailo;
+    }
+
+    return  EncoderType::None;
+}
+
+static void
+gst_hailoencodebin_jpeg_encoder_set_property(GstElement *jpeg_encoder, nlohmann::json &jpeg_config_json, 
+                                             const char* jpeg_property)
+{
+    // Skip if property not found in JSON
+    if (!jpeg_config_json.contains(jpeg_property)) {
+        return;
+    }
+
+    int value = jpeg_config_json[jpeg_property].template get<int>();
+    g_object_set(jpeg_encoder, jpeg_property, value, NULL);
+}
+
+static nlohmann::json
+gst_hailoencodebin_get_encoder_json(const gchar *property_value, bool is_file)
+{
+    std::string config;
+
+    if (is_file) {
+        config = gstmedialibcommon::read_json_string_from_file(property_value);
+    } else {
+        config = property_value;
+        gstmedialibcommon::strip_string_syntax(config);
+    }
+
+    return nlohmann::json::parse(config, nullptr, false);
+}
+
+static void
+gst_hailoencodebin_set_encoder_properties(GstHailoEncodeBin *hailoencodebin, const char* config_property,
+                                          const gchar *property_value, nlohmann::json &config_json)
+{
+    switch (hailoencodebin->encoder_type) 
+    {
+    case EncoderType::Hailo:
+        g_object_set(hailoencodebin->m_encoder, config_property, property_value, NULL);
+        break;
+    case EncoderType::Jpeg:
+    {   
+        nlohmann::json jpeg_encoder = config_json["encoding"]["jpeg_encoder"];
+        gst_hailoencodebin_jpeg_encoder_set_property(hailoencodebin->m_encoder, jpeg_encoder, "n_threads");
+        gst_hailoencodebin_jpeg_encoder_set_property(hailoencodebin->m_encoder, jpeg_encoder, "quality");
+        break;
+    }
+    case EncoderType::None:
+        // Should not reach here
+        break;
+    }
+}
+
+static gboolean
+gst_hailoencodebin_prepare_encoder_element(GstHailoEncodeBin *hailoencodebin, const char* config_property,
+                                           const gchar *property_value)
+{
+    bool is_file = strcmp(config_property, "config-file-path") == 0;
+    nlohmann::json config_json = gst_hailoencodebin_get_encoder_json(property_value, is_file);
+    EncoderType encoder_type = gst_hailoencodebin_get_encoder_type(config_json);
+    const char* encoder_element_name = gst_hailoencodebin_get_encoder_element_name(encoder_type);
+    if (encoder_element_name == nullptr) {
+        GST_ELEMENT_ERROR(hailoencodebin, RESOURCE, FAILED, ("No encoder found in config json"), (NULL));
+        return FALSE;
+    }
+
+    hailoencodebin->m_encoder = gst_element_factory_make(encoder_element_name, NULL);
+    if (nullptr == hailoencodebin->m_encoder)
+    {
+        GST_ELEMENT_ERROR(hailoencodebin, RESOURCE, FAILED, ("Failed creating hailoencoder element in bin!"), (NULL));
+        return FALSE;
+    }
+
+    hailoencodebin->encoder_type = encoder_type;
+    gst_hailoencodebin_set_encoder_properties(hailoencodebin, config_property, property_value, config_json);
+    gst_bin_add(GST_BIN(hailoencodebin), hailoencodebin->m_encoder);
+    // Now that we have encoder, initialize the ghost src pad
+    gst_hailoencodebin_init_ghost_src(hailoencodebin);
+    return TRUE;
+}
+
 static gboolean
 gst_hailoencodebin_link_elements(GstElement *element)
 {
@@ -388,7 +534,8 @@ gst_hailoencodebin_link_elements(GstElement *element)
                                                  self->m_queue_videorate,
                                                  self->m_videorate,
                                                  self->m_queue_encoder,
-                                                 self->m_encoder, NULL);
+                                                 self->m_encoder,
+                                                 NULL);
     if (!link_status)
     {
         GST_ERROR_OBJECT(self, "Failed to link elements in bin!");

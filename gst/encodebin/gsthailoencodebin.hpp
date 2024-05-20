@@ -54,6 +54,7 @@ struct _GstHailoEncodeBin
     
     gchar *config_file_path;
     std::string config_string;
+    EncoderType encoder_type;
 
     gboolean m_elements_linked;
     GstElement *m_osd;

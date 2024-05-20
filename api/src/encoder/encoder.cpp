@@ -51,15 +51,14 @@ MediaLibraryEncoder::Impl::Impl(std::string json_config,
 {
     m_name = name;
     nlohmann::json encoder_config = nlohmann::json::parse(m_json_config);
+    nlohmann::json input_stream_config = encoder_config["encoding"]["input_stream"];
+
     // Validating json with json shcema is performed in media_library/src/hailo_encoder/encoder_config.cpp
-    m_input_params.format =
-        encoder_config["hailo_encoder"]["config"]["input_stream"]["format"];
-    m_input_params.width =
-        encoder_config["hailo_encoder"]["config"]["input_stream"]["width"];
-    m_input_params.height =
-        encoder_config["hailo_encoder"]["config"]["input_stream"]["height"];
-    m_input_params.framerate =
-        encoder_config["hailo_encoder"]["config"]["input_stream"]["framerate"];
+    m_input_params.format = input_stream_config["format"];
+    m_input_params.width = input_stream_config["width"];
+    m_input_params.height = input_stream_config["height"];
+    m_input_params.framerate = input_stream_config["framerate"];
+    m_encoder_type = ConfigManager::get_encoder_type(encoder_config);
     gst_init(nullptr, nullptr);
     m_pipeline = gst_parse_launch(create_pipeline_string(encoder_config).c_str(), NULL);
     if (!m_pipeline)
@@ -70,7 +69,7 @@ MediaLibraryEncoder::Impl::Impl(std::string json_config,
     }
     gst_bus_add_watch(gst_element_get_bus(m_pipeline), (GstBusFunc)bus_call, this);
     m_main_loop = g_main_loop_new(NULL, FALSE);
-    this->set_gst_callbacks(m_pipeline);
+    this->set_gst_callbacks();
     m_appsrc_state = APPSRC_STATE_UNINITIALIZED;
 
     status = MEDIA_LIBRARY_SUCCESS;
@@ -101,8 +100,6 @@ MediaLibraryEncoder::MediaLibraryEncoder(
     : m_impl(impl)
 {
 }
-
-MediaLibraryEncoder::~MediaLibraryEncoder() = default;
 
 media_library_return MediaLibraryEncoder::Impl::subscribe(AppWrapperCallback callback)
 {
@@ -146,6 +143,9 @@ media_library_return MediaLibraryEncoder::Impl::stop()
         LOGGER__ERROR("Failed to stop the encoder pipeline");
         return MEDIA_LIBRARY_ERROR;
     }
+
+    gst_element_set_state(m_pipeline, GST_STATE_NULL);
+    g_main_loop_quit(m_main_loop);
     m_main_loop_thread->join();
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -163,7 +163,11 @@ std::string MediaLibraryEncoder::Impl::create_pipeline_string(
     auto json_osd_encoder_config = encode_osd_json_config.dump();
 
     std::ostringstream caps2;
-    caps2 << "video/x-h264,framerate=" << m_input_params.framerate << "/1";
+    if (m_encoder_type == EncoderType::Hailo) {
+        caps2 << "video/x-h264,framerate=" << m_input_params.framerate << "/1";
+    } else {
+        caps2 << "image/jpeg,framerate=" << m_input_params.framerate << "/1";
+    }
 
     pipeline =
         "appsrc do-timestamp=true format=time block=true is-live=true max-bytes=0 "
@@ -178,7 +182,7 @@ std::string MediaLibraryEncoder::Impl::create_pipeline_string(
         " ! " + caps2.str() + " ! " +
         "queue leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! "
         "fpsdisplaysink fps-update-interval=2000 signal-fps-measurements=true name=fpsdisplaysink "
-        "text-overlay=false sync=false video-sink=\"appsink sync=false max-buffers=1 qos=false "
+        "text-overlay=false sync=false video-sink=\"appsink wait-for-eos=false max-buffers=1 qos=false "
         "name=encoder_sink\"";
 
     LOGGER__INFO("Pipeline: gst-launch-1.0 {}", pipeline);
@@ -228,26 +232,26 @@ static void on_queue_overrun(GstElement *queue, gpointer user_data)
  * @param[in] pipeline        The pipeline as a GstElement.
  * @note Sets the new_sample callback, without callback user data (NULL).
  */
-void MediaLibraryEncoder::Impl::set_gst_callbacks(GstElement *pipeline)
+void MediaLibraryEncoder::Impl::set_gst_callbacks()
 {
     GstAppSinkCallbacks appsink_callbacks = {NULL};
-    GstAppSrcCallbacks appsrc_callbacks = {NULL};
 
     GstElement *fpssink =
-        gst_bin_get_by_name(GST_BIN(pipeline), "fpsdisplaysink");
+    gst_bin_get_by_name(GST_BIN(m_pipeline), "fpsdisplaysink");
     if (PRINT_FPS)
     {
         g_signal_connect(fpssink, "fps-measurements", G_CALLBACK(fps_measurement),
                          this);
     }
-    GstElement *appsink = gst_bin_get_by_name(GST_BIN(fpssink), "encoder_sink");
+    GstElement *appsink = gst_bin_get_by_name(GST_BIN(m_pipeline), "encoder_sink");
     appsink_callbacks.new_sample = this->new_sample;
 
     gst_app_sink_set_callbacks(GST_APP_SINK(appsink), &appsink_callbacks,
                                (void *)this, NULL);
     gst_object_unref(appsink);
+    gst_object_unref(fpssink);
 
-    GstElement *appsrc = gst_bin_get_by_name(GST_BIN(pipeline), "encoder_src");
+    GstElement *appsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "encoder_src");
     m_appsrc = GST_APP_SRC(appsrc);
     m_appsrc_caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING,
                                         m_input_params.format.c_str(), "width",
@@ -257,13 +261,13 @@ void MediaLibraryEncoder::Impl::set_gst_callbacks(GstElement *pipeline)
                                         m_input_params.framerate, 1, NULL),
     g_object_set(G_OBJECT(m_appsrc), "caps", m_appsrc_caps, NULL);
 
-    gst_app_src_set_callbacks(GST_APP_SRC(appsrc), &appsrc_callbacks,
-                              (void *)this, NULL);
+    gst_object_unref(appsrc);
 
-    GstElement *encoder_queue = gst_bin_get_by_name(GST_BIN(pipeline), ENCODER_QUEUE_NAME);
+    GstElement *encoder_queue = gst_bin_get_by_name(GST_BIN(m_pipeline), ENCODER_QUEUE_NAME);
 
     // Connect to the "overrun" signal of the queue
     g_signal_connect(encoder_queue, "overrun", G_CALLBACK(on_queue_overrun), NULL);
+    gst_object_unref(encoder_queue);
 }
 
 gboolean MediaLibraryEncoder::Impl::on_bus_call(GstBus *bus, GstMessage *msg)
@@ -272,8 +276,10 @@ gboolean MediaLibraryEncoder::Impl::on_bus_call(GstBus *bus, GstMessage *msg)
     {
     case GST_MESSAGE_EOS:
     {
-        g_main_loop_quit(m_main_loop);
+        //TODO: EOS never received
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
+        g_main_loop_quit(m_main_loop);
+        m_main_loop_thread->join();
         break;
     }
     case GST_MESSAGE_ERROR:
@@ -286,8 +292,9 @@ gboolean MediaLibraryEncoder::Impl::on_bus_call(GstBus *bus, GstMessage *msg)
         g_error_free(err);
         LOGGER__DEBUG("Error debug info: {}", (debug) ? debug : "none");
         g_free(debug);
-        g_main_loop_quit(m_main_loop);
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
+        g_main_loop_quit(m_main_loop);
+        m_main_loop_thread->join();
         break;
     }
     default:
@@ -330,25 +337,48 @@ GstFlowReturn MediaLibraryEncoder::Impl::add_buffer_internal(GstBuffer *buffer)
 
 GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
 {
+    if (m_callbacks.empty())
+    {
+        return GST_FLOW_OK;
+    }
     GstSample *sample;
     GstBuffer *buffer;
+    GstHailoBufferMeta *buffer_meta;
+    HailoMediaLibraryBufferPtr buffer_ptr;
+    uint32_t used_size;
     sample = gst_app_sink_pull_sample(appsink);
-    buffer = gst_sample_get_buffer(sample);
-    GstHailoBufferMeta *buffer_meta = gst_buffer_get_hailo_buffer_meta(buffer);
-    if (!buffer_meta)
+    if (!sample)
     {
-        GST_ERROR("Failed to get hailo buffer meta");
-        gst_sample_unref(sample);
-        return GST_FLOW_ERROR;
+        GST_ERROR("Failed to get sample from appsink May be EOS!");
+        return GST_FLOW_OK;
     }
-
-    HailoMediaLibraryBufferPtr buffer_ptr = buffer_meta->buffer_ptr;
-    uint32_t used_size = buffer_meta->used_size;
-    if (!buffer_ptr)
+    buffer = gst_sample_get_buffer(sample);
+    if (!buffer)
     {
-        GST_ERROR("Failed to get hailo buffer ptr");
+        GST_ERROR("Failed to get buffer from sample");
         gst_sample_unref(sample);
-        return GST_FLOW_ERROR;
+        return GST_FLOW_OK;
+    }
+    if (m_encoder_type == EncoderType::Hailo) {
+        buffer_meta = gst_buffer_get_hailo_buffer_meta(buffer);
+        if (!buffer_meta)
+        {
+            GST_ERROR("Failed to get hailo buffer meta");
+            gst_sample_unref(sample);
+            return GST_FLOW_ERROR;
+        }
+
+        buffer_ptr = buffer_meta->buffer_ptr;
+        used_size = buffer_meta->used_size;
+        if (!buffer_ptr)
+        {
+            GST_ERROR("Failed to get hailo buffer ptr");
+            gst_sample_unref(sample);
+            return GST_FLOW_ERROR;
+        }
+    } else {
+        gst_sample_unref(sample);
+        return GST_FLOW_OK;
     }
 
     if (gst_buffer_is_writable(buffer))
@@ -391,10 +421,18 @@ std::shared_ptr<osd::Blender> MediaLibraryEncoder::get_blender()
 
 media_library_return MediaLibraryEncoder::Impl::configure(encoder_config_t &config)
 {
-    m_input_params.format = config.stream.input_stream.format;
-    m_input_params.width = config.stream.input_stream.width;
-    m_input_params.height = config.stream.input_stream.height;
-    m_input_params.framerate = config.stream.input_stream.framerate;
+    if (m_encoder_type == EncoderType::Jpeg) {
+        std::cout << "configure function does not support jpeg encoders" << std::endl;
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    hailo_encoder_config_t hailo_config = std::get<hailo_encoder_config_t>(config);
+    input_config_t config_input_stream = hailo_config.input_stream;
+
+    m_input_params.format = config_input_stream.format;
+    m_input_params.width = config_input_stream.width;
+    m_input_params.height = config_input_stream.height;
+    m_input_params.framerate = config_input_stream.framerate;
     m_appsrc_caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING,
                                         m_input_params.format.c_str(), "width",
                                         G_TYPE_INT, m_input_params.width, "height",
@@ -411,6 +449,7 @@ media_library_return MediaLibraryEncoder::Impl::configure(encoder_config_t &conf
     }
 
     g_object_set(encoder_bin, "config", config, NULL);
+    gst_object_unref(encoder_bin);
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -435,6 +474,11 @@ media_library_return MediaLibraryEncoder::Impl::set_force_videorate(bool force)
 
 encoder_config_t MediaLibraryEncoder::Impl::get_config()
 {
+    if (m_encoder_type == EncoderType::Jpeg) {
+        // Getting actual config from jpeg encoder is not supported
+        return jpeg_encoder_config_t{};
+    }
+
     encoder_config_t config;
     GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
     if (encoder_bin == nullptr)

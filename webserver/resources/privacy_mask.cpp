@@ -69,25 +69,24 @@ std::vector<std::string> webserver::resources::PrivacyMaskResource::get_enabled_
     return enabled;
 }
 
-void webserver::resources::PrivacyMaskResource::http_register(std::shared_ptr<httplib::Server> srv)
+void webserver::resources::PrivacyMaskResource::http_register(std::shared_ptr<HTTPServer> srv)
 {
-    srv->Get("/privacy_mask", [this](const httplib::Request &, httplib::Response &res)
-             { res.set_content(this->to_string(), "application/json"); });
+    srv->Get("/privacy_mask", std::function<nlohmann::json()>([this]()
+                                                              { return this->m_config; }));
 
-    srv->Patch("/privacy_mask", [this](const httplib::Request &req, httplib::Response &res)
+    srv->Patch("/privacy_mask", [this](const nlohmann::json &partial_config)
                {
                     auto prev_enabled = this->get_enabled_masks();
-                    auto partial_config = nlohmann::json::parse(req.body);
                     m_config.merge_patch(partial_config);
-                    res.set_content(this->to_string(), "application/json");
-                    on_resource_change(this->parse_state(this->get_enabled_masks(), prev_enabled)); });
+                    auto result = this->m_config;
+                    on_resource_change(this->parse_state(this->get_enabled_masks(), prev_enabled));
+                    return result; });
 
-    srv->Put("/privacy_mask", [this](const httplib::Request &req, httplib::Response &res)
+    srv->Put("/privacy_mask", [this](const nlohmann::json &config)
              {
                 auto prev_enabled = this->get_enabled_masks();
-                auto config = nlohmann::json::parse(req.body);
                 auto partial_config = nlohmann::json::diff(m_config, config);
                 m_config = m_config.patch(partial_config);
-                res.set_content(this->to_string(), "application/json");
-                on_resource_change(this->parse_state(this->get_enabled_masks(), prev_enabled)); });
+                on_resource_change(this->parse_state(this->get_enabled_masks(), prev_enabled));
+                return this->m_config; });
 }

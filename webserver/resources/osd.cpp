@@ -143,25 +143,25 @@ nlohmann::json webserver::resources::OsdResource::get_current_osd_config()
     return current_config;
 }
 
-void webserver::resources::OsdResource::http_register(std::shared_ptr<httplib::Server> srv)
+void webserver::resources::OsdResource::http_register(std::shared_ptr<HTTPServer> srv)
 {
-    srv->Get("/osd", [this](const httplib::Request &, httplib::Response &res)
-             { res.set_content(this->to_string(), "application/json"); });
+    srv->Get("/osd", std::function<nlohmann::json()>([this]()
+                                                     { return this->m_config; }));
 
-    srv->Patch("/osd", [this](const httplib::Request &req, httplib::Response &res)
+    srv->Patch("/osd", [this](const nlohmann::json &partial_config)
                {
-                    auto partial_config = nlohmann::json::parse(req.body);
-                    m_config.merge_patch(partial_config);
-                    res.set_content(this->to_string(), "application/json");
-                    auto state = std::make_shared<webserver::resources::ResourceState>(ConfigResourceState(this->get_current_osd_config().dump()));
-                    on_resource_change(state); });
+        m_config.merge_patch(partial_config);
+        auto result = this->m_config;
+        auto state = std::make_shared<webserver::resources::ResourceState>(ConfigResourceState(this->get_current_osd_config().dump()));
+        on_resource_change(state);
+        return result; });
 
-    srv->Put("/osd", [this](const httplib::Request &req, httplib::Response &res)
+    srv->Put("/osd", [this](const nlohmann::json &config)
              {
-                auto config = nlohmann::json::parse(req.body);
-                auto partial_config = nlohmann::json::diff(m_config, config);
-                m_config = m_config.patch(partial_config);
-                res.set_content(this->to_string(), "application/json");
-                auto state = std::make_shared<webserver::resources::ResourceState>(ConfigResourceState(this->get_current_osd_config().dump()));
-                on_resource_change(state); });
+        auto partial_config = nlohmann::json::diff(m_config, config);
+        m_config = m_config.patch(partial_config);
+        auto result = this->m_config;
+        auto state = std::make_shared<webserver::resources::ResourceState>(ConfigResourceState(this->get_current_osd_config().dump()));
+        on_resource_change(state);
+        return result; });
 }

@@ -42,14 +42,19 @@ namespace webserver
             V4L2_CTRL_AE_ENABLE = 9,
             V4L2_CTRL_AE_GAIN = 10,
             V4L2_CTRL_AE_INTEGRATION_TIME = 11,
+            V4L2_CTRL_AE_WDR_VALUES = 15,
 
             V4L2_CTRL_WDR_CONTRAST = 12,
 
             V4L2_CTRL_AWB_MODE = 13,
             V4L2_CTRL_AWB_ILLUM_INDEX = 14,
+
+            V4L2_CTRL_MAX
         };
 
         void update_3a_config(bool enabled);
+        void update_3a_config(nlohmann::json config);
+        nlohmann::json get_3a_config();
 
         class v4l2ControlHelper
         {
@@ -85,14 +90,14 @@ namespace webserver
             static uint16_t calculate_precentage_from_value(T value, v4l2_ctrl_id ctrl_id, T calib_var)
             {
                 auto min_max_params = m_min_max_isp_params[ctrl_id];
-                float precentage;
-                if (value >= calib_var)
+                float precentage = 50;
+                if (value > calib_var)
                 {
-                    precentage = 50 + ((value - calib_var) / static_cast<float>(min_max_params.max - calib_var) * 50.0f);
+                    precentage += ((value - calib_var) / static_cast<float>(min_max_params.max - calib_var) * 50.0f);
                 }
                 else
                 {
-                    precentage = 50 - ((calib_var - value) / static_cast<float>(calib_var - min_max_params.min) * 50.0f);
+                    precentage -= ((calib_var - value) / static_cast<float>(calib_var - min_max_params.min) * 50.0f);
                 }
 
                 return static_cast<uint16_t>(precentage);
@@ -140,12 +145,53 @@ namespace webserver
             }
         };
 
+        class backlight_filter_t
+        {
+        public:
+            uint16_t max;
+            uint16_t min;
+
+            backlight_filter_t(uint16_t max, uint16_t min) : max(max), min(min) {}
+
+            backlight_filter_t from_precentage(uint16_t precentage)
+            {
+                auto new_max = v4l2ControlHelper::calculate_value_from_precentage<int32_t>(precentage, webserver::common::V4L2_CTRL_AE_WDR_VALUES, max);
+                auto new_min = v4l2ControlHelper::calculate_value_from_precentage<int32_t>(precentage, webserver::common::V4L2_CTRL_AE_WDR_VALUES, min);
+                return backlight_filter_t(new_max, new_min);
+            }
+
+            uint16_t to_precentage(const backlight_filter_t &filter)
+            {
+                return v4l2ControlHelper::calculate_precentage_from_value<int32_t>(filter.max, webserver::common::V4L2_CTRL_AE_WDR_VALUES, max);
+            }
+
+            static backlight_filter_t get_from_json()
+            {
+                uint16_t max;
+                uint16_t min;
+                nlohmann::json config = get_3a_config();
+
+                auto root = config["root"];
+                for (auto &obj : config["root"])
+                {
+                    if (obj["classname"] == "AdaptiveAe")
+                    {
+                        max = obj["wdrContrast.max"];
+                        min = obj["wdrContrast.min"];
+                        return backlight_filter_t(max, min);
+                    }
+                }
+                return backlight_filter_t(0, 0);
+            }
+        };
+
         enum binning_mode_t
         {
             BINNING_MODE_OFF = 0,
             BINNING_MODE_4_BY_4 = 1,
             BINNING_MODE_9_BY_9 = 2,
             BINNING_MODE_16_BY_16 = 3,
+            BINNING_MODE_MAX
         };
 
         enum tuning_profile_t
@@ -153,6 +199,7 @@ namespace webserver
             TUNING_PROFILE_DEFAULT = 0,
             TUNING_PROFILE_DENOISE = 1,
             TUNING_PROFILE_BACKLIGHT_COMPENSATION = 2,
+            TUNING_PROFILE_MAX
         };
 
         struct tuning_t
@@ -165,6 +212,7 @@ namespace webserver
             POWERLINE_FREQUENCY_OFF = 0,
             POWERLINE_FREQUENCY_50 = 1,
             POWERLINE_FREQUENCY_60 = 2,
+            POWERLINE_FREQUENCY_MAX
         };
 
         struct auto_exposure_t
@@ -172,6 +220,7 @@ namespace webserver
             bool enabled;
             uint16_t gain;
             uint16_t integration_time;
+            uint16_t backlight;
         };
 
         struct wide_dynamic_range_t
@@ -190,6 +239,7 @@ namespace webserver
             AUTO_WHITE_BALANCE_PROFILE_TL84 = 4,
             AUTO_WHITE_BALANCE_PROFILE_F12 = 5,
             AUTO_WHITE_BALANCE_PROFILE_CWF = 6,
+            AUTO_WHITE_BALANCE_PROFILE_MAX
         };
 
         struct auto_white_balance_t
@@ -238,5 +288,20 @@ namespace webserver
         void to_json(nlohmann::json &json, const auto_white_balance_t &params);
         void from_json(const nlohmann::json &json, tuning_t &params);
         void to_json(nlohmann::json &json, const tuning_t &params);
+
+        template <typename T>
+        std::vector<T> get_enum_values(T last_value, std::vector<T> excluded_values = {})
+        {
+            std::vector<T> values;
+            for (int i = 0; i < static_cast<int>(last_value); i++)
+            {
+                T value = static_cast<T>(i);
+                if (excluded_values.empty() || std::find(excluded_values.begin(), excluded_values.end(), value) == excluded_values.end())
+                {
+                    values.push_back(value);
+                }
+            }
+            return values;
+        }
     }
 }

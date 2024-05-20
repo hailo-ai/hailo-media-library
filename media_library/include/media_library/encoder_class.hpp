@@ -50,6 +50,7 @@ public:
     EncoderOutputBuffer start();
     EncoderOutputBuffer stop();
     media_library_return init();
+    media_library_return release();
     media_library_return dispose();
 
 private:

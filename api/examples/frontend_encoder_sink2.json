@@ -18,12 +18,12 @@
                 "id": "example_datetime",
                 "font_size": 100,
                 "line_thickness": 3,
-                "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
                 "rgb": [
                     255,
                     0,
                     0
                 ],
+                "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
                 "x": 0.1,
                 "y": 0.7,
                 "z-index": 3,
@@ -42,7 +42,7 @@
                     255,
                     255
                 ],
-                "x": 0.65,
+                "x": 0.7,
                 "y": 0.05,
                 "z-index": 2,
                 "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
@@ -68,10 +68,10 @@
             }
         ]
     },
-    "encoding" : {
+    "encoding": {
         "input_stream": {
-            "width": 1280,
-            "height": 720,
+            "width": 3840,
+            "height": 2160,
             "framerate": 30,
             "format": "NV12"
         },
@@ -147,7 +147,7 @@
                 "gop_length": 120,
                 "quantization": {
                     "qp_min": 20,
-                    "qp_max":51,
+                    "qp_max": 51,
                     "qp_hdr": 26,
                     "intra_qp_delta": -5,
                     "fixed_intra_qp": 0

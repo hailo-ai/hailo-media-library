@@ -18,12 +18,6 @@ webserver::resources::EncoderResource::EncoderResource() : Resource()
 {
     m_default_config = R"({
         "config": {
-            "input_stream": {
-                "width": 3840,
-                "height": 2160,
-                "framerate": 30,
-                "format": "NV12"
-            },
             "output_stream": {
                 "codec": "CODEC_TYPE_H264",
                 "profile": "VCENC_H264_MAIN_PROFILE",
@@ -40,9 +34,9 @@ webserver::resources::EncoderResource::EncoderResource() : Resource()
         "coding_control": {
             "sei_messages": true,
             "deblocking_filter": {
-                "type": "disabled",
-                "tc_offset": 12,
-                "beta_offset": 23,
+                "type": "DEBLOCKING_FILTER_ENABLED",
+                "tc_offset": -2,
+                "beta_offset": 5,
                 "deblock_override": false
             },
             "intra_area": {
@@ -127,32 +121,29 @@ void webserver::resources::EncoderResource::set_encoder_control(webserver::resou
     on_resource_change(std::make_shared<webserver::resources::ResourceState>(ConfigResourceState(this->to_string())));
 }
 
-void webserver::resources::EncoderResource::http_register(std::shared_ptr<httplib::Server> srv)
+void webserver::resources::EncoderResource::http_register(std::shared_ptr<HTTPServer> srv)
 {
-    srv->Get("/encoder/bitrate_control", [this](const httplib::Request &, httplib::Response &res)
-             { 
-                nlohmann::json j = get_encoder_control();
-                res.set_content(j.dump(), "application/json"); });
+    srv->Get("/encoder/bitrate_control", std::function<nlohmann::json()>([this]()
+                                                                         {
+        nlohmann::json j = get_encoder_control();
+        return j; }));
 
-    srv->Post("/encoder/bitrate_control", [this](const httplib::Request &req, httplib::Response &res)
-              {
-                webserver::resources::EncoderResource::encoder_control_t encoder_control;
-                auto j_body = nlohmann::json::parse(req.body);
-                try
-                {
-                    encoder_control = j_body.get<webserver::resources::EncoderResource::encoder_control_t>();
-                }
-                catch (const std::exception &e)
-                {
-                    res.set_content("Failed to cast JSON to encoder_control_t", "text/plain");
-                    res.status = 500;
-                    return;
-                }
+    srv->Post("/encoder/bitrate_control", std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &j_body)
+                                                                                                {
+        webserver::resources::EncoderResource::encoder_control_t encoder_control;
+        try
+        {
+            encoder_control = j_body.get<webserver::resources::EncoderResource::encoder_control_t>();
+        }
+        catch (const std::exception &e)
+        {
+            throw std::runtime_error("Failed to parse json body to encoder_control_t");
+        }
 
-                set_encoder_control(encoder_control);
-                encoder_control = get_encoder_control();
-                nlohmann::json j_out = encoder_control;
-                res.set_content(j_out.dump(), "application/json"); });
+        set_encoder_control(encoder_control);
+        encoder_control = get_encoder_control();
+        nlohmann::json j_out = encoder_control;
+        return j_out; }));
 }
 
 void webserver::resources::EncoderResource::apply_config(GstElement *encoder_element)

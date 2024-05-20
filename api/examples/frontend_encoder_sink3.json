@@ -68,7 +68,7 @@
             }
         ]
     },
-    "encoding" : {
+    "encoding": {
         "input_stream": {
             "width": 1280,
             "height": 720,
@@ -147,7 +147,7 @@
                 "gop_length": 120,
                 "quantization": {
                     "qp_min": 20,
-                    "qp_max":51,
+                    "qp_max": 51,
                     "qp_hdr": 26,
                     "intra_qp_delta": -5,
                     "fixed_intra_qp": 0

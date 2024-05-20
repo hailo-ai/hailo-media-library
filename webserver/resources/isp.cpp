@@ -1,71 +1,79 @@
 #include "resources/resources.hpp"
 #include "common/common.hpp"
 #include <iostream>
+#include <functional>
 
 using namespace webserver::resources;
 using namespace webserver::common;
 
-IspResource::IspResource(std::shared_ptr<AiResource> ai_res) : Resource(), m_baseline_stream_params(0, 0, 0, 0, 0), m_baseline_wdr_params(0)
+// not all gain values are valid in ISP, ISP rounds down to the nearest valid value, so we need to round up so we get the value we want
+#define ROUND_GAIN_GET_U16(gain) (uint16_t)((gain - (gain % 1024)) / 1024 + 1 * !!(gain % 1024))
+
+IspResource::IspResource(std::shared_ptr<AiResource> ai_res) : Resource(), m_baseline_stream_params(0, 0, 0, 0, 0), m_baseline_wdr_params(0), m_baseline_backlight_params(0, 0)
 {
     m_v4l2 = std::make_unique<webserver::common::v4l2Control>(V4L2_DEVICE_NAME);
     m_ai_resource = ai_res;
-    m_tuning_profile = {webserver::common::TUNING_PROFILE_BACKLIGHT_COMPENSATION, webserver::common::TUNING_PROFILE_BACKLIGHT_COMPENSATION};
+    m_tuning_profile = webserver::common::TUNING_PROFILE_DEFAULT;
     m_ai_resource->subscribe_callback([this](ResourceStateChangeNotification notification)
                                       { this->on_ai_state_change(std::static_pointer_cast<AiResource::AiResourceState>(notification.resource_state)); });
+}
+
+void IspResource::set_tuning_profile(tuning_profile_t profile)
+{
+    switch (profile)
+    {
+    case TUNING_PROFILE_BACKLIGHT_COMPENSATION:
+        isp_utils::set_backlight_configuration();
+        break;
+    case TUNING_PROFILE_DENOISE:
+        isp_utils::set_denoise_configuration();
+        break;
+    default:
+        isp_utils::set_default_configuration();
+        break;
+    }
 }
 
 void IspResource::on_ai_state_change(std::shared_ptr<AiResource::AiResourceState> state)
 {
     std::cout << "IspResource::on_ai_state_change" << std::endl;
-    bool ae_enabled;
+    // bool ae_enabled;
 
     on_resource_change(std::make_shared<ResourceState>(IspResource::IspResourceState(true)));
 
     // Sleep before sending any ioctl is required
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-    // enabled denoise
-    if (std::find(state->enabled.begin(), state->enabled.end(), AiResource::AiApplications::AI_APPLICATION_DENOISE) != state->enabled.end())
+    if (std::find(state->enabled.begin(), state->enabled.end(), AiResource::AiApplications::AI_APPLICATION_DENOISE) != state->enabled.end()) // enabled denoise
     {
         std::cout << "enabling denoise" << std::endl;
-        // isp_utils::set_denoise_configuration();
-        m_tuning_profile.current = webserver::common::TUNING_PROFILE_DENOISE;
-        ae_enabled = false;
+        m_tuning_profile = webserver::common::TUNING_PROFILE_DENOISE;
+        // ae_enabled = false; // previous version of the NN was trained for AE off
     }
-
-    // disabled denoise
-    else if (std::find(state->disabled.begin(), state->disabled.end(), AiResource::AiApplications::AI_APPLICATION_DENOISE) != state->disabled.end())
+    else if (std::find(state->disabled.begin(), state->disabled.end(), AiResource::AiApplications::AI_APPLICATION_DENOISE) != state->disabled.end()) // disabled denoise
     {
-        if (m_tuning_profile.fallback == webserver::common::TUNING_PROFILE_BACKLIGHT_COMPENSATION)
-        {
-            std::cout << "enabling backlight compensation" << std::endl;
-            isp_utils::set_backlight_configuration();
-        }
-        else
-        {
-            std::cout << "enabling default configuration" << std::endl;
-            isp_utils::set_default_configuration();
-        }
-        m_tuning_profile.current = m_tuning_profile.fallback;
-        ae_enabled = true;
+
+        std::cout << "enabling default configuration" << std::endl;
+        m_tuning_profile = webserver::common::TUNING_PROFILE_DEFAULT;
+        // ae_enabled = true;
     }
     else
     {
         return;
     }
 
-    this->init(ae_enabled);
+    set_tuning_profile(m_tuning_profile);
 }
 
-void IspResource::init(bool set_auto_exposure, bool set_auto_wb)
+void IspResource::init(bool set_auto_wb)
 {
-    if (set_auto_exposure)
-    {
-        // set auto exposure
-        auto ae = this->get_auto_exposure();
-        ae.enabled = true;
-        this->set_auto_exposure(ae);
-    }
+    this->set_tuning_profile(m_tuning_profile);
+    this->m_baseline_backlight_params = backlight_filter_t::get_from_json();
+
+    // make sure AE is enabled
+    auto ae = this->get_auto_exposure();
+    ae.enabled = true;
+    this->set_auto_exposure(ae);
 
     if (set_auto_wb)
     {
@@ -97,117 +105,100 @@ void IspResource::init(bool set_auto_exposure, bool set_auto_wb)
     std::cout << "\tBrightness: " << m_baseline_stream_params.brightness << std::endl;
     std::cout << "\tContrast: " << m_baseline_stream_params.contrast << std::endl;
     std::cout << "\tWDR: " << m_baseline_wdr_params << std::endl;
+    std::cout << "Baseline backlight params: " << std::endl;
+    std::cout << "\tmax: " << m_baseline_backlight_params.max << std::endl;
+    std::cout << "\tmin: " << m_baseline_backlight_params.min << std::endl;
 }
 
-void IspResource::http_register(std::shared_ptr<httplib::Server> srv)
+void IspResource::http_register(std::shared_ptr<HTTPServer> srv)
 {
-    srv->Get("/isp/refresh", [this](const httplib::Request &req, httplib::Response &res)
-             { this->init(); });
+    srv->Get("/isp/refresh", std::function<void()>([this]()
+                                                   { this->init(); }));
 
-    srv->Post("/isp/powerline_frequency", [this](const httplib::Request &req, httplib::Response &res)
+    srv->Post("/isp/powerline_frequency", [this](const nlohmann::json &req)
               {
-                std::string ret_msg;
-                powerline_frequency_t freq;
-                bool ret = http_request_extract_value<powerline_frequency_t>(req, "powerline_freq", freq, &ret_msg);
-                if (!ret)
-                {
-                    res.set_content(ret_msg, "text/plain");
-                    res.status = 400;
-                    return;
-                } 
-                
-                ret = m_v4l2->v4l2_ctrl_set<int>(V4L2_CTRL_POWERLINE_FREQUENCY, (uint16_t)freq);
-                if (!ret)
-                {
-                    res.set_content("Failed to set powerline frequency", "text/plain");
-                    res.status = 500;
-                    return;
-                } });
+        std::string ret_msg;
+        powerline_frequency_t freq;
+        bool ret = json_extract_value<powerline_frequency_t>(req, "powerline_freq", freq, &ret_msg);
+        if (!ret)
+        {
+            throw std::runtime_error(ret_msg);
+        }
 
-    srv->Get("/isp/powerline_frequency", [this](const httplib::Request &req, httplib::Response &res)
-             {                
+        ret = m_v4l2->v4l2_ctrl_set<int>(V4L2_CTRL_POWERLINE_FREQUENCY, (uint16_t)freq);
+        if (!ret)
+        {
+            throw std::runtime_error("Failed to set powerline frequency");
+        } });
+
+    srv->Get("/isp/powerline_frequency", std::function<nlohmann::json()>([this]()
+                                                                         {
                 int val;
                 bool ret = m_v4l2->v4l2_ctrl_get<int>(V4L2_CTRL_POWERLINE_FREQUENCY, val);
                 if (!ret)
                 {
-                    res.set_content("Failed to get powerline frequency", "text/plain");
-                    res.status = 500;
-                    return;
+                    throw std::runtime_error("Failed to get powerline frequency");
                 }
                 auto freq = (powerline_frequency_t)val;
                 nlohmann::json j_out;
                 j_out["powerline_freq"] = freq;
-                res.set_content(j_out.dump(), "application/json"); });
+                return j_out; }));
 
-    srv->Post("/isp/noise_reduction", [this](const httplib::Request &req, httplib::Response &res)
+    srv->Post("/isp/noise_reduction", [this](const nlohmann::json &req)
               {
                 std::string ret_msg;
                 int nr;
-                bool ret = http_request_extract_value<int>(req, "noise_reduction", nr, &ret_msg);
+                bool ret = json_extract_value<int>(req, "noise_reduction", nr, &ret_msg);
                 if (!ret)
                 {
-                    res.set_content(ret_msg, "text/plain");
-                    res.status = 400;
-                    return;
-                } 
+                    throw std::runtime_error(ret_msg);
+                }
                 if (nr > 100 || nr < 0)
                 {
-                    res.set_content("Invalid noise reduction value", "text/plain");
-                    res.status = 400;
-                    return;
+                    throw std::runtime_error("Invalid noise reduction value");
                 }
                 ret = m_v4l2->v4l2_ctrl_set<int>(V4L2_CTRL_NOISE_REDUCTION, nr);
                 if (!ret)
                 {
-                    res.set_content("Failed to set noise reduction", "text/plain");
-                    res.status = 500;
-                    return;
+                    throw std::runtime_error("Failed to set noise reduction");
                 } });
 
-    srv->Post("/isp/wdr", [this](const httplib::Request &req, httplib::Response &res)
-              {
-                auto j_body = nlohmann::json::parse(req.body);
+    srv->Post("/isp/wdr", std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &j_body)
+                                                                                {
                 wide_dynamic_range_t wdr = j_body.get<wide_dynamic_range_t>();
                 auto val = v4l2ControlHelper::calculate_value_from_precentage<int32_t>(wdr.value, V4L2_CTRL_WDR_CONTRAST, m_baseline_wdr_params);
                 std::cout << "Setting WDR to: " << val << std::endl;
                 bool ret = m_v4l2->v4l2_ext_ctrl_set<int16_t>(V4L2_CTRL_WDR_CONTRAST, val);
                 if (!ret)
                 {
-                    res.set_content("Failed to set WDR", "text/plain");
-                    res.status = 500;
-                    return;
-                } 
-                res.set_content(j_body.dump(), "application/json"); });
+                    throw std::runtime_error("Failed to set WDR");
+                }
+                return j_body; }));
 
-    srv->Get("/isp/wdr", [this](const httplib::Request &req, httplib::Response &res)
-             {
+    srv->Get("/isp/wdr", std::function<nlohmann::json()>([this]()
+                                                         {
                 wide_dynamic_range_t wdr;
                 int32_t val;
                 bool ret = m_v4l2->v4l2_ctrl_get<int32_t>(V4L2_CTRL_WDR_CONTRAST, val);
                 if (!ret)
                 {
-                    res.set_content("Failed to get WDR", "text/plain");
-                    res.status = 500;
-                    return;
-                } 
+                    throw std::runtime_error("Failed to get WDR");
+                }
                 wdr.value = v4l2ControlHelper::calculate_precentage_from_value<int32_t>(val, V4L2_CTRL_WDR_CONTRAST, m_baseline_wdr_params);
                 std::cout << "Got WDR value: " << wdr.value << std::endl;
                 nlohmann::json j_out = wdr;
-                res.set_content(j_out.dump(), "application/json"); });
+                return j_out; }));
 
-    srv->Post("/isp/awb", [this](const httplib::Request &req, httplib::Response &res)
-              {
+    srv->Post("/isp/awb", std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &j_body)
+                                                                                {
                 webserver::common::auto_white_balance_t awb;
-                auto j_body = nlohmann::json::parse(req.body);
                 try
                 {
                     awb = j_body.get<webserver::common::auto_white_balance_t>();
                 }
                 catch (const std::exception &e)
                 {
-                    res.set_content("Failed to cast JSON to auto_white_balance_t", "text/plain");
-                    res.status = 500;
-                    return;
+                    throw std::runtime_error("Failed to cast JSON to auto_white_balance_t");
                 }
 
                 if (awb.value == AUTO_WHITE_BALANCE_PROFILE_AUTO)
@@ -221,27 +212,23 @@ void IspResource::http_register(std::shared_ptr<httplib::Server> srv)
                 }
 
                 nlohmann::json j_out = awb;
-                res.set_content(j_out.dump(), "application/json"); });
+                return j_out; }));
 
-    srv->Get("/isp/awb", [this](const httplib::Request &req, httplib::Response &res)
-             {
+    srv->Get("/isp/awb", std::function<nlohmann::json()>([this]()
+                                                         {
                 int32_t val;
                 bool ret = m_v4l2->v4l2_ctrl_get<int32_t>(V4L2_CTRL_AWB_MODE, val);
                 if (!ret)
                 {
-                    res.set_content("Failed to get AWB Mode", "text/plain");
-                    res.status = 500;
-                    return;
-                } 
+                    throw std::runtime_error("Failed to get AWB mode");
+                }
                 if (val != 1) // manual mode, get profile
                 {
                     ret = m_v4l2->v4l2_ctrl_get<int32_t>(V4L2_CTRL_AWB_ILLUM_INDEX, val);
                     if (!ret)
                     {
-                        res.set_content("Failed to get AWB profile", "text/plain");
-                        res.status = 500;
-                        return;
-                    } 
+                        throw std::runtime_error("Failed to get AWB profile");
+                    }
                 }
                 else // automatic mode
                 {
@@ -249,64 +236,37 @@ void IspResource::http_register(std::shared_ptr<httplib::Server> srv)
                 }
                 webserver::common::auto_white_balance_t awb{(webserver::common::auto_white_balance_profile)val};
                 nlohmann::json j_out = awb;
-                res.set_content(j_out.dump(), "application/json"); });
+                return j_out; }));
 
-    srv->Post("/isp/tuning", [this](const httplib::Request &req, httplib::Response &res)
-              {
+    srv->Post("/isp/tuning", std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &j_body)
+                                                                                   {
                 webserver::common::tuning_t tuning;
-                auto j_body = nlohmann::json::parse(req.body);
                 try
                 {
                     tuning = j_body.get<webserver::common::tuning_t>();
                 }
                 catch (const std::exception &e)
                 {
-                    res.set_content("Failed to cast JSON to tuning_t", "text/plain");
-                    res.status = 500;
-                    return;
+                    throw std::runtime_error("Failed to cast JSON to tuning_t");
                 }
 
-                m_tuning_profile.fallback = tuning.value;
-                if (m_tuning_profile.current == webserver::common::TUNING_PROFILE_DENOISE)
-                {
-                    std::cout << "skipping file override, denoise is enabled" << std::endl;
-                    nlohmann::json j_out = tuning;
-                    res.set_content(j_out.dump(), "application/json");
-                    return;
-                }
-                
-                m_tuning_profile.current = tuning.value;
-                if (tuning.value == webserver::common::TUNING_PROFILE_BACKLIGHT_COMPENSATION)
-                {
-                    isp_utils::set_backlight_configuration();
-                }
-                else 
-                {
-                    isp_utils::set_default_configuration();
-                }
-                
-                // return current tuning profile, if denoise enabled, return fallbackSSS
-                tuning.value = this->m_tuning_profile.current; 
-                if (tuning.value == webserver::common::TUNING_PROFILE_DENOISE)
-                {
-                    tuning.value = this->m_tuning_profile.fallback; 
-                }
+                m_tuning_profile = tuning.value;
+                this->init();
                 nlohmann::json j_tuning = tuning;
-                res.set_content(j_tuning.dump(), "application/json"); });
+                return j_tuning; }));
 
-    srv->Get("/isp/tuning", [this](const httplib::Request &req, httplib::Response &res)
-             { 
+    srv->Get("/isp/tuning", std::function<nlohmann::json()>([this]()
+                                                            {
                 webserver::common::tuning_t tuning;
-                tuning.value = this->m_tuning_profile.current; 
-                if (tuning.value == webserver::common::TUNING_PROFILE_DENOISE)
-                {
-                    tuning.value = this->m_tuning_profile.fallback; 
-                }
-                nlohmann::json j_tuning = tuning;
-                res.set_content(j_tuning.dump(), "application/json"); });
+                tuning.value = this->m_tuning_profile;
 
-    srv->Get("/isp/stream_params", [this](const httplib::Request &req, httplib::Response &res)
-             {
+                nlohmann::json j_tuning = tuning;
+                j_tuning["available"] = get_enum_values<tuning_profile_t>(webserver::common::TUNING_PROFILE_MAX);
+
+                return j_tuning; }));
+
+    srv->Get("/isp/stream_params", std::function<nlohmann::json()>([this]()
+                                                                   {
                 stream_isp_params_t p(0, 0, 0, 0, 0);
                 this->m_v4l2->v4l2_ext_ctrl_get<uint16_t>(webserver::common::V4L2_CTRL_SHARPNESS_DOWN, p.sharpness_down);
                 this->m_v4l2->v4l2_ext_ctrl_get<uint16_t>(webserver::common::V4L2_CTRL_SHARPNESS_UP, p.sharpness_up);
@@ -316,22 +276,19 @@ void IspResource::http_register(std::shared_ptr<httplib::Server> srv)
 
                 nlohmann::json j_out = m_baseline_stream_params.to_stream_params(p);
                 std::cout << "Got stream params: " << j_out.dump() << std::endl;
-                res.set_content(j_out.dump(), "application/json"); });
+                return j_out; }));
 
-    srv->Post("/isp/stream_params", [this](const httplib::Request &req, httplib::Response &res)
-              {
+    srv->Post("/isp/stream_params", std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &j_body)
+                                                                                          {
                 std::string ret_msg;
                 webserver::common::stream_params_t stream_params;
-                auto j_body = nlohmann::json::parse(req.body);
                 try
                 {
                     stream_params = j_body.get<webserver::common::stream_params_t>();
                 }
                 catch (const std::exception &e)
                 {
-                    res.set_content("Failed to cast JSON to stream_params_t", "text/plain");
-                    res.status = 500;
-                    return;
+                    throw std::runtime_error("Failed to cast JSON to stream_params_t");
                 }
                 auto isp_params = m_baseline_stream_params.from_stream_params(stream_params);
 
@@ -348,26 +305,23 @@ void IspResource::http_register(std::shared_ptr<httplib::Server> srv)
 
                 // cast out to json
                 nlohmann::json j_out = stream_params;
-                res.set_content(j_out.dump(), "application/json"); });
+                return j_out; }));
 
-    srv->Post("/isp/auto_exposure", [this](const httplib::Request &req, httplib::Response &res)
-              {
-                auto j_body = nlohmann::json::parse(req.body);
-                this->set_auto_exposure(j_body, res); });
+    srv->Post("/isp/auto_exposure", std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &j_body)
+                                                                                          { return this->set_auto_exposure(j_body); }));
 
-    srv->Patch("/isp/auto_exposure", [this](const httplib::Request &req, httplib::Response &res)
+    srv->Patch("/isp/auto_exposure", [this](const nlohmann::json &j_body)
                {
                 auto params = this->get_auto_exposure();
                 nlohmann::json j_params = params;
-                auto j_body = nlohmann::json::parse(req.body);
                 j_params.merge_patch(j_body);
-                this->set_auto_exposure(j_params, res); });
+                return this->set_auto_exposure(j_params); });
 
-    srv->Get("/isp/auto_exposure", [this](const httplib::Request &req, httplib::Response &res)
-             {
+    srv->Get("/isp/auto_exposure", std::function<nlohmann::json()>([this]()
+                                                                   {
                 auto params = this->get_auto_exposure();
                 nlohmann::json j_out = params;
-                res.set_content(j_out.dump(), "application/json"); });
+                return j_out; }));
 }
 
 auto_exposure_t IspResource::get_auto_exposure()
@@ -378,10 +332,16 @@ auto_exposure_t IspResource::get_auto_exposure()
     m_v4l2->v4l2_ctrl_get<uint16_t>(V4L2_CTRL_AE_ENABLE, enabled);
     m_v4l2->v4l2_ctrl_get<uint32_t>(V4L2_CTRL_AE_GAIN, gain);
     m_v4l2->v4l2_ctrl_get<uint16_t>(V4L2_CTRL_AE_INTEGRATION_TIME, integration_time);
-    return auto_exposure_t{(bool)enabled, (uint16_t)(gain / 1024), integration_time};
+
+    std::cout << "Got gain: " << gain << " integration time: " << integration_time << std::endl;
+
+    backlight_filter_t current = backlight_filter_t::get_from_json();
+    uint16_t backlight = m_baseline_backlight_params.to_precentage(current);
+
+    return auto_exposure_t{(bool)enabled, ROUND_GAIN_GET_U16(gain), integration_time, backlight};
 }
 
-void IspResource::set_auto_exposure(nlohmann::json &req, httplib::Response &res)
+nlohmann::json IspResource::set_auto_exposure(const nlohmann::json &req)
 {
     webserver::common::auto_exposure_t ae;
     try
@@ -390,43 +350,55 @@ void IspResource::set_auto_exposure(nlohmann::json &req, httplib::Response &res)
     }
     catch (const std::exception &e)
     {
-        res.set_content("Failed to cast JSON to auto_exposure_t", "text/plain");
-        res.status = 500;
-        return;
+        throw std::runtime_error("Failed to cast JSON to auto_exposure_t");
     }
 
     if (!set_auto_exposure(ae))
     {
-        res.set_content("Failed to set auto exposure", "text/plain");
-        res.status = 500;
-        return;
+        throw std::runtime_error("Failed to set auto exposure");
     }
 
     // cast out to json
     nlohmann::json j_out = get_auto_exposure();
-    res.set_content(j_out.dump(), "application/json");
+    return j_out;
 }
 
 bool IspResource::set_auto_exposure(auto_exposure_t &ae)
 {
     uint32_t gain = (uint32_t)ae.gain * 1024;
-    std::cout << "Setting AE to: " << ae.enabled << " with gain: " << gain << " and integration time: " << ae.integration_time << std::endl;
+    std::cout << "Setting auto exposure: " << ae.enabled << std::endl;
     m_v4l2->v4l2_ext_ctrl_set<uint16_t>(V4L2_CTRL_AE_ENABLE, ae.enabled);
     if (ae.enabled)
     {
         // sleep so auto exposure values will be updated
         std::this_thread::sleep_for(std::chrono::seconds(1));
-        return true;
     }
-    bool ret = m_v4l2->v4l2_ext_ctrl_set<uint32_t>(V4L2_CTRL_AE_GAIN, gain);
-    if (!ret)
+    else
     {
-        return false;
+        std::cout << "Set gain: " << gain << " integration time: " << ae.integration_time << std::endl;
+        bool ret = m_v4l2->v4l2_ext_ctrl_set<uint32_t>(V4L2_CTRL_AE_GAIN, gain);
+        if (!ret)
+        {
+            return false;
+        }
+        ret = m_v4l2->v4l2_ext_ctrl_set<uint16_t>(V4L2_CTRL_AE_INTEGRATION_TIME, ae.integration_time);
+        if (!ret)
+        {
+            return false;
+        }
     }
-    ret = m_v4l2->v4l2_ext_ctrl_set<uint16_t>(V4L2_CTRL_AE_INTEGRATION_TIME, ae.integration_time);
-    if (!ret)
+
+    backlight_filter_t current = m_baseline_backlight_params.from_precentage(ae.backlight);
+    nlohmann::json j_3a = get_3a_config();
+    auto root = j_3a["root"];
+    for (auto &obj : j_3a["root"])
     {
-        return false;
+        if (obj["classname"] == "AdaptiveAe")
+        {
+            obj["wdrContrast.max"] = current.max;
+            obj["wdrContrast.min"] = current.min;
+        }
     }
+    update_3a_config(j_3a);
     return true;
 }

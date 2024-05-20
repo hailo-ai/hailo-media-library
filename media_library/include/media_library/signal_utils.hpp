@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Hailo Technologies Ltd. All rights reserved.
+ * Copyright (c) 2017-2024 Hailo Technologies Ltd. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -20,9 +20,21 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+/**
+ * @file signal_utils.hpp
+ * @brief MediaLibrary signalling CPP API module
+ **/
+
 #pragma once
+#include <functional>
 
-#include "osd.hpp"
-#include <memory>
+namespace signal_utils
+{
+    typedef std::function<void(int)> hailo_exit_signal_t;
 
-std::shared_ptr<osd::Blender> gst_hailoosd_get_blender(GstElement *object);
+    // shoud register signal only after pipeline initialization is complete
+    void register_signal_handler(hailo_exit_signal_t signal_handler);
+
+} // namespace signal_utils
+
+/** @} */ // end of signal_utils

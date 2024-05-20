@@ -169,5 +169,5 @@ public:
   /**
    * @brief Destructor for the encoder module
    */
-  ~MediaLibraryEncoder();
+  ~MediaLibraryEncoder() = default;
 };

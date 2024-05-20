@@ -20,7 +20,7 @@ nlohmann::json Pipeline::create_encoder_osd_config(WebserverResourceRepository r
     auto osd_resource = std::static_pointer_cast<OsdResource>(resources->get(RESOURCE_OSD));
     nlohmann::json encoder_osd_config;
     encoder_osd_config["osd"] = osd_resource->get_current_osd_config();
-    encoder_osd_config["hailo_encoder"] = resources->get(RESOURCE_ENCODER)->get();
+    encoder_osd_config["encoding"]["hailo_encoder"] = resources->get(RESOURCE_ENCODER)->get();
     return encoder_osd_config;
 }
 
@@ -34,7 +34,7 @@ std::string Pipeline::create_gst_pipeline_string()
 
     nlohmann::json encoder_osd_config;
     encoder_osd_config["osd"] = osd_resource->get_current_osd_config();
-    encoder_osd_config["hailo_encoder"] = m_resources->get(RESOURCE_ENCODER)->get();
+    encoder_osd_config["encoding"]["hailo_encoder"] = m_resources->get(RESOURCE_ENCODER)->get();
 
     // std::string multi_resize_config = R"({"digital_zoom":{"enabled":true,"magnification":1.0,"mode":"DIGITAL_ZOOM_MODE_MAGNIFICATION","roi":{"height":1800,"width":2800,"x":200,"y":200}}, "output_video":{"format":"IMAGE_FORMAT_NV12", "grayscale":false, "method":"INTERPOLATION_TYPE_BILINEAR", "resolutions":[{"framerate":30, "height":640,"pool_max_buffers":20, "width":640}]}})";
 

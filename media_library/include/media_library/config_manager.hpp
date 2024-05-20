@@ -31,6 +31,7 @@
 #include <tl/expected.hpp>
 #include <vector>
 #include <memory>
+#include <nlohmann/json.hpp>
 
 #include "media_library_types.hpp"
 
@@ -112,6 +113,14 @@ public:
    */
   static tl::expected<std::string, media_library_return>
   parse_config(std::string config_string, std::string entry);
+
+  /**
+   * @brief Retrieve the encoder type from an input JSON configuration
+   *
+   * @param[in] config_json - the user's configuration (as a json object)
+   * @return EncoderType
+   */
+  static EncoderType get_encoder_type(const nlohmann::json &config_json);
 
 private:
   class ConfigManagerImpl; // internal implementation class

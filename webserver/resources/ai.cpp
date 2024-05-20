@@ -1,28 +1,12 @@
 #include "resources.hpp"
 #include <iostream>
 
-std::string VD_M_NETWORK_CONFIG = R"({
-            "network_path": "/usr/lib/medialib/denoise_config/vd_m_imx678.hef",
-            "y_channel": "model/input_layer1",
-            "uv_channel": "model/input_layer4",
-            "feedback_y_channel": "model/input_layer3",
-            "feedback_uv_channel": "model/input_layer2",
-            "output_y_channel": "model/conv17",
-            "output_uv_channel": "model/conv14"
-        })";
+const std::string VD_L_NETWORK_HEF = "/usr/lib/medialib/denoise_config/vd_l_imx678.hef";
+const std::string VD_M_NETWORK_HEF = "/usr/lib/medialib/denoise_config/vd_m_imx678.hef";
+const std::string VD_S_NETWORK_HEF = "/usr/lib/medialib/denoise_config/vd_s_imx678.hef";
 
-std::string VD_L_NETWORK_CONFIG = R"({
-            "network_path": "/usr/lib/medialib/denoise_config/vd_l_imx678.hef",
-            "y_channel": "model/input_layer1",
-            "uv_channel": "model/input_layer4",
-            "feedback_y_channel": "model/input_layer3",
-            "feedback_uv_channel": "model/input_layer2",
-            "output_y_channel": "model/conv17",
-            "output_uv_channel": "model/conv14"
-        })";
-
-#define DENOISE_NETWORK_CONFIG(n) n == "Large" ? VD_L_NETWORK_CONFIG : VD_M_NETWORK_CONFIG
-#define DENOISE_METHOD_CONFIG(n) n == "Large" ? "HIGH_QUALITY" : "BALANCED"
+#define DENOISE_NETWORK_PATH(n) n == "Large" ? VD_L_NETWORK_HEF : n == "Medium" ? VD_M_NETWORK_HEF \
+                                                                                : VD_S_NETWORK_HEF
 
 webserver::resources::AiResource::AiResource() : Resource()
 {
@@ -33,7 +17,8 @@ webserver::resources::AiResource::AiResource() : Resource()
         },
         "denoise": {
             "enabled": false,
-            "network": "Medium"
+            "network": "Medium",
+            "loopback-count": 1
         },
         "defog": {
             "enabled": false
@@ -115,14 +100,6 @@ void webserver::resources::AiResource::http_patch(nlohmann::json body)
     m_config.merge_patch(body);
     auto current_enabled_apps = this->get_enabled_applications();
 
-    // if denoise is enabled with Large network, disable all other applications
-    if (std::find(current_enabled_apps.begin(), current_enabled_apps.end(), AiApplications::AI_APPLICATION_DENOISE) != current_enabled_apps.end() &&
-        m_config["denoise"]["network"] == "Large")
-    {
-        m_config["detection"]["enabled"] = false;
-        m_config["defog"]["enabled"] = false;
-    }
-
     // if denoise in current but not in prev, disable defog
     if (std::find(current_enabled_apps.begin(), current_enabled_apps.end(), AiApplications::AI_APPLICATION_DENOISE) != current_enabled_apps.end() &&
         std::find(prev_enabled_apps.begin(), prev_enabled_apps.end(), AiApplications::AI_APPLICATION_DENOISE) == prev_enabled_apps.end())
@@ -138,27 +115,25 @@ void webserver::resources::AiResource::http_patch(nlohmann::json body)
         m_config["denoise"]["enabled"] = false;
     }
 
-    std::string j = DENOISE_NETWORK_CONFIG(m_config["denoise"]["network"]);
+    std::string j = DENOISE_NETWORK_PATH(m_config["denoise"]["network"]);
     m_denoise_config["network"] = nlohmann::json::parse(j);
-    m_denoise_config["method"] = DENOISE_METHOD_CONFIG(m_config["denoise"]["network"]);
     m_defog_config["enabled"] = m_config["defog"]["enabled"];
     m_denoise_config["enabled"] = m_config["denoise"]["enabled"];
-
+    m_denoise_config["loopback-count"] = m_config["denoise"]["loopback-count"];
     std::cout << "finished updating AI config, sending CB" << std::endl;
 
     on_resource_change(this->parse_state(this->get_enabled_applications(), prev_enabled_apps));
 }
 
-void webserver::resources::AiResource::http_register(std::shared_ptr<httplib::Server> srv)
+void webserver::resources::AiResource::http_register(std::shared_ptr<HTTPServer> srv)
 {
-    srv->Get("/ai", [this](const httplib::Request &, httplib::Response &res)
-             { res.set_content(this->to_string(), "application/json"); });
+    srv->Get("/ai", std::function<nlohmann::json()>([this]()
+                                                    { return this->m_config; }));
 
-    srv->Patch("/ai", [this](const httplib::Request &req, httplib::Response &res)
-               { 
-                    auto body = nlohmann::json::parse(req.body);
-                    http_patch(body);
-                    res.set_content(this->to_string(), "application/json"); });
+    srv->Patch("/ai", [this](const nlohmann::json &req)
+               {
+                http_patch(req);
+                return this->m_config; });
 }
 
 nlohmann::json webserver::resources::AiResource::get_ai_config(AiApplications app)

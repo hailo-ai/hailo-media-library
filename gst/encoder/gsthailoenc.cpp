@@ -220,7 +220,7 @@ gst_hailoenc_class_init(GstHailoEncClass *klass)
                                   g_param_spec_boolean("picture-rc", "Picture Rate Control", "Adjust QP between pictures", TRUE,
                                                        (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_CTB_RC,
-                                  g_param_spec_boolean("ctb-rc", "Block Rate Control", "Adaptive adjustment of QP inside frame", TRUE,
+                                  g_param_spec_boolean("ctb-rc", "Block Rate Control", "Adaptive adjustment of QP inside frame", FALSE,
                                                        (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_PICTURE_SKIP,
                                   g_param_spec_boolean("picture-skip", "Picture Skip", "Allow rate control to skip pictures", FALSE,
@@ -705,33 +705,32 @@ gst_hailoenc_update_params(GstHailoEnc *hailoenc, GstVideoInfo *info)
  * @note The function will fail when it cannot get the physical address or the memory is non-continous.
  */
 static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc *hailoenc,
-                                                      GstVideoCodecFrame *frame)
+                                                      HailoMediaLibraryBufferPtr hailo_buffer)
 {
   EncoderParams *enc_params = &(hailoenc->enc_params);
   uint32_t *luma = nullptr;
   uint32_t *chroma = nullptr;
+  int lumaFd = -1;
+  int chromaFd = -1;
   size_t luma_size = 0;
   size_t chroma_size = 0;
   uint32_t stride = 0;
   int ewl_ret;
 
-  HailoMediaLibraryBufferPtr hailo_buffer = hailo_buffer_from_gst_buffer(frame->input_buffer, hailoenc->input_state->caps, false);
-
   if (!hailo_buffer)
   {
-    GST_ERROR_OBJECT(hailoenc, "Could not get hailo buffer");
+    GST_ERROR_OBJECT(hailoenc, "Null hailo buffer");
     return GST_FLOW_ERROR;
   }
 
-  luma = static_cast<uint32_t *>(hailo_buffer->get_plane(0));
-  chroma = static_cast<uint32_t *>(hailo_buffer->get_plane(1));
   luma_size = hailo_buffer->get_plane_size(0);
   chroma_size = hailo_buffer->get_plane_size(1);
   stride = hailo_buffer->get_plane_stride(0);
 
-  if (luma == nullptr || chroma == nullptr || luma_size == 0 || chroma_size == 0)
+  if (luma_size == 0 || chroma_size == 0)
   {
-     GST_ERROR_OBJECT(hailoenc, "luma %p luma_size %zu chroma %p chroma_size %zu", luma, luma_size, chroma, chroma_size);
+    hailo_buffer->decrease_ref_count();
+    GST_ERROR_OBJECT(hailoenc, "luma %p luma_size %zu chroma %p chroma_size %zu", luma, luma_size, chroma, chroma_size);
     return GST_FLOW_ERROR;
   }
 
@@ -742,19 +741,62 @@ static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc *hailoenc,
     InitEncoderPreProcConfig(enc_params, &(hailoenc->encoder_instance));
   }
 
-  // Get the physical Addresses of input buffer luma and chroma.
-  ewl_ret = EWLGetBusAddress(enc_params->ewl, luma, &(enc_params->encIn.busLuma), luma_size);
-  if (ewl_ret != EWL_OK)
+  if (hailo_buffer->is_dmabuf())
   {
-    GST_ERROR_OBJECT(hailoenc, "Could not get physical address of input picture luma");
-    return GST_FLOW_ERROR;
+    lumaFd = hailo_buffer->get_fd(0);
+    chromaFd = hailo_buffer->get_fd(1);
+    if (lumaFd <= 0 || chromaFd <= 0)
+    {
+      hailo_buffer->decrease_ref_count();
+      GST_ERROR_OBJECT(hailoenc, "Could not get input dma buffer luma and chroma");
+      return GST_FLOW_ERROR;
+    }
+    // Get the physical Addresses of input buffer luma and chroma.
+    ewl_ret = EWLShareDmabuf(enc_params->ewl, lumaFd, &(enc_params->encIn.busLuma));
+    if (ewl_ret != EWL_OK)
+    {
+      hailo_buffer->decrease_ref_count();
+      GST_ERROR_OBJECT(hailoenc, "Could not get physical address of input picture luma");
+      return GST_FLOW_ERROR;
+    }
+    ewl_ret = EWLShareDmabuf(enc_params->ewl, chromaFd, &(enc_params->encIn.busChromaU));
+    if (ewl_ret != EWL_OK)
+    {
+      EWLUnshareDmabuf(enc_params->ewl, lumaFd);
+      hailo_buffer->decrease_ref_count();
+      GST_ERROR_OBJECT(hailoenc, "Could not get physical address of input picture chroma");
+      return GST_FLOW_ERROR;
+    }
   }
-  ewl_ret = EWLGetBusAddress(enc_params->ewl, chroma, &(enc_params->encIn.busChromaU), chroma_size);
-  if (ewl_ret != EWL_OK)
+  else
   {
-    GST_ERROR_OBJECT(hailoenc, "Could not get physical address of input picture chroma");
-    return GST_FLOW_ERROR;
+    luma = static_cast<uint32_t *>(hailo_buffer->get_plane(0));
+    chroma = static_cast<uint32_t *>(hailo_buffer->get_plane(1));
+    if (luma == nullptr || chroma == nullptr)
+    {
+      hailo_buffer->decrease_ref_count();
+      GST_ERROR_OBJECT(hailoenc, "Could not get input buffer luma and chroma");
+      return GST_FLOW_ERROR;
+    }
+
+    // Get the physical Addresses of input buffer luma and chroma.
+    ewl_ret = EWLGetBusAddress(enc_params->ewl, luma, &(enc_params->encIn.busLuma), luma_size);
+    if (ewl_ret != EWL_OK)
+    {
+      hailo_buffer->decrease_ref_count();
+      GST_ERROR_OBJECT(hailoenc, "Could not get physical address of input picture luma");
+      return GST_FLOW_ERROR;
+    }
+    ewl_ret = EWLGetBusAddress(enc_params->ewl, chroma, &(enc_params->encIn.busChromaU), chroma_size);
+    if (ewl_ret != EWL_OK)
+    {
+      hailo_buffer->decrease_ref_count();
+      GST_ERROR_OBJECT(hailoenc, "Could not get physical address of input picture chroma");
+      return GST_FLOW_ERROR;
+    }
   }
+
+  hailo_buffer->decrease_ref_count();
   return GST_FLOW_OK;
 }
 
@@ -855,11 +897,7 @@ gst_hailoenc_stream_restart(GstVideoEncoder *encoder, GstVideoCodecFrame *frame)
     return GST_FLOW_ERROR;
   }
 
-  if (enc_params->picture_enc_cnt > 0)
-  {
-    gst_hailoenc_add_headers(hailoenc, gst_hailoenc_get_encoded_buffer(hailoenc));
-  }
-  else
+  if (enc_params->picture_enc_cnt == 0)
   {
     gst_buffer_unref(hailoenc->header_buffer);
     hailoenc->header_buffer = NULL;
@@ -982,6 +1020,16 @@ static void gst_hailoenc_slice_ready(VCEncSliceReady *slice)
   }
 }
 
+static GstFlowReturn releaseDmabuf(GstHailoEnc *hailoenc, int fd)
+{
+  if (EWLUnshareDmabuf(hailoenc->enc_params.ewl, fd) != EWL_OK)
+  {
+    GST_ERROR_OBJECT(hailoenc, "Could not unshare dmabuf");
+    return GST_FLOW_ERROR;
+  }
+  return GST_FLOW_OK;
+}
+
 /**
  * Encode a single frame
  *
@@ -993,6 +1041,10 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
 {
   GstFlowReturn ret = GST_FLOW_ERROR;
   VCEncRet enc_ret;
+  HailoMediaLibraryBufferPtr hailo_buffer;
+  bool is_dmabuf = false;
+  int num_planes = 0;
+  int *planeFds = nullptr;
   EncoderParams *enc_params = &(hailoenc->enc_params);
   struct timespec start_encode, end_encode;
   GST_DEBUG_OBJECT(hailoenc, "Encoding frame number %u in type %u", frame->system_frame_number, enc_params->nextCodingType);
@@ -1003,10 +1055,41 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
     return GST_FLOW_ERROR;
   }
 
-  ret = gst_hailoenc_update_input_buffer(hailoenc, frame);
+  hailo_buffer = hailo_buffer_from_gst_buffer(frame->input_buffer, hailoenc->input_state->caps, false);
+  if(!hailo_buffer)
+  {
+    GST_ERROR_OBJECT(hailoenc, "Could not get hailo buffer");
+    return GST_FLOW_ERROR;
+  }
+
+  if (hailo_buffer->is_dmabuf())
+  {
+    is_dmabuf = true;
+    num_planes = hailo_buffer->get_num_of_planes();
+    planeFds = new int[num_planes];
+    if (planeFds == nullptr)
+    {
+      GST_ERROR_OBJECT(hailoenc, "Could not allocate memory for dmabuf fds");
+      return GST_FLOW_ERROR;
+    }
+    memset(planeFds, 0, num_planes * sizeof(int));
+    for (uint32_t i = 0; i < num_planes; i++)
+    {
+      planeFds[i] = hailo_buffer->get_fd(i);
+      if (planeFds[i] <= 0)
+      {
+        GST_ERROR_OBJECT(hailoenc, "Could not get dmabuf fd of plane %d", i);
+        delete planeFds;
+        return GST_FLOW_ERROR;
+      }
+    }
+  }
+
+  ret = gst_hailoenc_update_input_buffer(hailoenc, hailo_buffer);
   if (ret != GST_FLOW_OK)
   {
     GST_ERROR_OBJECT(hailoenc, "Could not update the input buffer");
+    delete planeFds;
     return ret;
   }
 
@@ -1044,6 +1127,12 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
         if (ret != GST_FLOW_OK)
         {
           GST_ERROR_OBJECT(hailoenc, "Could not send encoded buffer, reason %d", ret);
+          if (is_dmabuf)
+          {
+            for (uint32_t i = 0; i < num_planes; i++)
+              releaseDmabuf(hailoenc, planeFds[i]);
+          }
+          delete planeFds;
           return ret;
         }
       }
@@ -1053,8 +1142,27 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
   default:
     GST_ERROR_OBJECT(hailoenc, "Encoder failed with error %d", enc_ret);
     ret = GST_FLOW_ERROR;
+    if (is_dmabuf)
+    {
+      for (uint32_t i = 0; i < num_planes; i++)
+        releaseDmabuf(hailoenc, planeFds[i]);
+    }
+    delete planeFds;
     return ret;
     break;
+  }
+
+  if (is_dmabuf)
+  {
+    GST_DEBUG_OBJECT(hailoenc, "Unsharing dmabuf");
+    for (uint32_t i = 0; i < num_planes; i++)
+    {
+      if (releaseDmabuf(hailoenc, planeFds[i]) != GST_FLOW_OK)
+      {
+          GST_ERROR_OBJECT(hailoenc, "Could not get physical address of plane %d", i);
+      }
+    }
+    delete planeFds;
   }
   return ret;
 }

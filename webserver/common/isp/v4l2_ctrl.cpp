@@ -14,4 +14,5 @@ std::unordered_map<v4l2_ctrl_id, v4l2ControlHelper::min_max_isp_params> v4l2Cont
     {v4l2_ctrl_id::V4L2_CTRL_WDR_CONTRAST, {-1023, 1023, v4l2_ctrl_id::V4L2_CTRL_WDR_CONTRAST}},
     {v4l2_ctrl_id::V4L2_CTRL_AE_GAIN, {0, 3890 * 1024, v4l2_ctrl_id::V4L2_CTRL_AE_GAIN}},
     {v4l2_ctrl_id::V4L2_CTRL_AE_INTEGRATION_TIME, {8, 33000, v4l2_ctrl_id::V4L2_CTRL_AE_INTEGRATION_TIME}},
+    {v4l2_ctrl_id::V4L2_CTRL_AE_WDR_VALUES, {0, 255, v4l2_ctrl_id::V4L2_CTRL_AE_WDR_VALUES}},
 };

@@ -46,7 +46,6 @@ static gboolean gst_hailofrontendbinsrc_link_elements(GstElement *element);
 static void gst_hailofrontendbinsrc_dispose(GObject *object);
 static void gst_hailofrontendbinsrc_reset(GstHailoFrontendBinSrc *self);
 static gboolean gst_hailofrontendbinsrc_denoise_enabled_changed(GstHailoFrontendBinSrc *self, bool enabled);
-static gboolean gst_hailofrontendbinsrc_restart_v4l2src(GstHailoFrontendBinSrc *self);
 
 enum
 {
@@ -400,69 +399,6 @@ gst_hailofrontendbinsrc_denoise_enabled_changed(GstHailoFrontendBinSrc *self, bo
         // Disabled ai low-light-enhancement, enable 3dnr
         isp_utils::set_default_configuration();
     }
-
-    // restart v4l2src to apply the new 3a config
-    gst_hailofrontendbinsrc_restart_v4l2src(self);
-
-    return TRUE;
-}
-
-static gboolean
-gst_hailofrontendbinsrc_restart_v4l2src(GstHailoFrontendBinSrc *self)
-{
-    GST_DEBUG_OBJECT(self, "Restarting v4l2src");
-
-    // Wait until the state change is complete
-    GstState state0;
-    GstState pending_state0;
-    gst_element_get_state(self->m_v4l2src, &state0, &pending_state0, GST_CLOCK_TIME_NONE);
-    GST_DEBUG_OBJECT(self, "State before restart: %d, Pending state: %d", state0, pending_state0);
-
-    // Stop the pipeline
-    GstStateChangeReturn stop_status = gst_element_set_state(self->m_v4l2src, GST_STATE_NULL);
-    if (stop_status == GST_STATE_CHANGE_FAILURE)
-    {
-        GST_DEBUG_OBJECT(self, "Failed to stop v4l2src");
-        return FALSE;
-    }
-    else if (stop_status == GST_STATE_CHANGE_SUCCESS)
-    {
-        GST_DEBUG_OBJECT(self, "Stop status success");
-    }
-
-    // Wait until the state change is complete
-    GstState state;
-    GstState pending_state;
-    GstStateChangeReturn ret = gst_element_get_state(self->m_v4l2src, &state, &pending_state, GST_CLOCK_TIME_NONE);
-    if (ret == GST_STATE_CHANGE_SUCCESS)
-    {
-        GST_DEBUG_OBJECT(self, "Succeeded to stop v4l2src");
-    }
-    if (ret == GST_STATE_CHANGE_FAILURE)
-    {
-        GST_DEBUG_OBJECT(self, "Failed to stop v4l2src");
-    }
-    GST_DEBUG_OBJECT(self, "State after stop: %d, Pending state: %d", state, pending_state);
-
-    // Start the pipeline
-    if (state0 == GST_STATE_PLAYING)
-    {
-        GstStateChangeReturn start_status = gst_element_set_state(self->m_v4l2src, GST_STATE_PLAYING);
-        if (start_status == GST_STATE_CHANGE_FAILURE)
-        {
-            GST_DEBUG_OBJECT(self, "Failed to start v4l2src");
-            return FALSE;
-        }
-        else if (start_status == GST_STATE_CHANGE_SUCCESS)
-        {
-            GST_DEBUG_OBJECT(self, "Start status success");
-        }
-    }
-
-    GstState state2;
-    GstState pending_state2;
-    gst_element_get_state(self->m_v4l2src, &state2, &pending_state2, GST_CLOCK_TIME_NONE);
-    GST_DEBUG_OBJECT(self, "State after restart: %d, Pending state: %d", state2, pending_state2);
 
     return TRUE;
 }

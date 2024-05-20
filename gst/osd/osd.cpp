@@ -106,20 +106,28 @@ namespace osd
     {
     }
 
-    DateTimeOverlay::DateTimeOverlay() : BaseTextOverlay()
+    DateTimeOverlay::DateTimeOverlay() : BaseTextOverlay(), datetime_format(DEFAULT_DATETIME_STRING)
     {
     }
 
-    DateTimeOverlay::DateTimeOverlay(std::string _id, float _x, float _y, rgb_color_t _rgb, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy) : BaseTextOverlay(_id, _x, _y, "", _rgb, {-1, -1, -1}, _font_size, _line_thickness, _z_index, DEFAULT_FONT_PATH, _angle, _rotation_policy)
+    DateTimeOverlay::DateTimeOverlay(std::string _id, float _x, float _y, rgb_color_t _rgb, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy) : BaseTextOverlay(_id, _x, _y, "", _rgb, {-1, -1, -1}, _font_size, _line_thickness, _z_index, DEFAULT_FONT_PATH, _angle, _rotation_policy), datetime_format(DEFAULT_DATETIME_STRING)
     {
     }
 
-    DateTimeOverlay::DateTimeOverlay(std::string _id, float _x, float _y, rgb_color_t _rgb, rgb_color_t _rgb_background, std::string font_path, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy) : BaseTextOverlay(_id, _x, _y, "", _rgb, _rgb_background, _font_size, _line_thickness, _z_index, font_path, _angle, _rotation_policy)
+    DateTimeOverlay::DateTimeOverlay(std::string _id, float _x, float _y, rgb_color_t _rgb, rgb_color_t _rgb_background, std::string font_path, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy) : BaseTextOverlay(_id, _x, _y, "", _rgb, _rgb_background, _font_size, _line_thickness, _z_index, font_path, _angle, _rotation_policy), datetime_format(DEFAULT_DATETIME_STRING)
+    {
+    }
+    DateTimeOverlay::DateTimeOverlay(std::string _id, float _x, float _y, std::string datetime_format, rgb_color_t _rgb, rgb_color_t _rgb_background, std::string font_path, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy) : BaseTextOverlay(_id, _x, _y, datetime_format, _rgb, _rgb_background, _font_size, _line_thickness, _z_index, font_path, _angle, _rotation_policy), datetime_format(datetime_format)
     {
     }
 
     CustomOverlay::CustomOverlay(std::string _id, float _x, float _y, float _width, float _height, DspImagePropertiesPtr buffer, unsigned int _z_index) : Overlay(_id, _x, _y, _z_index, 0, rotation_alignment_policy_t::CENTER),
                                                                                                                                                           width(_width), height(_height), m_buffer(buffer)
+    {
+    }
+
+    CustomOverlay::CustomOverlay(std::string id, float x, float y, float width, float height, unsigned int z_index, custom_overlay_format format = osd::custom_overlay_format::A420) : Overlay(id, x, y, z_index, 0, rotation_alignment_policy_t::CENTER),
+                                                                                                                                                    width(width), height(height), m_format(format)
     {
     }
 
@@ -184,6 +192,10 @@ namespace osd
         json.at("id").get_to(overlay.id);
         json.at("x").get_to(overlay.x);
         json.at("y").get_to(overlay.y);
+        if (json.find("datetime_format") != json.end())
+        {
+            json.at("datetime_format").get_to(overlay.datetime_format);
+        }
         json.at("rgb").get_to(overlay.rgb);
         if (json.find("rgb_background") != json.end())
         {
@@ -251,13 +263,13 @@ namespace osd
 
     media_library_return Blender::add_overlay(const CustomOverlay &overlay) { return m_impl->add_overlay(overlay); }
 
+    media_library_return Blender::set_overlay_enabled(const std::string &id, bool enabled) { return m_impl->set_overlay_enabled(id, enabled); }
+
     std::shared_future<media_library_return> Blender::add_overlay_async(const ImageOverlay &overlay) { return m_impl->add_overlay_async(overlay); }
 
     std::shared_future<media_library_return> Blender::add_overlay_async(const TextOverlay &overlay) { return m_impl->add_overlay_async(overlay); }
 
     std::shared_future<media_library_return> Blender::add_overlay_async(const DateTimeOverlay &overlay) { return m_impl->add_overlay_async(overlay); }
-
-    std::shared_future<media_library_return> Blender::add_overlay_async(const CustomOverlay &overlay) { return m_impl->add_overlay_async(overlay); }
 
     tl::expected<std::shared_ptr<Overlay>, media_library_return> Blender::get_overlay(const std::string &id) { return m_impl->get_overlay(id); }
 
@@ -274,8 +286,6 @@ namespace osd
     std::shared_future<media_library_return> Blender::set_overlay_async(const TextOverlay &overlay) { return m_impl->set_overlay_async(overlay); }
 
     std::shared_future<media_library_return> Blender::set_overlay_async(const DateTimeOverlay &overlay) { return m_impl->set_overlay_async(overlay); }
-
-    std::shared_future<media_library_return> Blender::set_overlay_async(const CustomOverlay &overlay) { return m_impl->set_overlay_async(overlay); }
 
     media_library_return Blender::remove_overlay(const std::string &id) { return m_impl->remove_overlay(id); }
 

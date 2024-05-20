@@ -34,6 +34,7 @@ namespace config_schemas
     "type": "object",
     "definitions": {
       "roi": {
+        "$id": "roi",
         "type": "object",
         "properties": {
           "enable": {
@@ -62,6 +63,7 @@ namespace config_schemas
         "additionalProperties": false
       },
       "roi_area" : {
+        "$id": "roi_area",
         "type": "object",
         "properties": {
           "enable": {
@@ -92,39 +94,39 @@ namespace config_schemas
           "qp_delta"
         ],
         "additionalProperties": false
-      }
-    },
-    "properties": {
+      },
+      "input_stream": {
+        "$id": "input_stream",
+        "type": "object",
+        "properties": {
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "framerate": {
+            "type": "integer"
+          },
+          "format": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "width",
+          "height",
+          "framerate",
+          "format"
+        ],
+        "additionalProperties": false
+      },
       "hailo_encoder": {
+        "$id": "hailo_encoder",
         "type": "object",
         "properties": {
           "config": {
             "type": "object",
             "properties": {
-              "input_stream": {
-                "type": "object",
-                "properties": {
-                  "width": {
-                    "type": "integer"
-                  },
-                  "height": {
-                    "type": "integer"
-                  },
-                  "framerate": {
-                    "type": "integer"
-                  },
-                  "format": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "width",
-                  "height",
-                  "framerate",
-                  "format"
-                ],
-                "additionalProperties": false
-              },
               "output_stream": {
                 "type": "object",
                 "properties": {
@@ -202,7 +204,6 @@ namespace config_schemas
               }
             },
             "required": [
-              "input_stream",
               "output_stream"
             ],
             "additionalProperties": false
@@ -234,7 +235,12 @@ namespace config_schemas
                 "type": "object",
                 "properties": {
                   "type": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                      "DEBLOCKING_FILTER_ENABLED",
+                      "DEBLOCKING_FILTER_DISABLED",
+                      "DEBLOCKING_FILTER_DISABLED_ON_SLICE_EDGES"
+                    ]
                   },
                   "tc_offset": {
                     "type": "integer"
@@ -255,19 +261,19 @@ namespace config_schemas
                 "additionalProperties": false
               },
               "intra_area": {
-                "ref": "#/definitions/roi"
+                "$ref": "roi"
               },
               "ipcm_area1": {
-                "ref": "#/definitions/roi"
+                "$ref": "roi"
               },
               "ipcm_area2": {
-                "ref": "#/definitions/roi"
+                "$ref": "roi"
               },
               "roi_area1": {
-                "ref": "#/definitions/roi_area"
+                "$ref": "roi_area"
               },
               "roi_area2": {
-                "ref": "#/definitions/roi_area"
+                "$ref": "roi_area"
               }
             },
             "required": [
@@ -387,10 +393,70 @@ namespace config_schemas
           "rate_control"
         ],
         "additionalProperties": false
+      },
+      "jpeg_encoder": {
+        "$id": "jpeg_encoder",
+        "type": "object",
+        "properties": {
+          "n_threads": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          },
+          "quality": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "n_threads",
+          "quality"
+        ],
+        "additionalProperties": false
       }
     },
-    "required": [
-      "hailo_encoder"
+    "properties": {
+      "encoding": {
+        "type": "object",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "hailo_encoder": {
+                "$ref": "hailo_encoder"
+              },
+              "input_stream": {
+                "$ref": "input_stream"
+              }
+            },
+            "required": [
+              "input_stream",
+              "hailo_encoder"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "jpeg_encoder": {
+                "$ref": "jpeg_encoder"
+              },
+              "input_stream": {
+                "$ref": "input_stream"
+              }
+            },
+            "required": [
+              "input_stream",
+              "jpeg_encoder"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "required" : [
+      "encoding"
     ],
     "additionalProperties": true
   })"_json;
@@ -470,6 +536,9 @@ namespace config_schemas
                   "minimum": 1
                 },
                 "font_path": {
+                  "type": "string"
+                },
+                "datetime_format": {
                   "type": "string"
                 },
                 "line_thickness": {

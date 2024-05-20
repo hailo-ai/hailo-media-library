@@ -93,26 +93,26 @@ webserver::resources::FrontendResource::FrontendResource(std::shared_ptr<webserv
     m_ai_resource = ai_res;
 }
 
-void webserver::resources::FrontendResource::http_register(std::shared_ptr<httplib::Server> srv)
+void webserver::resources::FrontendResource::http_register(std::shared_ptr<HTTPServer> srv)
 {
-    srv->Get("/frontend", [this](const httplib::Request &, httplib::Response &res)
-             { res.set_content(this->to_string(), "application/json"); });
+    srv->Get("/frontend", std::function<nlohmann::json()>([this]()
+                                                          { return this->get_frontend_config(); }));
 
-    srv->Patch("/frontend", [this](const httplib::Request &req, httplib::Response &res)
+    srv->Patch("/frontend", [this](const nlohmann::json &partial_config)
                {
-                    auto partial_config = nlohmann::json::parse(req.body);
-                    m_config.merge_patch(partial_config);
-                    res.set_content(this->to_string(), "application/json");
-                    auto state = ConfigResourceState(this->to_string());
-                    on_resource_change(std::make_shared<webserver::resources::ResourceState>(state)); });
+        m_config.merge_patch(partial_config);
+        auto result = this->m_config;
+        auto state = ConfigResourceState(this->to_string());
+        on_resource_change(std::make_shared<webserver::resources::ResourceState>(state));
+        return result; });
 
-    srv->Put("/frontend", [this](const httplib::Request &req, httplib::Response &res)
+    srv->Put("/frontend", [this](const nlohmann::json &config)
              {
-                auto config = nlohmann::json::parse(req.body);
-                auto partial_config = nlohmann::json::diff(m_config, config);
-                m_config = m_config.patch(partial_config);
-                res.set_content(this->to_string(), "application/json");
-                on_resource_change(std::make_shared<webserver::resources::ResourceState>(ConfigResourceState(this->to_string()))); });
+        auto partial_config = nlohmann::json::diff(m_config, config);
+        m_config = m_config.patch(partial_config);
+        auto result = this->m_config;
+        on_resource_change(std::make_shared<webserver::resources::ResourceState>(ConfigResourceState(this->to_string())));
+        return result; });
 }
 
 nlohmann::json webserver::resources::FrontendResource::get_frontend_config()

@@ -2,7 +2,6 @@
 #include <iostream>
 #include <filesystem>
 #include <nlohmann/json.hpp>
-#include <httplib.h>
 
 #define V4L2_DEVICE_NAME "/dev/video0"
 #ifndef MEDIALIB_LOCAL_SERVER
@@ -24,12 +23,4 @@ inline bool json_extract_value(const nlohmann::json &json, const std::string &ke
     }
 
     return json[key].get<T>();
-}
-
-template <typename T>
-inline bool http_request_extract_value(const httplib::Request &req, const std::string &key, T &out, std::string *return_msg = nullptr)
-{
-    auto j_body = nlohmann::json::parse(req.body);
-
-    return json_extract_value<T>(j_body, key, out, return_msg);
 }

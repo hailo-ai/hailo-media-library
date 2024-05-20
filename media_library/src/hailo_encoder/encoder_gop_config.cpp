@@ -78,7 +78,7 @@ int Encoder::Impl::gopConfig::init_config(VCEncGopConfig * gopConfig, int gop_si
     m_gop_cfg = gopConfig;
     memset(m_gop_pic_cfg, 0, sizeof(m_gop_pic_cfg));
     m_gop_cfg->pGopPicCfg = m_gop_pic_cfg;
-    b_frame_qp_delta = b_frame_qp_delta;
+    m_b_frame_qp_delta = b_frame_qp_delta;
     m_codec_h264 = codec_h264;
     m_gop_size = gop_size;
     int i, pre_load_num;

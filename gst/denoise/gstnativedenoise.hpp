@@ -68,6 +68,7 @@ struct _GstHailoDenoise
     gboolean m_flushing;
     std::unique_ptr<std::condition_variable> m_condvar;
     std::shared_ptr<std::mutex> m_mutex;
+    std::shared_ptr<std::mutex> m_config_mutex;
     uint8_t m_queue_size;
     std::queue<GstBuffer *> m_staging_queue;
 

@@ -108,8 +108,9 @@ gst_hailo_denoise_init(GstHailoDenoise *denoise)
     denoise->medialib_denoise = NULL;
     denoise->m_flushing = false;
     denoise->m_mutex = std::make_shared<std::mutex>();
+    denoise->m_config_mutex = std::make_shared<std::mutex>();
     denoise->m_condvar = std::make_unique<std::condition_variable>();
-    denoise->m_queue_size = 3;
+    denoise->m_queue_size = 2;
     denoise->m_staging_queue = std::queue<GstBuffer *>();
 
     denoise->sinkpad = gst_pad_new_from_static_template(&sink_template, "sink");
@@ -126,6 +127,7 @@ gst_hailo_denoise_init(GstHailoDenoise *denoise)
 static void gst_hailo_denoise_set_property(GObject *object, guint property_id, const GValue *value, GParamSpec *pspec)
 {
     GstHailoDenoise *self = GST_HAILO_DENOISE(object);
+    std::unique_lock<std::mutex> lock(*(self->m_config_mutex));
 
     switch (property_id)
     {
@@ -281,6 +283,7 @@ gst_hailo_denoise_chain(GstPad *pad, GstObject *parent, GstBuffer *buffer)
 {
     GstHailoDenoise *self = GST_HAILO_DENOISE(parent);
     GstFlowReturn ret = GST_FLOW_OK;
+    std::unique_lock<std::mutex> lock(*(self->m_config_mutex));
 
     GST_DEBUG_OBJECT(self, "Chain - Received buffer from sinkpad");
 
@@ -322,17 +325,17 @@ gst_hailo_denoise_chain(GstPad *pad, GstObject *parent, GstBuffer *buffer)
 
     GST_DEBUG_OBJECT(self, "Call media library handle frame - GstBuffer offset %ld", GST_BUFFER_OFFSET(buffer));
     media_library_return media_lib_ret = self->medialib_denoise->handle_frame(input_frame_ptr, output_frame_ptr);
+    input_frame_ptr->decrease_ref_count(); //decrease ref count regardless of success
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
     {
         GST_ERROR_OBJECT(self, "Media library handle frame failed on error %d", media_lib_ret);
         gst_buffer_unref(buffer);
         return GST_FLOW_ERROR;
     }
+    lock.unlock();
 
     GST_DEBUG_OBJECT(self, "Handle frame done");
     gst_hailo_denoise_queue_buffer(self, buffer);
-    // ret = gst_hailo_denoise_push_output_frame(self, output_frame_ptr, buffer);
-    // gst_buffer_unref(buffer);
 
     return ret;
 }

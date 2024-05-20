@@ -229,12 +229,14 @@ static GstFlowReturn gst_hailo_dewarp_chain(GstPad *pad, GstObject *parent, GstB
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
     {
         GST_ERROR_OBJECT(self, "Media library handle frame failed on error %d", media_lib_ret);
+        input_frame_ptr->decrease_ref_count();
         gst_buffer_unref(buffer);
         return GST_FLOW_ERROR;
     }
 
     GST_DEBUG_OBJECT(self, "Handle frame done");
     ret = gst_hailo_dewarp_push_output_frame(self, output_frame, buffer);
+    input_frame_ptr->decrease_ref_count();
     gst_buffer_unref(buffer);
 
     return ret;

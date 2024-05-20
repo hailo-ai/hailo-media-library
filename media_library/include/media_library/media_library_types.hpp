@@ -113,6 +113,13 @@ enum denoise_method_t
     DENOISE_METHOD_MAX = INT_MAX
 };
 
+enum class EncoderType
+{
+    None,
+    Hailo,
+    Jpeg
+};
+
 struct roi_t
 {
     uint32_t x;
