@@ -31,13 +31,7 @@ public:
 
     ~HailortAsyncDenoise()
     {
-        // Wait for last infer to finish
-        if (m_last_infer_job) {
-            auto status = m_last_infer_job->wait(std::chrono::milliseconds(1000));
-            if (HAILO_SUCCESS != status) {
-                LOGGER__ERROR("Failed to wait for infer to finish, status = {}", status);
-            }
-        }
+        m_configured_infer_model.shutdown();
     }
 
     int init(feedback_network_config_t network_config, std::string group_id, int scheduler_threshold, int scheduler_timeout_in_ms)

@@ -113,6 +113,18 @@ media_library_return DmaMemoryAllocator::dmabuf_heap_alloc(dma_heap_allocation_d
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
+    int new_fd = fcntl(heap_data.fd, F_DUPFD, 1024);
+    if (new_fd < 0)
+    {
+        LOGGER__ERROR("F_DUPFD failed for fd = {} and new_fd = {} with error = {}", heap_data.fd, new_fd, errno);
+        close(heap_data.fd);
+
+        return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+    }
+
+    close(heap_data.fd);
+    heap_data.fd = new_fd;
+
     LOGGER__DEBUG("dmabuf_heap_alloc heap_data.fd = {}, heap_data.len = {}", heap_data.fd, heap_data.len);
 
     return MEDIA_LIBRARY_SUCCESS;
@@ -126,7 +138,7 @@ media_library_return DmaMemoryAllocator::dmabuf_map(dma_heap_allocation_data &he
 
     if (*mapped_memory == MAP_FAILED)
     {
-        LOGGER__ERROR("dmabuf map failed");
+        LOGGER__ERROR("dmabuf map failed with error = {}", strerror(errno));
         close(heap_data.fd);
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }

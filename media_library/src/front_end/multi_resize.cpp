@@ -299,7 +299,10 @@ media_library_return MediaLibraryMultiResize::Impl::set_output_rotation(const ro
     // recreate buffer pools if needed
     media_library_return ret = create_and_initialize_buffer_pools();
     if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        m_multi_resize_config.set_output_dimensions_rotation(current_rotation);
         return ret;
+    }
 
     lock.unlock();
 

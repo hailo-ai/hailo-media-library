@@ -289,6 +289,8 @@ gst_hailoosd_stop(GstBaseTransform *trans)
 
     GST_DEBUG_OBJECT(hailoosd, "stop");
 
+    hailoosd->blender = nullptr;
+
     return TRUE;
 }
 

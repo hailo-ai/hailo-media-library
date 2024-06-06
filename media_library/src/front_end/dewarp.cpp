@@ -312,6 +312,10 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t & ldc_conf
             LOGGER__INFO("Dewarp is disabled, but other features are enabled. Enabling dewarp in identity mode (ldc will not be performed).");
             m_ldc_configs.dewarp_config.enabled = true;
             m_ldc_configs.dewarp_config.camera_type = CAMERA_TYPE_INPUT_DISTORTIONS;
+            if (!m_ldc_configs.dis_config.enabled)
+            {
+                m_ldc_configs.dewarp_config.camera_fov = -1;
+            }
         }
     }
 

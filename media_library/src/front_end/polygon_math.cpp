@@ -442,10 +442,10 @@ media_library_return rotate_polygon(privacy_mask_types::PolygonPtr polygon, doub
     rotation_angle = rotation_angle * std::numbers::pi / 180.0;
     for (auto &vertex : polygon->vertices)
     {
-        double trans_x =  vertex.x  - xm;
+        double trans_x = vertex.x - xm;
         double trans_y = ym - vertex.y;
         double x_res = (trans_x * std::cos(rotation_angle) + trans_y * std::sin(rotation_angle)) + xm;
-        double y_res = ym - ((-1)*trans_x * std::sin(rotation_angle) + trans_y * std::cos(rotation_angle));
+        double y_res = ym - ((-1) * trans_x * std::sin(rotation_angle) + trans_y * std::cos(rotation_angle));
         vertex.x = x_res;
         vertex.y = y_res;
     }
@@ -455,7 +455,7 @@ media_library_return rotate_polygon(privacy_mask_types::PolygonPtr polygon, doub
 
 media_library_return rotate_polygons(std::vector<privacy_mask_types::PolygonPtr> &polygons, double rotation_angle, uint frame_width, uint frame_height)
 {
-    for(auto &polygon : polygons)
+    for (auto &polygon : polygons)
     {
         if (rotate_polygon(polygon, rotation_angle, frame_width, frame_height) != media_library_return::MEDIA_LIBRARY_SUCCESS)
             return media_library_return::MEDIA_LIBRARY_ERROR;
@@ -479,23 +479,29 @@ media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mas
 
     // Round up frame_width to byte_size / quantization (32)
     int line_division = 8 / PRIVACY_MASK_QUANTIZATION;
-    int bytes_per_line = (frame_width/line_division + 7) & ~7;
+    int bytes_per_line = (frame_width / line_division + 7) & ~7;
     // Handle padding (aligned to 8)
-    int mask_width_with_stride = bytes_per_line*8;
+    int mask_width_with_stride = bytes_per_line * 8;
 
     // To represent a bit per pixel structure - set packaged array size to /8 and add one if it is not a multiple of 8
     uint packaged_array_size = (mask_width_with_stride * mask_height) / 8 + ((mask_width_with_stride * mask_height) % 8 == 0 ? 0 : 1);
     std::vector<uint8_t> packaged_array(packaged_array_size, 0);
 
     // Set the rois count and YUV color in the privacy mask data
-    privacy_mask_data->rois_count = polygons.size();
     privacy_mask_data->color = rgb_to_yuv(color);
 
     uint i = 0;
     for (const auto &polygon : polygons)
     {
-        std::vector<Point> pts = convert_vertices_to_points(polygon->vertices, privacy_mask_data->rois[i], frame_width, frame_height);
+        roi_t roi;
+        std::vector<Point> pts = convert_vertices_to_points(polygon->vertices, roi, frame_width, frame_height);
 
+        if (!(roi.width > 0 && roi.height > 0)) // if ROI is out of frame, ignore it
+        {
+            continue;
+        }
+
+        privacy_mask_data->rois[i] = roi;
         if (fill_poly_packaged_array(mask, pts, white, 8, 0, mask_width_with_stride, packaged_array) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR("Failed to fill polygon");
@@ -503,6 +509,7 @@ media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mas
         }
         i++;
     }
+    privacy_mask_data->rois_count = i;
 
     if (privacy_mask_data->bitmask.hailo_pix_buffer->planes[0].bytesused != packaged_array_size)
     {
@@ -515,7 +522,6 @@ media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mas
     clock_gettime(CLOCK_MONOTONIC, &end_fill_polly);
     [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_fill_polly, start_fill_polly);
     LOGGER__DEBUG("perform fill polygon took {} milliseconds ({} fps)", ms, (1000 / ms));
-
 
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }

@@ -184,8 +184,7 @@ struct dewarp_config_t
     bool operator==(const dewarp_config_t &other) const
     {
         return sensor_calib_path == other.sensor_calib_path &&
-               interpolation_type == other.interpolation_type &&
-               camera_fov == other.camera_fov;
+               interpolation_type == other.interpolation_type;
     }
     bool operator!=(const dewarp_config_t &other) const
     {

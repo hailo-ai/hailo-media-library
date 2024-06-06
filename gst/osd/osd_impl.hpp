@@ -39,6 +39,7 @@
 #include <future>
 
 #define WIDTH_PADDING 10
+#define ENFORCE_OVERLAY_IN_BOUND false
 
 class OverlayImpl;
 using OverlayImplPtr = std::shared_ptr<OverlayImpl>;
@@ -65,7 +66,7 @@ public:
     std::string get_id() { return m_id; }
 
 protected:
-    static tl::expected<std::tuple<int, int>, media_library_return> calc_xy_offsets(std::string id, float x_norm, float y_norm, int overlay_width, int overlay_height, int image_width, int image_height, int x_drift, int y_drift);
+    static tl::expected<std::tuple<int, int>, media_library_return> calc_xy_offsets(std::string id, float x_norm, float y_norm, size_t &overlay_width, size_t &overlay_height, int image_width, int image_height, int x_drift, int y_drift);
     static GstVideoFrame gst_video_frame_from_mat_bgra(cv::Mat mat);
     static media_library_return convert_2_dma_video_frame(GstVideoFrame *src_frame, GstVideoFrame *dest_frame, GstVideoFormat dest_format);
     static media_library_return create_gst_video_frame(uint width, uint height, std::string format, GstVideoFrame *frame);

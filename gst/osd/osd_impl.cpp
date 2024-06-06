@@ -270,7 +270,7 @@ media_library_return OverlayImpl::convert_2_dma_video_frame(GstVideoFrame *src_f
     return ret;
 }
 
-tl::expected<std::tuple<int, int>, media_library_return> OverlayImpl::calc_xy_offsets(std::string id, float x_norm, float y_norm, int overlay_width, int overlay_height, int image_width, int image_height, int x_drift, int y_drift)
+tl::expected<std::tuple<int, int>, media_library_return> OverlayImpl::calc_xy_offsets(std::string id, float x_norm, float y_norm, size_t &overlay_width, size_t &overlay_height, int image_width, int image_height, int x_drift, int y_drift)
 {
     int x_offset = x_norm * image_width;
     int y_offset = y_norm * image_height;
@@ -278,16 +278,26 @@ tl::expected<std::tuple<int, int>, media_library_return> OverlayImpl::calc_xy_of
     x_offset += x_drift;
     y_offset += y_drift;
 
-    if (x_offset + overlay_width > image_width)
+    if (x_offset + overlay_width > static_cast<size_t>(image_width))
     {
-        LOGGER__ERROR("overlay {} too wide to fit in frame! Adjust width or x offset. (x_offset: {}, frame_width: {})", id, x_offset + overlay_width, image_width);
-        return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
+        if (ENFORCE_OVERLAY_IN_BOUND)
+        {
+            LOGGER__ERROR("overlay {} too wide to fit in frame! Adjust width or x offset. (x_offset: {}, frame_width: {})", id, x_offset + overlay_width, image_width);
+            return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
+        }
+
+        overlay_width = image_width - x_offset;
     }
 
-    if (y_offset + overlay_height > image_height)
+    if (y_offset + overlay_height > static_cast<size_t>(image_height))
     {
-        LOGGER__ERROR("overlay {} too tall to fit in frame! Adjust height or y offset. (y_offset: {}, frame_height: {})", id, y_offset + overlay_height, image_height);
-        return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
+        if (ENFORCE_OVERLAY_IN_BOUND)
+        {
+            LOGGER__ERROR("overlay {} too tall to fit in frame! Adjust height or y offset. (y_offset: {}, frame_height: {})", id, y_offset + overlay_height, image_height);
+            return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
+        }
+
+        overlay_height = image_height - y_offset;
     }
 
     if (x_offset < 0)
