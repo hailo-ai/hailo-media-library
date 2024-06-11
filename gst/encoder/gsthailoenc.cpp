@@ -1335,7 +1335,9 @@ gst_hailoenc_start(GstVideoEncoder *encoder)
     FreeRes(enc_params);
     return FALSE;
   }
+
   pEncIn->timeIncrement = 0;
+  pEncIn->vui_timing_info_enable = 1;
   pEncIn->busOutBuf = enc_params->outbufMem.busAddress;
   pEncIn->outBufSize = enc_params->outbufMem.size;
   pEncIn->pOutBuf = enc_params->outbufMem.virtualAddress;

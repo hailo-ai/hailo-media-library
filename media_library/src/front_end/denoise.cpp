@@ -85,6 +85,7 @@ public:
     media_library_return observe(const MediaLibraryDenoise::callbacks_t &callbacks);
 
 private:
+    static bool m_first_configure;
     // configured flag - to determine if first configuration was done
     bool m_configured;
     // configuration manager
@@ -99,7 +100,7 @@ private:
     // configuration mutex
     std::shared_mutex rw_lock;
     // HRT module
-    HailortAsyncDenoisePtr m_hailort_denoise;
+    static HailortAsyncDenoisePtr m_hailort_denoise;
     // loopback controls
     uint8_t m_queue_size;
     uint8_t m_loop_counter;
@@ -140,6 +141,10 @@ private:
     HailoMediaLibraryBufferPtr dequeue_inference_callback_buffer();
     void clear_inference_callback_queue();
 };
+
+// MediaLibraryDenoise.cpp
+bool MediaLibraryDenoise::Impl::m_first_configure = true;
+std::unique_ptr<HailortAsyncDenoise> MediaLibraryDenoise::Impl::m_hailort_denoise = nullptr;
 
 //------------------------ MediaLibraryDenoise ------------------------
 tl::expected<std::shared_ptr<MediaLibraryDenoise>, media_library_return> MediaLibraryDenoise::create()
@@ -227,8 +232,6 @@ void MediaLibraryDenoise::Impl::set_default_members()
     m_configured = false;
     m_denoise_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_DENOISE);
     m_hailort_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_HAILORT);
-    m_hailort_denoise = std::make_shared<HailortAsyncDenoise>([this](HailoMediaLibraryBufferPtr output_buffer)
-                                                              { inference_callback(output_buffer); });
 
     m_loopback_limit = 1;
     m_loop_counter = 0;
@@ -285,7 +288,7 @@ MediaLibraryDenoise::Impl::~Impl()
     m_staging_condvar->notify_one();
     if (m_inference_callback_thread.joinable())
     	m_inference_callback_thread.join();
-    m_hailort_denoise.reset();
+    m_hailort_denoise->UnregisterOnInferFinish();
     clear_inference_callback_queue();
     clear_loopback_queue();
     clear_staging_queue();
@@ -342,15 +345,27 @@ media_library_return MediaLibraryDenoise::Impl::configure(denoise_config_t &deno
     m_hailort_configs = hailort_configs;
     bool enabled_changed = m_denoise_configs.enabled != prev_enabled;
 
+    if (prev_enabled == false && m_denoise_configs.enabled == false)
+    {
+        LOGGER__INFO("Denoise Remains disabled, skipping configuration");
+    }
+
     // on first configure
     if (!m_configured)
     {
-        int status = m_hailort_denoise->init(m_denoise_configs.network_config, m_hailort_configs.device_id, 1, 1000);
-        if (status != 0)
+        if (m_first_configure)
         {
-            LOGGER__ERROR("Failed to init hailort");
-            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+            LOGGER__INFO("Initializing hailort denoise");
+            m_hailort_denoise = std::make_unique<HailortAsyncDenoise>();
+            int status = m_hailort_denoise->init(m_denoise_configs.network_config, m_hailort_configs.device_id, 1, 1000);
+            if (status != 0)
+            {
+                LOGGER__ERROR("Failed to init hailort");
+                return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+            }
+            m_first_configure = false;
         }
+
         // Create and initialize buffer pools
         media_library_return ret = create_and_initialize_buffer_pools();
         if (ret != MEDIA_LIBRARY_SUCCESS)
@@ -359,6 +374,10 @@ media_library_return MediaLibraryDenoise::Impl::configure(denoise_config_t &deno
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
     }
+
+    LOGGER__DEBUG("Registering on infer finish callback");
+    m_hailort_denoise->RegisterOnInferFinish([this](HailoMediaLibraryBufferPtr output_buffer)
+                                                { inference_callback(output_buffer); });
 
     // check if enabling
     if (m_denoise_configs.enabled && (enabled_changed || !m_configured))

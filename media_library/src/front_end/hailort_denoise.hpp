@@ -16,22 +16,33 @@ private:
     int m_scheduler_threshold;
     int m_scheduler_timeout_in_ms;
     feedback_network_config_t m_network_config;
-    std::shared_ptr<hailort::AsyncInferJob> m_last_infer_job;
 
     std::unique_ptr<hailort::VDevice> m_vdevice;
     std::shared_ptr<hailort::InferModel> m_infer_model;
-    hailort::ConfiguredInferModel m_configured_infer_model;
-    hailort::ConfiguredInferModel::Bindings m_bindings;
+    std::shared_ptr<hailort::ConfiguredInferModel> m_configured_infer_model;
+    std::shared_ptr<hailort::ConfiguredInferModel::Bindings> m_bindings;
 
 public:
-    HailortAsyncDenoise(std::function<void(HailoMediaLibraryBufferPtr output_buffer)> on_infer_finish) : m_on_infer_finish(on_infer_finish)
+    HailortAsyncDenoise()
     {
-        m_last_infer_job = nullptr;
+        m_on_infer_finish = nullptr;
     }
 
     ~HailortAsyncDenoise()
+    {  
+        if (m_configured_infer_model)
+        {
+            m_configured_infer_model.reset();
+        }
+    }
+
+    void RegisterOnInferFinish(std::function<void(HailoMediaLibraryBufferPtr output_buffer)> on_infer_finish)
     {
-        m_configured_infer_model.shutdown();
+        m_on_infer_finish = on_infer_finish;
+    }
+    void UnregisterOnInferFinish()
+    {
+        m_on_infer_finish = nullptr;
     }
 
     int init(feedback_network_config_t network_config, std::string group_id, int scheduler_threshold, int scheduler_timeout_in_ms)
@@ -77,17 +88,17 @@ public:
             std::cerr << "Failed to create configured infer model, status = " << configured_infer_model_exp.status() << std::endl;
             return configured_infer_model_exp.status();
         }
-        m_configured_infer_model = configured_infer_model_exp.release();
-        m_configured_infer_model.set_scheduler_threshold(m_scheduler_threshold);
-        m_configured_infer_model.set_scheduler_timeout(std::chrono::milliseconds(m_scheduler_timeout_in_ms));
+        m_configured_infer_model = std::make_shared<hailort::ConfiguredInferModel>(configured_infer_model_exp.release());
+        m_configured_infer_model->set_scheduler_threshold(m_scheduler_threshold);
+        m_configured_infer_model->set_scheduler_timeout(std::chrono::milliseconds(m_scheduler_timeout_in_ms));
 
-        auto bindings = m_configured_infer_model.create_bindings();
+        auto bindings = m_configured_infer_model->create_bindings();
         if (!bindings)
         {
             std::cerr << "Failed to create infer bindings, status = " << bindings.status() << std::endl;
             return bindings.status();
         }
-        m_bindings = bindings.release();
+        m_bindings = std::make_shared<hailort::ConfiguredInferModel::Bindings>(bindings.release());
 
         return SUCCESS;
     }
@@ -116,7 +127,7 @@ private:
     int set_input_buffer(void *buffer_p, std::string tensor_name)
     {
         auto input_frame_size = m_infer_model->input(tensor_name)->get_frame_size();
-        auto status = m_bindings.input(tensor_name)->set_buffer(hailort::MemoryView(buffer_p, input_frame_size));
+        auto status = m_bindings->input(tensor_name)->set_buffer(hailort::MemoryView(buffer_p, input_frame_size));
         if (HAILO_SUCCESS != status)
         {
             std::cerr << "Failed to set infer input buffer, status = " << status << std::endl;
@@ -154,7 +165,7 @@ private:
     int set_output_buffer(void *buffer_p, std::string tensor_name)
     {
         auto output_frame_size = m_infer_model->output(tensor_name)->get_frame_size();
-        auto status = m_bindings.output(tensor_name)->set_buffer(hailort::MemoryView(buffer_p, output_frame_size));
+        auto status = m_bindings->output(tensor_name)->set_buffer(hailort::MemoryView(buffer_p, output_frame_size));
         if (HAILO_SUCCESS != status)
         {
             std::cerr << "Failed to set infer input buffer, status = " << status << std::endl;
@@ -181,21 +192,24 @@ private:
 
     int infer(HailoMediaLibraryBufferPtr output_buffer)
     {
-        auto status = m_configured_infer_model.wait_for_async_ready(std::chrono::milliseconds(10000));
+        auto status = m_configured_infer_model->wait_for_async_ready(std::chrono::milliseconds(10000));
         if (HAILO_SUCCESS != status)
         {
             std::cerr << "Failed to wait for async ready, status = " << status << std::endl;
             return status;
         }
 
-        auto job = m_configured_infer_model.run_async(m_bindings, [output_buffer, this](const hailort::AsyncInferCompletionInfo &completion_info)
+        auto job = m_configured_infer_model->run_async(*m_bindings, [output_buffer, this](const hailort::AsyncInferCompletionInfo &completion_info)
                                                       {
             if (completion_info.status != HAILO_SUCCESS) {
                 std::cerr << "[Denoise] Failed to run async infer, status = " << completion_info.status << std::endl;
                 return ERROR;
             }
 
-            m_on_infer_finish(output_buffer);
+            if (m_on_infer_finish)
+            {
+                m_on_infer_finish(output_buffer);
+            }
 
             return SUCCESS; });
 
@@ -206,9 +220,8 @@ private:
         }
 
         job->detach();
-        m_last_infer_job = std::make_shared<hailort::AsyncInferJob>(job.release());
 
         return SUCCESS;
     }
 };
-using HailortAsyncDenoisePtr = std::shared_ptr<HailortAsyncDenoise>;
+using HailortAsyncDenoisePtr = std::unique_ptr<HailortAsyncDenoise>;
