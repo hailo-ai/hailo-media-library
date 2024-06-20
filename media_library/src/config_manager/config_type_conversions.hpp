@@ -512,13 +512,14 @@ void to_json(nlohmann::json &j, const optical_zoom_config_t &oz_conf)
     j = nlohmann::json{
         {"enabled", oz_conf.enabled},
         {"magnification", oz_conf.magnification},
-    };
+        {"max_dewarping_magnification", oz_conf.max_dewarping_magnification}};
 }
 
 void from_json(const nlohmann::json &j, optical_zoom_config_t &oz_conf)
 {
     j.at("enabled").get_to(oz_conf.enabled);
     j.at("magnification").get_to(oz_conf.magnification);
+    oz_conf.max_dewarping_magnification = j.value("max_dewarping_magnification", 100.0); // use 100 as default value
 }
 
 //------------------------ digital_zoom_config_t ------------------------

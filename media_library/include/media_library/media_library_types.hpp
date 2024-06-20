@@ -204,6 +204,7 @@ struct optical_zoom_config_t
 {
     bool enabled;
     float magnification;
+    float max_dewarping_magnification;
 };
 
 struct flip_config_t
@@ -430,7 +431,10 @@ public:
 
     media_library_return update(ldc_config_t &ldc_configs)
     {
-        dewarp_config.enabled = ldc_configs.dewarp_config.enabled;
+        bool disable_dewarp = ldc_configs.optical_zoom_config.enabled &&
+                              ldc_configs.optical_zoom_config.magnification >= ldc_configs.optical_zoom_config.max_dewarping_magnification;
+
+        dewarp_config.enabled = disable_dewarp ? false : ldc_configs.dewarp_config.enabled;
         flip_config = ldc_configs.flip_config;
         dis_config = ldc_configs.dis_config;
 

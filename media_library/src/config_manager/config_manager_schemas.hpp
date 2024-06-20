@@ -1360,6 +1360,9 @@ namespace config_schemas
           },
           "magnification": {
             "type": "number"
+          },
+          "max_dewarping_magnification": {
+            "type": "number"
           }
         },
         "additionalProperties": false,
