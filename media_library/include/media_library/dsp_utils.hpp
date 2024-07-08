@@ -63,6 +63,12 @@ namespace dsp_utils
   dsp_status release_hailo_dsp_buffer(void *buffer);
 
   dsp_status
+  perform_resize(dsp_image_properties_t *input_image_properties,
+                 dsp_image_properties_t *output_image_properties,
+                 dsp_interpolation_type_t dsp_interpolation_type,
+                 bool letterbox);
+
+  dsp_status
   perform_crop_and_resize(dsp_image_properties_t *input_image_properties,
                           dsp_image_properties_t *output_image_properties,
                           crop_resize_dims_t args,

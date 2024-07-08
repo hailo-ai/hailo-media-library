@@ -9,18 +9,20 @@ using namespace webserver::resources;
 using namespace privacy_mask_types;
 #endif
 
+#define DETECTION_HEF_PATH "/home/root/apps/webserver/resources/yolov5m_wo_spp_60p_nv12_640.hef"
+
 std::shared_ptr<Pipeline> Pipeline::create()
 {
     auto resources = ResourceRepository::create();
     return std::make_shared<Pipeline>(resources);
 }
 
-nlohmann::json Pipeline::create_encoder_osd_config(WebserverResourceRepository resources)
+nlohmann::json create_encoder_osd_config(WebserverResourceRepository resources)
 {
     auto osd_resource = std::static_pointer_cast<OsdResource>(resources->get(RESOURCE_OSD));
     nlohmann::json encoder_osd_config;
     encoder_osd_config["osd"] = osd_resource->get_current_osd_config();
-    encoder_osd_config["encoding"]["hailo_encoder"] = resources->get(RESOURCE_ENCODER)->get();
+    encoder_osd_config["encoding"] = resources->get(RESOURCE_ENCODER)->get();
     return encoder_osd_config;
 }
 
@@ -29,14 +31,7 @@ std::string Pipeline::create_gst_pipeline_string()
     auto enabled_apps = std::static_pointer_cast<AiResource>(m_resources->get(RESOURCE_AI))->get_enabled_applications();
     auto detection_pass_through = std::find(enabled_apps.begin(), enabled_apps.end(), AiResource::AI_APPLICATION_DETECTION) != enabled_apps.end() ? "false" : "true";
 
-    auto osd_resource = std::static_pointer_cast<OsdResource>(m_resources->get(RESOURCE_OSD));
     auto fe_resource = std::static_pointer_cast<FrontendResource>(m_resources->get(RESOURCE_FRONTEND));
-
-    nlohmann::json encoder_osd_config;
-    encoder_osd_config["osd"] = osd_resource->get_current_osd_config();
-    encoder_osd_config["encoding"]["hailo_encoder"] = m_resources->get(RESOURCE_ENCODER)->get();
-
-    // std::string multi_resize_config = R"({"digital_zoom":{"enabled":true,"magnification":1.0,"mode":"DIGITAL_ZOOM_MODE_MAGNIFICATION","roi":{"height":1800,"width":2800,"x":200,"y":200}}, "output_video":{"format":"IMAGE_FORMAT_NV12", "grayscale":false, "method":"INTERPOLATION_TYPE_BILINEAR", "resolutions":[{"framerate":30, "height":640,"pool_max_buffers":20, "width":640}]}})";
 
     std::ostringstream pipeline;
     pipeline << "hailofrontendbinsrc name=frontend config-string='" << fe_resource->get_frontend_config() << "' ";
@@ -46,16 +41,18 @@ std::string Pipeline::create_gst_pipeline_string()
     pipeline << "mux. ";
     pipeline << "frontend. ! ";
     pipeline << "queue name=q5 leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! ";
+    pipeline << "video/x-raw,format=NV12,width=1280,height=720 ! ";
+    pipeline << "hailovideoscale use-letterbox=true ! ";
     pipeline << "video/x-raw, width=640, height=640 ! ";
-    pipeline << "hailonet name=detection batch-size=4 hef-path=/home/root/apps/detection/resources/yolov5m_wo_spp_60p_nv12_640.hef pass-through=" << detection_pass_through << " nms-iou-threshold=0.45 nms-score-threshold=0.3 scheduling-algorithm=1 scheduler-threshold=4 scheduler-timeout-ms=1000 vdevice-group-id=1 vdevice-key=1 ! ";
+    pipeline << "hailonet name=detection batch-size=4 hef-path=" << DETECTION_HEF_PATH << " pass-through=" << detection_pass_through << " nms-iou-threshold=0.45 nms-score-threshold=0.3 scheduling-algorithm=1 scheduler-threshold=4 scheduler-timeout-ms=1000 vdevice-group-id=1 vdevice-key=1 ! ";
     pipeline << "queue name=q6 leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! ";
-    pipeline << "hailofilter function-name=yolov5m config-path=/home/root/apps/detection/resources/configs/yolov5.json so-path=/usr/lib/hailo-post-processes/libyolo_hailortpp_post.so qos=false ! ";
+    pipeline << "hailofilter function-name=yolov5 config-path=/home/root/apps/detection/resources/configs/yolov5.json so-path=/usr/lib/hailo-post-processes/libyolo_hailortpp_post.so qos=false ! ";
     pipeline << "queue name=q7 leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! ";
     pipeline << "mux. ";
     pipeline << "mux. ! ";
     pipeline << "hailooverlay qos=false ! ";
     pipeline << "queue name=q8 leaky=downstream max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! ";
-    pipeline << "hailoencodebin name=enc enforce-caps=false config-string='" << encoder_osd_config.dump() << "' ! ";
+    pipeline << "hailoencodebin name=enc config-string='" << create_encoder_osd_config(m_resources).dump() << "' enforce-caps=false ! ";
     pipeline << "video/x-h264,framerate=30/1 ! ";
     pipeline << "queue name=q9 leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! ";
     pipeline << "h264parse config-interval=-1 ! ";
@@ -79,6 +76,7 @@ Pipeline::Pipeline(WebserverResourceRepository resources)
             auto resource = resources->get(resource_type);
             if (resource == nullptr)
                 continue;
+            WEBSERVER_LOG_DEBUG("Pipeline: Subscribing to resource type: {}", resource_type);
             resource->subscribe_callback([this](ResourceStateChangeNotification notif)
                                          { this->callback_handle_strategy(notif); });
         }
@@ -87,11 +85,12 @@ Pipeline::Pipeline(WebserverResourceRepository resources)
 
 void Pipeline::callback_handle_strategy(ResourceStateChangeNotification notif)
 {
-    std::cout << "Pipeline Resource callback, type: " << notif.resource_type << std::endl;
+    WEBSERVER_LOG_INFO("Pipeline: Handling resource state change notification of type: {}", notif.resource_type);
     switch (notif.resource_type)
     {
     case RESOURCE_FRONTEND:
     {
+        WEBSERVER_LOG_DEBUG("Pipeline: Updating frontend config");
         GstElement *frontend = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
         auto fe_resource = std::static_pointer_cast<FrontendResource>(m_resources->get(RESOURCE_FRONTEND));
         std::string conf = fe_resource->get_frontend_config().dump();
@@ -102,6 +101,7 @@ void Pipeline::callback_handle_strategy(ResourceStateChangeNotification notif)
     case RESOURCE_OSD:
     case RESOURCE_ENCODER:
     {
+        WEBSERVER_LOG_DEBUG("Pipeline: Updating encoder-osd config");
         GstElement *encoder_element = gst_bin_get_by_name(GST_BIN(m_pipeline), "enc");
         auto enc_resource = std::static_pointer_cast<EncoderResource>(m_resources->get(RESOURCE_FRONTEND));
         enc_resource->apply_config(encoder_element);
@@ -114,36 +114,22 @@ void Pipeline::callback_handle_strategy(ResourceStateChangeNotification notif)
 
         if (state->enabled.empty() && state->disabled.empty())
         {
+            WEBSERVER_LOG_DEBUG("Pipeline: No AI applications enabled or disabled");
             break;
         }
 
-        // disable detection if it's in the disabled list
-        if (std::find(state->disabled.begin(), state->disabled.end(), AiResource::AI_APPLICATION_DETECTION) != state->disabled.end())
+        GstElement *detection = gst_bin_get_by_name(GST_BIN(m_pipeline), "detection");
+        if (std::find(state->disabled.begin(), state->disabled.end(), AiResource::AI_APPLICATION_DETECTION) != state->disabled.end()) // disable detection if it's in the disabled list
         {
-            GstElement *detection = gst_bin_get_by_name(GST_BIN(m_pipeline), "detection");
+            WEBSERVER_LOG_DEBUG("Pipeline: Disabling detection");
             g_object_set(detection, "pass-through", TRUE, NULL);
-            gst_object_unref(detection);
         }
-        // enable detection if it's in the enabled list
-        else if (std::find(state->enabled.begin(), state->enabled.end(), AiResource::AI_APPLICATION_DETECTION) != state->enabled.end())
+        else if (std::find(state->enabled.begin(), state->enabled.end(), AiResource::AI_APPLICATION_DETECTION) != state->enabled.end()) // enable detection if it's in the enabled list
         {
-            GstElement *detection = gst_bin_get_by_name(GST_BIN(m_pipeline), "detection");
+            WEBSERVER_LOG_DEBUG("Pipeline: Enabling detection");
             g_object_set(detection, "pass-through", FALSE, NULL);
-            gst_object_unref(detection);
         }
-
-        // // if denoise or defog was changed, change pipeline state to null, update config, and return to playing
-        // if (std::find(state->disabled.begin(), state->disabled.end(), AiResource::AI_APPLICATION_DEFOG) != state->disabled.end() ||
-        //     std::find(state->enabled.begin(), state->enabled.end(), AiResource::AI_APPLICATION_DEFOG) != state->enabled.end() ||
-        //     std::find(state->disabled.begin(), state->disabled.end(), AiResource::AI_APPLICATION_DENOISE) != state->disabled.end() ||
-        //     std::find(state->enabled.begin(), state->enabled.end(), AiResource::AI_APPLICATION_DENOISE) != state->enabled.end())
-        // {
-        //     std::cout << "**********************************************" << std::endl;
-        //     this->stop();
-        //     std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        //     this->start();
-        //     std::cout << "**********************************************" << std::endl;
-        // }
+        gst_object_unref(detection);
         break;
     }
     case RESOURCE_PRIVACY_MASK:
@@ -151,7 +137,7 @@ void Pipeline::callback_handle_strategy(ResourceStateChangeNotification notif)
         auto state = std::static_pointer_cast<PrivacyMaskResource::PrivacyMaskResourceState>(notif.resource_state);
         if (state->enabled.empty() && state->disabled.empty())
         {
-            return;
+            break;
         }
         std::shared_ptr<PrivacyMaskResource> pm_resource = std::static_pointer_cast<PrivacyMaskResource>(m_resources->get(RESOURCE_PRIVACY_MASK));
         auto masks = pm_resource->get_privacy_masks();
@@ -166,6 +152,7 @@ void Pipeline::callback_handle_strategy(ResourceStateChangeNotification notif)
         {
             if (masks.find(id) != masks.end())
             {
+                WEBSERVER_LOG_DEBUG("Pipeline: Adding privacy mask: {}", id);
                 privacy_blender->add_privacy_mask(masks[id]);
             }
         }
@@ -173,6 +160,7 @@ void Pipeline::callback_handle_strategy(ResourceStateChangeNotification notif)
         {
             if (masks.find(id) != masks.end())
             {
+                WEBSERVER_LOG_DEBUG("Pipeline: Removing privacy mask: {}", id);
                 privacy_blender->remove_privacy_mask(id);
             }
         }
@@ -180,6 +168,37 @@ void Pipeline::callback_handle_strategy(ResourceStateChangeNotification notif)
         break;
     }
     case RESOURCE_ISP:
+    {
+        auto isp_state = std::static_pointer_cast<IspResource::IspResourceState>(notif.resource_state);
+
+        WEBSERVER_LOG_INFO("Pipeline: ISP state changed, updating frontend config and restarting frontendsrcbin");
+        GstElement *frontend = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
+
+        // stop frontend
+        WEBSERVER_LOG_DEBUG("Pipeline: Stopping frontend");
+        if (GstStateChangeReturn stop_status = gst_element_set_state(frontend, GST_STATE_NULL); stop_status != GST_STATE_CHANGE_SUCCESS)
+        {
+            GST_ERROR_OBJECT(m_pipeline, "Failed to stop frontend");
+            WEBSERVER_LOG_ERROR("Pipeline: Failed to stop frontend");
+        }
+
+        // update frontend config
+        WEBSERVER_LOG_DEBUG("Pipeline: Updating frontend config");
+        auto fe_resource = std::static_pointer_cast<FrontendResource>(m_resources->get(RESOURCE_FRONTEND));
+        g_object_set(frontend, "config-string", fe_resource->get_frontend_config().dump().c_str(), NULL);
+
+        // start frontend
+        WEBSERVER_LOG_DEBUG("Pipeline: Starting frontend");
+        GstStateChangeReturn start_status = gst_element_set_state(frontend, GST_STATE_PLAYING);
+        if (start_status != GST_STATE_CHANGE_SUCCESS)
+        {
+            GST_ERROR_OBJECT(m_pipeline, "Failed to start frontend");
+            WEBSERVER_LOG_ERROR("Pipeline: Failed to start frontend");
+        }
+
+        gst_object_unref(frontend);
+        break;
+    }
     default:
         break;
     }

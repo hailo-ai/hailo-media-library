@@ -1,5 +1,6 @@
 #pragma once
 #include "media_library/frontend.hpp"
+#include "media_library/media_library_types.hpp"
 #include "media_library/privacy_mask.hpp"
 #include <gst/gst.h>
 #include <gst/app/gstappsink.h>
@@ -21,6 +22,9 @@ public:
     media_library_return stop();
     media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
     media_library_return configure(std::string json_config);
+    media_library_return configure(frontend_config_t config);
+    tl::expected<GstElement *, media_library_return> get_frontend_element();
+    tl::expected<frontend_config_t, media_library_return> get_config();
 
     void on_need_data(GstAppSrc *appsrc, guint size);
     void on_enough_data(GstAppSrc *appsrc);

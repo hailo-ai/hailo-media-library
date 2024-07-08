@@ -61,7 +61,7 @@ struct _GstHailoMultiResize
   std::vector<GstPad *> srcpads;
   gchar *config_file_path;
   std::string config_string;
-
+  std::shared_ptr<multi_resize_config_t> multi_resize_config;
   std::shared_ptr<MediaLibraryMultiResize> medialib_multi_resize;
 };
 

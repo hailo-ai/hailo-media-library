@@ -4,11 +4,14 @@
 WebserverResourceRepository webserver::resources::ResourceRepository::create()
 {
     std::vector<WebserverResource> resources_vec{};
+    auto config_resource = std::make_shared<webserver::resources::ConfigResource>();
     auto ai_resource = std::make_shared<webserver::resources::AiResource>();
+    auto isp_resource = std::make_shared<webserver::resources::IspResource>(ai_resource, config_resource);
+    resources_vec.push_back(config_resource);
     resources_vec.push_back(ai_resource);
-    resources_vec.push_back(std::make_shared<webserver::resources::IspResource>(ai_resource));
-    resources_vec.push_back(std::make_shared<webserver::resources::FrontendResource>(ai_resource));
-    resources_vec.push_back(std::make_shared<webserver::resources::EncoderResource>());
+    resources_vec.push_back(isp_resource);
+    resources_vec.push_back(std::make_shared<webserver::resources::FrontendResource>(ai_resource, isp_resource, config_resource));
+    resources_vec.push_back(std::make_shared<webserver::resources::EncoderResource>(config_resource));
     resources_vec.push_back(std::make_shared<webserver::resources::OsdResource>());
     resources_vec.push_back(std::make_shared<webserver::resources::PrivacyMaskResource>());
     resources_vec.push_back(std::make_shared<webserver::resources::WebpageResource>());

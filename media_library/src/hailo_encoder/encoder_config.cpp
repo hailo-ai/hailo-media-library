@@ -325,7 +325,7 @@ VCEncRet Encoder::Impl::init_rate_control_config()
     m_vc_rate_cfg.hrd = rate_control.hrd;
     m_vc_rate_cfg.hrdCpbSize = rate_control.hrd_cpb_size;
 
-    m_vc_rate_cfg.gopLen = m_counters.idr_interval = rate_control.gop_length;
+    m_vc_rate_cfg.gopLen = m_idr_interval = rate_control.gop_length;
     m_vc_rate_cfg.intraQpDelta = rate_control.quantization.intra_qp_delta;
     m_vc_rate_cfg.fixedIntraQp = rate_control.quantization.fixed_intra_qp;
 

@@ -9,10 +9,10 @@ using namespace webserver::resources;
 std::shared_ptr<IPipeline> IPipeline::create()
 {
 #ifndef MEDIALIB_LOCAL_SERVER
-    std::cout << "Creating pipeline" << std::endl;
+    WEBSERVER_LOG_INFO("Creating pipeline");
     return Pipeline::create();
 #else
-    std::cout << "Creating dummy pipeline" << std::endl;
+    WEBSERVER_LOG_INFO("Creating Dummy pipeline");
     return DummyPipeline::create();
 #endif
 }
@@ -26,41 +26,41 @@ IPipeline::IPipeline(WebserverResourceRepository resources)
 
 void IPipeline::start()
 {
-    std::cout << "Starting pipeline" << std::endl;
+    WEBSERVER_LOG_INFO("Starting pipeline");
     m_pipeline = gst_parse_launch(this->create_gst_pipeline_string().c_str(), NULL);
     if (!m_pipeline)
     {
-        std::cout << "Failed to create pipeline" << std::endl;
+        WEBSERVER_LOG_ERROR("Failed to create pipeline");
         throw std::runtime_error("Failed to create pipeline");
     }
 
-    std::cout << "Setting pipeline to PLAYING" << std::endl;
+    WEBSERVER_LOG_INFO("Setting pipeline to PLAYING");
     GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE)
     {
-        std::cout << "Failed to start pipeline" << std::endl;
+        WEBSERVER_LOG_ERROR("Failed to start pipeline");
         throw std::runtime_error("Failed to start pipeline");
     }
-    std::cout << "Pipeline started" << std::endl;
+    WEBSERVER_LOG_INFO("Pipeline started");
 }
 
 void IPipeline::stop()
 {
-    std::cout << "Stopping pipeline" << std::endl;
+    WEBSERVER_LOG_INFO("Stopping pipeline");
     if (!m_pipeline)
     {
-        std::cout << "Pipeline is not running" << std::endl;
+        WEBSERVER_LOG_INFO("Pipeline is not running");
         return;
     }
     gboolean ret = gst_element_send_event(m_pipeline, gst_event_new_eos());
     if (!ret)
     {
-        std::cout << "Failed to send EOS event" << std::endl;
+        WEBSERVER_LOG_ERROR("Failed to send EOS event");
         throw std::runtime_error("Failed to send EOS event");
     }
 
-    std::cout << "Setting pipeline to NULL" << std::endl;
+    WEBSERVER_LOG_INFO("Setting pipeline to NULL");
     gst_element_set_state(m_pipeline, GST_STATE_NULL);
-    std::cout << "Pipeline stopped" << std::endl;
+    WEBSERVER_LOG_INFO("Pipeline stopped");
     gst_object_unref(m_pipeline);
 }

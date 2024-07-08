@@ -19,7 +19,7 @@
                 "font_size": 100,
                 "datetime_format": "%d-%m-%Y %H:%M:%S",
                 "line_thickness": 3,
-                "rgb": [
+                "text_color": [
                     255,
                     0,
                     0
@@ -39,7 +39,7 @@
                 "font_size": 100,
                 "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
                 "line_thickness": 3,
-                "rgb": [
+                "text_color": [
                     255,
                     255,
                     255
@@ -56,12 +56,12 @@
                 "font_size": 100,
                 "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
                 "line_thickness": 3,
-                "rgb": [
+                "text_color": [
                     102,
                     0,
                     51
                 ],
-                "rgb_background": [
+                "background_color": [
                     0,
                     0,
                     0

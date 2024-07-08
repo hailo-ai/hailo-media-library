@@ -36,17 +36,17 @@
 
 enum media_library_return
 {
-  MEDIA_LIBRARY_SUCCESS = 0,
-  MEDIA_LIBRARY_ERROR,
-  MEDIA_LIBRARY_INVALID_ARGUMENT,
-  MEDIA_LIBRARY_CONFIGURATION_ERROR,
-  MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR,
-  MEDIA_LIBRARY_DSP_OPERATION_ERROR,
-  MEDIA_LIBRARY_UNINITIALIZED,
-  MEDIA_LIBRARY_OUT_OF_RESOURCES,
-  MEDIA_LIBRARY_ENCODER_ENCODE_ERROR,
-  MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS,
-  MEDIA_LIBRARY_BUFFER_NOT_FOUND,
+    MEDIA_LIBRARY_SUCCESS = 0,
+    MEDIA_LIBRARY_ERROR,
+    MEDIA_LIBRARY_INVALID_ARGUMENT,
+    MEDIA_LIBRARY_CONFIGURATION_ERROR,
+    MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR,
+    MEDIA_LIBRARY_DSP_OPERATION_ERROR,
+    MEDIA_LIBRARY_UNINITIALIZED,
+    MEDIA_LIBRARY_OUT_OF_RESOURCES,
+    MEDIA_LIBRARY_ENCODER_ENCODE_ERROR,
+    MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS,
+    MEDIA_LIBRARY_BUFFER_NOT_FOUND,
 
     /** Max enum value to maintain ABI Integrity */
     MEDIA_LIBRARY_MAX = INT_MAX
@@ -141,6 +141,27 @@ struct hailort_t
     std::string device_id;
 };
 
+enum hdr_resolution_t
+{
+    HDR_RESOLUTION_FHD = 0,
+    HDR_RESOLUTION_4K = 1,
+};
+
+enum hdr_dol_t
+{
+    HDR_DOL_2 = 2,
+    HDR_DOL_3 = 3,
+};
+
+struct hdr_config_t
+{
+    bool enabled;
+    float ls_ratio;
+    float vs_ratio;
+    hdr_resolution_t resolution;
+    hdr_dol_t dol;
+};
+
 struct network_config_t
 {
     std::string network_path;
@@ -169,7 +190,7 @@ struct dewarp_config_t
     camera_type_t camera_type;
 
     /*
-    Diagonal FoV of output camera in degrees. The difference between input and output FOV, (horizontal, verticsal
+    Diagonal FoV of output camera in degrees. The difference between input and output FOV, (horizontal, vertical
     and diagonal) is the room for stabilization. Note the relation betwen aspect ratio and H,V,DFOV ratios:
      - for fisheye camera:
       HFOV / VFOV / DFOV = width / hight / diagonal
@@ -205,6 +226,7 @@ struct optical_zoom_config_t
 {
     bool enabled;
     float magnification;
+    float max_dewarping_magnification;
 };
 
 struct flip_config_t
@@ -359,6 +381,7 @@ public:
         input_video_config.dimensions.destination_width = 0;
         input_video_config.dimensions.destination_height = 0;
         rotation_config = ROTATION_ANGLE_0;
+        digital_zoom_config = digital_zoom_config_t();
         output_video_config.resolutions = std::vector<output_resolution_t>();
     }
 
@@ -431,7 +454,10 @@ public:
 
     media_library_return update(ldc_config_t &ldc_configs)
     {
-        dewarp_config.enabled = ldc_configs.dewarp_config.enabled;
+        bool disable_dewarp = ldc_configs.optical_zoom_config.enabled &&
+                              ldc_configs.optical_zoom_config.magnification >= ldc_configs.optical_zoom_config.max_dewarping_magnification;
+
+        dewarp_config.enabled = disable_dewarp ? false : ldc_configs.dewarp_config.enabled;
         flip_config = ldc_configs.flip_config;
         dis_config = ldc_configs.dis_config;
 
@@ -453,6 +479,24 @@ public:
         }
         rotation_config = ldc_configs.rotation_config;
         return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    bool check_ops_enabled()
+    {
+        return (dewarp_config.enabled ||
+                dis_config.enabled ||
+                flip_config.enabled ||
+                rotation_config.enabled ||
+                optical_zoom_config.enabled);
+    }
+
+    bool check_ops_enabled_changed(ldc_config_t &other)
+    {
+        return (dewarp_config.enabled != other.dewarp_config.enabled ||
+                dis_config.enabled != other.dis_config.enabled ||
+                flip_config.enabled != other.flip_config.enabled ||
+                rotation_config.enabled != other.rotation_config.enabled ||
+                optical_zoom_config.enabled != other.optical_zoom_config.enabled);
     }
 
 private:
@@ -506,4 +550,27 @@ public:
     }
 };
 
+struct frontend_config_t
+{
+public:
+    ldc_config_t ldc_config;
+    denoise_config_t denoise_config;
+    multi_resize_config_t multi_resize_config;
+
+    frontend_config_t()
+    {
+        ldc_config = ldc_config_t();
+        denoise_config = denoise_config_t();
+        multi_resize_config = multi_resize_config_t();
+    }
+
+    media_library_return update(frontend_config_t &frontend_configs)
+    {
+        ldc_config.update(frontend_configs.ldc_config);
+        denoise_config.update(frontend_configs.denoise_config);
+        multi_resize_config.update(frontend_configs.multi_resize_config);
+
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+};   
 /** @} */ // end of media_library_types_definitions

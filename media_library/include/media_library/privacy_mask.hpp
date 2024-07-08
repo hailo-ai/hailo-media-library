@@ -134,7 +134,7 @@ class PrivacyMaskBlender : public std::enable_shared_from_this<PrivacyMaskBlende
         /**
          * @brief Get color
          * 
-         * @return tl::expected<rgb_color_t, media_library_return> - rgb color
+         * @return tl::expected<rgb_color_t, media_library_return> - text_color color
         */
         tl::expected<rgb_color_t, media_library_return> get_color();
 

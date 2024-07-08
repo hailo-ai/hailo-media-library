@@ -73,6 +73,7 @@ struct _GstHailoDenoise
     std::queue<GstBuffer *> m_staging_queue;
 
     std::shared_ptr<MediaLibraryDenoise> medialib_denoise;
+    std::shared_ptr<denoise_config_t> denoise_config;
     media_library_return observe(const MediaLibraryDenoise::callbacks_t &callback) {
         return medialib_denoise->observe(callback);
     }

@@ -532,6 +532,44 @@ gst_hailo_encoder_finish(GstVideoEncoder *encoder)
 }
 
 static GstFlowReturn
+gst_hailo_encoder_encode_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *input_frame)
+{
+    GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
+    HailoMediaLibraryBufferPtr hailo_buffer_ptr = hailo_buffer_from_gst_buffer(input_frame->input_buffer, hailoencoder->input_state->caps);
+    if (!hailo_buffer_ptr)
+    {
+        GST_ERROR_OBJECT(hailoencoder, "Could not get hailo buffer");
+        return GST_FLOW_ERROR;
+    }
+
+    GST_DEBUG_OBJECT(encoder, "Encode frame - calling handle_frame");
+    auto outputs = hailoencoder->encoder->handle_frame(hailo_buffer_ptr);
+    hailo_buffer_ptr->decrease_ref_count();
+
+    GST_DEBUG_OBJECT(hailoencoder, "Handle frame done got %d outputs", (int)outputs.size());
+    for (EncoderOutputBuffer &output : outputs)
+    {
+       auto oldest_frame = gst_video_encoder_get_oldest_frame(encoder);
+       if(oldest_frame == nullptr)
+        {
+            GST_ERROR_OBJECT(hailoencoder, "Failed to get oldest frame");
+            return GST_FLOW_ERROR;
+        }
+
+        oldest_frame->output_buffer = gst_hailo_encoder_get_output_buffer(hailoencoder, output);
+        g_queue_pop_head(hailoencoder->dts_queue);
+        gst_buffer_add_hailo_buffer_meta(oldest_frame->output_buffer, output.buffer, output.size);
+        if (gst_video_encoder_finish_frame(encoder, oldest_frame) != GST_FLOW_OK)
+        {
+            GST_WARNING_OBJECT(hailoencoder, "Failed to finish frame");
+            return GST_FLOW_OK;
+        }
+    }
+
+    return GST_FLOW_OK;
+}
+
+static GstFlowReturn
 gst_hailo_encoder_handle_frame(GstVideoEncoder *encoder,
                                GstVideoCodecFrame *frame)
 {
@@ -568,44 +606,35 @@ gst_hailo_encoder_handle_frame(GstVideoEncoder *encoder,
         // Adding sync point in order to delete forced keyframe evnet from the queue.
         GST_VIDEO_CODEC_FRAME_SET_SYNC_POINT(frame);
         hailoencoder->encoder->force_keyframe();
+        // Encode oldest frame of gop
         input_frame = gst_video_encoder_get_oldest_frame(encoder);
-    }
-    else
-    {
-        input_frame = frame;
-    }
-
-    HailoMediaLibraryBufferPtr hailo_buffer_ptr = hailo_buffer_from_gst_buffer(input_frame->input_buffer, hailoencoder->input_state->caps);
-    if (!hailo_buffer_ptr)
-    {
-        GST_ERROR_OBJECT(hailoencoder, "Could not get hailo buffer");
-        return GST_FLOW_ERROR;
-    }
-    auto outputs = hailoencoder->encoder->handle_frame(hailo_buffer_ptr);
-    hailo_buffer_ptr->decrease_ref_count();
-    gst_video_codec_frame_unref(input_frame);
-
-    for (EncoderOutputBuffer &output : outputs)
-    {
-        auto oldest_frame = gst_video_encoder_get_oldest_frame(encoder);
-        oldest_frame->output_buffer = gst_hailo_encoder_get_output_buffer(hailoencoder, output);
-        // oldest_frame->dts = GPOINTER_TO_UINT(g_queue_pop_head(hailoencoder->dts_queue));
-        g_queue_pop_head(hailoencoder->dts_queue);
-        gst_buffer_add_hailo_buffer_meta(oldest_frame->output_buffer, output.buffer, output.size);
-        if (gst_video_encoder_finish_frame(encoder, oldest_frame) != GST_FLOW_OK)
-        {
-            GST_ERROR_OBJECT(hailoencoder, "Failed to finish frame");
-            return GST_FLOW_ERROR;
-        }
+        ret = gst_hailo_encoder_encode_frame(encoder, input_frame);
+        if (ret != GST_FLOW_OK)
+            return ret;
     }
 
-    // if (is_keyframe && (frame == input_frame))
-    // {
-    //   gst_video_codec_frame_unref(input_frame);
-    // }
+    if(input_frame != frame)
+    {
+        // Encode the current frame (if it is not the same as the oldest frame)
+        ret = gst_hailo_encoder_encode_frame(encoder, frame);
+        if (ret != GST_FLOW_OK)
+            return ret;
+    }
+
+    // Unref both frames if needed
+    if(input_frame != nullptr)
+    {
+        gst_video_codec_frame_unref(input_frame);
+        input_frame = nullptr;
+    }
+
+    if(frame != nullptr)
+    {
+        gst_video_codec_frame_unref(frame);
+        frame = nullptr;
+    }
 
     clock_gettime(CLOCK_MONOTONIC, &end_handle);
     GST_DEBUG_OBJECT(hailoencoder, "handle_frame took %lu milliseconds", (long)media_library_difftimespec_ms(end_handle, start_handle));
-    ret = GST_FLOW_OK;
     return ret;
 }

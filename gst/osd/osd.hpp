@@ -54,29 +54,38 @@ namespace osd
         int blue;
     };
 
-    typedef enum {
-    /**
-     * A420 Format - planar 4:4:2:0 AYUV. Each component is 8bit \n
-     * For A420 format, the dimensions of the image, both width and height, need to be even numbers \n
-     * Four planes in the following order: Y plane, U plane, V plane, Alpha plane
-     */
-    A420,
+    struct rgba_color_t
+    {
+        int red;
+        int green;
+        int blue;
+        int alpha;
+    };
 
-    /**
-     * ARGB - RGB with alpha channel first (packed) format. One plane, each color component is 8bit \n
-     * @code
-     * +--+--+--+--+ +--+--+--+--+
-     * |A0|R0|G0|B0| |A1|R1|G1|B1| ...
-     * +--+--+--+--+ +--+--+--+--+
-     * @endcode
-     */
-    ARGB,
+    typedef enum
+    {
+        /**
+         * A420 Format - planar 4:4:2:0 AYUV. Each component is 8bit \n
+         * For A420 format, the dimensions of the image, both width and height, need to be even numbers \n
+         * Four planes in the following order: Y plane, U plane, V plane, Alpha plane
+         */
+        A420,
 
-    /* Must be last */
-    COUNT,
-    /** Max enum value to maintain ABI Integrity */
-    ENUM = DSP_MAX_ENUM
-} custom_overlay_format;
+        /**
+         * ARGB - RGB with alpha channel first (packed) format. One plane, each color component is 8bit \n
+         * @code
+         * +--+--+--+--+ +--+--+--+--+
+         * |A0|R0|G0|B0| |A1|R1|G1|B1| ...
+         * +--+--+--+--+ +--+--+--+--+
+         * @endcode
+         */
+        ARGB,
+
+        /* Must be last */
+        COUNT,
+        /** Max enum value to maintain ABI Integrity */
+        ENUM = DSP_MAX_ENUM
+    } custom_overlay_format;
 
     mat_dims calculate_text_size(const std::string &label, const std::string &font_path, int font_size, int line_thickness);
 
@@ -147,33 +156,51 @@ namespace osd
     {
         /** Text content */
         std::string label;
-        /** Text color */
-        rgb_color_t rgb;
-        rgb_color_t rgb_background;
 
-        /**
-         * Font size
-         */
+        /** Foreground Text color */
+        rgba_color_t text_color;
+
+        /** Background color */
+        rgba_color_t background_color;
+
+        /** Font size */
         float font_size;
-        /**
-         * line thickness
-         */
+
+        /** line thickness */
         int line_thickness;
-        /**
-         * Path to load font from. The font will be scaled to match the given font_size
-         */
+
+        /** Path to load font from. The font will be scaled to match the given font_size */
         std::string font_path;
 
+        /** Color of the text shadow. Shadow is disabled if any of the color components are negative */
+        rgba_color_t shadow_color;
+
+        /** Horizontal offset of the shadow relative to the text, in frame width ratio */
+        float shadow_offset_x;
+
+        /** Vertical offset of the shadow relative to the text, in frame height ratio */
+        float shadow_offset_y;
+
         BaseTextOverlay();
-        BaseTextOverlay(std::string id, float x, float y, std::string label, rgb_color_t rgb, rgb_color_t rgb_background, float font_size, int line_thickness, unsigned int z_index, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
-        BaseTextOverlay(std::string id, float x, float y, std::string label, rgb_color_t rgb, rgb_color_t rgb_background, float font_size, int line_thickness, unsigned int z_index, std::string font_path, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
+        BaseTextOverlay(std::string id, float x, float y, std::string label, rgba_color_t text_color, rgba_color_t background_color, float font_size, int line_thickness,
+                        unsigned int z_index, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
+        BaseTextOverlay(std::string id, float x, float y, std::string label, rgba_color_t text_color, rgba_color_t background_color, float font_size, int line_thickness,
+                        unsigned int z_index, std::string font_path, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
+        BaseTextOverlay(std::string id, float x, float y, std::string label, rgba_color_t text_color, rgba_color_t background_color, float font_size, int line_thickness,
+                        unsigned int z_index, std::string font_path, unsigned int angle, rotation_alignment_policy_t _rotation_policy,
+                        rgba_color_t shadow_color, float shadow_offset_x, float shadow_offset_y);
     };
 
     struct TextOverlay : BaseTextOverlay
     {
         TextOverlay();
-        TextOverlay(std::string id, float x, float y, std::string label, rgb_color_t rgb, rgb_color_t rgb_background, float font_size, int line_thickness, unsigned int z_index, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
-        TextOverlay(std::string id, float x, float y, std::string label, rgb_color_t rgb, rgb_color_t rgb_background, float font_size, int line_thickness, unsigned int z_index, std::string font_path, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
+        TextOverlay(std::string id, float x, float y, std::string label, rgba_color_t text_color, rgba_color_t background_color, float font_size,
+                    int line_thickness, unsigned int z_index, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
+        TextOverlay(std::string id, float x, float y, std::string label, rgba_color_t text_color, rgba_color_t background_color, float font_size,
+                    int line_thickness, unsigned int z_index, std::string font_path, unsigned int angle, rotation_alignment_policy_t _rotation_policy);
+        TextOverlay(std::string id, float x, float y, std::string label, rgba_color_t text_color, rgba_color_t background_color, float font_size,
+                    int line_thickness, unsigned int z_index, std::string font_path, unsigned int angle, rotation_alignment_policy_t _rotation_policy,
+                    rgba_color_t shadow_color, float shadow_offset_x, float shadow_offset_y);
     };
 
     /**
@@ -188,10 +215,17 @@ namespace osd
         std::string datetime_format;
 
         DateTimeOverlay();
-        DateTimeOverlay(std::string _id, float _x, float _y, std::string datetime_format, rgb_color_t _rgb, rgb_color_t _rgb_background, std::string font_path, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy);
-        DateTimeOverlay(std::string _id, float _x, float _y, rgb_color_t _rgb, rgb_color_t _rgb_background, std::string font_path, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy);
-        DateTimeOverlay(std::string _id, float _x, float _y, rgb_color_t _rgb, rgb_color_t _rgb_background, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy);
-        DateTimeOverlay(std::string _id, float _x, float _y, rgb_color_t _rgb, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy);
+        DateTimeOverlay(std::string _id, float _x, float _y, std::string datetime_format, rgba_color_t _text_color, rgba_color_t _background_color, std::string font_path,
+                        float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy);
+        DateTimeOverlay(std::string _id, float _x, float _y, rgba_color_t _text_color, rgba_color_t _background_color, std::string font_path, float _font_size,
+                        int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy);
+        DateTimeOverlay(std::string _id, float _x, float _y, rgba_color_t _text_color, rgba_color_t _background_color, float _font_size, int _line_thickness,
+                        unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy);
+        DateTimeOverlay(std::string _id, float _x, float _y, rgba_color_t _text_color, float _font_size, int _line_thickness, unsigned int _z_index,
+                        unsigned int _angle, rotation_alignment_policy_t _rotation_policy);
+        DateTimeOverlay(std::string _id, float _x, float _y, std::string datetime_format, rgba_color_t _text_color, rgba_color_t _background_color, std::string font_path,
+                        float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy,
+                        rgba_color_t shadow_color, float shadow_offset_x, float shadow_offset_y);
     };
 
     /** Overlay containing custom buffer ptr */
@@ -201,10 +235,11 @@ namespace osd
         float height;
 
         CustomOverlay() = default;
-        CustomOverlay(std::string id, float x, float y, float width, float height, DspImagePropertiesPtr buffer, unsigned int z_index); //this is only in use for the get_metadata
+        CustomOverlay(std::string id, float x, float y, float width, float height, DspImagePropertiesPtr buffer, unsigned int z_index); // this is only in use for the get_metadata
         CustomOverlay(std::string id, float x, float y, float width, float height, unsigned int z_index, custom_overlay_format format);
         custom_overlay_format get_format() const { return m_format; }
         DspImagePropertiesPtr get_buffer() const { return m_buffer; }
+
     private:
         custom_overlay_format m_format;
         DspImagePropertiesPtr m_buffer;

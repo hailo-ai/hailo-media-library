@@ -2,7 +2,6 @@
 #include <iostream>
 
 #include "dsp/gsthailodspbufferpool.hpp"
-#include "dsp/gsthailodsp.h"
 
 G_DEFINE_TYPE(GstHailoDspBufferPool, gst_hailo_dsp_buffer_pool, GST_TYPE_BUFFER_POOL)
 
@@ -35,7 +34,7 @@ gst_hailo_dsp_buffer_pool_dispose(GObject *object)
         pool->config = NULL;
     }
     // Release DSP device
-    dsp_status result = release_device();
+    dsp_status result = dsp_utils::release_device();
     if (result != DSP_SUCCESS)
     {
         GST_ERROR_OBJECT(pool, "Release DSP device failed with status code %d", result);
@@ -48,7 +47,7 @@ gst_hailo_dsp_buffer_pool_init(GstHailoDspBufferPool *pool)
     GST_INFO_OBJECT(pool, "New Hailo DSP buffer pool");
     pool->memory_allocator = &DmaMemoryAllocator::get_instance();
     // Acquire DSP device
-    dsp_status status = acquire_device();
+    dsp_status status = dsp_utils::acquire_device();
     if (status != DSP_SUCCESS)
     {
         GST_ERROR_OBJECT(pool, "Accuire DSP device failed with status code %d", status);

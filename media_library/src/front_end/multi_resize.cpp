@@ -299,7 +299,10 @@ media_library_return MediaLibraryMultiResize::Impl::set_output_rotation(const ro
     // recreate buffer pools if needed
     media_library_return ret = create_and_initialize_buffer_pools();
     if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        m_multi_resize_config.set_output_dimensions_rotation(current_rotation);
         return ret;
+    }
 
     lock.unlock();
 
@@ -464,6 +467,7 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(hailo
             continue;
         }
         buffer.isp_ae_fps = isp_ae_fps;
+        buffer.isp_timestamp_ns = input_buffer.isp_timestamp_ns;
         buffers.emplace_back(std::move(buffer));
         LOGGER__DEBUG("buffer acquired successfully");
     }
@@ -488,7 +492,7 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(hailo_m
         return MEDIA_LIBRARY_ERROR;
     }
 
-    dsp_crop_resize_params_t crop_resize_params;
+    dsp_crop_resize_params_t crop_resize_params = {};
     dsp_multi_crop_resize_params_t multi_crop_resize_params = {
         .src = input_buffer.hailo_pix_buffer.get(),
         .crop_resize_params = &crop_resize_params,

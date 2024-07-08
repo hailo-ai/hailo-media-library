@@ -19,8 +19,20 @@ inline bool json_extract_value(const nlohmann::json &json, const std::string &ke
         {
             *return_msg = "Missing " + key + " in JSON";
         }
-        return T();
+        return false;
     }
 
-    return json[key].get<T>();
+    try
+    {
+        out = json[key].get<T>();
+    }
+    catch (nlohmann::json::exception &e)
+    {
+        if (return_msg)
+        {
+            *return_msg = "Failed to extract " + key + " from JSON: " + e.what();
+        }
+        return false;
+    }
+    return true;
 }

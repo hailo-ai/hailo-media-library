@@ -31,6 +31,7 @@
 #include <string.h>
 
 static bool create_hailo_buffer_from_video_frame(GstVideoFrame *video_frame, hailo_media_library_buffer &hailo_buffer, bool gst_dma = true);
+static void create_dsp_buffer_from_jpeg_buffer(GstBuffer *buffer, dsp_image_properties_t &dsp_image_props);
 
 /**
  * Creates a HailoMediaLibraryBufferPtr from a GstBuffer.
@@ -54,6 +55,7 @@ HailoMediaLibraryBufferPtr hailo_buffer_from_gst_buffer(GstBuffer *buffer, GstCa
         hailo_buffer_meta->buffer_ptr->increase_ref_count();
         return hailo_buffer_meta->buffer_ptr;
     }
+
     video_info = gst_video_info_new_from_caps(caps);
     if (!video_info)
     {
@@ -78,6 +80,23 @@ HailoMediaLibraryBufferPtr hailo_buffer_from_gst_buffer(GstBuffer *buffer, GstCa
     return std::make_shared<hailo_media_library_buffer>(std::move(hailo_buffer));
 }
 
+/**
+ * Creates a HailoMediaLibraryBufferPtr from a GstBuffer gotten from hailojpeg encoder.
+ *
+ * @param[in] buffer GstBuffer to create HailoMediaLibraryBufferPtr from.
+ * @return HailoMediaLibraryBufferPtr created from GstBuffer.
+ */
+HailoMediaLibraryBufferPtr hailo_buffer_from_jpeg_gst_buffer(GstBuffer *buffer)
+{
+    hailo_media_library_buffer hailo_buffer;
+
+    DspImagePropertiesPtr input_dsp_image_props_ptr = std::make_shared<dsp_image_properties_t>();
+    create_dsp_buffer_from_jpeg_buffer(buffer, *input_dsp_image_props_ptr);
+    hailo_buffer.create(nullptr, input_dsp_image_props_ptr);
+    hailo_media_library_buffer_ref(&hailo_buffer);
+    return std::make_shared<hailo_media_library_buffer>(std::move(hailo_buffer));
+}
+
 static GstVideoMeta *add_video_meta_to_buffer(GstBuffer *buffer,
                                               GstVideoInfo *video_info,
                                               HailoMediaLibraryBufferPtr hailo_buffer)
@@ -89,6 +108,13 @@ static GstVideoMeta *add_video_meta_to_buffer(GstBuffer *buffer,
     {
         return NULL;
     }
+    GstVideoMeta *meta = add_video_meta_to_buffer(buffer, video_info);
+    return meta;
+}
+
+GstVideoMeta *add_video_meta_to_buffer(GstBuffer *buffer,
+                                       GstVideoInfo *video_info)
+{
     GstVideoMeta *meta = gst_buffer_add_video_meta_full(buffer,
                                                         GST_VIDEO_FRAME_FLAG_NONE,
                                                         GST_VIDEO_INFO_FORMAT(video_info),
@@ -152,7 +178,6 @@ GstBuffer *gst_buffer_from_hailo_buffer(HailoMediaLibraryBufferPtr hailo_buffer,
             data = plane.userptr;
         }
 
-        // log DSP buffer plane ptr: " << plane.userptr
         gst_buffer_append_memory(gst_outbuf,
                                  gst_memory_new_wrapped(GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS, data, plane.bytesused, 0, plane.bytesused,
                                                         hailo_plane, GDestroyNotify(hailo_media_library_plane_unref)));
@@ -190,8 +215,8 @@ GstBuffer *gst_buffer_from_hailo_buffer(HailoMediaLibraryBufferPtr hailo_buffer,
                                    hailo_buffer->vsm,
                                    hailo_buffer->isp_ae_fps,
                                    hailo_buffer->isp_ae_converged,
-                                   hailo_buffer->isp_ae_average_luma
-                                   );
+                                   hailo_buffer->isp_ae_average_luma,
+                                   hailo_buffer->isp_timestamp_ns);
 
     return gst_outbuf;
 }
@@ -216,6 +241,7 @@ static bool create_hailo_buffer_from_video_frame(GstVideoFrame *video_frame, hai
         hailo_buffer.isp_ae_converged = hailo_v4l2_meta->isp_ae_converged;
         hailo_buffer.video_fd = hailo_v4l2_meta->video_fd;
         hailo_buffer.isp_ae_average_luma = hailo_v4l2_meta->isp_ae_average_luma;
+        hailo_buffer.isp_timestamp_ns = hailo_v4l2_meta->isp_timestamp_ns;
     }
     hailo_media_library_buffer_ref(&hailo_buffer);
     return true;
@@ -290,6 +316,32 @@ int get_fd(GstVideoFrame *video_frame, int index, bool gst_dma = true)
     }
 
     return fd;
+}
+
+static void create_dsp_buffer_from_jpeg_buffer(GstBuffer *buffer, dsp_image_properties_t &dsp_image_props)
+{
+    // JPEG encoder results are non-planar, so we treat the whole image as 1 plane
+    GstMemory *memory = gst_buffer_peek_memory(buffer, 0);
+    GstMapInfo memory_map_info;
+    gst_memory_map(memory, &memory_map_info, GST_MAP_READ);
+
+    void *data = memory_map_info.data;
+    size_t input_size = memory_map_info.size;
+
+    // Allocate memory for the plane
+    dsp_data_plane_t *plane = new dsp_data_plane_t[1];
+    plane->userptr = data;
+    plane->bytesperline = 0;
+    plane->bytesused = input_size;
+
+    // Fill in dsp_image_properties_t values
+    dsp_image_props = (dsp_image_properties_t){
+        .width = 0,
+        .height = 0,
+        .planes = plane,
+        .planes_count = 1,
+        .format = DSP_IMAGE_FORMAT_GRAY8};
+    gst_memory_unmap(memory, &memory_map_info);
 }
 
 /**

@@ -47,6 +47,8 @@
 #define MEDIALIB_LOGGER_LEVEL_ENV_VAR ("MEDIALIB_LOG_LEVEL")
 #define MEDIALIB_LOGGER_CONSOLE_ENV_VAR ("MEDIALIB_CONSOLE_LOG_LEVEL")
 
+spdlog::level::level_enum get_level(const char *log_level_c_str, spdlog::level::level_enum default_level);
+
 class MediaLibLoggerSetup
 /**
  * @brief This class is responsible for setting up the logger.
@@ -58,32 +60,39 @@ class MediaLibLoggerSetup
  */
 {
 public:
-  MediaLibLoggerSetup(spdlog::level::level_enum console_level,
-                      spdlog::level::level_enum file_level,
-                      spdlog::level::level_enum flush_level);
-  ~MediaLibLoggerSetup() = default;
-  MediaLibLoggerSetup(MediaLibLoggerSetup const &) = delete;
-  void operator=(MediaLibLoggerSetup const &) = delete;
+    MediaLibLoggerSetup(spdlog::level::level_enum console_level,
+                        spdlog::level::level_enum file_level,
+                        spdlog::level::level_enum flush_level);
+    MediaLibLoggerSetup(
+        spdlog::level::level_enum console_level,
+        spdlog::level::level_enum file_level,
+        spdlog::level::level_enum flush_level,
+        std::string logger_name,
+        std::string file_name,
+        bool set_default_logger);
+    ~MediaLibLoggerSetup() = default;
+    MediaLibLoggerSetup(MediaLibLoggerSetup const &) = delete;
+    void operator=(MediaLibLoggerSetup const &) = delete;
 
-  std::string get_log_path(const std::string &path_env_var);
-  bool should_flush_every_print(const std::string &flush_every_print_env_var);
-  std::string get_main_log_path();
-  std::shared_ptr<spdlog::sinks::sink>
-  create_file_sink(const std::string &dir_path, const std::string &filename,
-                   bool rotate);
+    std::string get_log_path(const std::string &path_env_var);
+    bool should_flush_every_print(const std::string &flush_every_print_env_var);
+    std::string get_main_log_path(std::string logger_name);
+    std::shared_ptr<spdlog::sinks::sink>
+    create_file_sink(const std::string &dir_path, const std::string &filename,
+                     bool rotate);
+    std::shared_ptr<spdlog::logger> get_logger() { return m_medialib_logger; }
 
 private:
-  std::string parse_log_path(const char *log_path);
-  void set_levels(spdlog::level::level_enum console_level,
-                  spdlog::level::level_enum file_level,
-                  spdlog::level::level_enum flush_level);
+    std::string parse_log_path(const char *log_path);
+    void set_levels(spdlog::level::level_enum console_level,
+                    spdlog::level::level_enum file_level,
+                    spdlog::level::level_enum flush_level);
+    std::shared_ptr<spdlog::sinks::sink> m_console_sink;
 
-  std::shared_ptr<spdlog::sinks::sink> m_console_sink;
-
-  // The main log will be written to a centralized directory (home directory)
-  // The local log will be written to the local directory or to the path the
-  // user has chosen (via $MEDIALIB_LOGGER_PATH)
-  std::shared_ptr<spdlog::sinks::sink> m_main_log_file_sink;
-  std::shared_ptr<spdlog::sinks::sink> m_local_log_file_sink;
-  std::shared_ptr<spdlog::logger> m_medialib_logger;
+    // The main log will be written to a centralized directory (home directory)
+    // The local log will be written to the local directory or to the path the
+    // user has chosen (via $MEDIALIB_LOGGER_PATH)
+    std::shared_ptr<spdlog::sinks::sink> m_main_log_file_sink;
+    std::shared_ptr<spdlog::sinks::sink> m_local_log_file_sink;
+    std::shared_ptr<spdlog::logger> m_medialib_logger;
 };

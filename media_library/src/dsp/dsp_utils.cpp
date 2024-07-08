@@ -140,7 +140,9 @@ namespace dsp_utils
                     LOGGER__ERROR("Create dma buffer failed with status {}", status);
                     return DSP_UNINITIALIZED;
                 }
-            } else {
+            }
+            else
+            {
                 LOGGER__DEBUG("Creating dsp buffer with size {}", size);
                 dsp_status status = dsp_create_buffer(device, size, buffer);
                 if (status != DSP_SUCCESS)
@@ -181,6 +183,55 @@ namespace dsp_utils
         }
 
         LOGGER__DEBUG("DSP buffer released successfully");
+        return DSP_SUCCESS;
+    }
+
+    /**
+     * Perform DSP Resize
+     * The function calls the DSP library to perform resize on a given buffer.
+     * DSP will place the result in the output buffer.
+     *
+     * @param[in] input_image_properties input image properties
+     * @param[in] output_image_properties output image properties
+     * @param[in] dsp_interpolation_type interpolation type to use
+     * @param[in] use_letterbox should letterbox resize be used
+     * @return dsp_status
+     */
+    dsp_status perform_resize(dsp_image_properties_t *input_image_properties, dsp_image_properties_t *output_image_properties, dsp_interpolation_type_t dsp_interpolation_type, bool letterbox)
+    {
+        if (device == NULL)
+        {
+            LOGGER__ERROR("Perform DSP crop and resize ERROR: Device is NULL");
+            return DSP_UNINITIALIZED;
+        }
+
+        dsp_resize_params_t resize_params{
+            .src = input_image_properties,
+            .dst = output_image_properties,
+            .interpolation = dsp_interpolation_type,
+        };
+
+        dsp_roi_t crop_params{
+            .start_x = 0,
+            .start_y = 0,
+            .end_x = input_image_properties->width,
+            .end_y = input_image_properties->height,
+        };
+
+        dsp_letterbox_properties_t letterbox_params{
+            .alignment = letterbox ? DSP_LETTERBOX_MIDDLE : DSP_NO_LETTERBOX,
+            .color = {.y = 0, .u = 128, .v = 128}, // Black letterbox border
+        };
+
+        dsp_status status = dsp_crop_and_resize_letterbox(device, &resize_params, &crop_params, &letterbox_params);
+
+        if (status != DSP_SUCCESS)
+        {
+            LOGGER__ERROR("DSP Resize command failed with status {}", status);
+            return status;
+        }
+
+        LOGGER__INFO("DSP Resize command completed successfully");
         return DSP_SUCCESS;
     }
 
@@ -280,7 +331,6 @@ namespace dsp_utils
                                   uint16_t *cur_rows_sum,
                                   bool do_mesh_correction)
 
-
     {
         dsp_dewarp_angular_dis_params_t dewarp_params = {
             .src = input_image_properties,
@@ -306,13 +356,10 @@ namespace dsp_utils
                                   dsp_image_properties_t *output_image_properties,
                                   dsp_dewarp_mesh_t *mesh,
                                   dsp_interpolation_type_t interpolation)
-
-
     {
         return dsp_dewarp(device, input_image_properties, output_image_properties,
                           mesh, interpolation);
     }
-
 
     /**
      * Perform DSP blending using multiple overlays
@@ -351,7 +398,7 @@ namespace dsp_utils
      */
     void free_image_property_planes(dsp_image_properties_t *image_properties)
     {
-        free(image_properties->planes);
+        delete[] image_properties->planes;
     }
 
     /**

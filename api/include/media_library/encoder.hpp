@@ -129,6 +129,8 @@ public:
    */
   media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
 
+  media_library_return force_keyframe();
+
   /**
    * @brief Get an overlay manager object
    * @return :shared_ptr containing the object
@@ -151,6 +153,12 @@ public:
    */
   encoder_config_t get_config();
 
+  /**
+   * @brief 
+   * Get the encoder type
+   * @return EncoderType - the type of the encoder
+   */
+  EncoderType get_type();
   /**
    * @brief Forces videorate to reuse frames if needed.
    * @param[in] force - true to force videorate, false to disable

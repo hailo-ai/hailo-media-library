@@ -35,7 +35,7 @@
         "color_interpolation": "INTERPOLATION_TYPE_BILINEAR",
         "sensor_calib_path": "/home/root/apps/resources/cam_intrinsics.txt",
         "camera_type": "CAMERA_TYPE_PINHOLE",
-        "camera_fov": 100.0
+        "camera_fov": -1
     },
     "dis": {
         "enabled": false,
@@ -90,5 +90,12 @@
     "flip": {
         "enabled": false,
         "direction": "FLIP_DIRECTION_VERTICAL"
+    },
+    "hdr": {
+        "enabled": false,
+        "dol": 3,
+        "resolution": "4k",
+        "lsRatio": 23.7,
+        "vsRatio": 6.25
     }
 }

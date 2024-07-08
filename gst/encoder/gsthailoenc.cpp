@@ -28,6 +28,7 @@
 #include <pthread.h>
 #include <sstream>
 #include <thread>
+#include <vector>
 #include <gst/allocators/gstfdmemory.h>
 #include "gsthailoenc.hpp"
 #include "buffer_utils/buffer_utils.hpp"
@@ -1044,7 +1045,7 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
   HailoMediaLibraryBufferPtr hailo_buffer;
   bool is_dmabuf = false;
   int num_planes = 0;
-  int *planeFds = nullptr;
+  std::vector<int> planeFds;
   EncoderParams *enc_params = &(hailoenc->enc_params);
   struct timespec start_encode, end_encode;
   GST_DEBUG_OBJECT(hailoenc, "Encoding frame number %u in type %u", frame->system_frame_number, enc_params->nextCodingType);
@@ -1066,20 +1067,13 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
   {
     is_dmabuf = true;
     num_planes = hailo_buffer->get_num_of_planes();
-    planeFds = new int[num_planes];
-    if (planeFds == nullptr)
-    {
-      GST_ERROR_OBJECT(hailoenc, "Could not allocate memory for dmabuf fds");
-      return GST_FLOW_ERROR;
-    }
-    memset(planeFds, 0, num_planes * sizeof(int));
-    for (uint32_t i = 0; i < num_planes; i++)
+    planeFds.resize(num_planes);
+    for (int32_t i = 0; i < num_planes; i++)
     {
       planeFds[i] = hailo_buffer->get_fd(i);
       if (planeFds[i] <= 0)
       {
         GST_ERROR_OBJECT(hailoenc, "Could not get dmabuf fd of plane %d", i);
-        delete planeFds;
         return GST_FLOW_ERROR;
       }
     }
@@ -1089,7 +1083,6 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
   if (ret != GST_FLOW_OK)
   {
     GST_ERROR_OBJECT(hailoenc, "Could not update the input buffer");
-    delete planeFds;
     return ret;
   }
 
@@ -1123,16 +1116,22 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
           hailoenc->header_buffer = NULL;
         }
 
+        if (GST_PAD_IS_FLUSHING(GST_VIDEO_ENCODER_SRC_PAD(hailoenc)))
+        {
+          GST_WARNING_OBJECT(hailoenc, "Pad is flushing, not sending frame %d", enc_params->picture_cnt);
+          gst_buffer_unref(frame->output_buffer);
+          frame->output_buffer = nullptr;
+        }
+
         ret = gst_video_encoder_finish_frame(GST_VIDEO_ENCODER(hailoenc), frame);
         if (ret != GST_FLOW_OK)
         {
           GST_ERROR_OBJECT(hailoenc, "Could not send encoded buffer, reason %d", ret);
           if (is_dmabuf)
           {
-            for (uint32_t i = 0; i < num_planes; i++)
+            for (int32_t i = 0; i < num_planes; i++)
               releaseDmabuf(hailoenc, planeFds[i]);
           }
-          delete planeFds;
           return ret;
         }
       }
@@ -1144,25 +1143,22 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
     ret = GST_FLOW_ERROR;
     if (is_dmabuf)
     {
-      for (uint32_t i = 0; i < num_planes; i++)
+      for (int32_t i = 0; i < num_planes; i++)
         releaseDmabuf(hailoenc, planeFds[i]);
     }
-    delete planeFds;
     return ret;
-    break;
   }
 
   if (is_dmabuf)
   {
     GST_DEBUG_OBJECT(hailoenc, "Unsharing dmabuf");
-    for (uint32_t i = 0; i < num_planes; i++)
+    for (int32_t i = 0; i < num_planes; i++)
     {
       if (releaseDmabuf(hailoenc, planeFds[i]) != GST_FLOW_OK)
       {
           GST_ERROR_OBJECT(hailoenc, "Could not get physical address of plane %d", i);
       }
     }
-    delete planeFds;
   }
   return ret;
 }

@@ -9,6 +9,7 @@ utils_incdir = [include_directories('./src/utils')]
 common_sourcs = [
     'src/dsp/dsp_utils.cpp',
     'src/isp/isp_utils.cpp',
+    'src/isp/v4l2_ctrl.cpp',
     'src/buffer_pool/buffer_pool.cpp',
     'src/buffer_pool/dma_memory_allocator.cpp',
     'src/utils/media_library_logger.cpp',

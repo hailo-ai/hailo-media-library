@@ -97,7 +97,7 @@ std::string MediaLibLoggerSetup::get_log_path(const std::string &path_env_var)
     return parse_log_path(log_path_c_str);
 }
 
-std::string MediaLibLoggerSetup::get_main_log_path()
+std::string MediaLibLoggerSetup::get_main_log_path(std::string logger_name)
 {
     std::string local_log_path = get_log_path(MEDIALIB_LOGGER_PATH_ENV_VAR);
     if (local_log_path.length() == 0)
@@ -108,8 +108,7 @@ std::string MediaLibLoggerSetup::get_main_log_path()
     const auto hailo_dir_path = std::string(HOME_DIR) +
                                 std::string(PATH_SEPARATOR) +
                                 std::string(".hailo");
-    const auto full_path = hailo_dir_path + std::string(PATH_SEPARATOR) +
-                           std::string(MEDIALIB_NAME);
+    const auto full_path = hailo_dir_path + std::string(PATH_SEPARATOR) + logger_name;
     bool success;
     if (!std::filesystem::exists(hailo_dir_path))
     {
@@ -173,14 +172,29 @@ MediaLibLoggerSetup::create_file_sink(const std::string &dir_path,
 
 MediaLibLoggerSetup::MediaLibLoggerSetup(
     spdlog::level::level_enum console_level,
-    spdlog::level::level_enum file_level, spdlog::level::level_enum flush_level)
+    spdlog::level::level_enum file_level,
+    spdlog::level::level_enum flush_level)
+    : MediaLibLoggerSetup(console_level,
+                          file_level,
+                          flush_level,
+                          MEDIALIB_NAME,
+                          MEDIALIB_LOGGER_FILENAME,
+                          true) {}
+
+MediaLibLoggerSetup::MediaLibLoggerSetup(
+    spdlog::level::level_enum console_level,
+    spdlog::level::level_enum file_level,
+    spdlog::level::level_enum flush_level,
+    std::string logger_name,
+    std::string file_name,
+    bool set_default_logger)
     : m_console_sink(
           make_shared_nothrow<spdlog::sinks::stderr_color_sink_mt>()),
-      m_main_log_file_sink(create_file_sink(get_main_log_path(),
-                                            MEDIALIB_LOGGER_FILENAME, true)),
+      m_main_log_file_sink(create_file_sink(get_main_log_path(logger_name),
+                                            file_name, true)),
       m_local_log_file_sink(
           create_file_sink(get_log_path(MEDIALIB_LOGGER_PATH_ENV_VAR),
-                           MEDIALIB_LOGGER_FILENAME, true))
+                           file_name, true))
 {
     if ((nullptr == m_console_sink) || (nullptr == m_main_log_file_sink) ||
         (nullptr == m_local_log_file_sink))
@@ -198,7 +212,7 @@ MediaLibLoggerSetup::MediaLibLoggerSetup(
     spdlog::sinks_init_list sink_list = {m_console_sink, m_main_log_file_sink,
                                          m_local_log_file_sink};
     m_medialib_logger = make_shared_nothrow<spdlog::logger>(
-        MEDIALIB_NAME, sink_list.begin(), sink_list.end());
+        logger_name, sink_list.begin(), sink_list.end());
     if (nullptr == m_medialib_logger)
     {
         std::cerr << "Allocating memory on heap for MediaLib logger has "
@@ -209,7 +223,8 @@ MediaLibLoggerSetup::MediaLibLoggerSetup(
     }
 
     set_levels(console_level, file_level, flush_level);
-    spdlog::set_default_logger(m_medialib_logger);
+    if (set_default_logger)
+        spdlog::set_default_logger(m_medialib_logger);
 }
 
 bool MediaLibLoggerSetup::should_flush_every_print(
@@ -288,6 +303,7 @@ spdlog::level::level_enum get_level(const char *log_level_c_str,
     else
         return default_level;
 }
+
 COMPAT__INITIALIZER(
     libmedialib_initialize_logger) // this is a macro that calls the function
                                    // below on library load (before program

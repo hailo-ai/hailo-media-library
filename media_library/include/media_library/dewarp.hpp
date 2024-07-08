@@ -80,16 +80,6 @@ public:
      */
     ~MediaLibraryDewarp();
 
-    /**
-     * @brief Configure the dewarp module with new json string
-     *
-     * Read the json string and decode it to create the ldc_config_t object
-     * Initialize the dewarp mesh object for the DIS library
-     * @param[in] config_string - configuration json as string
-     * @return media_library_return - status of the configuration operation
-     */
-    bool check_ops_enabled_from_config_string(std::string config_string);
-    
     media_library_return configure(std::string config_string);
 
     /**

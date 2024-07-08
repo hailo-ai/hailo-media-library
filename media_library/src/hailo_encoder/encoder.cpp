@@ -405,10 +405,18 @@ void Encoder::force_keyframe() { m_impl->force_keyframe(); }
 
 void Encoder::Impl::force_keyframe()
 {
-    LOGGER__INFO("Encoder - Force Keyframe");
+    LOGGER__INFO("Encoder internal - Force Keyframe, setting next coding type to INTRA_FRAME poc to 0 and removing oldest input buffer");
     m_enc_in.codingType = m_next_coding_type = VCENC_INTRA_FRAME;
     m_enc_in.poc = 0;
     m_counters.last_idr_picture_cnt = m_counters.picture_cnt;
+
+    if(m_inputs.size() > 0)
+    {
+        // remove oldest buffer from m_inputs
+        HailoMediaLibraryBufferPtr buf = m_inputs[0];
+        buf->decrease_ref_count();
+        m_inputs.erase(m_inputs.begin());
+    }
 }
 
 encoder_config_t Encoder::get_config()
@@ -444,6 +452,7 @@ EncoderOutputBuffer Encoder::Impl::start()
             m_enc_in.poc = 0;
             m_enc_in.gopSize = m_next_gop_size = get_gop_size();
             m_next_coding_type = VCENC_INTRA_FRAME;
+            m_counters = {};
         }
     }
 
@@ -486,6 +495,7 @@ media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferP
                       num_of_planes);
         return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
     }
+    update_stride(buf->get_plane_stride(0));
 
     if (buf->is_dmabuf())
     {
@@ -528,7 +538,7 @@ media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferP
             }
         }
     }
-    update_stride(buf->get_plane_stride(0));
+
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -640,6 +650,7 @@ Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
         m_enc_in.poc = 0;
         m_counters.last_idr_picture_cnt = m_counters.picture_cnt;
     }
+
     clock_gettime(CLOCK_MONOTONIC, &start_encode);
     enc_ret = VCEncStrmEncode(m_inst, &m_enc_in, &m_enc_out, NULL, NULL);
 
@@ -836,12 +847,12 @@ VCEncPictureCodingType Encoder::Impl::find_next_pic()
             int gop_shorten = 0;
 
             // cut by an IDR
-            if ((m_counters.idr_interval) &&
+            if ((m_idr_interval) &&
                 ((gop_end_pic - m_counters.last_idr_picture_cnt) >=
-                 (int)m_counters.idr_interval))
+                 (int)m_idr_interval))
                 gop_shorten =
                     1 + ((gop_end_pic - m_counters.last_idr_picture_cnt) -
-                         m_counters.idr_interval);
+                         m_idr_interval);
 
             if (gop_shorten >= next_gop_size)
             {
@@ -866,9 +877,9 @@ VCEncPictureCodingType Encoder::Impl::find_next_pic()
         m_enc_in.poc += m_counters.picture_cnt - picture_cnt_tmp;
         // next coding type
         bool forceIntra =
-            m_counters.idr_interval &&
+            m_idr_interval &&
             ((m_counters.picture_cnt - m_counters.last_idr_picture_cnt) >=
-             (int)m_counters.idr_interval);
+             (int)m_idr_interval);
         if (forceIntra)
             nextCodingType = VCENC_INTRA_FRAME;
         else

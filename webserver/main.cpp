@@ -8,9 +8,11 @@
 #include <thread>
 #include <signal.h>
 #include "media_library/signal_utils.hpp"
+#include "common/logger_macros.hpp"
 
 int main(int argc, char *argv[])
 {
+    WEBSERVER_LOG_INFO("Starting webserver");
     WebServerPipeline pipeline = webserver::pipeline::IPipeline::create();
 
     std::shared_ptr<HTTPServer> svr = HTTPServer::create();
@@ -25,13 +27,14 @@ int main(int argc, char *argv[])
             auto resource = resources_repo->get(resource_type);
             if (resource == nullptr)
                 continue;
+            WEBSERVER_LOG_DEBUG("Registering resource type: {} to server http", resource_type);
             resource->http_register(svr);
         }
     }
 
     signal_utils::register_signal_handler([pipeline](int signal)
                                           {
-                                            std::cout << "Received signal " << signal << " exiting" << std::endl;
+                                            WEBSERVER_LOG_WARN("Received signal {} exiting", signal);
                                             pipeline->stop();
                                             exit(0); });
 
@@ -42,5 +45,6 @@ int main(int argc, char *argv[])
     auto isp_resource = std::static_pointer_cast<webserver::resources::IspResource>(pipeline->get_resources()->get(webserver::resources::RESOURCE_ISP));
     isp_resource->init();
 
+    WEBSERVER_LOG_INFO("Webserver started");
     svr->listen("0.0.0.0", 80);
 }

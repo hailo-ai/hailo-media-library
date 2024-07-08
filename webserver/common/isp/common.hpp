@@ -8,9 +8,7 @@
 #include <iostream>
 #include <fstream>
 #include <cstring>
-
-#define IOCTL_TRIES_COUNT 3
-#define IOCTL_CLEAR(x) memset(&(x), 0, sizeof(x))
+#include "media_library/v4l2_ctrl.hpp"
 
 #ifndef MEDIALIB_LOCAL_SERVER
 #include "media_library/isp_utils.hpp"
@@ -21,37 +19,16 @@ namespace isp_utils
     void set_default_configuration();
     void set_denoise_configuration();
     void set_backlight_configuration();
+    void set_hdr_configuration();
 }
 #endif
+
+using namespace isp_utils::ctrl;
 
 namespace webserver
 {
     namespace common
     {
-        enum v4l2_ctrl_id
-        {
-            V4L2_CTRL_POWERLINE_FREQUENCY = 1,
-            V4L2_CTRL_NOISE_REDUCTION = 2,
-            V4L2_CTRL_SHARPNESS_DOWN = 3,
-            V4L2_CTRL_SHARPNESS_UP = 4,
-            V4L2_CTRL_BRIGHTNESS = 5,
-            V4L2_CTRL_CONTRAST = 6,
-            V4L2_CTRL_SATURATION = 7,
-            V4L2_CTRL_EE_ENABLE = 8,
-
-            V4L2_CTRL_AE_ENABLE = 9,
-            V4L2_CTRL_AE_GAIN = 10,
-            V4L2_CTRL_AE_INTEGRATION_TIME = 11,
-            V4L2_CTRL_AE_WDR_VALUES = 15,
-
-            V4L2_CTRL_WDR_CONTRAST = 12,
-
-            V4L2_CTRL_AWB_MODE = 13,
-            V4L2_CTRL_AWB_ILLUM_INDEX = 14,
-
-            V4L2_CTRL_MAX
-        };
-
         void update_3a_config(bool enabled);
         void update_3a_config(nlohmann::json config);
         nlohmann::json get_3a_config();
@@ -125,21 +102,21 @@ namespace webserver
 
             stream_isp_params_t from_stream_params(const stream_params_t &params)
             {
-                int32_t v_brightness = v4l2ControlHelper::calculate_value_from_precentage<int32_t>(params.brightness, webserver::common::V4L2_CTRL_BRIGHTNESS, brightness);
-                int32_t v_contrast = v4l2ControlHelper::calculate_value_from_precentage<int32_t>(params.contrast, webserver::common::V4L2_CTRL_CONTRAST, contrast);
-                int32_t v_saturation = v4l2ControlHelper::calculate_value_from_precentage<int32_t>(params.saturation, webserver::common::V4L2_CTRL_SATURATION, saturation);
-                int32_t v_sharpness_down = v4l2ControlHelper::calculate_value_from_precentage<int32_t>(params.sharpness, webserver::common::V4L2_CTRL_SHARPNESS_DOWN, sharpness_down);
-                int32_t v_sharpness_up = v4l2ControlHelper::calculate_value_from_precentage<int32_t>(params.sharpness, webserver::common::V4L2_CTRL_SHARPNESS_UP, sharpness_up);
+                int32_t v_brightness = v4l2ControlHelper::calculate_value_from_precentage<int32_t>(params.brightness, V4L2_CTRL_BRIGHTNESS, brightness);
+                int32_t v_contrast = v4l2ControlHelper::calculate_value_from_precentage<int32_t>(params.contrast, V4L2_CTRL_CONTRAST, contrast);
+                int32_t v_saturation = v4l2ControlHelper::calculate_value_from_precentage<int32_t>(params.saturation, V4L2_CTRL_SATURATION, saturation);
+                int32_t v_sharpness_down = v4l2ControlHelper::calculate_value_from_precentage<int32_t>(params.sharpness, V4L2_CTRL_SHARPNESS_DOWN, sharpness_down);
+                int32_t v_sharpness_up = v4l2ControlHelper::calculate_value_from_precentage<int32_t>(params.sharpness, V4L2_CTRL_SHARPNESS_UP, sharpness_up);
 
                 return stream_isp_params_t(v_saturation, v_brightness, v_contrast, v_sharpness_down, v_sharpness_up);
             }
 
             stream_params_t to_stream_params(const stream_isp_params_t &params)
             {
-                uint16_t p_brightness = v4l2ControlHelper::calculate_precentage_from_value<int32_t>(params.brightness, webserver::common::V4L2_CTRL_BRIGHTNESS, brightness);
-                uint16_t p_contrast = v4l2ControlHelper::calculate_precentage_from_value<int32_t>(params.contrast, webserver::common::V4L2_CTRL_CONTRAST, contrast);
-                uint16_t p_saturation = v4l2ControlHelper::calculate_precentage_from_value<int32_t>(params.saturation, webserver::common::V4L2_CTRL_SATURATION, saturation);
-                uint16_t p_sharpness = v4l2ControlHelper::calculate_precentage_from_value<uint16_t>(params.sharpness_down, webserver::common::V4L2_CTRL_SHARPNESS_DOWN, sharpness_down);
+                uint16_t p_brightness = v4l2ControlHelper::calculate_precentage_from_value<int32_t>(params.brightness, V4L2_CTRL_BRIGHTNESS, brightness);
+                uint16_t p_contrast = v4l2ControlHelper::calculate_precentage_from_value<int32_t>(params.contrast, V4L2_CTRL_CONTRAST, contrast);
+                uint16_t p_saturation = v4l2ControlHelper::calculate_precentage_from_value<int32_t>(params.saturation, V4L2_CTRL_SATURATION, saturation);
+                uint16_t p_sharpness = v4l2ControlHelper::calculate_precentage_from_value<uint16_t>(params.sharpness_down, V4L2_CTRL_SHARPNESS_DOWN, sharpness_down);
 
                 return stream_params_t{p_saturation, p_brightness, p_contrast, p_sharpness};
             }
@@ -155,14 +132,14 @@ namespace webserver
 
             backlight_filter_t from_precentage(uint16_t precentage)
             {
-                auto new_max = v4l2ControlHelper::calculate_value_from_precentage<int32_t>(precentage, webserver::common::V4L2_CTRL_AE_WDR_VALUES, max);
-                auto new_min = v4l2ControlHelper::calculate_value_from_precentage<int32_t>(precentage, webserver::common::V4L2_CTRL_AE_WDR_VALUES, min);
+                auto new_max = v4l2ControlHelper::calculate_value_from_precentage<int32_t>(precentage, V4L2_CTRL_AE_WDR_VALUES, max);
+                auto new_min = v4l2ControlHelper::calculate_value_from_precentage<int32_t>(precentage, V4L2_CTRL_AE_WDR_VALUES, min);
                 return backlight_filter_t(new_max, new_min);
             }
 
             uint16_t to_precentage(const backlight_filter_t &filter)
             {
-                return v4l2ControlHelper::calculate_precentage_from_value<int32_t>(filter.max, webserver::common::V4L2_CTRL_AE_WDR_VALUES, max);
+                return v4l2ControlHelper::calculate_precentage_from_value<int32_t>(filter.max, V4L2_CTRL_AE_WDR_VALUES, max);
             }
 
             static backlight_filter_t get_from_json()
@@ -199,6 +176,8 @@ namespace webserver
             TUNING_PROFILE_DEFAULT = 0,
             TUNING_PROFILE_DENOISE = 1,
             TUNING_PROFILE_BACKLIGHT_COMPENSATION = 2,
+            TUNING_PROFILE_HDR_FHD = 3,
+            TUNING_PROFILE_HDR_4K = 4,
             TUNING_PROFILE_MAX
         };
 
@@ -248,9 +227,11 @@ namespace webserver
         };
 
         NLOHMANN_JSON_SERIALIZE_ENUM(tuning_profile_t, {
-                                                           {TUNING_PROFILE_DEFAULT, "default"},
-                                                           {TUNING_PROFILE_DENOISE, "denoise"},
-                                                           {TUNING_PROFILE_BACKLIGHT_COMPENSATION, "backlight_compensation"},
+                                                           {TUNING_PROFILE_DEFAULT, "Default"},
+                                                           {TUNING_PROFILE_DENOISE, "Denoise"},
+                                                           {TUNING_PROFILE_BACKLIGHT_COMPENSATION, "Backlight Compensation"},
+                                                           {TUNING_PROFILE_HDR_FHD, "HDR (FHD)"},
+                                                           {TUNING_PROFILE_HDR_4K, "HDR (4K)"},
                                                        })
 
         NLOHMANN_JSON_SERIALIZE_ENUM(powerline_frequency_t, {

@@ -51,6 +51,7 @@ enum
     PROP_CONFIG_FILE_PATH,
     PROP_CONFIG_STRING,
     PROP_PRIVACY_MASK,
+    PROP_CONFIG,
 };
 
 // Pad Templates
@@ -101,6 +102,9 @@ gst_hailofrontend_class_init(GstHailoFrontendClass *klass)
                                     g_param_spec_pointer("privacy-mask", "Privacy Mask",
                                                          "Pointer to privacy mask blender",
                                                          (GParamFlags)(G_PARAM_READABLE)));
+    g_object_class_install_property(gobject_class, PROP_CONFIG,
+                                    g_param_spec_pointer("config", "Frontend config", "Fronted config as frontend_config_t",
+                                                         (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 
     element_class->change_state = GST_DEBUG_FUNCPTR(gst_hailofrontend_change_state);
     element_class->request_new_pad = GST_DEBUG_FUNCPTR(gst_hailofrontend_request_new_pad);
@@ -124,7 +128,7 @@ gst_hailofrontend_init(GstHailoFrontend *hailofrontend)
     }
 
     // queue between denoise and dis_dewarp
-    hailofrontend->m_denoise_dis_queue = gst_hailofrontend_init_queue(hailofrontend, true);
+    hailofrontend->m_denoise_dis_queue = gst_hailofrontend_init_queue(hailofrontend, false);
 
     // dis_dewarp
     hailofrontend->m_dis_dewarp = gst_element_factory_make("hailodewarp", NULL);
@@ -222,6 +226,16 @@ void gst_hailofrontend_set_property(GObject *object, guint property_id,
         }
         break;
     }
+    case PROP_CONFIG:
+    {
+        // Set the config for the sub elements
+        frontend_config_t *config = static_cast<frontend_config_t *>(g_value_get_pointer(value));
+        g_object_set(hailofrontend->m_denoise, "config", &(config->denoise_config), NULL);
+        g_object_set(hailofrontend->m_dis_dewarp, "config", &(config->ldc_config), NULL);
+        g_object_set(hailofrontend->m_multi_resize, "config", &(config->multi_resize_config), NULL);
+        
+        break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
@@ -251,6 +265,34 @@ void gst_hailofrontend_get_property(GObject *object, guint property_id,
         gpointer blender;
         g_object_get(hailofrontend->m_multi_resize, "privacy-mask", &blender, NULL);
         g_value_set_pointer(value, blender);
+        break;
+    }
+    case PROP_CONFIG:
+    {
+        // Get the config from the sub elements
+        denoise_config_t denoise_config;
+        ldc_config_t ldc_config;
+        multi_resize_config_t multi_resize_config;
+        
+        gpointer denoise_gvalue = nullptr;
+        gpointer dewarp_gvalue = nullptr;
+        gpointer multi_resize_gvalue = nullptr;
+        
+        g_object_get(hailofrontend->m_dis_dewarp, "config", &dewarp_gvalue, NULL);
+        ldc_config = *reinterpret_cast<ldc_config_t *>(dewarp_gvalue);
+
+        g_object_get(hailofrontend->m_denoise, "config", &denoise_gvalue, NULL);
+        denoise_config = *reinterpret_cast<denoise_config_t *>(denoise_gvalue);
+
+        g_object_get(hailofrontend->m_multi_resize, "config", &multi_resize_gvalue, NULL);
+        multi_resize_config = *reinterpret_cast<multi_resize_config_t *>(multi_resize_gvalue);
+
+        hailofrontend->frontend_config = std::make_shared<frontend_config_t>();
+        hailofrontend->frontend_config->ldc_config = ldc_config;
+        hailofrontend->frontend_config->denoise_config = denoise_config;
+        hailofrontend->frontend_config->multi_resize_config = multi_resize_config;
+    
+        g_value_set_pointer(value, hailofrontend->frontend_config.get());
         break;
     }
     default:

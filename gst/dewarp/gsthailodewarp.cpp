@@ -75,6 +75,7 @@ enum
     PROP_PAD_0,
     PROP_CONFIG_FILE_PATH,
     PROP_CONFIG_STRING,
+    PROP_CONFIG,
 };
 
 static void
@@ -102,6 +103,10 @@ gst_hailo_dewarp_class_init(GstHailoDewarpClass *klass)
                                                         "JSON config string to load",
                                                         "",
                                                         (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(gobject_class, PROP_CONFIG,
+                                    g_param_spec_pointer("config", "LDC config", "Fronted config as ldc_config_t",
+                                                         (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+
     // Pad templates
     gst_element_class_add_static_pad_template(gstelement_class, &src_template);
     gst_element_class_add_static_pad_template(gstelement_class, &sink_template);
@@ -592,13 +597,6 @@ static void gst_hailo_dewarp_set_property(GObject *object, guint property_id, co
         }
         else
         {
-            bool enabled_ops = self->medialib_dewarp->check_ops_enabled_from_config_string(self->config_string);
-
-            if (!enabled_ops)
-            {
-                break;
-            }
-
             media_library_return config_status = self->medialib_dewarp->configure(self->config_string);
             if (config_status != MEDIA_LIBRARY_SUCCESS)
                 GST_ERROR_OBJECT(self, "configuration error: %d", config_status);
@@ -616,16 +614,27 @@ static void gst_hailo_dewarp_set_property(GObject *object, guint property_id, co
         }
         else
         {
-            bool enabled_ops = self->medialib_dewarp->check_ops_enabled_from_config_string(self->config_string);
-
-            if (!enabled_ops) 
-            {
-                break;
-            }
             media_library_return config_status = self->medialib_dewarp->configure(self->config_string);
             if (config_status != MEDIA_LIBRARY_SUCCESS)
                 GST_ERROR_OBJECT(self, "configuration error: %d", config_status);
         }
+        break;
+    }
+    case PROP_CONFIG:
+    {   
+        if(self->medialib_dewarp)
+        {
+            ldc_config_t *dewarp_config = static_cast<ldc_config_t *>(g_value_get_pointer(value));
+            if(self->medialib_dewarp->configure(*dewarp_config) != MEDIA_LIBRARY_SUCCESS)
+            {
+                GST_ERROR_OBJECT(self, "Failed to configure dewarp with ldc_config_t object");
+            }
+            else
+            {
+                self->dewarp_config = std::make_shared<ldc_config_t>(*dewarp_config);
+            }
+        }
+
         break;
     }
     default:
@@ -650,6 +659,12 @@ gst_hailo_dewarp_get_property(GObject *object, guint property_id, GValue *value,
     case PROP_CONFIG_STRING:
     {
         g_value_set_string(value, self->config_string.c_str());
+        break;
+    }
+    case PROP_CONFIG:
+    {
+        self->dewarp_config = std::make_shared<ldc_config_t>(self->medialib_dewarp->get_ldc_configs());
+        g_value_set_pointer(value, self->dewarp_config.get());
         break;
     }
     default:

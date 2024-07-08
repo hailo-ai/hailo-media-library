@@ -71,6 +71,16 @@ tl::expected<std::vector<frontend_output_stream_t>, media_library_return> MediaL
     return m_impl->get_outputs_streams();
 }
 
+tl::expected<frontend_config_t, media_library_return> MediaLibraryFrontend::get_config()
+{
+    return m_impl->get_config();
+}
+
+media_library_return MediaLibraryFrontend::set_config(frontend_config_t config)
+{
+    return m_impl->configure(config);
+}
+
 tl::expected<std::shared_ptr<MediaLibraryFrontend::Impl>, media_library_return> MediaLibraryFrontend::Impl::create(frontend_src_element_t src_element, std::string config)
 {
     media_library_return status;
@@ -120,6 +130,41 @@ MediaLibraryFrontend::Impl::~Impl()
     if (m_src_element == FRONTEND_SRC_ELEMENT_APPSRC)
         gst_caps_unref(m_appsrc_caps);
     gst_object_unref(m_pipeline);
+}
+
+tl::expected<GstElement *, media_library_return> MediaLibraryFrontend::Impl::get_frontend_element()
+{
+    //get gsthailofrontendbinsrc element from m_pipeline
+    GstElement *frontendbinsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
+    //get the element with type hailofrontend from the bin
+    GstElement *frontend = gst_bin_get_by_name(GST_BIN(frontendbinsrc), "hailofrontendelement");
+    if (frontend == nullptr)
+    {
+        LOGGER__ERROR("Failed to get frontend element");
+        return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
+    }
+
+    gst_object_unref(frontendbinsrc);
+    return frontend;
+}
+
+tl::expected<frontend_config_t, media_library_return> MediaLibraryFrontend::Impl::get_config()
+{
+    auto frontend_element = get_frontend_element();
+    if(frontend_element)
+    {
+        frontend_config_t config;
+        gpointer value = nullptr;
+        g_object_get(frontend_element.value(), "config", &value, NULL);
+        config = *reinterpret_cast<frontend_config_t *>(value);
+        gst_object_unref(frontend_element.value());
+        return config;
+    }
+    else
+    {
+        gst_object_unref(frontend_element.value());
+        return tl::make_unexpected(frontend_element.error());
+    }
 }
 
 media_library_return MediaLibraryFrontend::Impl::subscribe(FrontendCallbacksMap callback)
@@ -199,6 +244,21 @@ media_library_return MediaLibraryFrontend::Impl::configure(std::string json_conf
     return MEDIA_LIBRARY_SUCCESS;
 }
 
+media_library_return MediaLibraryFrontend::Impl::configure(frontend_config_t config)
+{
+    auto frontend_element = get_frontend_element();
+    if(frontend_element)
+    {
+        g_object_set(G_OBJECT(frontend_element.value()), "config", &config, NULL);
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+    else
+    {
+        return frontend_element.error();
+    }
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
 tl::expected<std::vector<frontend_output_stream_t>, media_library_return> MediaLibraryFrontend::Impl::get_outputs_streams()
 {
     if (!m_output_streams.empty())
@@ -236,18 +296,18 @@ std::string MediaLibraryFrontend::Impl::create_pipeline_string()
     {
     case FRONTEND_SRC_ELEMENT_APPSRC:
         pipeline << "appsrc name=src do-timestamp=true format=buffers block=true is-live=true max-buffers=5 max-bytes=0 ! ";
+        pipeline << "queue leaky=downstream max-size-buffers=1 max-size-time=0 max-size-bytes=0 ! ";
+        pipeline << "video/x-raw,format=NV12,width=3840,height=2160,framerate=30/1 ! ";
+        pipeline << "hailofrontend name=frontend config-string='" << std::string(m_json_config.dump()) << "' ";
         break;
     case FRONTEND_SRC_ELEMENT_V4L2SRC:
-        pipeline << "v4l2src name=src device=/dev/video0 io-mode=mmap ! ";
+        pipeline << "hailofrontendbinsrc name=frontend config-string='" << std::string(m_json_config.dump()) << "' ";
         break;
     default:
         LOGGER__ERROR("Invalid src element {}", m_src_element);
         throw new std::runtime_error("frontend src element not supported");
     }
 
-    pipeline << "queue leaky=downstream max-size-buffers=1 max-size-time=0 max-size-bytes=0 ! ";
-    pipeline << "video/x-raw,format=NV12,width=3840,height=2160,framerate=30/1 ! ";
-    pipeline << "hailofrontend name=frontend config-string='" << std::string(m_json_config.dump()) << "' ";
     for (frontend_output_stream_t s : outputs_expected.value())
     {
         pipeline << "frontend. ! ";
@@ -308,16 +368,6 @@ void MediaLibraryFrontend::Impl::set_gst_callbacks()
         gst_app_sink_set_callbacks(GST_APP_SINK(appsink), &appsink_callbacks, (void *)this, NULL);
         gst_object_unref(appsink);
     }
-}
-
-void MediaLibraryFrontend::Impl::on_need_data(GstAppSrc *appsrc, guint size)
-{
-    throw new std::runtime_error("FRONTEND_SRC_ELEMENT_APPSRC not supported yet");
-}
-
-void MediaLibraryFrontend::Impl::on_enough_data(GstAppSrc *appsrc)
-{
-    throw new std::runtime_error("FRONTEND_SRC_ELEMENT_APPSRC not supported yet");
 }
 
 GstFlowReturn MediaLibraryFrontend::Impl::on_new_sample(output_stream_id_t id, GstAppSink *appsink)

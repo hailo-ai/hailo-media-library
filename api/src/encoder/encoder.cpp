@@ -182,7 +182,7 @@ std::string MediaLibraryEncoder::Impl::create_pipeline_string(
         " ! " + caps2.str() + " ! " +
         "queue leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! "
         "fpsdisplaysink fps-update-interval=2000 signal-fps-measurements=true name=fpsdisplaysink "
-        "text-overlay=false sync=false video-sink=\"appsink wait-for-eos=false max-buffers=1 qos=false "
+        "text-overlay=false sync=false video-sink=\"appsink wait-on-eos=false max-buffers=1 qos=false "
         "name=encoder_sink\"";
 
     LOGGER__INFO("Pipeline: gst-launch-1.0 {}", pipeline);
@@ -294,13 +294,41 @@ gboolean MediaLibraryEncoder::Impl::on_bus_call(GstBus *bus, GstMessage *msg)
         g_free(debug);
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
         g_main_loop_quit(m_main_loop);
-        m_main_loop_thread->join();
         break;
     }
     default:
         break;
     }
     return TRUE;
+}
+
+media_library_return 
+MediaLibraryEncoder::Impl::force_keyframe()
+{
+    media_library_return ret = MEDIA_LIBRARY_SUCCESS;
+    GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
+    if (encoder_bin == nullptr)
+    {
+        LOGGER__ERROR("Failed to get encoder bin from pipeline");
+        std::cout << "Got null encoder bin element in get_config" << std::endl;
+        gst_object_unref(encoder_bin);
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    LOGGER__INFO("Force Keyframe requested from Encoder API");
+    GstEvent *event = gst_video_event_new_downstream_force_key_unit(GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE, TRUE, 1);
+    GstPad *sinkpad = gst_element_get_static_pad(encoder_bin, "sink");
+    if (!gst_pad_send_event(sinkpad, event))
+    {
+        LOGGER__ERROR("Failed to send force key unit event to encoder");
+        ret = MEDIA_LIBRARY_ERROR;
+    }
+
+    gst_object_unref(sinkpad);
+    gst_object_unref(encoder_bin);
+
+    LOGGER__DEBUG("Force Keyframe sent to encoder");
+    return ret;
 }
 
 media_library_return
@@ -359,7 +387,10 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
         gst_sample_unref(sample);
         return GST_FLOW_OK;
     }
-    if (m_encoder_type == EncoderType::Hailo) {
+    switch (m_encoder_type)
+    {
+    case EncoderType::Hailo:
+    {
         buffer_meta = gst_buffer_get_hailo_buffer_meta(buffer);
         if (!buffer_meta)
         {
@@ -376,13 +407,29 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
             gst_sample_unref(sample);
             return GST_FLOW_ERROR;
         }
-    } else {
-        gst_sample_unref(sample);
-        return GST_FLOW_OK;
-    }
 
-    if (gst_buffer_is_writable(buffer))
-        gst_buffer_remove_meta(buffer, &buffer_meta->meta);
+        if (gst_buffer_is_writable(buffer))
+            gst_buffer_remove_meta(buffer, &buffer_meta->meta);
+        break;
+
+    } 
+    case EncoderType::Jpeg:
+    {
+        buffer_ptr = hailo_buffer_from_jpeg_gst_buffer(buffer);
+        if (!buffer_ptr)
+        {
+            GST_ERROR("Failed to get hailo buffer ptr from jpeg");
+            gst_sample_unref(sample);
+            return GST_FLOW_ERROR;
+        }
+        used_size = buffer_ptr->get_plane_size(0);
+        break;
+    }
+    default:
+        GST_ERROR("Invalid encoder type");
+        gst_sample_unref(sample);
+        return GST_FLOW_ERROR;
+    }
 
     for (auto &callback : m_callbacks)
     {
@@ -426,7 +473,7 @@ media_library_return MediaLibraryEncoder::Impl::configure(encoder_config_t &conf
         return MEDIA_LIBRARY_ERROR;
     }
 
-    hailo_encoder_config_t hailo_config = std::get<hailo_encoder_config_t>(config);
+    hailo_encoder_config_t &hailo_config = std::get<hailo_encoder_config_t>(config);
     input_config_t config_input_stream = hailo_config.input_stream;
 
     m_input_params.format = config_input_stream.format;
@@ -493,12 +540,27 @@ encoder_config_t MediaLibraryEncoder::Impl::get_config()
     return config;
 }
 
+EncoderType MediaLibraryEncoder::Impl::get_type()
+{
+    return m_encoder_type;
+}
+
 media_library_return MediaLibraryEncoder::configure(encoder_config_t &config)
 {
     return m_impl->configure(config);
 }
 
+media_library_return MediaLibraryEncoder::force_keyframe()
+{
+    return m_impl->force_keyframe();
+}
+
 encoder_config_t MediaLibraryEncoder::get_config()
 {
     return m_impl->get_config();
+}
+
+EncoderType MediaLibraryEncoder::get_type()
+{
+    return m_impl->get_type();
 }

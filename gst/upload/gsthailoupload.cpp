@@ -1,5 +1,4 @@
 #include "dsp/gsthailodspbasetransform.hpp"
-#include "dsp/gsthailodsp.h"
 #include "upload/gsthailoupload.hpp"
 #include "media_library/dma_memory_allocator.hpp"
 #include <gst/gst.h>

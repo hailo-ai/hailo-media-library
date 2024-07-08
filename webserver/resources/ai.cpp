@@ -5,8 +5,7 @@ const std::string VD_L_NETWORK_HEF = "/usr/lib/medialib/denoise_config/vd_l_imx6
 const std::string VD_M_NETWORK_HEF = "/usr/lib/medialib/denoise_config/vd_m_imx678.hef";
 const std::string VD_S_NETWORK_HEF = "/usr/lib/medialib/denoise_config/vd_s_imx678.hef";
 
-#define DENOISE_NETWORK_PATH(n) n == "Large" ? VD_L_NETWORK_HEF : n == "Medium" ? VD_M_NETWORK_HEF \
-                                                                                : VD_S_NETWORK_HEF
+#define DENOISE_NETWORK_PATH(n) VD_L_NETWORK_HEF
 
 webserver::resources::AiResource::AiResource() : Resource()
 {
@@ -17,7 +16,7 @@ webserver::resources::AiResource::AiResource() : Resource()
         },
         "denoise": {
             "enabled": false,
-            "network": "Medium",
+            "network": "Large",
             "loopback-count": 1
         },
         "defog": {
@@ -31,7 +30,7 @@ webserver::resources::AiResource::AiResource() : Resource()
         "method": "BALANCED",
         "loopback-count": 1,
         "network": {
-            "network_path": "/usr/lib/medialib/denoise_config/vd_m_imx678.hef",
+            "network_path": "/usr/lib/medialib/denoise_config/vd_l_imx678.hef",
             "y_channel": "model/input_layer1",
             "uv_channel": "model/input_layer4",
             "feedback_y_channel": "model/input_layer3",
@@ -115,12 +114,11 @@ void webserver::resources::AiResource::http_patch(nlohmann::json body)
         m_config["denoise"]["enabled"] = false;
     }
 
-    std::string j = DENOISE_NETWORK_PATH(m_config["denoise"]["network"]);
-    m_denoise_config["network"] = nlohmann::json::parse(j);
+    m_denoise_config["network"]["network_path"] = DENOISE_NETWORK_PATH(m_config["denoise"]["network"]);
     m_defog_config["enabled"] = m_config["defog"]["enabled"];
     m_denoise_config["enabled"] = m_config["denoise"]["enabled"];
     m_denoise_config["loopback-count"] = m_config["denoise"]["loopback-count"];
-    std::cout << "finished updating AI config, sending CB" << std::endl;
+    WEBSERVER_LOG_INFO("AI: finished patching AI resource, calling on_resource_change");
 
     on_resource_change(this->parse_state(this->get_enabled_applications(), prev_enabled_apps));
 }

@@ -78,7 +78,9 @@ public:
     media_library_return configure(encoder_config_t &config);
     media_library_return set_force_videorate(bool force);
     encoder_config_t get_config();
+    EncoderType get_type();
     GstFlowReturn add_gst_buffer(GstBuffer *buffer);
+    media_library_return force_keyframe();
 
     /**
      * Below are public functions that are not part of the public API

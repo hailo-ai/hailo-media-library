@@ -35,7 +35,6 @@ namespace webserver
 
         private:
             void callback_handle_strategy(webserver::resources::ResourceStateChangeNotification notif);
-            static nlohmann::json create_encoder_osd_config(WebserverResourceRepository resources);
         };
 
         class DummyPipeline : public IPipeline

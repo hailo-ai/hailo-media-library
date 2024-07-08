@@ -14,95 +14,9 @@ void webserver::resources::from_json(const nlohmann::json &j, webserver::resourc
     j.at("bitrate").get_to(b.bitrate);
 }
 
-webserver::resources::EncoderResource::EncoderResource() : Resource()
+webserver::resources::EncoderResource::EncoderResource(std::shared_ptr<webserver::resources::ConfigResource> configs) : Resource()
 {
-    m_default_config = R"({
-        "config": {
-            "output_stream": {
-                "codec": "CODEC_TYPE_H264",
-                "profile": "VCENC_H264_MAIN_PROFILE",
-                "level": "5.0",
-                "bit_depth_luma": 8,
-                "bit_depth_chroma": 8,
-                "stream_type": "bytestream"
-            }
-        },
-        "gop_config": {
-            "gop_size": 1,
-            "b_frame_qp_delta": 0
-        },
-        "coding_control": {
-            "sei_messages": true,
-            "deblocking_filter": {
-                "type": "DEBLOCKING_FILTER_ENABLED",
-                "tc_offset": -2,
-                "beta_offset": 5,
-                "deblock_override": false
-            },
-            "intra_area": {
-                "enable": false,
-                "top": 0,
-                "left": 0,
-                "bottom": 0,
-                "right": 0
-            },
-            "ipcm_area1": {
-                "enable": false,
-                "top": 0,
-                "left": 0,
-                "bottom": 0,
-                "right": 0
-            },
-            "ipcm_area2": {
-                "enable": false,
-                "top": 0,
-                "left": 0,
-                "bottom": 0,
-                "right": 0
-            },
-            "roi_area1": {
-                "enable": false,
-                "top": 0,
-                "left": 0,
-                "bottom": 0,
-                "right": 0,
-                "qp_delta": 0
-            },
-            "roi_area2": {
-                "enable": false,
-                "top": 0,
-                "left": 0,
-                "bottom": 0,
-                "right": 0,
-                "qp_delta": 0
-            }
-        },
-        "rate_control": {
-            "picture_rc": true,
-            "picture_skip": false,
-            "ctb_rc": true,
-            "block_rc_size": 64,
-            "hrd": false,
-            "hrd_cpb_size": 0,
-            "monitor_frames": 30,
-            "gop_length": 30,
-            "quantization": {
-                "qp_min": 15,
-                "qp_max": 48,
-                "qp_hdr": 26,
-                "intra_qp_delta": 0,
-                "fixed_intra_qp": 0
-            },
-            "bitrate": {
-                "target_bitrate": 10000000,
-                "bit_var_range_i": 10,
-                "bit_var_range_p": 10,
-                "bit_var_range_b": 10,
-                "tolerance_moving_bitrate": 2000
-            }
-        }
-    })";
-    m_config = nlohmann::json::parse(m_default_config);
+    m_config = configs->get_encoder_default_config();
 }
 
 webserver::resources::EncoderResource::encoder_control_t webserver::resources::EncoderResource::get_encoder_control()

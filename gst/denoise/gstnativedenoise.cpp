@@ -66,6 +66,7 @@ enum
     PROP_PAD_0,
     PROP_CONFIG_FILE_PATH,
     PROP_CONFIG_STRING,
+    PROP_CONFIG,   
 };
 
 static void
@@ -98,6 +99,11 @@ gst_hailo_denoise_class_init(GstHailoDenoiseClass *klass)
                                                         "JSON config string to load",
                                                         "",
                                                         (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    
+    g_object_class_install_property(gobject_class, PROP_CONFIG,
+                                    g_param_spec_pointer("config", "Denoise config", "Fronted config as denoise_config_t",
+                                                         (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+
 }
 
 static void
@@ -167,6 +173,24 @@ static void gst_hailo_denoise_set_property(GObject *object, guint property_id, c
         }
         break;
     }
+    case PROP_CONFIG:
+    {   
+        if(self->medialib_denoise)
+        {
+            denoise_config_t *denoise_config = static_cast<denoise_config_t *>(g_value_get_pointer(value));
+            hailort_t hailort_configs = self->medialib_denoise->get_hailort_configs();
+
+            if(self->medialib_denoise->configure(*denoise_config, hailort_configs) != MEDIA_LIBRARY_SUCCESS)
+            {
+                GST_ERROR_OBJECT(self, "Failed to configure dewarp with denoise_config_t object");
+            }
+            else
+            {
+                self->denoise_config = std::make_shared<denoise_config_t>(*denoise_config);
+            }
+        }
+        break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
@@ -190,6 +214,12 @@ gst_hailo_denoise_get_property(GObject *object, guint property_id, GValue *value
     case PROP_CONFIG_STRING:
     {
         g_value_set_string(value, self->config_string.c_str());
+        break;
+    }
+    case PROP_CONFIG:
+    {
+        self->denoise_config = std::make_shared<denoise_config_t>(self->medialib_denoise->get_denoise_configs());
+        g_value_set_pointer(value, self->denoise_config.get());
         break;
     }
     default:

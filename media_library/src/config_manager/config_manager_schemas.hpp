@@ -27,7 +27,7 @@
 
 namespace config_schemas
 {
-  static nlohmann::json encoder_config_schema = R"(
+    static nlohmann::json encoder_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for encoder configuration",
@@ -461,7 +461,7 @@ namespace config_schemas
     "additionalProperties": true
   })"_json;
 
-  static nlohmann::json osd_config_schema = R"(
+    static nlohmann::json osd_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for on screen display configuration",
@@ -545,13 +545,13 @@ namespace config_schemas
                   "type": "integer",
                   "minimum": 1
                 },
-                "rgb": {
+                "text_color": {
                   "type": "array",
                   "items": {
                     "type": "integer"
                   }
                 },
-                "rgb_background": {
+                "background_color": {
                   "type": "array",
                   "items": {
                     "type": "integer"
@@ -577,6 +577,18 @@ namespace config_schemas
                 },
                 "z-index": {
                   "type": "integer"
+                },
+                "shadow_color": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "shadow_offset_x": {
+                  "type": "number"
+                },
+                "shadow_offset_y": {
+                  "type": "number"
                 }
               },
               "required": [
@@ -584,7 +596,7 @@ namespace config_schemas
                 "font_size",
                 "font_path",
                 "line_thickness",
-                "rgb",
+                "text_color",
                 "angle",
                 "rotation_policy",
                 "x",
@@ -628,13 +640,13 @@ namespace config_schemas
                       "TOP_LEFT"
                     ]
                 },
-                "rgb": {
+                "text_color": {
                   "type": "array",
                   "items": {
                     "type": "integer"
                   }
                 },
-                "rgb_background": {
+                "background_color": {
                   "type": "array",
                   "items": {
                     "type": "integer"
@@ -648,6 +660,18 @@ namespace config_schemas
                 },
                 "z-index": {
                   "type": "integer"
+                },
+                "shadow_color": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "shadow_offset_x": {
+                  "type": "number"
+                },
+                "shadow_offset_y": {
+                  "type": "number"
                 }
               },
               "required": [
@@ -658,7 +682,7 @@ namespace config_schemas
                 "font_path",
                 "angle",
                 "rotation_policy",
-                "rgb",
+                "text_color",
                 "x",
                 "y",
                 "z-index"
@@ -677,7 +701,7 @@ namespace config_schemas
   }
   )"_json;
 
-  static nlohmann::json vision_config_schema = R"(
+    static nlohmann::json vision_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for vision pre proc configuration",
@@ -1075,7 +1099,7 @@ namespace config_schemas
   }
   )"_json;
 
-  static nlohmann::json multi_resize_config_schema = R"(
+    static nlohmann::json multi_resize_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for multi-resize configuration",
@@ -1181,7 +1205,7 @@ namespace config_schemas
   }
   )"_json;
 
-  static nlohmann::json ldc_config_schema = R"(
+    static nlohmann::json ldc_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for LDC configuration",
@@ -1360,6 +1384,9 @@ namespace config_schemas
           },
           "magnification": {
             "type": "number"
+          },
+          "max_dewarping_magnification": {
+            "type": "number"
           }
         },
         "additionalProperties": false,
@@ -1412,7 +1439,7 @@ namespace config_schemas
   }
   )"_json;
 
-  static nlohmann::json hailort_config_schema = R"(
+    static nlohmann::json hailort_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for HailoRT configuration",
@@ -1437,7 +1464,50 @@ namespace config_schemas
   }
   )"_json;
 
-  static nlohmann::json denoise_config_schema = R"(
+    static nlohmann::json hdr_config_schema = R"(
+  {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Media Library schema for HDR configuration",
+    "type": "object",
+    "properties": {
+      "hdr": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "resolution": {
+            "type": "string", 
+            "enum": [
+              "fhd",
+              "4k"
+            ]
+          },
+          "dol": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 3
+          },
+          "lsRatio": {
+            "type": "number"
+          },
+          "vsRatio": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "enabled"
+        ]
+      }
+    },
+    "required": [
+      "hdr"
+    ]
+  }
+  )"_json;
+
+    static nlohmann::json denoise_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for denoise configuration",
@@ -1511,7 +1581,7 @@ namespace config_schemas
   }
   )"_json;
 
-  static nlohmann::json defog_config_schema = R"(
+    static nlohmann::json defog_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for defog configuration",
@@ -1565,7 +1635,7 @@ namespace config_schemas
   }
   )"_json;
 
-  static nlohmann::json vsm_config_schema = R"(
+    static nlohmann::json vsm_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for vsm media server configuration",

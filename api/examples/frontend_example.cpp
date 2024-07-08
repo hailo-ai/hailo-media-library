@@ -1,6 +1,7 @@
 #include "buffer_utils.hpp"
 #include "media_library/encoder.hpp"
 #include "media_library/frontend.hpp"
+#include "media_library/media_library_types.hpp"
 #include "media_library/privacy_mask.hpp"
 #include "media_library/privacy_mask_types.hpp"
 #include "media_library/signal_utils.hpp"
@@ -8,16 +9,20 @@
 #include <iostream>
 #include <sstream>
 #include <tl/expected.hpp>
+#include <signal.h>
 
 #define FRONTEND_CONFIG_FILE "/usr/bin/frontend_config_example.json"
 #ifdef USE_JPEG_JSONS
 // Use jpeg encoder only for second file
-#define FILE_ID(id) ((id == "sink0") ? id : "jpeg_" + id)
+#define IS_JPEG(id) (id != "sink0")
+#define FILE_ID(id) (IS_JPEG(id) ? "jpeg_" + id : id)
 #else
 #define FILE_ID(id) (id)
+#define IS_JPEG(id) (false)
+
 #endif
 #define ENCODER_OSD_CONFIG_FILE(id) get_encoder_osd_config_file(FILE_ID(id))
-#define OUTPUT_FILE(id) get_output_file(FILE_ID(id))
+#define OUTPUT_FILE(id) get_output_file(FILE_ID(id), IS_JPEG(id))
 
 struct MediaLibrary
 {
@@ -33,9 +38,10 @@ inline std::string get_encoder_osd_config_file(const std::string &id)
     return "/usr/bin/frontend_encoder_" + id + ".json";
 }
 
-inline std::string get_output_file(const std::string &id)
+inline std::string get_output_file(const std::string &id, bool is_jpeg)
 {
-    return "/var/volatile/tmp/frontend_example_" + id + ".h264";
+    std::string suffix = (is_jpeg ? ".jpegenc" : ".h264");
+    return "/var/volatile/tmp/frontend_example_" + id + suffix;
 }
 
 void write_encoded_data(HailoMediaLibraryBufferPtr buffer, uint32_t size, std::ofstream &output_file)
@@ -168,11 +174,12 @@ int update_encoders_bitrate(std::map<output_stream_id_t, MediaLibraryEncoderPtr>
     for (const auto &entry : encoders)
     {
         encoder_config_t encoder_config = entry.second->get_config();
-        if (std::holds_alternative<jpeg_encoder_config_t>(encoder_config)) {
+        if (entry.second->get_type() == EncoderType::Jpeg)
+        {
             continue;
         }
-        hailo_encoder_config_t hailo_encoder_config = std::get<hailo_encoder_config_t>(encoder_config);
-        std::cout << "Encoder " << enc_i << " current bitrate: " << hailo_encoder_config.rate_control.bitrate.target_bitrate << " Setting to "  << new_bitrate << std::endl;
+        hailo_encoder_config_t &hailo_encoder_config = std::get<hailo_encoder_config_t>(encoder_config);
+        std::cout << "Encoder " << enc_i << " current bitrate: " << hailo_encoder_config.rate_control.bitrate.target_bitrate << " Setting to " << new_bitrate << std::endl;
         hailo_encoder_config.rate_control.bitrate.target_bitrate = new_bitrate;
         if (entry.second->configure(encoder_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
@@ -184,29 +191,112 @@ int update_encoders_bitrate(std::map<output_stream_id_t, MediaLibraryEncoderPtr>
     return 0;
 }
 
+void stop_pipeline()
+{
+    std::cout << "Stopping Pipeline..." << std::endl;
+    m_media_lib->frontend->stop();
+    for (const auto &entry : m_media_lib->encoders)
+    {
+        entry.second->stop();
+    }
+
+    // close all file in m_media_lib->output_files
+    for (auto &entry : m_media_lib->output_files)
+    {
+        entry.second.close();
+    }
+}
+
+media_library_return toggle_frontend_config(MediaLibraryFrontendPtr frontend)
+{
+    auto config_expected = frontend->get_config();
+    if (!config_expected)
+    {
+        std::cout << "Failed to get frontend config" << std::endl;
+        return media_library_return::MEDIA_LIBRARY_ERROR;
+    }
+
+    frontend_config_t config = config_expected.value();
+
+    config.ldc_config.dewarp_config.enabled = false;
+    std::cout << "Setting dewarp enable to false" << std::endl;
+    if (m_media_lib->frontend->set_config(config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        std::cout << "Failed to set frontend config" << std::endl;
+        return media_library_return::MEDIA_LIBRARY_ERROR;
+    }
+
+    std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
+
+    config.ldc_config.dewarp_config.enabled = true;
+    std::cout << "Setting dewarp enable to true" << std::endl;
+    if (m_media_lib->frontend->set_config(config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        std::cout << "Failed to set frontend config" << std::endl;
+        return media_library_return::MEDIA_LIBRARY_ERROR;
+    }
+
+    return media_library_return::MEDIA_LIBRARY_SUCCESS;
+
+}
+
+media_library_return add_custom_overlays(std::shared_ptr<osd::Blender> blender)
+{
+
+    osd::CustomOverlay custom_overlay("custom_argb", 0.3, 0.5, 0.1, 0.1, 1, osd::custom_overlay_format::ARGB);
+    blender->add_overlay(custom_overlay); // this adds the overlay but does not show it yet, we need to set it as ready as shown below
+    auto custom_expected = blender->get_overlay("custom_argb");
+    auto existing_custom_overlay = std::static_pointer_cast<osd::CustomOverlay>(custom_expected.value());
+    DspImagePropertiesPtr dspbuffer = existing_custom_overlay->get_buffer();
+    for (size_t i = 0; i < dspbuffer->planes[0].bytesused; i += 4)
+    {
+        ((char*)dspbuffer->planes[0].userptr)[i] = 0x80; // Alpha: 80 (half opaque)
+        ((char*)dspbuffer->planes[0].userptr)[i + 1] = 0x00; // Red: 00 (no intensity)
+        ((char*)dspbuffer->planes[0].userptr)[i + 2] = 0x00; // Green: 00 (no intensity)
+        ((char*)dspbuffer->planes[0].userptr)[i + 3] = 0xFF; // Blue: FF (full intensity)
+    }
+
+    std::cout << "Enable custom overlay" << std::endl;
+    blender->set_overlay_enabled("custom_argb", true);
+    std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
+
+    std::cout << "Disable custom overlay " << std::endl;
+    blender->set_overlay_enabled("custom_argb", false);
+    std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
+
+    std::cout << "Enable custom overlay" << std::endl;
+    blender->set_overlay_enabled("custom_argb", true);
+    std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
+
+    // add another custom overlay but with format A420
+    osd::CustomOverlay custom_overlay2("custom_a420", 0.7, 0.7, 0.1, 0.1, 1, osd::custom_overlay_format::A420);
+    blender->add_overlay(custom_overlay2); // this adds the overlay but does not show it yet, we need to set it as ready as shown below
+    auto custom_expected2 = blender->get_overlay("custom_a420");
+    auto existing_custom_overlay2 = std::static_pointer_cast<osd::CustomOverlay>(custom_expected2.value());
+    DspImagePropertiesPtr dspbuffer2 = existing_custom_overlay2->get_buffer();
+
+    uint8_t blue_y = 29, blue_u = 255, blue_v = 107, blue_a = 128;
+    memset(dspbuffer2->planes[0].userptr, blue_y, dspbuffer2->planes[0].bytesused);
+    memset(dspbuffer2->planes[1].userptr, blue_u, dspbuffer2->planes[1].bytesused);
+    memset(dspbuffer2->planes[2].userptr, blue_v, dspbuffer2->planes[2].bytesused);
+    memset(dspbuffer2->planes[3].userptr, blue_a, dspbuffer2->planes[3].bytesused);
+
+    std::cout << "Enable custom overlay" << std::endl;
+    blender->set_overlay_enabled("custom_a420", true);
+    
+    return media_library_return::MEDIA_LIBRARY_SUCCESS;
+}
+
 int main(int argc, char *argv[])
 {
     m_media_lib = std::make_shared<MediaLibrary>();
 
-    // register signal SIGINT and signal handler  
+    // register signal SIGINT and signal handler
     signal_utils::register_signal_handler([](int signal)
-                                        {
-                                        std::cout << "Stopping Pipeline..." << std::endl;
-                                        m_media_lib->frontend->stop();
-                                        for (const auto &entry : m_media_lib->encoders)
-                                        {
-                                            entry.second->stop();
-                                        }
-
-                                        // close all file in m_media_lib->output_files
-                                        for (auto &entry : m_media_lib->output_files)
-                                        {
-                                            entry.second.close();
-                                        }
-
+                                          {
+                                        stop_pipeline();
                                         // terminate program  
                                         exit(signal);; });
-
 
     // Create and configure frontend
     std::string frontend_config_string = read_string_from_file(FRONTEND_CONFIG_FILE);
@@ -260,51 +350,12 @@ int main(int argc, char *argv[])
     }
     m_media_lib->frontend->start();
 
-    // get blender
+    std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
+
+    toggle_frontend_config(m_media_lib->frontend);
+
     auto blender = m_media_lib->encoders["sink0"]->get_blender();
-
-    osd::CustomOverlay custom_overlay("custom_argb", 0.3, 0.5, 0.1, 0.1, 1, osd::custom_overlay_format::ARGB);
-    blender->add_overlay(custom_overlay); // this adds the overlay but does not show it yet, we need to set it as ready as shown below
-    auto custom_expected = blender->get_overlay("custom_argb");
-    auto existing_custom_overlay = std::static_pointer_cast<osd::CustomOverlay>(custom_expected.value());
-    DspImagePropertiesPtr dspbuffer = existing_custom_overlay->get_buffer();
-
-    uint32_t blue_argb = 0xFF0000FF; // Alpha: FF (fully opaque), Red: 00 (no intensity), Green: 00 (no intensity), Blue: FF (full intensity)
-
-    // Assuming each pixel in the buffer is represented by 4 bytes (ARGB format)
-    for (size_t i = 0; i < dspbuffer->planes[0].bytesused; i += 4)
-    {
-        // Set each pixel to blue
-        memcpy((int8_t *)(dspbuffer->planes[0].userptr) + i, &blue_argb, sizeof(uint32_t));
-    };
-
-    std::cout<<"Enable custom overlay"<<std::endl;
-    blender->set_overlay_enabled("custom_argb", true);
-    std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
-
-    std::cout<<"Disable custom overlay "<<std::endl;
-    blender->set_overlay_enabled("custom_argb", false);
-    std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
-
-    std::cout<<"Enable custom overlay"<<std::endl;
-    blender->set_overlay_enabled("custom_argb", true);
-    std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
-
-    //add another custom overlay but with format A420
-    osd::CustomOverlay custom_overlay2("custom_a420", 0.7, 0.7, 0.1, 0.1, 1, osd::custom_overlay_format::A420);
-    blender->add_overlay(custom_overlay2); // this adds the overlay but does not show it yet, we need to set it as ready as shown below
-    auto custom_expected2 = blender->get_overlay("custom_a420");
-    auto existing_custom_overlay2 = std::static_pointer_cast<osd::CustomOverlay>(custom_expected2.value());
-    DspImagePropertiesPtr dspbuffer2 = existing_custom_overlay2->get_buffer();
-
-    uint8_t blue_y=29,blue_u=255,blue_v=107,blue_a=255;
-    memset(dspbuffer2->planes[0].userptr, blue_y, dspbuffer2->planes[0].bytesused);
-    memset(dspbuffer2->planes[1].userptr, blue_u, dspbuffer2->planes[1].bytesused);
-    memset(dspbuffer2->planes[2].userptr, blue_v, dspbuffer2->planes[2].bytesused);
-    memset(dspbuffer2->planes[3].userptr, blue_a, dspbuffer2->planes[3].bytesused);
-
-    std::cout<<"Enable custom overlay"<<std::endl;
-    blender->set_overlay_enabled("custom_a420", true);
+    add_custom_overlays(blender);
 
     PrivacyMaskBlenderPtr privacy_blender = m_media_lib->frontend->get_privacy_mask_blender();
     add_privacy_masks(privacy_blender);
@@ -315,25 +366,20 @@ int main(int argc, char *argv[])
 
     // Update privacy mask
     if (update_privacy_masks(privacy_blender) != 0)
+    {
+        stop_pipeline();
         return 1;
+    }
 
     if (update_encoders_bitrate(m_media_lib->encoders) != 0)
+    {
+        stop_pipeline();
         return 1;
-
-    std::this_thread::sleep_for(std::chrono::seconds(14)); // sleep for 14 seconds
-
-    std::cout << "Stopping." << std::endl;
-    m_media_lib->frontend->stop();
-    for (const auto &entry : m_media_lib->encoders)
-    {
-        entry.second->stop();
     }
 
-    // close all file in m_media_lib->output_files
-    for (auto &entry : m_media_lib->output_files)
-    {
-        entry.second.close();
-    }
+    std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 14 seconds
+
+    stop_pipeline();
 
     return 0;
 }

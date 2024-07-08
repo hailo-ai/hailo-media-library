@@ -21,7 +21,9 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include "isp_utils.hpp"
+#include "v4l2_ctrl.hpp"
 #include "media_library_logger.hpp"
+#include <fstream>
 
 /** @defgroup isp_utils_definitions MediaLibrary ISP utilities CPP API
  * definitions
@@ -30,6 +32,24 @@
 
 namespace isp_utils
 {
+    std::string find_subdevice_path(const std::string &subdevice_name)
+    {
+        for (const auto &entry : std::filesystem::directory_iterator("/sys/class/video4linux/"))
+        {
+            if (entry.path().filename().string().find("v4l-subdev") != std::string::npos)
+            {
+                std::ifstream name_file(entry.path() / "name");
+                std::string name;
+                name_file >> name;
+                if (name.find(subdevice_name) != std::string::npos)
+                {
+                    return "/dev/" + entry.path().filename().string();
+                }
+            }
+        }
+        return "";
+    }
+
     void override_file(const std::string &src, const std::string &dst)
     {
         LOGGER__DEBUG("ISP config overriding file {} to {}", src, dst);
@@ -49,6 +69,96 @@ namespace isp_utils
     void set_backlight_configuration()
     {
         override_file(ISP_BACKLIGHT_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
+    }
+
+    void set_hdr_configuration(bool is_4k)
+    {
+        override_file(is_4k ? ISP_HDR_3A_CONFIG_4K : ISP_HDR_3A_CONFIG_FHD, TRIPLE_A_CONFIG_PATH);
+    }
+
+    void setup_hdr(bool is_4k)
+    {
+        LOGGER__DEBUG("Setting up HDR configuration");
+        if (is_4k)
+        {
+            override_file(MEDIA_SERVER_HDR_CONFIG, MEDIA_SERVER_CONFIG);
+            override_file(ISP_SENSOR0_ENTRY_HDR_IMX678_CONFIG, ISP_SENSOR0_ENTRY_CONFIG);
+            override_file(ISP_HDR_3A_CONFIG_4K, TRIPLE_A_CONFIG_PATH);
+        }
+        else
+        {
+            override_file(ISP_SENSOR0_ENTRY_IMX678_CONFIG, ISP_SENSOR0_ENTRY_CONFIG);
+            override_file(ISP_HDR_3A_CONFIG_FHD, TRIPLE_A_CONFIG_PATH);
+        }
+
+        if (auto imx678_path = find_subdevice_path("imx678"); !imx678_path.empty())
+        {
+            isp_utils::ctrl::v4l2Control v4l2_ctrl(imx678_path);
+            bool val = true;
+            if (!v4l2_ctrl.v4l2_ext_ctrl_set(isp_utils::ctrl::V4l2_CTRL_IMX_WDR, val))
+                LOGGER__WARN("Failed to set IMX_WDR for {} to {}", imx678_path, val);
+        }
+        else
+        {
+            LOGGER__DEBUG("Subdevice 'imx678' not found.");
+        }
+
+        if (auto csi_path = find_subdevice_path("csi"); !csi_path.empty())
+        {
+            auto mode_sel = is_4k ? 2 : 1;
+            isp_utils::ctrl::v4l2Control v4l2_ctrl(csi_path);
+            if (!v4l2_ctrl.v4l2_ext_ctrl_set(isp_utils::ctrl::V4l2_CTRL_CSI_MODE_SEL, mode_sel))
+                LOGGER__WARN("Failed to set CSI_MODE_SEL for {} to {}", csi_path, mode_sel);
+        }
+        else
+        {
+            LOGGER__DEBUG("Subdevice 'csi' not found.");
+        }
+    }
+
+    void setup_sdr()
+    {
+        LOGGER__DEBUG("Setting up SDR configuration");
+        if (std::filesystem::exists(MEDIA_SERVER_SDR_CONFIG))
+        {
+            override_file(MEDIA_SERVER_SDR_CONFIG, MEDIA_SERVER_CONFIG);
+        }
+
+        override_file(ISP_SENSOR0_ENTRY_IMX678_CONFIG, ISP_SENSOR0_ENTRY_CONFIG);
+        override_file("/usr/bin/3aconfig_imx678.json", TRIPLE_A_CONFIG_PATH);
+
+        if (auto imx678_path = find_subdevice_path("imx678"); !imx678_path.empty())
+        {
+            isp_utils::ctrl::v4l2Control v4l2_ctrl(imx678_path);
+            bool val = false;
+            if (!v4l2_ctrl.v4l2_ext_ctrl_set(isp_utils::ctrl::V4l2_CTRL_IMX_WDR, val))
+                LOGGER__WARN("Failed to set IMX_WDR for {} to {}", imx678_path, val);
+        }
+        else
+        {
+            LOGGER__DEBUG("Subdevice 'imx678' not found.");
+        }
+
+        if (auto csi_path = find_subdevice_path("csi"); !csi_path.empty())
+        {
+            isp_utils::ctrl::v4l2Control v4l2_ctrl(csi_path);
+            if (!v4l2_ctrl.v4l2_ext_ctrl_set(isp_utils::ctrl::V4l2_CTRL_CSI_MODE_SEL, 0))
+                LOGGER__WARN("Failed to set CSI_MODE_SEL for {} to 0", csi_path);
+        }
+        else
+        {
+            LOGGER__DEBUG("Subdevice 'csi' not found.");
+        }
+    }
+
+    void set_hdr_ratios(float ls_ratio, float vs_ratio)
+    {
+        isp_utils::ctrl::v4l2Control v4l2_ctrl("/dev/video0");
+        int ratios[] = {static_cast<int>(ls_ratio * (1 << 16)), static_cast<int>(vs_ratio * (1 << 16))};
+        if (!v4l2_ctrl.v4l2_ext_ctrl_set_array(isp_utils::ctrl::V4l2_CTRL_SET_HDR_RATIOS, ratios, 2))
+        {
+            LOGGER__WARN("Failed to set HDR ratios to {} and {}", ls_ratio, vs_ratio);
+        }
     }
 
 } // namespace isp_utils

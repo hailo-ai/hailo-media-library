@@ -58,7 +58,6 @@ struct EncoderCounters
 {
   i32 picture_cnt;
   i32 picture_enc_cnt;
-  u32 idr_interval;
   i32 last_idr_picture_cnt;
   u32 validencodedframenumber;
 };
@@ -99,6 +98,7 @@ private:
   EncoderCounters m_counters;
   void *m_ewl;
   bool m_multislice_encoding;
+  u32 m_idr_interval;
   EWLLinearMem_t m_output_memory;
   std::vector<HailoMediaLibraryBufferPtr> m_inputs;
   EncoderOutputBuffer m_header;

@@ -36,7 +36,6 @@
 #include <tl/expected.hpp> 
 #include "media_library/denoise.hpp"
 #include "media_library/media_library_types.hpp"
-#include "denoise/gstnativedenoise.hpp"
 
 G_BEGIN_DECLS
 
@@ -64,6 +63,8 @@ struct _GstHailoFrontend
     GstElement *m_dis_dewarp;
     GstElement *m_dewarp_mresize_queue;
     GstElement *m_multi_resize;
+
+    std::shared_ptr<frontend_config_t> frontend_config;
 
     media_library_return observe_denoising(const MediaLibraryDenoise::callbacks_t &callback) {
         // GstHailoDenoise* denoise = GST_HAILO_DENOISE(m_denoise);

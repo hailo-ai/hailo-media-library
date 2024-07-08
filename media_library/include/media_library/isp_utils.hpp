@@ -38,6 +38,7 @@
 
 #define _DEFAULT "default/"
 #define _DENOISE "denoise/"
+#define _HDR "hdr/"
 #define _BACKLIGHT "backlight/"
 
 #define _3A_CONFIG "3aconfig.json"
@@ -48,6 +49,8 @@
 #define ISP_DEFAULT_3A_CONFIG (ISP_CONFIG_PATH _DEFAULT _3A_CONFIG)
 #define ISP_DENOISE_3A_CONFIG (ISP_CONFIG_PATH _DENOISE _3A_CONFIG)
 #define ISP_BACKLIGHT_3A_CONFIG (ISP_CONFIG_PATH _BACKLIGHT _3A_CONFIG)
+#define ISP_HDR_3A_CONFIG_4K "/usr/bin/3aconfig_imx678_nnhdr.json"
+#define ISP_HDR_3A_CONFIG_FHD "/usr/bin/3aconfig_imx678.json"
 
 // Sony sensor config
 #define ISP_DEFAULT_SONY_CONFIG (ISP_CONFIG_PATH _DEFAULT _SONY_CONFIG)
@@ -56,6 +59,12 @@
 // Media server config
 #define ISP_DEFAULT_MEDIA_SERVER_CONFIG (ISP_CONFIG_PATH _DEFAULT _MEDIA_SERVER_CONFIG)
 #define ISP_DENOISE_MEDIA_SERVER_CONFIG (ISP_CONFIG_PATH _DENOISE _MEDIA_SERVER_CONFIG)
+#define ISP_SENSOR0_ENTRY_CONFIG "/usr/bin/Sensor0_Entry.cfg"
+#define ISP_SENSOR0_ENTRY_HDR_IMX678_CONFIG "/usr/bin/imx678hdr4k_Sensor0_Entry.cfg"
+#define ISP_SENSOR0_ENTRY_IMX678_CONFIG "/usr/bin/imx678_Sensor0_Entry.cfg"
+#define MEDIA_SERVER_HDR_CONFIG "/usr/bin/media_server_cfg_nnhdr.json"
+#define MEDIA_SERVER_SDR_CONFIG "/usr/bin/media_server_cfg_default.json"
+#define MEDIA_SERVER_CONFIG "/usr/bin/media_server_cfg.json"
 
 /** @defgroup isp_utils_definitions MediaLibrary ISP utilities CPP API
  * definitions
@@ -71,6 +80,11 @@ namespace isp_utils
     void set_default_configuration();
     void set_denoise_configuration();
     void set_backlight_configuration();
-}// namespace isp_utils
+    void set_hdr_configuration(bool is_4k);
+    std::string find_subdevice_path(const std::string &subdevice_name);
+    void setup_hdr(bool is_4k);
+    void setup_sdr();
+    void set_hdr_ratios(float ls_ratio, float vs_ratio);
+} // namespace isp_utils
 
 /** @} */ // end of isp_utils_definitions

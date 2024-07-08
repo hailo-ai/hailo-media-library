@@ -1,12 +1,29 @@
 #include "common.hpp"
 #include <cstring>
 #include <stdio.h>
+#include "common/logger_macros.hpp"
 
 #ifdef MEDIALIB_LOCAL_SERVER
 void isp_utils::set_default_configuration() {}
 void isp_utils::set_denoise_configuration() {}
 void isp_utils::set_backlight_configuration() {}
+void isp_utils::set_hdr_configuration(bool is_4k) {}
 #endif
+
+using namespace webserver::common;
+using namespace isp_utils::ctrl;
+
+std::unordered_map<v4l2_ctrl_id, v4l2ControlHelper::min_max_isp_params> v4l2ControlHelper::m_min_max_isp_params = {
+    {v4l2_ctrl_id::V4L2_CTRL_SHARPNESS_DOWN, {0, 65535, v4l2_ctrl_id::V4L2_CTRL_SHARPNESS_DOWN}},
+    {v4l2_ctrl_id::V4L2_CTRL_SHARPNESS_UP, {0, 30000, v4l2_ctrl_id::V4L2_CTRL_SHARPNESS_UP}},
+    {v4l2_ctrl_id::V4L2_CTRL_BRIGHTNESS, {-128, 127, v4l2_ctrl_id::V4L2_CTRL_BRIGHTNESS}},
+    {v4l2_ctrl_id::V4L2_CTRL_CONTRAST, {30, 199, v4l2_ctrl_id::V4L2_CTRL_CONTRAST}},
+    {v4l2_ctrl_id::V4L2_CTRL_SATURATION, {0, 199, v4l2_ctrl_id::V4L2_CTRL_SATURATION}},
+    {v4l2_ctrl_id::V4L2_CTRL_WDR_CONTRAST, {-1023, 1023, v4l2_ctrl_id::V4L2_CTRL_WDR_CONTRAST}},
+    {v4l2_ctrl_id::V4L2_CTRL_AE_GAIN, {0, 3890 * 1024, v4l2_ctrl_id::V4L2_CTRL_AE_GAIN}},
+    {v4l2_ctrl_id::V4L2_CTRL_AE_INTEGRATION_TIME, {8, 33000, v4l2_ctrl_id::V4L2_CTRL_AE_INTEGRATION_TIME}},
+    {v4l2_ctrl_id::V4L2_CTRL_AE_WDR_VALUES, {0, 255, v4l2_ctrl_id::V4L2_CTRL_AE_WDR_VALUES}},
+};
 
 void webserver::common::update_3a_config(bool enabled)
 {
@@ -17,7 +34,7 @@ void webserver::common::update_3a_config(bool enabled)
     std::ifstream file(TRIPLE_A_CONFIG_PATH);
     if (!file.is_open())
     {
-        std::cout << "Failed to open JSON file." << std::endl;
+        WEBSERVER_LOG_ERROR("Failed to open JSON file");
         return;
     }
 
@@ -41,7 +58,7 @@ void webserver::common::update_3a_config(bool enabled)
     std::ofstream outFile(TRIPLE_A_CONFIG_PATH);
     if (!outFile.is_open())
     {
-        std::cout << "Failed to open output file." << std::endl;
+        WEBSERVER_LOG_ERROR("Failed to open output file");
         return;
     }
 
@@ -59,7 +76,7 @@ void webserver::common::update_3a_config(nlohmann::json config)
     std::ofstream outFile(TRIPLE_A_CONFIG_PATH);
     if (!outFile.is_open())
     {
-        std::cout << "Failed to open output file." << std::endl;
+        WEBSERVER_LOG_ERROR("Failed to open output file");
         return;
     }
 
@@ -76,7 +93,7 @@ nlohmann::json webserver::common::get_3a_config()
     std::ifstream file(TRIPLE_A_CONFIG_PATH);
     if (!file.is_open())
     {
-        std::cout << "Failed to open JSON file." << std::endl;
+        WEBSERVER_LOG_ERROR("Failed to open JSON file");
         return NULL;
     }
 

@@ -103,7 +103,8 @@ private:
     // loopback controls
     uint8_t m_queue_size;
     uint8_t m_loop_counter;
-    uint8_t m_callback_counter;
+    uint8_t m_initial_batch_callback_counter;
+    uint8_t m_loopback_batch_counter;
     uint8_t m_loopback_limit;
     bool m_flushing;
     std::unique_ptr<std::condition_variable> m_loopback_condvar;
@@ -131,7 +132,7 @@ private:
     void queue_staging_buffer(HailoMediaLibraryBufferPtr buffer);
     HailoMediaLibraryBufferPtr dequeue_staging_buffer();
     void clear_staging_queue();
-    void queue_buffer(HailoMediaLibraryBufferPtr buffer, std::queue<HailoMediaLibraryBufferPtr> &queue, std::shared_ptr<std::mutex> mutex, std::shared_ptr<std::condition_variable> condvar, uint8_t queue_size);  
+    void queue_buffer(HailoMediaLibraryBufferPtr buffer, std::queue<HailoMediaLibraryBufferPtr> &queue, std::shared_ptr<std::mutex> mutex, std::shared_ptr<std::condition_variable> condvar, uint8_t queue_size);
     HailoMediaLibraryBufferPtr dequeue_buffer(std::queue<HailoMediaLibraryBufferPtr> &queue, std::shared_ptr<std::mutex> mutex, std::shared_ptr<std::condition_variable> condvar);
     void clear_queue(std::queue<HailoMediaLibraryBufferPtr> &queue, std::shared_ptr<std::mutex> mutex, std::shared_ptr<std::condition_variable> condvar);
     void inference_callback_thread();
@@ -232,7 +233,8 @@ void MediaLibraryDenoise::Impl::set_default_members()
 
     m_loopback_limit = 1;
     m_loop_counter = 0;
-    m_callback_counter = 0;
+    m_initial_batch_callback_counter = 0;
+    m_loopback_batch_counter = 0;
     m_flushing = false;
     m_queue_size = Q_SIZE;
     m_loopback_mutex = std::make_shared<std::mutex>();
@@ -284,7 +286,7 @@ MediaLibraryDenoise::Impl::~Impl()
     m_loopback_condvar->notify_one();
     m_staging_condvar->notify_one();
     if (m_inference_callback_thread.joinable())
-    	m_inference_callback_thread.join();
+        m_inference_callback_thread.join();
     m_hailort_denoise.reset();
     clear_inference_callback_queue();
     clear_loopback_queue();
@@ -341,6 +343,12 @@ media_library_return MediaLibraryDenoise::Impl::configure(denoise_config_t &deno
     m_denoise_configs = denoise_configs;
     m_hailort_configs = hailort_configs;
     bool enabled_changed = m_denoise_configs.enabled != prev_enabled;
+    LOGGER__INFO("NOTE: Loopback limit configurations are only applied when denoise is enabled.");
+
+    if (prev_enabled == false && m_denoise_configs.enabled == false)
+    {
+        LOGGER__INFO("Denoise Remains disabled, skipping configuration");
+    }
 
     // on first configure
     if (!m_configured)
@@ -364,7 +372,9 @@ media_library_return MediaLibraryDenoise::Impl::configure(denoise_config_t &deno
     if (m_denoise_configs.enabled && (enabled_changed || !m_configured))
     {
         m_loop_counter = 0;
-        m_callback_counter = 0;
+        m_initial_batch_callback_counter = 0;
+        m_loopback_batch_counter = 0;
+        m_loopback_limit = m_denoise_configs.loopback_count;
         m_flushing = false;
         m_inference_callback_thread = std::thread(&MediaLibraryDenoise::Impl::inference_callback_thread, this);
     }
@@ -541,18 +551,30 @@ void MediaLibraryDenoise::Impl::inference_callback_thread()
             return;
         }
         // Call observing callbacks in case configuration changed
-        if (m_callback_counter >= m_loopback_limit)
+        if (m_initial_batch_callback_counter >= m_loopback_limit)
         {
             HailoMediaLibraryBufferPtr staging_buffer = dequeue_staging_buffer();
             staging_buffer->decrease_ref_count();
         }
         else
         {
-            m_callback_counter++;
+            m_initial_batch_callback_counter++;
         }
-        // increase output_buffer ref count since we will be using it in the loopback
-        output_buffer->increase_ref_count();
-        queue_loopback_buffer(output_buffer);
+        // Loopback in batches of m_loopback_limit
+        if ((m_loopback_batch_counter + 1) % m_loopback_limit == 0)
+        {
+            m_loopback_batch_counter = 0;
+            // increase output_buffer ref count and loop it back m_loopback_limit times
+            for (int i = 0; i < m_loopback_limit; i++)
+            {
+                output_buffer->increase_ref_count();
+                queue_loopback_buffer(output_buffer);
+            }
+        }
+        else
+        {
+            m_loopback_batch_counter++;
+        }
         for (auto &callbacks : m_callbacks)
         {
             if (callbacks.on_buffer_ready)
@@ -569,7 +591,7 @@ void MediaLibraryDenoise::Impl::inference_callback(HailoMediaLibraryBufferPtr ou
     {
         queue_inference_callback_buffer(output_buffer);
     }
-    else 
+    else
     {
         output_buffer->decrease_ref_count();
     }
@@ -581,7 +603,7 @@ void MediaLibraryDenoise::Impl::queue_loopback_buffer(HailoMediaLibraryBufferPtr
 {
     std::unique_lock<std::mutex> lock(*(m_loopback_mutex));
     m_loopback_condvar->wait(lock, [this]
-                          { return m_loopback_queue.size() < m_queue_size; });
+                             { return m_loopback_queue.size() < m_queue_size; });
     m_loopback_queue.push(buffer);
     m_loopback_condvar->notify_one();
 }
@@ -590,7 +612,7 @@ HailoMediaLibraryBufferPtr MediaLibraryDenoise::Impl::dequeue_loopback_buffer()
 {
     std::unique_lock<std::mutex> lock(*(m_loopback_mutex));
     m_loopback_condvar->wait(lock, [this]
-                          { return !m_loopback_queue.empty() || m_flushing; });
+                             { return !m_loopback_queue.empty() || m_flushing; });
     if (m_loopback_queue.empty())
     {
         return nullptr;
@@ -619,7 +641,7 @@ void MediaLibraryDenoise::Impl::queue_staging_buffer(HailoMediaLibraryBufferPtr 
 {
     std::unique_lock<std::mutex> lock(*(m_staging_mutex));
     m_staging_condvar->wait(lock, [this]
-                          { return m_staging_queue.size() < m_queue_size; });
+                            { return m_staging_queue.size() < m_queue_size; });
     m_staging_queue.push(buffer);
     m_staging_condvar->notify_one();
 }
@@ -628,7 +650,7 @@ HailoMediaLibraryBufferPtr MediaLibraryDenoise::Impl::dequeue_staging_buffer()
 {
     std::unique_lock<std::mutex> lock(*(m_staging_mutex));
     m_staging_condvar->wait(lock, [this]
-                          { return !m_staging_queue.empty() || m_flushing; });
+                            { return !m_staging_queue.empty() || m_flushing; });
     if (m_staging_queue.empty())
     {
         return nullptr;
@@ -657,7 +679,7 @@ void MediaLibraryDenoise::Impl::queue_inference_callback_buffer(HailoMediaLibrar
 {
     std::unique_lock<std::mutex> lock(*(m_inference_callback_mutex));
     m_inference_callback_condvar->wait(lock, [this]
-                          { return m_inference_callback_queue.size() < m_queue_size; });
+                                       { return m_inference_callback_queue.size() < m_queue_size; });
     m_inference_callback_queue.push(buffer);
     m_inference_callback_condvar->notify_one();
 }
@@ -666,7 +688,7 @@ HailoMediaLibraryBufferPtr MediaLibraryDenoise::Impl::dequeue_inference_callback
 {
     std::unique_lock<std::mutex> lock(*(m_inference_callback_mutex));
     m_inference_callback_condvar->wait(lock, [this]
-                          { return !m_inference_callback_queue.empty() || m_flushing; });
+                                       { return !m_inference_callback_queue.empty() || m_flushing; });
     if (m_inference_callback_queue.empty())
     {
         return nullptr;
@@ -705,8 +727,8 @@ void MediaLibraryDenoise::Impl::queue_buffer(HailoMediaLibraryBufferPtr buffer,
 }
 
 HailoMediaLibraryBufferPtr MediaLibraryDenoise::Impl::dequeue_buffer(std::queue<HailoMediaLibraryBufferPtr> &queue,
-                                                                    std::shared_ptr<std::mutex> mutex,
-                                                                    std::shared_ptr<std::condition_variable> condvar)
+                                                                     std::shared_ptr<std::mutex> mutex,
+                                                                     std::shared_ptr<std::condition_variable> condvar)
 {
     std::unique_lock<std::mutex> lock(*mutex);
     condvar->wait(lock, [queue, this]

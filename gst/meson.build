@@ -14,10 +14,19 @@ utils_sources = [
     'buffer_utils/gsthailobuffermeta.cpp',
     'osd/gsthailoosd.cpp',
     'osd/osd.cpp',
-    'osd/osd_impl.cpp',
+    'utils/gsthailodmabufferpoolutils.cpp',
+    'utils/gsthailodmabufallocator.cpp',
+    'utils/gsthailodmabufferpool.cpp',
+    'osd/impl/blender_impl.cpp',
+    'osd/impl/custom_overlay_impl.cpp',
+    'osd/impl/datetime_overlay_impl.cpp',
+    'osd/impl/image_overlay_impl.cpp',
+    'osd/impl/overlay_impl.cpp',
+    'osd/impl/text_overlay_impl.cpp',
+    'osd/impl/simple_text_overlay_impl.cpp',
+    'osd/impl/background_text_overlay_impl.cpp',
     
     # DSP Related sources
-    'dsp/gsthailodsp.c',
     'dsp/gsthailodspbufferpool.cpp',
     'dsp/gsthailodspbufferpoolutils.cpp',
     'dsp/gsthailodspbasetransform.cpp',
@@ -60,7 +69,7 @@ install_headers('buffer_utils/buffer_utils.hpp')
 install_headers('buffer_utils/gsthailobuffermeta.hpp')
 install_headers('osd/osd.hpp')
 
-headers_to_install = ['dsp/gsthailodsp.h', 'dsp/gsthailodspbasetransform.hpp',
+headers_to_install = ['dsp/gsthailodspbasetransform.hpp',
                       'dsp/gsthailodspbufferpool.hpp', 'dsp/gsthailodspbufferpoolutils.hpp']
 install_headers(headers_to_install)
 
@@ -79,6 +88,7 @@ plugin_sources = [
     'defog/gsthailodefog.cpp',
     'frontend/gsthailofrontend.cpp',
     'frontend/gsthailofrontendbinsrc.cpp',
+    'frontend/hdr.cpp',
     'encodebin/gsthailoencodebin.cpp',
     'upload/gsthailoupload.cpp'
 ]

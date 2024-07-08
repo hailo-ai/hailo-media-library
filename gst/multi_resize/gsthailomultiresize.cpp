@@ -77,6 +77,7 @@ enum
     PROP_CONFIG_FILE_PATH,
     PROP_CONFIG_STRING,
     PROP_PRIVACY_MASK,
+    PROP_CONFIG,
 };
 
 static void
@@ -109,6 +110,10 @@ gst_hailo_multi_resize_class_init(GstHailoMultiResizeClass *klass)
                                     g_param_spec_pointer("privacy-mask", "Privacy Mask",
                                                          "Pointer to privacy mask blender",
                                                          (GParamFlags)(G_PARAM_READABLE)));
+    
+    g_object_class_install_property(gobject_class, PROP_CONFIG,
+                                    g_param_spec_pointer("config", "multi resize config", "Multi Resize config as multi_resize_config_t",
+                                                         (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
     // Pad templates
     gst_element_class_add_static_pad_template(gstelement_class, &src_template);
     gst_element_class_add_static_pad_template(gstelement_class, &sink_template);
@@ -652,6 +657,22 @@ static void gst_hailo_multi_resize_set_property(GObject *object, guint property_
         }
         break;
     }
+    case PROP_CONFIG:
+    {   
+        if(self->medialib_multi_resize)
+        {
+            multi_resize_config_t *multi_resize_config = static_cast<multi_resize_config_t *>(g_value_get_pointer(value));
+            if(self->medialib_multi_resize->configure(*multi_resize_config) != MEDIA_LIBRARY_SUCCESS)
+            {
+                GST_ERROR_OBJECT(self, "Failed to configure multi resize with multi_resize_config_t object");
+            }
+            else
+            {
+                self->multi_resize_config = std::make_shared<multi_resize_config_t>(*multi_resize_config);
+            }
+        }
+        break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
@@ -682,6 +703,12 @@ gst_hailo_multi_resize_get_property(GObject *object, guint property_id, GValue *
             g_value_set_pointer(value, self->medialib_multi_resize->get_privacy_mask_blender().get());
         else
             g_value_set_pointer(value, NULL);
+        break;
+    }
+    case PROP_CONFIG:
+    {
+        self->multi_resize_config = std::make_shared<multi_resize_config_t>(self->medialib_multi_resize->get_multi_resize_configs());
+        g_value_set_pointer(value, self->multi_resize_config.get());
         break;
     }
     default:

@@ -474,6 +474,16 @@ media_library_return LdcMeshContext::configure(ldc_config_t &ldc_configs)
             return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
         }
     }
+    else // free the context and reinitialize, since dis parameters might have changed
+    {
+        ret = free_dis_context();
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+            return ret;
+    
+        ret = initialize_dis_context();
+        if(ret != MEDIA_LIBRARY_SUCCESS)
+            return ret;
+    }
 
     ret = initialize_angular_dis();
     if(ret != MEDIA_LIBRARY_SUCCESS)

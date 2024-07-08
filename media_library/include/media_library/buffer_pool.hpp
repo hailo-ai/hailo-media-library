@@ -265,6 +265,7 @@ public:
     int32_t isp_ae_fps;
     bool isp_ae_converged;
     uint8_t isp_ae_average_luma;
+    uint64_t isp_timestamp_ns;
     int32_t video_fd;
     uint32_t buffer_index;
 
@@ -275,6 +276,7 @@ public:
           isp_ae_fps(HAILO_ISP_AE_FPS_DEFAULT_VALUE),
           isp_ae_converged(HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE),
           isp_ae_average_luma(HAILO_ISP_AE_LUMA_DEFUALT_VALUE),
+          isp_timestamp_ns(0),
           video_fd(-1)
     {
         vsm.dx = HAILO_VSM_DEFAULT_VALUE;
@@ -293,6 +295,7 @@ public:
         isp_ae_fps = other.isp_ae_fps;
         isp_ae_converged = other.isp_ae_converged;
         isp_ae_average_luma = other.isp_ae_average_luma;
+        isp_timestamp_ns = other.isp_timestamp_ns;
         video_fd = other.video_fd;
         buffer_index = other.buffer_index;
         other.hailo_pix_buffer = nullptr;
@@ -303,6 +306,7 @@ public:
         other.isp_ae_fps = HAILO_ISP_AE_FPS_DEFAULT_VALUE;
         other.isp_ae_converged = HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE;
         other.isp_ae_average_luma = HAILO_ISP_AE_LUMA_DEFUALT_VALUE;
+        other.isp_timestamp_ns = 0;
         other.video_fd = -1;
         other.vsm.dx = HAILO_VSM_DEFAULT_VALUE;
         other.vsm.dy = HAILO_VSM_DEFAULT_VALUE;
@@ -324,6 +328,7 @@ public:
             isp_ae_fps = other.isp_ae_fps;
             isp_ae_converged = other.isp_ae_converged;
             isp_ae_average_luma = other.isp_ae_average_luma;
+            isp_timestamp_ns = other.isp_timestamp_ns;
             video_fd = other.video_fd;
             buffer_index = other.buffer_index;
             other.hailo_pix_buffer = nullptr;
@@ -334,6 +339,7 @@ public:
             other.isp_ae_fps = HAILO_ISP_AE_FPS_DEFAULT_VALUE;
             other.isp_ae_converged = HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE;
             other.isp_ae_average_luma = HAILO_ISP_AE_LUMA_DEFUALT_VALUE;
+            other.isp_timestamp_ns = 0;
             other.video_fd = -1;
             other.vsm.dx = HAILO_VSM_DEFAULT_VALUE;
             other.vsm.dy = HAILO_VSM_DEFAULT_VALUE;

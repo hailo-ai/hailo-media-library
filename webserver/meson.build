@@ -4,6 +4,7 @@ cpp = meson.get_compiler('cpp')
 sources = ['main.cpp', 
             'resources/encoder.cpp',
             'resources/osd.cpp',
+            'resources/configs.cpp',
             'resources/frontend.cpp',
             'resources/ai.cpp',
             'resources/repository.cpp',
@@ -13,13 +14,13 @@ sources = ['main.cpp',
             'pipeline/pipeline.cpp',
             'pipeline/dummy_pipeline.cpp',
             'pipeline/pipeline_interface.cpp',
-            'common/isp/v4l2_ctrl.cpp',
             'common/isp/common.cpp',
-            'common/httplib/httplib_utils.cpp'
+            'common/httplib/httplib_utils.cpp',
+            'common/webserver_logger.cpp'
 ]
 
 # Add any additional dependencies here
-dependencies = [dependency('threads'), dependency('glib-2.0'), gstreamer_deps, media_library_frontend_dep, media_library_common_dep]
+dependencies = [dependency('threads'), dependency('glib-2.0'), gstreamer_deps, media_library_frontend_dep, media_library_common_dep, spdlog_dep]
 
 executable('medialib-webserver',
   sources,

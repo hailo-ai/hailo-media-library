@@ -62,8 +62,6 @@ public:
     // Configure the pre-processing module with ldc_config_t object
     media_library_return configure(ldc_config_t &ldc_configs);
 
-    bool check_ops_enabled_from_config_string(std::string config_string);
-    
     // Perform pre-processing on the input frame and return the output frames
     media_library_return handle_frame(hailo_media_library_buffer &input_frame, hailo_media_library_buffer &output_frame);
 
@@ -131,11 +129,6 @@ MediaLibraryDewarp::~MediaLibraryDewarp() = default;
 media_library_return MediaLibraryDewarp::configure(std::string config_string)
 {
     return m_impl->configure(config_string);
-}
-
-bool MediaLibraryDewarp::check_ops_enabled_from_config_string(std::string config_string)
-{
-    return m_impl->check_ops_enabled_from_config_string(config_string);
 }
 
 media_library_return MediaLibraryDewarp::configure(ldc_config_t &ldc_configs)
@@ -242,24 +235,6 @@ media_library_return MediaLibraryDewarp::Impl::decode_config_json_string(ldc_con
     return m_config_manager->config_string_to_struct<ldc_config_t>(config_string, ldc_configs);
 }
 
-bool MediaLibraryDewarp::Impl::check_ops_enabled_from_config_string(std::string config_string)
-{
-    ldc_config_t ldc_configs;
-    LOGGER__INFO("Configuring dewarp Decoding json string");
-    if (decode_config_json_string(ldc_configs, config_string) != MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__ERROR("Failed to decode json string: {}", config_string);
-    }
-    if(ldc_configs.dewarp_config.enabled||ldc_configs.dis_config.enabled||ldc_configs.flip_config.enabled||ldc_configs.rotation_config.enabled||ldc_configs.optical_zoom_config.enabled)
-    {
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-}
-
 media_library_return MediaLibraryDewarp::Impl::configure(std::string config_string)
 {
     ldc_config_t ldc_configs;
@@ -272,8 +247,14 @@ media_library_return MediaLibraryDewarp::Impl::configure(std::string config_stri
     return configure(ldc_configs);
 }
 
-media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t & ldc_configs)
+media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_configs)
 {
+    if (!(ldc_configs.check_ops_enabled() || ldc_configs.check_ops_enabled_changed(m_ldc_configs))) // everything is disabled and nothing is previously enabled
+    {
+        LOGGER__INFO("All dewarp operations are disabled, skipping configuration");
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
     LOGGER__INFO("Configuring dewarp");
 
     std::unique_lock<std::shared_mutex> lock(rw_lock);
@@ -368,7 +349,7 @@ media_library_return MediaLibraryDewarp::Impl::create_and_initialize_buffer_pool
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryDewarp::Impl::perform_angular_dis_dewarp(hailo_media_library_buffer & input_buffer, hailo_media_library_buffer & dewarp_output_buffer, dsp_image_properties_t * image, dsp_dewarp_mesh_t * mesh)
+media_library_return MediaLibraryDewarp::Impl::perform_angular_dis_dewarp(hailo_media_library_buffer &input_buffer, hailo_media_library_buffer &dewarp_output_buffer, dsp_image_properties_t *image, dsp_dewarp_mesh_t *mesh)
 {
     std::shared_ptr<angular_dis_params_t> angular_dis_params = m_dewarp_mesh_ctx->get_angular_dis_params();
 
@@ -428,8 +409,8 @@ media_library_return MediaLibraryDewarp::Impl::perform_angular_dis_dewarp(hailo_
  * @param[in] vsm - pointer to the vsm object
  */
 media_library_return MediaLibraryDewarp::Impl::perform_dewarp(
-    hailo_media_library_buffer & input_buffer,
-    hailo_media_library_buffer & dewarp_output_buffer)
+    hailo_media_library_buffer &input_buffer,
+    hailo_media_library_buffer &dewarp_output_buffer)
 {
     struct timespec start_dewarp, end_dewarp;
 
@@ -471,7 +452,7 @@ media_library_return MediaLibraryDewarp::Impl::perform_dewarp(
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-void MediaLibraryDewarp::Impl::stamp_time_and_log_fps(timespec & start_handle, timespec & end_handle)
+void MediaLibraryDewarp::Impl::stamp_time_and_log_fps(timespec &start_handle, timespec &end_handle)
 {
     clock_gettime(CLOCK_MONOTONIC, &end_handle);
     long ms = (long)media_library_difftimespec_ms(end_handle, start_handle);
@@ -487,7 +468,7 @@ void MediaLibraryDewarp::Impl::increase_frame_counter()
 
 media_library_return
 MediaLibraryDewarp::Impl::validate_input_frame(
-    hailo_media_library_buffer & input_frame)
+    hailo_media_library_buffer &input_frame)
 {
     output_resolution_t &input_res = m_ldc_configs.input_video_config.resolution;
     dsp_image_properties_t *input_image_properties = input_frame.hailo_pix_buffer.get();
@@ -501,7 +482,7 @@ MediaLibraryDewarp::Impl::validate_input_frame(
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryDewarp::Impl::handle_frame(hailo_media_library_buffer & input_frame, hailo_media_library_buffer & output_frame)
+media_library_return MediaLibraryDewarp::Impl::handle_frame(hailo_media_library_buffer &input_frame, hailo_media_library_buffer &output_frame)
 {
     std::shared_lock<std::shared_mutex> lock(rw_lock);
 
@@ -545,6 +526,7 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(hailo_media_library_
     media_lib_ret = perform_dewarp(input_frame, output_frame);
     output_frame.isp_ae_fps = input_frame.isp_ae_fps;
     output_frame.isp_ae_converged = input_frame.isp_ae_converged;
+    output_frame.isp_timestamp_ns = input_frame.isp_timestamp_ns;
 
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
         return media_lib_ret;
@@ -613,7 +595,7 @@ media_library_return MediaLibraryDewarp::Impl::set_input_video_config(uint32_t w
     m_ldc_configs.output_video_config.dimensions.destination_height = height;
     m_ldc_configs.output_video_config.framerate = framerate;
 
-    if(m_ldc_configs.rotation_config.enabled||m_ldc_configs.flip_config.enabled||m_ldc_configs.dis_config.enabled||m_ldc_configs.dewarp_config.enabled||m_ldc_configs.optical_zoom_config.enabled)
+    if (m_ldc_configs.rotation_config.enabled || m_ldc_configs.flip_config.enabled || m_ldc_configs.dis_config.enabled || m_ldc_configs.dewarp_config.enabled || m_ldc_configs.optical_zoom_config.enabled)
     {
         // after setting output video config, we need to make sure rotation will take place, because we set the dimensions as if we are with rotation 0
         // so set the current rotation to 0, and then run configure() with the actual rotation value, this will force the configuration to have correct rotation

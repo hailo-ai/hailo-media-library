@@ -19,7 +19,7 @@ webserver::resources::OsdResource::OsdResource() : Resource()
                 "id": "example_datetime",
                 "font_size": 100,
                 "line_thickness": 3,
-                "rgb": [
+                "text_color": [
                     255,
                     0,
                     0
@@ -36,7 +36,7 @@ webserver::resources::OsdResource::OsdResource() : Resource()
                 "label": "HailoAI",
                 "font_size": 100,
                 "line_thickness": 3,
-                "rgb": [
+                "text_color": [
                     255,
                     255,
                     255
@@ -53,7 +53,7 @@ webserver::resources::OsdResource::OsdResource() : Resource()
                 "label": "DemoApplication",
                 "font_size": 100,
                 "line_thickness": 3,
-                "rgb": [
+                "text_color": [
                     102,
                     0,
                     51

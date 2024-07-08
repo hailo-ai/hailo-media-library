@@ -106,10 +106,24 @@ public:
     static tl::expected<MediaLibraryFrontendPtr, media_library_return> create(frontend_src_element_t src_element, std::string json_config);
 
     /**
+     * @brief get the configuration of the MediaLibraryFrontend module
+     * @return tl::expected<frontend_config_t, media_library_return> 
+     */
+    tl::expected<frontend_config_t, media_library_return> get_config();
+
+    /**
+     * @brief Set the config object for the MediaLibraryFrontend module
+     * @param config 
+     * @return media_library_return 
+     */
+    media_library_return set_config(frontend_config_t config);
+    
+    /**
      * @brief Start the MediaLibraryFrontend module, the MediaLibraryFrontend
      * module will be ready to receive buffers.
      * @return media_library_return - status of the start operation
      */
+
     media_library_return start();
 
     /**
