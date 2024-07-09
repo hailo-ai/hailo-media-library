@@ -56,6 +56,7 @@ enum
   PROP_CTB_RC,
   PROP_PICTURE_SKIP,
   PROP_HRD,
+  PROP_CVBR,
   PROP_MONITOR_FRAMES,
   PROP_ROI_AREA_1,
   PROP_ROI_AREA_2,
@@ -227,6 +228,10 @@ gst_hailoenc_class_init(GstHailoEncClass *klass)
                                                        (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_HRD,
                                   g_param_spec_boolean("hrd", "Picture Rate Control", "Restricts the instantaneous bitrate and total bit amount of every coded picture.", false,
+                                                       (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+  g_object_class_install_property(gobject_class, PROP_CVBR,
+                                  g_param_spec_uint("cvbr", "Picture Rate Control", "Rate control mode, makes VBR more like CBR.",
+                                                       MIN_CVBR_MODE, MAX_CVBR_MODE, (guint)DEFAULT_CVBR_MODE,
                                                        (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
   g_object_class_install_property(gobject_class, PROP_MONITOR_FRAMES,
                                   g_param_spec_uint("monitor-frames", "Monitor Frames", "How many frames will be monitored for moving bit rate. Default is using framerate",
@@ -414,6 +419,13 @@ gst_hailoenc_get_property(GObject *object,
     GST_OBJECT_UNLOCK(hailoenc);
     break;
   }
+  case PROP_CVBR:
+  {
+    GST_OBJECT_LOCK(hailoenc);
+    g_value_set_uint(value, (guint)hailoenc->enc_params.cvbr);
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  }
   case PROP_ROI_AREA_1:
     GST_OBJECT_LOCK(hailoenc);
     g_value_set_string(value, (const gchar *)hailoenc->enc_params.roiArea1);
@@ -568,6 +580,11 @@ gst_hailoenc_set_property(GObject *object,
   case PROP_HRD:
     GST_OBJECT_LOCK(hailoenc);
     hailoenc->enc_params.hrd = g_value_get_boolean(value) ? 1 : 0;
+    GST_OBJECT_UNLOCK(hailoenc);
+    break;
+  case PROP_CVBR:
+    GST_OBJECT_LOCK(hailoenc);
+    hailoenc->enc_params.cvbr = g_value_get_uint(value);
     GST_OBJECT_UNLOCK(hailoenc);
     break;
   case PROP_ROI_AREA_1:

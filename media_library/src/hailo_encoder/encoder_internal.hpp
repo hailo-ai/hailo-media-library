@@ -24,6 +24,7 @@
 #include <iostream>
 #include <memory>
 #include <unordered_map>
+#include <map>
 
 extern "C"
 {
@@ -58,7 +59,7 @@ struct EncoderCounters
 {
   i32 picture_cnt;
   i32 picture_enc_cnt;
-  u32 idr_interval;
+  u32 intra_pic_rate;
   i32 last_idr_picture_cnt;
   u32 validencodedframenumber;
 };
@@ -78,6 +79,17 @@ private:
       {"1.0", VCENC_HEVC_LEVEL_1}, {"2.0", VCENC_HEVC_LEVEL_2}, {"2.1", VCENC_HEVC_LEVEL_2_1}, {"3.0", VCENC_HEVC_LEVEL_3}, {"3.1", VCENC_HEVC_LEVEL_3_1}, {"4.0", VCENC_HEVC_LEVEL_4}, {"4.1", VCENC_HEVC_LEVEL_4_1}, {"5.0", VCENC_HEVC_LEVEL_5}, {"5.1", VCENC_HEVC_LEVEL_5_1}};
   const std::unordered_map<std::string, VCEncLevel> h264_level = {
       {"1.0", VCENC_H264_LEVEL_1}, {"1.1", VCENC_H264_LEVEL_1_1}, {"1.2", VCENC_H264_LEVEL_1_2}, {"1.3", VCENC_H264_LEVEL_1_3}, {"2.0", VCENC_H264_LEVEL_2}, {"2.1", VCENC_H264_LEVEL_2_1}, {"2.2", VCENC_H264_LEVEL_2_2}, {"3.0", VCENC_H264_LEVEL_3}, {"3.1", VCENC_H264_LEVEL_3_1}, {"3.2", VCENC_H264_LEVEL_3_2}, {"4.0", VCENC_H264_LEVEL_4}, {"4.1", VCENC_H264_LEVEL_4_1}, {"4.2", VCENC_H264_LEVEL_4_2}, {"5.0", VCENC_H264_LEVEL_5}, {"5.1", VCENC_H264_LEVEL_5_1}};
+
+  // Resolution to bitrate to level mapping
+  const std::map<uint32_t, std::map<uint32_t, std::string>> auto_level_map = {
+      {720*480, {{UINT32_MAX, "3.0"}}},
+      {1280*720, {{UINT32_MAX, "3.1"}}},
+      {1920*1080, {{2000000, "3.1"}, {4000000, "3.2"}, {8000000, "4.0"}, {UINT32_MAX, "4.1"}}},
+      {2560*1440, {{4000000, "4.0"}, {8000000, "4.1"}, {UINT32_MAX, "4.2"}}},
+      {3840*2160, {{8000000, "4.2"}, {16000000, "5.0"}, {UINT32_MAX, "5.1"}}},
+      {UINT32_MAX, {{25000000, "5.1"}, {UINT32_MAX, "5.2"}}}
+  };
+
   const std::unordered_map<std::string, VCEncPictureType> input_formats = {
       {"I420", VCENC_YUV420_PLANAR},
       {"NV12", VCENC_YUV420_SEMIPLANAR},
@@ -99,6 +111,7 @@ private:
   EncoderCounters m_counters;
   void *m_ewl;
   bool m_multislice_encoding;
+  u32 m_intra_pic_rate;
   EWLLinearMem_t m_output_memory;
   std::vector<HailoMediaLibraryBufferPtr> m_inputs;
   EncoderOutputBuffer m_header;
@@ -158,7 +171,7 @@ private:
   uint32_t get_codec();
   bool hard_restart_required(const hailo_encoder_config_t &new_config, bool gop_update_required);
   bool gop_config_update_required(const hailo_encoder_config_t &new_config);
-  VCEncProfile get_profile();
+  VCEncProfile get_profile(bool codecH264);
 };
 
 class Encoder::Impl::gopConfig

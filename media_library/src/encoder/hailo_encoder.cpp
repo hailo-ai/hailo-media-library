@@ -324,6 +324,7 @@ int InitEncoderRateConfig(EncoderParams *enc_params, VCEncInst *pEnc)
         rcCfg.monitorFrames = MIN_MONITOR_FRAMES;
 
     rcCfg.hrd = enc_params->hrd;
+    rcCfg.cvbr = enc_params->cvbr;
     rcCfg.hrdCpbSize = enc_params->hrdCpbSize;
 
     rcCfg.gopLen = enc_params->gopLength;
@@ -448,7 +449,7 @@ int OpenEncoder(VCEncInst *encoder, EncoderParams *enc_params)
 ------------------------------------------------------------------------------*/
 int UpdateEncoderConfig(VCEncInst *encoder, EncoderParams *enc_params)
 {
-    enc_params->idr_interval = enc_params->intraPicRate;
+    enc_params->intra_pic_rate = enc_params->intraPicRate;
 
     if (InitEncoderCodingConfig(enc_params, encoder) != 0)
         return -1;

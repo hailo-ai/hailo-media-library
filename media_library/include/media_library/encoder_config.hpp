@@ -127,9 +127,11 @@ struct  rate_control_config_t
   bool picture_skip;
   bool ctb_rc;
   bool hrd;
+  bool cvbr;
   uint32_t block_rc_size;
   uint32_t hrd_cpb_size;
   uint32_t monitor_frames;
+  uint32_t intra_pic_rate;
   uint32_t gop_length;
   quantization_config_t quantization;
   bitrate_config_t bitrate;

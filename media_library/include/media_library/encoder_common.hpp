@@ -52,6 +52,8 @@ extern "C"
 #define MAX_BITRATE (40000000)
 #define MIN_HRD_CPB_SIZE (10000)
 #define MAX_HRD_CPB_SIZE (40000000)
+#define MIN_CVBR_MODE (0)
+#define MAX_CVBR_MODE (255)
 #define MIN_MONITOR_FRAMES (10)
 #define MAX_MONITOR_FRAMES (120)
 #define MIN_INTRA_PIC_RATE (0)
@@ -91,6 +93,7 @@ extern "C"
 #define DEFAULT_BITVAR_RANGE_B (10)
 #define DEFAULT_MONITOR_FRAMES (30)
 #define DEFAULT_HRD_CPB_SIZE (1000000)
+#define DEFAULT_CVBR_MODE (0)
 
 typedef struct
 {
@@ -104,7 +107,7 @@ typedef struct
     i32 frameRateDenom; /* Output frame rate denominator */
     i32 picture_cnt;
     i32 picture_enc_cnt;
-    u32 idr_interval;
+    u32 intra_pic_rate;
     i32 last_idr_picture_cnt;
     u32 validencodedframenumber;
     u32 stride; /* Used for padded buffers, and specify the pad size to crop in each buffer line*/
@@ -136,6 +139,7 @@ typedef struct
     u32 blockRcSize; /*size of block rate control : 2=16x16,1= 32x32, 0=64x64*/
     u32 pictureSkip;
     u32 hrd;
+    u32 cvbr;
     u32 hrdCpbSize;
 
     u32 compressor;

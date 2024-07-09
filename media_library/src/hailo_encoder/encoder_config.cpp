@@ -52,7 +52,7 @@ EncoderConfig::EncoderConfig(const std::string &json_string)
 }
 
 media_library_return EncoderConfig::configure(const std::string &json_string)
-{   
+{
     std::string strapped_json = json_string;
     strip_string_syntax(strapped_json);
 
@@ -162,11 +162,26 @@ uint32_t Encoder::Impl::get_codec()
         return 0;
 }
 
-VCEncProfile Encoder::Impl::get_profile()
+VCEncProfile Encoder::Impl::get_profile(bool codecH264)
 {
     auto output_stream = m_config->get_hailo_config().output_stream;
     std::string profile = output_stream.profile;
-    if (profile == "VCENC_H264_BASE_PROFILE")
+
+    if (profile == "auto")
+    {
+        auto resoultion = m_config->get_hailo_config().input_stream.width * m_config->get_hailo_config().input_stream.height;
+        auto bitrate = m_config->get_hailo_config().rate_control.bitrate.target_bitrate;
+
+        if ((resoultion <= 1280 * 720) && (bitrate <= 5000000))
+        {
+            return (codecH264 ? VCENC_H264_MAIN_PROFILE : VCENC_HEVC_MAIN_PROFILE);
+        }
+        else
+        {
+            return (codecH264 ? VCENC_H264_HIGH_PROFILE : VCENC_HEVC_MAIN_10_PROFILE);
+        }
+    }
+    else if (profile == "VCENC_H264_BASE_PROFILE")
         return VCENC_H264_BASE_PROFILE;
     else if (profile == "VCENC_H264_MAIN_PROFILE")
         return VCENC_H264_MAIN_PROFILE;
@@ -188,6 +203,29 @@ VCEncPictureType Encoder::Impl::get_input_format(std::string format)
 
 VCEncLevel Encoder::Impl::get_level(std::string level, bool codecH264)
 {
+    if (level == "auto")
+    {
+        auto resoultion = m_config->get_hailo_config().input_stream.width * m_config->get_hailo_config().input_stream.height;
+        auto bitrate = m_config->get_hailo_config().rate_control.bitrate.target_bitrate;
+
+        for (auto &resolution_map : auto_level_map)
+        {
+            if (resoultion <= resolution_map.first)
+            {
+                for (auto &bitrate_map : resolution_map.second)
+                {
+                    if (bitrate <= bitrate_map.first)
+                    {
+                        level = bitrate_map.second;
+                        break;
+                    }
+                }
+
+                break;
+            }
+        }
+    }
+
     if (codecH264)
     {
         if (h264_level.find(level) != h264_level.end())
@@ -323,9 +361,29 @@ VCEncRet Encoder::Impl::init_rate_control_config()
         m_vc_rate_cfg.monitorFrames = MIN_MONITOR_FRAMES;
 
     m_vc_rate_cfg.hrd = rate_control.hrd;
-    m_vc_rate_cfg.hrdCpbSize = rate_control.hrd_cpb_size;
+    m_vc_rate_cfg.cvbr = rate_control.cvbr;
 
-    m_vc_rate_cfg.gopLen = m_counters.idr_interval = rate_control.gop_length;
+    if (rate_control.hrd_cpb_size == 0)
+    {
+        m_vc_rate_cfg.hrdCpbSize = rate_control.bitrate.target_bitrate * 2;
+    }
+    else
+    {
+        m_vc_rate_cfg.hrdCpbSize = rate_control.hrd_cpb_size;
+    }
+
+    if (rate_control.gop_length == 0)
+    {
+        m_vc_rate_cfg.gopLen =
+            (m_vc_cfg.frameRateNum + m_vc_cfg.frameRateDenom - 1) / m_vc_cfg.frameRateDenom;
+    }
+    else
+    {
+        m_vc_rate_cfg.gopLen = rate_control.gop_length;
+    }
+
+    m_intra_pic_rate = rate_control.intra_pic_rate;
+
     m_vc_rate_cfg.intraQpDelta = rate_control.quantization.intra_qp_delta;
     m_vc_rate_cfg.fixedIntraQp = rate_control.quantization.fixed_intra_qp;
 
@@ -497,7 +555,15 @@ VCEncRet Encoder::Impl::init_encoder_config()
     m_vc_cfg.strongIntraSmoothing = 1;
     m_vc_cfg.streamType = VCENC_BYTE_STREAM;
     m_vc_cfg.codecH264 = get_codec();
-    m_vc_cfg.profile = get_profile();
+
+    if (!m_config->get_hailo_config().rate_control.picture_rc &&
+        (output_stream.profile == "auto" || output_stream.level == "auto"))
+    {
+        LOGGER__ERROR("Profile and level cannot be set to 'auto' when rate control is disabled");
+        return VCENC_ERROR;
+    }
+
+    m_vc_cfg.profile = get_profile(m_vc_cfg.codecH264);
     m_vc_cfg.level = get_level(output_stream.level, m_vc_cfg.codecH264);
     m_vc_cfg.bitDepthLuma = 8;
     m_vc_cfg.bitDepthChroma = 8;

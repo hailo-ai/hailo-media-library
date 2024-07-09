@@ -404,11 +404,13 @@ void to_json(nlohmann::json &j, const rate_control_config_t &rc_conf)
         {"picture_skip", rc_conf.picture_skip},
         {"ctb_rc", rc_conf.ctb_rc},
         {"hrd", rc_conf.hrd},
-        {"block_rc_size", rc_conf.block_rc_size}, 
+        {"cvbr", rc_conf.cvbr},
+        {"block_rc_size", rc_conf.block_rc_size},
+        {"intra_pic_rate", rc_conf.intra_pic_rate},
+        {"gop_length", rc_conf.gop_length},
         {"monitor_frames", rc_conf.monitor_frames},
-        {"gop_length", rc_conf.gop_length}, 
         {"bitrate", rc_conf.bitrate},
-        {"quantization", rc_conf.quantization},	
+        {"quantization", rc_conf.quantization},
     };
 }
 
@@ -418,9 +420,11 @@ void from_json(const nlohmann::json &j, rate_control_config_t &rc_conf)
     j.at("picture_skip").get_to(rc_conf.picture_skip);
     j.at("ctb_rc").get_to(rc_conf.ctb_rc);
     j.at("hrd").get_to(rc_conf.hrd);
+    j.at("cvbr").get_to(rc_conf.cvbr);
     j.at("block_rc_size").get_to(rc_conf.block_rc_size);
-    j.at("monitor_frames").get_to(rc_conf.monitor_frames);
+    j.at("intra_pic_rate").get_to(rc_conf.intra_pic_rate);
     j.at("gop_length").get_to(rc_conf.gop_length);
+    j.at("monitor_frames").get_to(rc_conf.monitor_frames);
     j.at("bitrate").get_to(rc_conf.bitrate);
     j.at("quantization").get_to(rc_conf.quantization);
 }

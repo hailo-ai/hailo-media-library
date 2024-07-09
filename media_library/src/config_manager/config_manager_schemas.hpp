@@ -144,7 +144,8 @@ namespace config_schemas
                       "VCENC_HEVC_MAIN_STILL_PICTURE_PROFILE",
                       "VCENC_H264_BASE_PROFILE",
                       "VCENC_H264_MAIN_PROFILE",
-                      "VCENC_H264_HIGH_PROFILE"
+                      "VCENC_H264_HIGH_PROFILE",
+                      "auto"
                     ]
                   },
                   "level": {
@@ -181,7 +182,8 @@ namespace config_schemas
                         "profile": {
                           "enum": [
                             "VCENC_HEVC_MAIN_PROFILE",
-                            "VCENC_HEVC_MAIN_STILL_PICTURE_PROFILE"
+                            "VCENC_HEVC_MAIN_STILL_PICTURE_PROFILE",
+                            "auto"
                           ]
                         }
                       }
@@ -195,7 +197,8 @@ namespace config_schemas
                         "enum": [
                           "VCENC_H264_BASE_PROFILE",
                           "VCENC_H264_MAIN_PROFILE",
-                          "VCENC_H264_HIGH_PROFILE"
+                          "VCENC_H264_HIGH_PROFILE",
+                          "auto"
                         ]
                       }
                     }
@@ -305,13 +308,19 @@ namespace config_schemas
               "hrd": {
                 "type": "boolean"
               },
+              "cvbr": {
+                "type": "integer"
+              },
               "hrd_cpb_size": {
                 "type": "integer"
               },
-              "monitor_frames": {
+              "intra_pic_rate": {
                 "type": "integer"
               },
               "gop_length": {
+                "type": "integer"
+              },
+              "monitor_frames": {
                 "type": "integer"
               },
               "quantization": {
@@ -377,8 +386,10 @@ namespace config_schemas
               "ctb_rc",
               "block_rc_size",
               "hrd",
+              "cvbr",
               "hrd_cpb_size",
               "monitor_frames",
+              "intra_pic_rate",
               "gop_length",
               "quantization",
               "bitrate"
