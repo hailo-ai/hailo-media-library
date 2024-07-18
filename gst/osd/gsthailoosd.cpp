@@ -95,7 +95,7 @@ gst_hailoosd_class_init(GstHailoOsdClass *klass)
                                     g_param_spec_boolean("wait-for-writable-buffer", "wait-for-writable-buffer",
                                                          "Enables the element thread to wait until incomming buffer is writable", FALSE,
                                                          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
-    
+
     g_object_class_install_property(gobject_class, PROP_BLENDER,
                                     g_param_spec_pointer("blender", "Blender object",
                                                          "Pointer to blender object",
@@ -115,8 +115,8 @@ static void
 gst_hailoosd_init(GstHailoOsd *hailoosd)
 {
     hailoosd->blender = nullptr;
-    hailoosd->config_path = "";
-    hailoosd->config_str = "";
+    hailoosd->config_path = g_strdup("");
+    hailoosd->config_str = g_strdup("");
     hailoosd->wait_for_writable_buffer = false;
     hailoosd->initialized = false;
 }
@@ -131,15 +131,22 @@ void gst_hailoosd_set_property(GObject *object, guint property_id,
     switch (property_id)
     {
     case PROP_CONFIG_FILE_PATH:
-        hailoosd->config_path = g_strdup(g_value_get_string(value));
+        if (hailoosd->config_path)
+        {
+            g_free(hailoosd->config_path);
+        }
+        hailoosd->config_path = g_value_dup_string(value);
         break;
     case PROP_CONFIG_STR:
     {
-
-        hailoosd->config_str = g_strdup(g_value_get_string(value));       
-        if (hailoosd->initialized) {
-            std::string new_config_str(hailoosd->config_str);
-            hailoosd->blender->configure(new_config_str);
+        if (hailoosd->config_str)
+        {
+            g_free(hailoosd->config_str);
+        }
+        hailoosd->config_str = g_value_dup_string(value);
+        if (hailoosd->initialized)
+        {
+            hailoosd->blender->configure(std::string(hailoosd->config_str));
         }
         break;
     }
@@ -199,7 +206,16 @@ void gst_hailoosd_finalize(GObject *object)
     GST_DEBUG_OBJECT(hailoosd, "finalize");
 
     /* clean up object here */
-
+    if (hailoosd->config_path)
+    {
+        g_free(hailoosd->config_path);
+        hailoosd->config_path = NULL;
+    }
+    if (hailoosd->config_str)
+    {
+        g_free(hailoosd->config_str);
+        hailoosd->config_str = NULL;
+    }
     G_OBJECT_CLASS(gst_hailoosd_parent_class)->finalize(object);
 }
 
@@ -207,15 +223,14 @@ static gboolean gst_hailoosd_start(GstBaseTransform *trans)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
 
-
-    if(hailoosd->blender != nullptr)
+    if (hailoosd->blender != nullptr)
     {
         GST_DEBUG_OBJECT(hailoosd, "Blender object already exists, skipping creation");
         return TRUE;
     }
 
-    std::string config_str = hailoosd->config_str;
-    std::string config_path = hailoosd->config_path;
+    std::string config_str = std::string(hailoosd->config_str);
+    std::string config_path = std::string(hailoosd->config_path);
     hailoosd->initialized = true;
 
     if (config_str != "" && config_path == "")
@@ -365,7 +380,7 @@ static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans,
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
     GstCaps *caps;
-    HailoMediaLibraryBufferPtr media_library_buffer=nullptr;
+    HailoMediaLibraryBufferPtr media_library_buffer = nullptr;
     GST_DEBUG_OBJECT(hailoosd, "transform_ip");
 
     caps = gst_pad_get_current_caps(trans->sinkpad);

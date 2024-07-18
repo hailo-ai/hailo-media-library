@@ -626,23 +626,24 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> ImageO
     }
 
     // read the image from file, keeping alpha channel
-    m_image_mat = cv::imread(m_path, cv::IMREAD_UNCHANGED);
+    auto image_mat = cv::imread(m_path, cv::IMREAD_UNCHANGED);
 
     // check if the image was read successfully
-    if (m_image_mat.empty())
+    if (image_mat.empty())
     {
         LOGGER__ERROR("Error: failed to read image file {}", m_path);
         return tl::make_unexpected(MEDIA_LIBRARY_INVALID_ARGUMENT);
     }
 
     // convert image to 4-channel RGBA format if necessary
-    if (m_image_mat.channels() != 4)
+    if (image_mat.channels() != 4)
     {
         LOGGER__INFO("READ IMAGE THAT WAS NOT 4 channels");
-        cv::cvtColor(m_image_mat, m_image_mat, cv::COLOR_BGR2BGRA);
+        cv::cvtColor(image_mat, image_mat, cv::COLOR_BGR2BGRA);
     }
 
-    m_image_mat = resize_mat(m_image_mat, m_width * frame_width, m_height * frame_height);
+    m_image_mat = resize_mat(image_mat, m_width * frame_width, m_height * frame_height);
+    image_mat.release();
 
     return OverlayImpl::create_dsp_overlays(frame_width, frame_height);
 }
@@ -684,7 +685,7 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Custom
     }
 
     dsp_image_properties_t dsp_image;
-    create_dsp_buffer_from_video_frame(&dest_frame, dsp_image ,false);
+    create_dsp_buffer_from_video_frame(&dest_frame, dsp_image, false);
     m_video_frames.push_back(dest_frame);
     auto offsets_expected = calc_xy_offsets(m_id, m_x, m_y, dsp_image.width, dsp_image.height, frame_width, frame_height, 0, 0);
     if (!offsets_expected.has_value())

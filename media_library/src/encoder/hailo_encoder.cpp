@@ -529,9 +529,15 @@ int AllocRes(EncoderParams *enc_params)
 void FreeRes(EncoderParams *enc_params)
 {
     if (enc_params->outbufMem.virtualAddress != NULL)
+    {
         EWLFreeLinear((const void *)enc_params->ewl, &enc_params->outbufMem);
+        enc_params->outbufMem.virtualAddress = NULL;
+    }
     if (NULL != enc_params->ewl)
+    {
         (void)EWLRelease((const void *)enc_params->ewl);
+        enc_params->ewl = NULL;
+    }
 }
 
 VCEncRet EncodeFrame(EncoderParams *enc_params, VCEncInst encoder,

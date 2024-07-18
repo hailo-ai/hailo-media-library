@@ -112,7 +112,7 @@ gst_hailofrontend_init(GstHailoFrontend *hailofrontend)
 {
     // Default values
     hailofrontend->config_file_path = NULL;
-    hailofrontend->srcpads = {};
+    hailofrontend->config_string = NULL;
     hailofrontend->m_elements_linked = FALSE;
 
     // Prepare internal elements
@@ -204,14 +204,13 @@ void gst_hailofrontend_set_property(GObject *object, guint property_id,
     }
     case PROP_CONFIG_STRING:
     {
-        hailofrontend->config_string = std::string(g_value_get_string(value));
-        GST_DEBUG_OBJECT(hailofrontend, "config-string: %s", hailofrontend->config_string.c_str());
+        hailofrontend->config_string = g_value_dup_string(value);
+        GST_DEBUG_OBJECT(hailofrontend, "config-string: %s", hailofrontend->config_string);
 
         // set params for sub elements here
-        g_object_set(hailofrontend->m_denoise, "config-string", g_value_get_string(value), NULL);
-        g_object_set(hailofrontend->m_dis_dewarp, "config-string", g_value_get_string(value), NULL);
-        g_object_set(hailofrontend->m_multi_resize, "config-string", g_value_get_string(value), NULL);
-
+        g_object_set(hailofrontend->m_denoise, "config-string", hailofrontend->config_string, NULL);
+        g_object_set(hailofrontend->m_dis_dewarp, "config-string", hailofrontend->config_string, NULL);
+        g_object_set(hailofrontend->m_multi_resize, "config-string", hailofrontend->config_string, NULL);
         // Now that configuration is known, link the elements
         if (hailofrontend->m_elements_linked == FALSE)
         {
@@ -243,7 +242,7 @@ void gst_hailofrontend_get_property(GObject *object, guint property_id,
     }
     case PROP_CONFIG_STRING:
     {
-        g_value_set_string(value, hailofrontend->config_string.c_str());
+        g_value_set_string(value, hailofrontend->config_string);
         break;
     }
     case PROP_PRIVACY_MASK:
@@ -331,7 +330,6 @@ gst_hailofrontend_request_new_pad(GstElement *element, GstPadTemplate *templ, co
     // Set the new ghostpad to active and add it to the bin
     gst_pad_set_active(srcpad, TRUE);
     gst_element_add_pad(element, srcpad);
-    self->srcpads.emplace_back(srcpad);
 
     return srcpad;
 }
@@ -342,6 +340,7 @@ gst_hailofrontend_release_pad(GstElement *element, GstPad *pad)
     GstHailoFrontend *self = GST_HAILO_FRONTEND(element);
     gchar *name = gst_pad_get_name(pad);
     GST_DEBUG_OBJECT(self, "Release pad: %s", name);
+    g_free(name);
 
     GST_OBJECT_LOCK(self);
 
@@ -394,17 +393,23 @@ gst_hailofrontend_dispose(GObject *object)
     gst_hailofrontend_reset(self);
 
     G_OBJECT_CLASS(gst_hailofrontend_parent_class)->dispose(object);
+
 }
 
 static void
 gst_hailofrontend_reset(GstHailoFrontend *self)
 {
     GST_DEBUG_OBJECT(self, "reset");
-    if (self->sinkpad != NULL)
+    if (self->config_file_path != NULL)
     {
-        self->sinkpad = NULL;
+        g_free(self->config_file_path);
+        self->config_file_path = NULL;
+    }
+    if (self->config_string != NULL)
+    {
+        g_free(self->config_string);
+        self->config_string = NULL;
     }
 
     // gst_hailofrontend_release_pad will be called automatically for each srcpad
-    self->srcpads.clear();
 }

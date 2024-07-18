@@ -322,6 +322,7 @@ gst_hailofrontendbinsrc_release_pad(GstElement *element, GstPad *pad)
     GstHailoFrontendBinSrc *self = GST_HAILO_FRONTEND_BINSRC(element);
     gchar *name = gst_pad_get_name(pad);
     GST_DEBUG_OBJECT(self, "Release pad: %s", name);
+    g_free(name);
 
     GST_OBJECT_LOCK(self);
 

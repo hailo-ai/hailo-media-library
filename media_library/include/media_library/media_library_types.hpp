@@ -349,7 +349,7 @@ public:
     output_resolution_t input_video_config;
     output_video_config_t output_video_config;
     digital_zoom_config_t digital_zoom_config;
-    rotation_angle_t rotation_config;
+    rotation_config_t rotation_config;
 
     multi_resize_config_t()
     {
@@ -358,7 +358,7 @@ public:
         input_video_config.pool_max_buffers = 0;
         input_video_config.dimensions.destination_width = 0;
         input_video_config.dimensions.destination_height = 0;
-        rotation_config = ROTATION_ANGLE_0;
+        rotation_config = {false, ROTATION_ANGLE_0};
         output_video_config.resolutions = std::vector<output_resolution_t>();
     }
 
@@ -372,23 +372,20 @@ public:
         {
             output_resolution_t &current_res = output_video_config.resolutions[i];
             output_resolution_t &new_res = mresize_config.output_video_config.resolutions[i];
-            if (!current_res.dimensions_equal(new_res, rotation_config % 2))
-            {
-                // Update output video dimensions is restricted
-                return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-            }
             current_res.framerate = new_res.framerate;
         }
 
         // rotate if necessary
-        return set_output_dimensions_rotation(rotation_config);
+        return set_output_dimensions_rotation(mresize_config.rotation_config);
     }
 
-    media_library_return set_output_dimensions_rotation(const rotation_angle_t &rotation_angle)
+    media_library_return set_output_dimensions_rotation(const rotation_config_t &new_rotation_config)
     {
-        if (rotation_angle % 2 == rotation_config % 2) // dimensions are the same
+        rotation_angle_t current_rotation_angle = rotation_config.effective_value();
+        rotation_angle_t new_rotation_angle = new_rotation_config.effective_value();
+        if (current_rotation_angle % 2 == new_rotation_angle  % 2)
         {
-            rotation_config = rotation_angle;
+            rotation_config = new_rotation_config;
             return MEDIA_LIBRARY_SUCCESS;
         }
 
@@ -397,7 +394,7 @@ public:
         {
             std::swap(current_res.dimensions.destination_width, current_res.dimensions.destination_height);
         }
-        rotation_config = rotation_angle;
+        rotation_config = new_rotation_config;
         return MEDIA_LIBRARY_SUCCESS;
     }
 };
@@ -454,6 +451,7 @@ public:
                 rotate_output_dimensions();
             }
         }
+
         rotation_config = ldc_configs.rotation_config;
         return MEDIA_LIBRARY_SUCCESS;
     }

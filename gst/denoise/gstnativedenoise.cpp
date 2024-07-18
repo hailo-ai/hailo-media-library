@@ -54,7 +54,7 @@ static void gst_hailo_denoise_finalize(GObject *object);
 static void gst_hailo_denoise_set_property(GObject *object, guint property_id, const GValue *value, GParamSpec *pspec);
 static void gst_hailo_denoise_get_property(GObject *object, guint property_id, GValue *value, GParamSpec *pspec);
 static GstFlowReturn gst_hailo_denoise_chain(GstPad *pad, GstObject *parent, GstBuffer *buffer);
-static gboolean gst_hailo_denoise_create(GstHailoDenoise *self);
+static gboolean gst_hailo_denoise_create(GstHailoDenoise *self, std::string config_string);
 static gboolean gst_hailo_denoise_sink_query(GstPad *pad, GstObject *parent, GstQuery *query);
 static void gst_hailo_denoise_queue_buffer(GstHailoDenoise *self, GstBuffer *buffer);
 static GstBuffer *gst_hailo_denoise_dequeue_buffer(GstHailoDenoise *self);
@@ -111,7 +111,7 @@ gst_hailo_denoise_init(GstHailoDenoise *denoise)
     denoise->m_config_mutex = std::make_shared<std::mutex>();
     denoise->m_condvar = std::make_unique<std::condition_variable>();
     denoise->m_queue_size = 2;
-    denoise->m_staging_queue = std::queue<GstBuffer *>();
+    denoise->m_staging_queue = std::make_shared<std::queue<GstBuffer *>>();
 
     denoise->sinkpad = gst_pad_new_from_static_template(&sink_template, "sink");
     denoise->srcpad = gst_pad_new_from_static_template(&src_template, "src");
@@ -136,15 +136,15 @@ static void gst_hailo_denoise_set_property(GObject *object, guint property_id, c
     {
         self->config_file_path = g_value_dup_string(value);
         GST_DEBUG_OBJECT(self, "config_file_path: %s", self->config_file_path);
-        self->config_string = gstmedialibcommon::read_json_string_from_file(self->config_file_path);
+        std::string config_string = gstmedialibcommon::read_json_string_from_file(self->config_file_path);
 
         if (self->medialib_denoise == nullptr)
         {
-            gst_hailo_denoise_create(self);
+            gst_hailo_denoise_create(self, config_string);
         }
         else
         {
-            media_library_return config_status = self->medialib_denoise->configure(self->config_string);
+            media_library_return config_status = self->medialib_denoise->configure(config_string);
             if (config_status != MEDIA_LIBRARY_SUCCESS)
                 GST_ERROR_OBJECT(self, "configuration error: %d", config_status);
         }
@@ -152,16 +152,18 @@ static void gst_hailo_denoise_set_property(GObject *object, guint property_id, c
     }
     case PROP_CONFIG_STRING:
     {
-        self->config_string = g_strdup(g_value_get_string(value));
-        gstmedialibcommon::strip_string_syntax(self->config_string);
+        self->config_string = g_value_dup_string(value);
+        std::string config_string = std::string(self->config_string);
+        gstmedialibcommon::strip_string_syntax(config_string);
 
         if (self->medialib_denoise == nullptr)
         {
-            gst_hailo_denoise_create(self);
+            // gst_hailo_denoise_create(self);
+            gst_hailo_denoise_create(self, config_string);
         }
         else
         {
-            media_library_return config_status = self->medialib_denoise->configure(self->config_string);
+            media_library_return config_status = self->medialib_denoise->configure(config_string);
             if (config_status != MEDIA_LIBRARY_SUCCESS)
                 GST_ERROR_OBJECT(self, "configuration error: %d", config_status);
         }
@@ -189,7 +191,7 @@ gst_hailo_denoise_get_property(GObject *object, guint property_id, GValue *value
     }
     case PROP_CONFIG_STRING:
     {
-        g_value_set_string(value, self->config_string.c_str());
+        g_value_set_string(value, self->config_string);
         break;
     }
     default:
@@ -199,9 +201,10 @@ gst_hailo_denoise_get_property(GObject *object, guint property_id, GValue *value
 }
 
 static gboolean
-gst_hailo_denoise_create(GstHailoDenoise *self)
+gst_hailo_denoise_create(GstHailoDenoise *self, std::string config_string)
+// gst_hailo_denoise_create(GstHailoDenoise *self)
 {
-    tl::expected<MediaLibraryDenoisePtr, media_library_return> denoise = MediaLibraryDenoise::create(self->config_string);
+    tl::expected<MediaLibraryDenoisePtr, media_library_return> denoise = MediaLibraryDenoise::create(config_string);
     if (denoise.has_value())
     {
         self->medialib_denoise = denoise.value();
@@ -244,6 +247,13 @@ gst_hailo_denoise_push_output_frame(GstHailoDenoise *self,
         GST_ERROR_OBJECT(self, "Trying to push null output frame");
         ret = GST_FLOW_ERROR;
         return ret;
+    }
+
+    if (GST_PAD_IS_FLUSHING(self->srcpad))
+    {
+        GST_WARNING_OBJECT(self, "Pad is flushing, not pushing buffer");
+        hailo_buffer->decrease_ref_count();
+	return GST_FLOW_OK;
     }
 
     // Get caps from srcpad
@@ -382,16 +392,27 @@ gst_hailo_denoise_sink_query(GstPad *pad,
     return ret;
 }
 
-static void gst_hailo_denoise_finalize(GObject *object)
+static void gst_hailo_denoise_reset_properties(GstHailoDenoise *self)
 {
-    GstHailoDenoise *self = GST_HAILO_DENOISE(object);
-    GST_DEBUG_OBJECT(self, "finalize");
     if (self->config_file_path)
     {
         g_free(self->config_file_path);
         self->config_file_path = NULL;
     }
 
+    if (self->config_string)
+    {
+        g_free(self->config_string);
+        self->config_string = NULL;
+    }
+}
+
+static void gst_hailo_denoise_finalize(GObject *object)
+{
+    GstHailoDenoise *self = GST_HAILO_DENOISE(object);
+    GST_DEBUG_OBJECT(self, "finalize");
+
+    gst_hailo_denoise_reset_properties(self);
 
     self->m_flushing = true;
     gst_hailo_denoise_clear_staging_queue(self);
@@ -401,6 +422,11 @@ static void gst_hailo_denoise_finalize(GObject *object)
         self->medialib_denoise = NULL;
     }
 
+    self->m_mutex = nullptr;
+    self->m_config_mutex = nullptr;
+    self->m_condvar = nullptr;
+    self->m_staging_queue = nullptr;
+
     G_OBJECT_CLASS(parent_class)->finalize(object);
 }
 
@@ -409,8 +435,8 @@ gst_hailo_denoise_queue_buffer(GstHailoDenoise *self, GstBuffer *buffer)
 {
     std::unique_lock<std::mutex> lock(*(self->m_mutex));
     self->m_condvar->wait(lock, [self]
-                          { return self->m_staging_queue.size() < self->m_queue_size; });
-    self->m_staging_queue.push(buffer);
+                          { return self->m_staging_queue->size() < self->m_queue_size; });
+    self->m_staging_queue->push(buffer);
     self->m_condvar->notify_one();
 }
 
@@ -419,13 +445,13 @@ gst_hailo_denoise_dequeue_buffer(GstHailoDenoise *self)
 {
     std::unique_lock<std::mutex> lock(*(self->m_mutex));
     self->m_condvar->wait(lock, [self]
-                          { return !self->m_staging_queue.empty() || self->m_flushing; });
-    if (self->m_staging_queue.empty())
+                          { return !self->m_staging_queue->empty() || self->m_flushing; });
+    if (self->m_staging_queue->empty())
     {
         return nullptr;
     }
-    GstBuffer *buffer = self->m_staging_queue.front();
-    self->m_staging_queue.pop();
+    GstBuffer *buffer = self->m_staging_queue->front();
+    self->m_staging_queue->pop();
     self->m_condvar->notify_one();
     return buffer;
 }
@@ -434,10 +460,10 @@ static void
 gst_hailo_denoise_clear_staging_queue(GstHailoDenoise *self)
 {
     std::unique_lock<std::mutex> lock(*(self->m_mutex));
-    while (!self->m_staging_queue.empty())
+    while (!self->m_staging_queue->empty())
     {
-        GstBuffer *buffer = self->m_staging_queue.front();
-        self->m_staging_queue.pop();
+        GstBuffer *buffer = self->m_staging_queue->front();
+        self->m_staging_queue->pop();
         gst_buffer_unref(buffer);
     }
     self->m_condvar->notify_one();

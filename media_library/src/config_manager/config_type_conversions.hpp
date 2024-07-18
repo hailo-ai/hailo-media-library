@@ -674,6 +674,7 @@ void to_json(nlohmann::json &j, const multi_resize_config_t &mresize_conf)
     j = nlohmann::json{
         {"output_video", mresize_conf.output_video_config},
         {"digital_zoom", mresize_conf.digital_zoom_config},
+        {"rotation", mresize_conf.rotation_config},
     };
 }
 
@@ -683,6 +684,7 @@ void from_json(const nlohmann::json &j, multi_resize_config_t &mresize_conf)
     // not to be set/changed from json. It is set by the application.
     j.at("output_video").get_to(mresize_conf.output_video_config);
     j.at("digital_zoom").get_to(mresize_conf.digital_zoom_config);
+    j.at("rotation").get_to(mresize_conf.rotation_config);
 }
 
 //------------------------ ldc_config_t ------------------------

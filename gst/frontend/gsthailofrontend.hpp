@@ -53,10 +53,9 @@ struct _GstHailoFrontend
 {
     GstBin base_hailofrontend;
     GstPad *sinkpad;
-    std::vector<GstPad *> srcpads;
     
     gchar *config_file_path;
-    std::string config_string;
+    gchar *config_string;
 
     gboolean m_elements_linked;
     GstElement *m_denoise;

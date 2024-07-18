@@ -12,7 +12,6 @@ configure_file(output : 'config.h', configuration : core_conf)
 utils_sources = [
     'buffer_utils/buffer_utils.cpp',
     'buffer_utils/gsthailobuffermeta.cpp',
-    'osd/gsthailoosd.cpp',
     'osd/osd.cpp',
     'osd/osd_impl.cpp',
     
@@ -68,6 +67,7 @@ install_headers(headers_to_install)
 plugin_sources = [
     'gstmedialib.cpp',
     'visionpreproc/gsthailovisionpreproc.cpp',
+    'osd/gsthailoosd.cpp',
     'encoder/gsthailoenc.cpp',
     'encoder/gsthailoh265enc.cpp',
     'encoder/gsthailoh264enc.cpp',

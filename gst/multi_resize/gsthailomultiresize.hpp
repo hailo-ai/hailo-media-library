@@ -58,9 +58,9 @@ struct _GstHailoMultiResize
   GstElement element;
 
   GstPad *sinkpad;
-  std::vector<GstPad *> srcpads;
+  std::shared_ptr<std::vector<GstPad *>> srcpads;
   gchar *config_file_path;
-  std::string config_string;
+  gchar *config_string;
 
   std::shared_ptr<MediaLibraryMultiResize> medialib_multi_resize;
 };

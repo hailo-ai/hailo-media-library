@@ -47,7 +47,7 @@ struct _GstHailoEnc
 {
   GstVideoEncoder parent;
   GstVideoCodecState *input_state;
-  GstBuffer *header_buffer;
+  gboolean encode_header;
   VCEncApiVersion apiVer;
   VCEncBuild encBuild;
   VCEncGopPicConfig gopPicCfg[MAX_GOP_PIC_CONFIG_NUM];

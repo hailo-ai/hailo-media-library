@@ -209,7 +209,10 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
         return;
     }
 
-    if (configure(m_multi_resize_config) != MEDIA_LIBRARY_SUCCESS)
+    multi_resize_config_t mresize_config;
+    mresize_config = m_multi_resize_config;
+    m_multi_resize_config.rotation_config.angle = ROTATION_ANGLE_0;
+    if (configure(mresize_config) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to configure multi-resize");
         status = MEDIA_LIBRARY_CONFIGURATION_ERROR;
@@ -282,25 +285,27 @@ media_library_return MediaLibraryMultiResize::Impl::validate_configurations(mult
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryMultiResize::Impl::set_output_rotation(const rotation_angle_t &rotation)
+media_library_return MediaLibraryMultiResize::Impl::set_output_rotation(const rotation_angle_t &angle)
 {
-    rotation_angle_t current_rotation = m_multi_resize_config.rotation_config;
-    if (current_rotation == rotation)
+    rotation_config_t new_rotation = {true, angle};
+    rotation_config_t &current_rotation = m_multi_resize_config.rotation_config;
+    if (current_rotation == new_rotation)
     {
-        LOGGER__INFO("Output rotation is already set to {}", rotation);
+        LOGGER__INFO("Output rotation is already set to {}", current_rotation.angle);
         return MEDIA_LIBRARY_SUCCESS;
     }
-    LOGGER__INFO("Setting output rotation to {} from {}", rotation, m_multi_resize_config.rotation_config);
+    LOGGER__INFO("Setting output rotation from {} to {}", current_rotation.angle, new_rotation.angle);
 
     std::unique_lock<std::shared_mutex> lock(rw_lock);
 
-    m_multi_resize_config.set_output_dimensions_rotation(rotation);
+    m_multi_resize_config.set_output_dimensions_rotation(new_rotation);
+    LOGGER__DEBUG("Output rotation dims are now width {} height {}", m_multi_resize_config.output_video_config.resolutions[0].dimensions.destination_width, m_multi_resize_config.output_video_config.resolutions[0].dimensions.destination_height);
 
     // recreate buffer pools if needed
     media_library_return ret = create_and_initialize_buffer_pools();
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-        m_multi_resize_config.set_output_dimensions_rotation(current_rotation);
+        LOGGER__ERROR("Failed to recreate buffer pool after setting output rotation");
         return ret;
     }
 

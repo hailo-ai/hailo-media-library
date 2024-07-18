@@ -291,7 +291,7 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t & ldc_conf
     // skip mesh context configure if caps not set yet
     if (m_ldc_configs.output_video_config.dimensions.destination_width == 0 || m_ldc_configs.output_video_config.dimensions.destination_height == 0)
     {
-        LOGGER__INFO("Skipping dewarp mesh configuration since input_video_config not set yet");
+        LOGGER__INFO("Skipping dewarp mesh configuration since output_video_config not set yet");
         return MEDIA_LIBRARY_SUCCESS;
     }
 
