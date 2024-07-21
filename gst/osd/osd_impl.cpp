@@ -50,19 +50,8 @@ mat_dims internal_calculate_text_size(const std::string &label, const std::strin
     return {text_size.width + WIDTH_PADDING, text_size.height + baseline, baseline};
 }
 
-cv::Mat OverlayImpl::resize_mat(cv::Mat mat, int width, int height)
-{
-    // ensure even dimensions, round up not to clip image
-    width += (width % 2);
-    height += (height % 2);
-
-    // resize the mat image to target size
-    cv::Mat resized_image;
-    cv::resize(mat, resized_image, cv::Size(width, height), 0, 0, cv::INTER_AREA);
-    return resized_image;
-}
-
-cv::Mat OverlayImpl::rotate_mat(cv::Mat mat, uint angle, osd::rotation_alignment_policy_t alignment_policy, cv::Point *center_drift)
+// NOTE: this function may cause a memory leak (inside opencv) if called from the gstreamer thread. always call this function from a ThreadPool thread.
+inline cv::Mat rotate_mat(cv::Mat mat, uint angle, osd::rotation_alignment_policy_t alignment_policy, cv::Point *center_drift)
 {
     *center_drift = cv::Point(0, 0);
     if (angle == 0)
@@ -448,7 +437,11 @@ media_library_return BaseTextOverlayImpl::create_text_m_mat(std::string label)
     }
     else
     {
-        cv::cvtColor(rgb_mat, m_image_mat, cv::COLOR_RGB2BGRA);
+        m_image_mat = ThreadPool::GetInstance()->invoke([rgb_mat]()
+                                                        { 
+                                        cv::Mat result_image;
+                                        cv::cvtColor(rgb_mat, result_image, cv::COLOR_BGR2BGRA);
+                                        return result_image; });
     }
 
     return MEDIA_LIBRARY_SUCCESS;
@@ -573,7 +566,8 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
     cv::Point center_drift{0, 0};
     if (m_angle != 0)
     {
-        mat = OverlayImpl::rotate_mat(m_image_mat, m_angle, m_rotation_policy, &center_drift);
+        mat = ThreadPool::GetInstance()->invoke([this, &center_drift]()
+                                                { return rotate_mat(m_image_mat, m_angle, m_rotation_policy, &center_drift); });
         LOGGER__DEBUG("Rotated OSD by {} degrees, center drifted by {} pixels, around {}", m_angle, center_drift, m_rotation_policy);
     }
 

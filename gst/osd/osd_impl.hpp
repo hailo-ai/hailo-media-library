@@ -70,8 +70,6 @@ protected:
     static GstVideoFrame gst_video_frame_from_mat_bgra(cv::Mat mat);
     static media_library_return convert_2_dma_video_frame(GstVideoFrame *src_frame, GstVideoFrame *dest_frame, GstVideoFormat dest_format);
     static media_library_return create_gst_video_frame(uint width, uint height, std::string format, GstVideoFrame *frame);
-    static cv::Mat resize_mat(cv::Mat mat, int width, int height);
-    static cv::Mat rotate_mat(cv::Mat mat, uint angle, osd::rotation_alignment_policy_t alignment_policy, cv::Point *center_drift);
     void free_resources();
     static media_library_return create_dma_a420_video_frame(uint width, uint height, GstVideoFrame *frame);
     static media_library_return end_sync_buffer(GstVideoFrame *frame);
@@ -94,7 +92,6 @@ protected:
     bool m_enabled;
 
     std::shared_mutex m_overlay_mutex;
-
 };
 
 class CustomOverlayImpl;
@@ -184,7 +181,6 @@ public:
     virtual std::shared_ptr<osd::Overlay> get_metadata();
 
     std::string select_chars_for_timestamp(std::string datetime_format);
-
 
 private:
     std::string m_datetime_str;

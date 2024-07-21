@@ -13,6 +13,7 @@ common_sourcs = [
     'src/buffer_pool/dma_memory_allocator.cpp',
     'src/utils/media_library_logger.cpp',
     'src/utils/signal_utils.cpp',
+    'src/utils/threadpool.cpp',
     'src/config_manager/config_manager.cpp'
 ]
 
@@ -20,7 +21,7 @@ media_library_common_lib = shared_library('hailo_media_library_common',
     common_sourcs,
     cpp_args: common_args,
     include_directories: [incdir, utils_incdir],
-    dependencies : [dsp_dep, spdlog_dep, json_dep, expected_dep],
+    dependencies : [opencv_dep, dsp_dep, spdlog_dep, json_dep, expected_dep],
     version: meson.project_version(),
     install: true,
     install_dir: get_option('libdir'),
