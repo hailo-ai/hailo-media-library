@@ -127,7 +127,8 @@ struct  rate_control_config_t
   bool picture_skip;
   bool ctb_rc;
   bool hrd;
-  bool cvbr;
+  bool padding;
+  uint32_t cvbr;
   uint32_t block_rc_size;
   uint32_t hrd_cpb_size;
   uint32_t monitor_frames;

@@ -361,6 +361,7 @@ VCEncRet Encoder::Impl::init_rate_control_config()
         m_vc_rate_cfg.monitorFrames = MIN_MONITOR_FRAMES;
 
     m_vc_rate_cfg.hrd = rate_control.hrd;
+    m_vc_rate_cfg.hrdCbrFlag = rate_control.padding;
     m_vc_rate_cfg.cvbr = rate_control.cvbr;
 
     if (rate_control.hrd_cpb_size == 0)

@@ -404,6 +404,7 @@ void to_json(nlohmann::json &j, const rate_control_config_t &rc_conf)
         {"picture_skip", rc_conf.picture_skip},
         {"ctb_rc", rc_conf.ctb_rc},
         {"hrd", rc_conf.hrd},
+        {"padding", rc_conf.padding},
         {"cvbr", rc_conf.cvbr},
         {"block_rc_size", rc_conf.block_rc_size},
         {"intra_pic_rate", rc_conf.intra_pic_rate},
@@ -420,6 +421,7 @@ void from_json(const nlohmann::json &j, rate_control_config_t &rc_conf)
     j.at("picture_skip").get_to(rc_conf.picture_skip);
     j.at("ctb_rc").get_to(rc_conf.ctb_rc);
     j.at("hrd").get_to(rc_conf.hrd);
+    j.at("padding").get_to(rc_conf.padding);
     j.at("cvbr").get_to(rc_conf.cvbr);
     j.at("block_rc_size").get_to(rc_conf.block_rc_size);
     j.at("intra_pic_rate").get_to(rc_conf.intra_pic_rate);

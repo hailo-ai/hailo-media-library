@@ -142,6 +142,7 @@
                 "ctb_rc": false,
                 "block_rc_size": 64,
                 "hrd": false,
+                "padding": false,
                 "cvbr": 2,
                 "hrd_cpb_size": 0,
                 "intra_pic_rate": 60,

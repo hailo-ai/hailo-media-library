@@ -139,6 +139,7 @@ typedef struct
     u32 blockRcSize; /*size of block rate control : 2=16x16,1= 32x32, 0=64x64*/
     u32 pictureSkip;
     u32 hrd;
+    u32 padding;
     u32 cvbr;
     u32 hrdCpbSize;
 

@@ -56,7 +56,8 @@ enum
     PROP_CTB_RC,
     PROP_PICTURE_SKIP,
     PROP_HRD,
-  PROP_CVBR,
+    PROP_CVBR,
+    PROP_PADDING,
     PROP_MONITOR_FRAMES,
     PROP_ROI_AREA_1,
     PROP_ROI_AREA_2,
@@ -231,6 +232,9 @@ gst_hailoenc_class_init(GstHailoEncClass *klass)
   g_object_class_install_property(gobject_class, PROP_CVBR,
                                   g_param_spec_uint("cvbr", "Picture Rate Control", "Rate control mode, makes VBR more like CBR.",
                                                        MIN_CVBR_MODE, MAX_CVBR_MODE, (guint)DEFAULT_CVBR_MODE,
+                                                       (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+  g_object_class_install_property(gobject_class, PROP_PADDING,
+                                  g_param_spec_boolean("padding", "Picture Rate Control", "Add padding to buffers on RC underflow.", false,
                                                        (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
     g_object_class_install_property(gobject_class, PROP_MONITOR_FRAMES,
                                     g_param_spec_uint("monitor-frames", "Monitor Frames", "How many frames will be monitored for moving bit rate. Default is using framerate",
@@ -460,6 +464,14 @@ gst_hailoenc_get_property(GObject *object,
         g_value_set_uint(value, (guint)((hailoenc->framerate_tolerance - 1.0f) * 100.0f));
         GST_OBJECT_UNLOCK(hailoenc);
         break;
+    case PROP_PADDING:
+    {
+        GST_OBJECT_LOCK(hailoenc);
+        gboolean padding = hailoenc->enc_params.padding == 1 ? TRUE : FALSE;
+        g_value_set_boolean(value, padding);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
         break;
@@ -621,6 +633,11 @@ gst_hailoenc_set_property(GObject *object,
         GST_WARNING_OBJECT(hailoenc, "Setting framerate tolerance to %d", g_value_get_uint(value));
         hailoenc->framerate_tolerance = (float)((float)g_value_get_uint(value) / 100.0f + 1.0f);
         hailoenc->update_config = FALSE;
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_PADDING:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->enc_params.padding = g_value_get_boolean(value) ? 1 : 0;
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     default:
@@ -1116,9 +1133,49 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
         enc_params->picture_enc_cnt++;
         if (enc_params->encOut.streamSize == 0)
         {
-            enc_params->picture_cnt++;
             ret = GST_FLOW_OK;
             GST_WARNING_OBJECT(hailoenc, "Encoder didn't return any output for frame %d", enc_params->picture_cnt);
+
+            /* restart with yuv of next frame for IDR or GOP start */
+            if(enc_params->encIn.poc == 0 || enc_params->encIn.gopPicIdx == 0) {
+              enc_params->picture_cnt ++;
+              enc_params->last_idr_picture_cnt++;
+            } else {
+
+              /* follow current GOP, handling frame skip in API */
+              enc_params->nextCodingType = find_next_pic(enc_params);
+            }
+
+            GstBuffer *null_buffer = gst_buffer_new();
+            gst_buffer_set_size(null_buffer, 0);
+
+            frame->dts = GPOINTER_TO_UINT(g_queue_pop_head(hailoenc->dts_queue));
+            frame->duration = GST_SECOND / enc_params->frameRateNumer * enc_params->frameRateDenom;
+            frame->output_buffer = null_buffer;
+            if (header)
+            {
+                frame->output_buffer = gst_buffer_append(frame->output_buffer, header);
+            }
+
+            if (GST_PAD_IS_FLUSHING(GST_VIDEO_ENCODER_SRC_PAD(hailoenc)))
+            {
+              GST_WARNING_OBJECT(hailoenc, "Pad is flushing, not sending frame %d", enc_params->picture_cnt);
+              gst_buffer_unref(frame->output_buffer);
+              frame->output_buffer = nullptr;
+            }
+
+            ret = gst_video_encoder_finish_frame(GST_VIDEO_ENCODER(hailoenc), frame);
+            if (ret != GST_FLOW_OK)
+            {
+              GST_ERROR_OBJECT(hailoenc, "Could not send encoded buffer, reason %d", ret);
+              if (is_dmabuf)
+              {
+                for (int32_t i = 0; i < num_planes; i++)
+                  releaseDmabuf(hailoenc, planeFds[i]);
+              }
+            }
+
+            break;
         }
         else
         {

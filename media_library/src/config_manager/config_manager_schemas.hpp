@@ -308,6 +308,9 @@ namespace config_schemas
               "hrd": {
                 "type": "boolean"
               },
+              "padding": {
+                "type": "boolean"
+              },
               "cvbr": {
                 "type": "integer"
               },
@@ -386,6 +389,7 @@ namespace config_schemas
               "ctb_rc",
               "block_rc_size",
               "hrd",
+              "padding",
               "cvbr",
               "hrd_cpb_size",
               "monitor_frames",

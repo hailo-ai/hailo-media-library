@@ -325,6 +325,7 @@ int InitEncoderRateConfig(EncoderParams *enc_params, VCEncInst *pEnc)
 
     rcCfg.hrd = enc_params->hrd;
     rcCfg.cvbr = enc_params->cvbr;
+    rcCfg.hrdCbrFlag = enc_params->padding;
     rcCfg.hrdCpbSize = enc_params->hrdCpbSize;
 
     rcCfg.gopLen = enc_params->gopLength;
