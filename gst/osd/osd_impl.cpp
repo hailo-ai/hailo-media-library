@@ -23,6 +23,7 @@
 
 #include "osd_impl.hpp"
 #include "buffer_utils/buffer_utils.hpp"
+#include "media_library/threadpool.hpp"
 #include <algorithm>
 #include <thread>
 #include <iomanip>
@@ -633,11 +634,25 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> ImageO
     if (image_mat.channels() != 4)
     {
         LOGGER__INFO("READ IMAGE THAT WAS NOT 4 channels");
-        cv::cvtColor(image_mat, image_mat, cv::COLOR_BGR2BGRA);
+        image_mat = ThreadPool::GetInstance()->invoke([image_mat]()
+                                                        {
+                                        cv::Mat result_image;
+                                        cv::cvtColor(image_mat, result_image, cv::COLOR_BGR2BGRA);
+                                        return result_image; });
     }
 
-    m_image_mat = resize_mat(image_mat, m_width * frame_width, m_height * frame_height);
-    image_mat.release();
+    // calculate mat required size, and make sure width and height are even
+    auto width = (uint32_t)(m_width * frame_width);
+    auto height = (uint32_t)(m_height * frame_height);
+    width += width % 2;
+    height += height % 2;
+
+    // resize mat
+    m_image_mat = ThreadPool::GetInstance()->invoke([image_mat, width, height]()
+                                                    {
+                                        cv::Mat resized_image;
+                                        cv::resize(image_mat, resized_image, cv::Size(width, height), 0, 0, cv::INTER_AREA);
+                                        return resized_image; });
 
     return OverlayImpl::create_dsp_overlays(frame_width, frame_height);
 }
