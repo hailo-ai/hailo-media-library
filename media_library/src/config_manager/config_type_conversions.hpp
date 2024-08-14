@@ -118,6 +118,13 @@ MEDIALIB_JSON_SERIALIZE_ENUM(codec_t, {
                                           {CODEC_TYPE_HEVC, "CODEC_TYPE_HEVC"},
                                       })
 
+MEDIALIB_JSON_SERIALIZE_ENUM(rc_mode_t, {
+                                          {VBR, "VBR"},
+                                          {CVBR, "CVBR"},
+                                          {HRD, "HRD"},
+                                          {CQP, "CQP"},
+                                      })
+
 MEDIALIB_JSON_SERIALIZE_ENUM(deblocking_filter_type_t, {
                                                            {DEBLOCKING_FILTER_ENABLED, "DEBLOCKING_FILTER_ENABLED"},
                                                            {DEBLOCKING_FILTER_DISABLED, "DEBLOCKING_FILTER_DISABLED"},
@@ -163,7 +170,6 @@ void to_json(nlohmann::json &j, const dewarp_config_t &dewarp)
         {"sensor_calib_path", dewarp.sensor_calib_path},
         {"color_interpolation", dewarp.interpolation_type},
         {"camera_type", dewarp.camera_type},
-        {"camera_fov", dewarp.camera_fov},
     };
 }
 
@@ -173,7 +179,6 @@ void from_json(const nlohmann::json &j, dewarp_config_t &dewarp)
     j.at("sensor_calib_path").get_to(dewarp.sensor_calib_path);
     j.at("color_interpolation").get_to(dewarp.interpolation_type);
     j.at("camera_type").get_to(dewarp.camera_type);
-    j.at("camera_fov").get_to(dewarp.camera_fov);
 }
 
 //------------------------ dis_debug_config_t ------------------------
@@ -255,17 +260,19 @@ void from_json(const nlohmann::json &j, input_config_t &in_conf)
 void to_json(nlohmann::json &j, const output_config_t &out_conf)
 {
     j = nlohmann::json{
-        {"codec", out_conf.codec},
-        {"profile", out_conf.profile},
-        {"level", out_conf.level},
+        {"codec", out_conf.codec}
     };
+
+    if (out_conf.profile != std::nullopt) { j["profile"] = out_conf.profile.value(); }
+    if (out_conf.level != std::nullopt) { j["level"] = out_conf.level.value(); }
 }
 
 void from_json(const nlohmann::json &j, output_config_t &out_conf)
 {
     j.at("codec").get_to(out_conf.codec);
-    j.at("profile").get_to(out_conf.profile);
-    j.at("level").get_to(out_conf.level);
+
+    if (j.count("profile") != 0) { out_conf.profile = j.at("profile").get<std::string>(); }
+    if (j.count("level") != 0) { out_conf.level = j.at("level").get<std::string>(); }
 }
 
 void to_json(nlohmann::json &j, const gop_config_t &gop_conf)
@@ -370,68 +377,138 @@ void to_json(nlohmann::json &j, const bitrate_config_t &bitrate_conf)
 {
     j = nlohmann::json{
         {"target_bitrate", bitrate_conf.target_bitrate},
-        {"bit_var_range_i", bitrate_conf.bit_var_range_i},
-        {"bit_var_range_p", bitrate_conf.bit_var_range_p},
-        {"bit_var_range_b", bitrate_conf.bit_var_range_b},
-        {"tolerance_moving_bitrate", bitrate_conf.tolerance_moving_bitrate},
     };
+
+    if (bitrate_conf.bit_var_range_i != std::nullopt) { j["bit_var_range_i"] = bitrate_conf.bit_var_range_i.value(); }
+    if (bitrate_conf.bit_var_range_p != std::nullopt) { j["bit_var_range_p"] = bitrate_conf.bit_var_range_p.value(); }
+    if (bitrate_conf.bit_var_range_b != std::nullopt) { j["bit_var_range_b"] = bitrate_conf.bit_var_range_b.value(); }
+    if (bitrate_conf.tolerance_moving_bitrate != std::nullopt) { j["tolerance_moving_bitrate"] = bitrate_conf.tolerance_moving_bitrate.value(); }
+    if (bitrate_conf.variation != std::nullopt) { j["variation"] = bitrate_conf.variation.value(); }
 }
 
 void from_json(const nlohmann::json &j, bitrate_config_t &bitrate_conf)
 {
     j.at("target_bitrate").get_to(bitrate_conf.target_bitrate);
-    j.at("bit_var_range_i").get_to(bitrate_conf.bit_var_range_i);
-    j.at("bit_var_range_p").get_to(bitrate_conf.bit_var_range_p);
-    j.at("bit_var_range_b").get_to(bitrate_conf.bit_var_range_b);
-    j.at("tolerance_moving_bitrate").get_to(bitrate_conf.tolerance_moving_bitrate);
+
+    if (j.count("bit_var_range_i") != 0) { bitrate_conf.bit_var_range_i = j.at("bit_var_range_i").get<uint32_t>(); }
+    if (j.count("bit_var_range_p") != 0) { bitrate_conf.bit_var_range_p = j.at("bit_var_range_p").get<uint32_t>(); }
+    if (j.count("bit_var_range_b") != 0) { bitrate_conf.bit_var_range_b = j.at("bit_var_range_b").get<uint32_t>(); }
+    if (j.count("tolerance_moving_bitrate") != 0) { bitrate_conf.tolerance_moving_bitrate = j.at("tolerance_moving_bitrate").get<uint32_t>(); }
+    if (j.count("variation") != 0) { bitrate_conf.variation = j.at("variation").get<uint32_t>(); }
 }
 
 void to_json(nlohmann::json &j, const quantization_config_t &q_conf)
 {
     j = nlohmann::json{
-        {"qp_min", q_conf.qp_min},
-        {"qp_max", q_conf.qp_max},
         {"qp_hdr", q_conf.qp_hdr},
-        {"intra_qp_delta", q_conf.intra_qp_delta},
-        {"fixed_intra_qp", q_conf.fixed_intra_qp},
     };
+
+    if (q_conf.qp_min != std::nullopt) { j["qp_min"] = q_conf.qp_min.value(); }
+    if (q_conf.qp_max != std::nullopt) { j["qp_max"] = q_conf.qp_max.value(); }
+    if (q_conf.intra_qp_delta != std::nullopt) { j["intra_qp_delta"] = q_conf.intra_qp_delta.value(); }
+    if (q_conf.fixed_intra_qp != std::nullopt) { j["fixed_intra_qp"] = q_conf.fixed_intra_qp.value(); }
 }
 
 void from_json(const nlohmann::json &j, quantization_config_t &q_conf)
 {
-    j.at("qp_min").get_to(q_conf.qp_min);
-    j.at("qp_max").get_to(q_conf.qp_max);
     j.at("qp_hdr").get_to(q_conf.qp_hdr);
-    j.at("intra_qp_delta").get_to(q_conf.intra_qp_delta);
-    j.at("fixed_intra_qp").get_to(q_conf.fixed_intra_qp);
+
+    if (j.count("qp_min") != 0) { q_conf.qp_min = j.at("qp_min").get<uint32_t>(); }
+    if (j.count("qp_max") != 0) { q_conf.qp_max = j.at("qp_max").get<uint32_t>(); }
+    if (j.count("intra_qp_delta") != 0) { q_conf.intra_qp_delta = j.at("intra_qp_delta").get<int32_t>(); }
+    if (j.count("fixed_intra_qp") != 0) { q_conf.fixed_intra_qp = j.at("fixed_intra_qp").get<uint32_t>(); }
 }
 
 void to_json(nlohmann::json &j, const rate_control_config_t &rc_conf)
 {
     j = nlohmann::json{
+        {"rc_mode", rc_conf.rc_mode},
         {"picture_rc", rc_conf.picture_rc},
         {"picture_skip", rc_conf.picture_skip},
-        {"ctb_rc", rc_conf.ctb_rc},
-        {"hrd", rc_conf.hrd},
-        {"block_rc_size", rc_conf.block_rc_size},
-        {"monitor_frames", rc_conf.monitor_frames},
-        {"gop_length", rc_conf.gop_length},
+        {"intra_pic_rate", rc_conf.intra_pic_rate},
         {"bitrate", rc_conf.bitrate},
         {"quantization", rc_conf.quantization},
     };
+
+    if (rc_conf.ctb_rc != std::nullopt) { j["ctb_rc"] = rc_conf.ctb_rc.value(); }
+    if (rc_conf.hrd != std::nullopt) { j["hrd"] = rc_conf.hrd.value(); }
+    if (rc_conf.gop_length != std::nullopt) { j["gop_length"] = rc_conf.gop_length.value(); }
+    if (rc_conf.monitor_frames != std::nullopt) { j["monitor_frames"] = rc_conf.monitor_frames.value(); }
+    if (rc_conf.cvbr != std::nullopt) { j["cvbr"] = rc_conf.cvbr.value(); }
+    if (rc_conf.padding != std::nullopt) { j["padding"] = rc_conf.padding.value(); }
+    if (rc_conf.hrd_cpb_size != std::nullopt) { j["hrd_cpb_size"] = rc_conf.hrd_cpb_size.value(); }
+    if (rc_conf.block_rc_size != std::nullopt) { j["block_rc_size"] = rc_conf.block_rc_size.value(); }
 }
 
 void from_json(const nlohmann::json &j, rate_control_config_t &rc_conf)
 {
+    j.at("rc_mode").get_to(rc_conf.rc_mode);
     j.at("picture_rc").get_to(rc_conf.picture_rc);
     j.at("picture_skip").get_to(rc_conf.picture_skip);
-    j.at("ctb_rc").get_to(rc_conf.ctb_rc);
-    j.at("hrd").get_to(rc_conf.hrd);
-    j.at("block_rc_size").get_to(rc_conf.block_rc_size);
-    j.at("monitor_frames").get_to(rc_conf.monitor_frames);
-    j.at("gop_length").get_to(rc_conf.gop_length);
+    j.at("intra_pic_rate").get_to(rc_conf.intra_pic_rate);
     j.at("bitrate").get_to(rc_conf.bitrate);
     j.at("quantization").get_to(rc_conf.quantization);
+
+    if (j.count("ctb_rc") != 0) { rc_conf.ctb_rc = j.at("ctb_rc").get<bool>(); }
+    if (j.count("hrd") != 0) { rc_conf.hrd = j.at("hrd").get<bool>(); }
+    if (j.count("gop_length") != 0) { rc_conf.gop_length = j.at("gop_length").get<uint32_t>(); }
+    if (j.count("monitor_frames") != 0) { rc_conf.monitor_frames = j.at("monitor_frames").get<uint32_t>(); }
+    if (j.count("cvbr") != 0) { rc_conf.cvbr = j.at("cvbr").get<uint32_t>(); }
+    if (j.count("padding") != 0) { rc_conf.padding = j.at("padding").get<bool>(); }
+    if (j.count("hrd_cpb_size") != 0) { rc_conf.hrd_cpb_size = j.at("hrd_cpb_size").get<uint32_t>(); }
+    if (j.count("block_rc_size") != 0) { rc_conf.block_rc_size = j.at("block_rc_size").get<uint32_t>(); }
+}
+
+void to_json(nlohmann::json &j, const bitrate_monitor_config_t &bitrate_monitor_conf)
+{
+    j = nlohmann::json{
+        {"enable", bitrate_monitor_conf.enable},
+        {"period", bitrate_monitor_conf.period},
+        {"result_output_path", bitrate_monitor_conf.result_output_path},
+        {"output_result_to_file", bitrate_monitor_conf.output_result_to_file},
+    };
+}
+
+void from_json(const nlohmann::json &j, bitrate_monitor_config_t &bitrate_monitor_conf)
+{
+    j.at("enable").get_to(bitrate_monitor_conf.enable);
+    j.at("period").get_to(bitrate_monitor_conf.period);
+    j.at("result_output_path").get_to(bitrate_monitor_conf.result_output_path);
+    j.at("output_result_to_file").get_to(bitrate_monitor_conf.output_result_to_file);
+}
+
+void to_json(nlohmann::json &j, const cycle_monitor_config_t &cycle_monitor_conf)
+{
+    j = nlohmann::json{
+        {"enable", cycle_monitor_conf.enable},
+        {"start_delay", cycle_monitor_conf.start_delay},
+        {"deviation_threshold", cycle_monitor_conf.deviation_threshold},
+        {"result_output_path", cycle_monitor_conf.result_output_path},
+        {"output_result_to_file", cycle_monitor_conf.output_result_to_file},
+    };
+}
+
+void from_json(const nlohmann::json &j, cycle_monitor_config_t &cycle_monitor_conf)
+{
+    j.at("enable").get_to(cycle_monitor_conf.enable);
+    j.at("start_delay").get_to(cycle_monitor_conf.start_delay);
+    j.at("deviation_threshold").get_to(cycle_monitor_conf.deviation_threshold);
+    j.at("result_output_path").get_to(cycle_monitor_conf.result_output_path);
+    j.at("output_result_to_file").get_to(cycle_monitor_conf.output_result_to_file);
+}
+
+void to_json(nlohmann::json &j, const encoder_monitors_config_t &monitors_conf)
+{
+    j = nlohmann::json{
+        {"bitrate_monitor", monitors_conf.bitrate_monitor},
+        {"cycle_monitor", monitors_conf.cycle_monitor},
+    };
+}
+
+void from_json(const nlohmann::json &j, encoder_monitors_config_t &monitors_conf)
+{
+    j.at("bitrate_monitor").get_to(monitors_conf.bitrate_monitor);
+    j.at("cycle_monitor").get_to(monitors_conf.cycle_monitor);
 }
 
 void to_json(nlohmann::json &j, const hailo_encoder_config_t &enc_conf)
@@ -446,6 +523,7 @@ void to_json(nlohmann::json &j, const hailo_encoder_config_t &enc_conf)
              {"gop_config", enc_conf.gop},
              {"coding_cotnrol", enc_conf.coding_control},
              {"rate_control", enc_conf.rate_control},
+             {"monitors_control", enc_conf.monitors_control},
          }}};
 }
 
@@ -456,6 +534,7 @@ void from_json(const nlohmann::json &j, hailo_encoder_config_t &enc_conf)
     j.at("encoding").at("hailo_encoder").at("gop_config").get_to(enc_conf.gop);
     j.at("encoding").at("hailo_encoder").at("coding_control").get_to(enc_conf.coding_control);
     j.at("encoding").at("hailo_encoder").at("rate_control").get_to(enc_conf.rate_control);
+    j.at("encoding").at("hailo_encoder").at("monitors_control").get_to(enc_conf.monitors_control);
 }
 
 void to_json(nlohmann::json &j, const jpeg_encoder_config_t &enc_conf)
@@ -489,6 +568,7 @@ void to_json(nlohmann::json &j, const dis_config_t &dis)
         {"black_corners_correction_enabled", dis.black_corners_correction_enabled},
         {"black_corners_threshold", dis.black_corners_threshold},
         {"average_luminance_threshold", dis.average_luminance_threshold},
+        {"camera_fov_factor", dis.camera_fov_factor},
         {"angular_dis", dis.angular_dis_config},
         {"debug", dis.debug},
     };
@@ -505,6 +585,7 @@ void from_json(const nlohmann::json &j, dis_config_t &dis)
     j.at("black_corners_correction_enabled").get_to(dis.black_corners_correction_enabled);
     j.at("black_corners_threshold").get_to(dis.black_corners_threshold);
     j.at("average_luminance_threshold").get_to(dis.average_luminance_threshold);
+    j.at("camera_fov_factor").get_to(dis.camera_fov_factor);
     j.at("angular_dis").get_to(dis.angular_dis_config);
     j.at("debug").get_to(dis.debug);
 }
@@ -674,6 +755,7 @@ void to_json(nlohmann::json &j, const multi_resize_config_t &mresize_conf)
     j = nlohmann::json{
         {"output_video", mresize_conf.output_video_config},
         {"digital_zoom", mresize_conf.digital_zoom_config},
+        {"rotation", mresize_conf.rotation_config},
     };
 }
 
@@ -683,6 +765,36 @@ void from_json(const nlohmann::json &j, multi_resize_config_t &mresize_conf)
     // not to be set/changed from json. It is set by the application.
     j.at("output_video").get_to(mresize_conf.output_video_config);
     j.at("digital_zoom").get_to(mresize_conf.digital_zoom_config);
+    j.at("rotation").get_to(mresize_conf.rotation_config);
+}
+
+//------------------------ eis_config_t ------------------------
+void to_json(nlohmann::json &j, const eis_config_t &eis_conf)
+{
+    j = nlohmann::json{
+        {"enabled", eis_conf.enabled},
+        {"correction_applied", eis_conf.correction_applied},
+        {"eis_config_path", eis_conf.eis_config_path},
+        {"gyro_sensor_name", eis_conf.gyro_sensor_name},
+        {"gyro_sensor_freq", eis_conf.gyro_sensor_freq},
+        {"window_size", eis_conf.window_size},
+        {"gyro_scale", eis_conf.gyro_scale},
+        {"rotational_smoothing_coefficient", eis_conf.rotational_smoothing_coefficient},
+        {"iir_hpf_coefficient", eis_conf.iir_hpf_coefficient},
+    };
+}
+
+void from_json(const nlohmann::json &j, eis_config_t &eis_conf)
+{
+    j.at("enabled").get_to(eis_conf.enabled);
+    j.at("correction_applied").get_to(eis_conf.correction_applied);
+    j.at("eis_config_path").get_to(eis_conf.eis_config_path);
+    j.at("gyro_sensor_name").get_to(eis_conf.gyro_sensor_name);
+    j.at("gyro_sensor_freq").get_to(eis_conf.gyro_sensor_freq);
+    j.at("window_size").get_to(eis_conf.window_size);
+    j.at("gyro_scale").get_to(eis_conf.gyro_scale);
+    j.at("rotational_smoothing_coefficient").get_to(eis_conf.rotational_smoothing_coefficient);
+    j.at("iir_hpf_coefficient").get_to(eis_conf.iir_hpf_coefficient);
 }
 
 //------------------------ ldc_config_t ------------------------
@@ -694,6 +806,7 @@ void to_json(nlohmann::json &j, const ldc_config_t &ldc_conf)
     j = nlohmann::json{
         {"dewarp", ldc_conf.dewarp_config},
         {"dis", ldc_conf.dis_config},
+        {"eis", ldc_conf.eis_config},     
         {"optical_zoom", ldc_conf.optical_zoom_config},
         {"rotation", ldc_conf.rotation_config},
         {"flip", ldc_conf.flip_config},
@@ -706,9 +819,27 @@ void from_json(const nlohmann::json &j, ldc_config_t &ldc_conf)
     // not to be set/changed from json. It is set by the application.
     j.at("dewarp").get_to(ldc_conf.dewarp_config);
     j.at("dis").get_to(ldc_conf.dis_config);
+    j.at("eis").get_to(ldc_conf.eis_config);
     j.at("optical_zoom").get_to(ldc_conf.optical_zoom_config);
     j.at("rotation").get_to(ldc_conf.rotation_config);
     j.at("flip").get_to(ldc_conf.flip_config);
+}
+
+//------------------------ isp_t ------------------------
+
+void to_json(nlohmann::json &j, const isp_t &isp_conf)
+{
+    j = nlohmann::json{
+        {"isp", {
+                {"auto-configuration", isp_conf.auto_configuration},
+            }},
+    };
+}
+
+void from_json(const nlohmann::json &j, isp_t &isp_conf)
+{
+    const auto &isp = j.at("isp");
+    isp.at("auto-configuration").get_to(isp_conf.auto_configuration);
 }
 
 //------------------------ hailort_t ------------------------

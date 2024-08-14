@@ -450,7 +450,7 @@ media_library_return MediaLibraryDenoise::Impl::perform_denoise(
 {
 
     // Acquire buffer for denoise output
-    if (m_output_buffer_pool->acquire_buffer(*output_buffer.get()) !=
+    if (m_output_buffer_pool->acquire_buffer(output_buffer) !=
         MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("failed to acquire buffer for denoise output");
@@ -554,7 +554,6 @@ void MediaLibraryDenoise::Impl::inference_callback_thread()
         if (m_initial_batch_callback_counter >= m_loopback_limit)
         {
             HailoMediaLibraryBufferPtr staging_buffer = dequeue_staging_buffer();
-            staging_buffer->decrease_ref_count();
         }
         else
         {
@@ -567,7 +566,6 @@ void MediaLibraryDenoise::Impl::inference_callback_thread()
             // increase output_buffer ref count and loop it back m_loopback_limit times
             for (int i = 0; i < m_loopback_limit; i++)
             {
-                output_buffer->increase_ref_count();
                 queue_loopback_buffer(output_buffer);
             }
         }
@@ -590,10 +588,6 @@ void MediaLibraryDenoise::Impl::inference_callback(HailoMediaLibraryBufferPtr ou
     if (!m_flushing)
     {
         queue_inference_callback_buffer(output_buffer);
-    }
-    else
-    {
-        output_buffer->decrease_ref_count();
     }
 }
 
@@ -630,7 +624,6 @@ void MediaLibraryDenoise::Impl::clear_loopback_queue()
     {
         HailoMediaLibraryBufferPtr buffer = m_loopback_queue.front();
         m_loopback_queue.pop();
-        buffer->decrease_ref_count();
     }
     m_loopback_condvar->notify_one();
 }
@@ -668,7 +661,6 @@ void MediaLibraryDenoise::Impl::clear_staging_queue()
     {
         HailoMediaLibraryBufferPtr buffer = m_staging_queue.front();
         m_staging_queue.pop();
-        buffer->decrease_ref_count();
     }
     m_staging_condvar->notify_one();
 }
@@ -706,7 +698,6 @@ void MediaLibraryDenoise::Impl::clear_inference_callback_queue()
     {
         HailoMediaLibraryBufferPtr buffer = m_inference_callback_queue.front();
         m_inference_callback_queue.pop();
-        buffer->decrease_ref_count();
     }
     m_inference_callback_condvar->notify_one();
 }
@@ -752,7 +743,6 @@ void MediaLibraryDenoise::Impl::clear_queue(std::queue<HailoMediaLibraryBufferPt
     {
         HailoMediaLibraryBufferPtr buffer = queue.front();
         queue.pop();
-        buffer->decrease_ref_count();
     }
     condvar->notify_one();
 }

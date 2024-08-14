@@ -23,7 +23,7 @@
 #include <fcntl.h>
 
 #include <iostream>
-#define DEVPATH "/dev/dma_heap/linux,cma"
+#define DEVPATH "/dev/dma_heap/hailo_media_buf,cma"
 
 G_DEFINE_TYPE (GstHailoDmabufAllocator, gst_hailo_dmabuf_allocator, GST_TYPE_DMABUF_ALLOCATOR);
 

@@ -238,7 +238,7 @@ media_library_return MediaLibraryBufferPool::swap_width_and_height()
 }
 
 media_library_return
-MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
+MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBufferPtr buffer)
 {
     std::unique_lock<std::mutex> lock(*m_buffer_pool_mutex);
     m_buffer_index++;
@@ -263,10 +263,9 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
 
-        dsp_data_plane_t y_plane_data = {
-            .bytesperline = y_channel_stride,
-            .bytesused = y_channel_size,
-        };
+        dsp_data_plane_t y_plane_data = {};
+        y_plane_data.bytesperline = y_channel_stride;
+        y_plane_data.bytesused = y_channel_size;
 
         int y_channel_fd; 
         ret = DmaMemoryAllocator::get_instance().get_fd((void *)y_channel_ptr, y_channel_fd);
@@ -289,10 +288,9 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
 
-        dsp_data_plane_t uv_plane_data = {
-            .bytesperline = uv_channel_stride,
-            .bytesused = uv_channel_size,
-        };
+        dsp_data_plane_t uv_plane_data = {};
+        uv_plane_data.bytesperline = uv_channel_stride;
+        uv_plane_data.bytesused = uv_channel_size;
 
         int uv_channel_fd;
         ret = DmaMemoryAllocator::get_instance().get_fd((void *)uv_channel_ptr, uv_channel_fd);
@@ -325,15 +323,14 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
         hailo_pix_buffer->planes_count = 2;
         hailo_pix_buffer->format = DSP_IMAGE_FORMAT_NV12;
 
-        ret = buffer.create(shared_from_this(), hailo_pix_buffer);
+        ret = buffer->create(shared_from_this(), hailo_pix_buffer);
         if (ret != MEDIA_LIBRARY_SUCCESS)
             return ret;
-        buffer.set_buffer_index(m_buffer_index);
-        buffer.increase_ref_count();
+        buffer->set_buffer_index(m_buffer_index);
         LOGGER__DEBUG("{}: NV12 Buffer width {} height {} acquired",
                       m_name,
-                      buffer.hailo_pix_buffer->width,
-                      buffer.hailo_pix_buffer->height);
+                      buffer->hailo_pix_buffer->width,
+                      buffer->hailo_pix_buffer->height);
         break;
     }
     case DSP_IMAGE_FORMAT_RGB:
@@ -353,10 +350,9 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
 
-        dsp_data_plane_t plane_data = {
-            .bytesperline = image_stride,
-            .bytesused = image_size,
-        };
+        dsp_data_plane_t plane_data = {};
+        plane_data.bytesperline = image_stride;
+        plane_data.bytesused = image_size;
 
         int channel_fd;
         ret = DmaMemoryAllocator::get_instance().get_fd((void *)data_ptr, channel_fd);
@@ -384,15 +380,14 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
         hailo_pix_buffer->planes_count = 1;
         hailo_pix_buffer->format = DSP_IMAGE_FORMAT_GRAY8;
 
-        ret = buffer.create(shared_from_this(), hailo_pix_buffer);
+        ret = buffer->create(shared_from_this(), hailo_pix_buffer);
         if (ret != MEDIA_LIBRARY_SUCCESS)
             return ret;
 
-        buffer.increase_ref_count();
         LOGGER__DEBUG("{}: GRAY8 Buffer width {} height {} acquired",
                       m_name,
-                      buffer.hailo_pix_buffer->width,
-                      buffer.hailo_pix_buffer->height);
+                      buffer->hailo_pix_buffer->width,
+                      buffer->hailo_pix_buffer->height);
         break;
     }
     default:
@@ -402,18 +397,6 @@ MediaLibraryBufferPool::acquire_buffer(hailo_media_library_buffer &buffer)
     }
     }
     return ret;
-}
-
-void MediaLibraryBufferPool::log_increase_ref_count(uint32_t plane_index, uint32_t ref_count, uint32_t buffer_index)
-{
-    LOGGER__DEBUG("{}: Increasing ref count of plane {} to {} for buffer index {}",
-                  m_name, plane_index, ref_count, buffer_index);
-}
-
-void MediaLibraryBufferPool::log_decrease_ref_count(uint32_t plane_index, uint32_t ref_count, uint32_t buffer_index)
-{
-    LOGGER__DEBUG("{}: Decreasing ref count of plane {} to {} for buffer index {}",
-                  m_name, plane_index, ref_count, buffer_index);
 }
 
 int HailoBucket::available_buffers_count()
@@ -448,13 +431,13 @@ MediaLibraryBufferPool::release_plane(hailo_media_library_buffer *buffer,
 }
 
 media_library_return
-MediaLibraryBufferPool::release_buffer(hailo_media_library_buffer *buffer)
+MediaLibraryBufferPool::release_buffer(HailoMediaLibraryBufferPtr buffer)
 {
     for (uint32_t i = 0; i < m_buckets.size(); i++)
     {
         if (m_buckets[i]->m_used_buffers.size() > 0)
         {
-            media_library_return ret = release_plane(buffer, i);
+            media_library_return ret = release_plane(buffer.get(), i);
             if (ret != MEDIA_LIBRARY_SUCCESS)
             {
                 LOGGER__ERROR("{}: failed to release plane number {}", m_name, i);

@@ -493,12 +493,12 @@ VCEncPictureCodingType find_next_pic_internal(VCEncIn *encIn,
             int gop_shorten = 0;
 
             // cut by an IDR
-            if ((enc_params->idr_interval) &&
+            if ((enc_params->intra_pic_rate) &&
                 ((gop_end_pic - enc_params->last_idr_picture_cnt) >=
-                 (int)enc_params->idr_interval))
+                 (int)enc_params->intra_pic_rate))
                 gop_shorten =
                     1 + ((gop_end_pic - enc_params->last_idr_picture_cnt) -
-                         enc_params->idr_interval);
+                         enc_params->intra_pic_rate);
 
             if (gop_shorten >= next_gop_size)
             {
@@ -523,9 +523,9 @@ VCEncPictureCodingType find_next_pic_internal(VCEncIn *encIn,
         encIn->poc += enc_params->picture_cnt - picture_cnt_tmp;
         // next coding type
         bool forceIntra =
-            enc_params->idr_interval &&
+            enc_params->intra_pic_rate &&
             ((enc_params->picture_cnt - enc_params->last_idr_picture_cnt) >=
-             (int)enc_params->idr_interval);
+             (int)enc_params->intra_pic_rate);
         if (forceIntra)
             nextCodingType = VCENC_INTRA_FRAME;
         else

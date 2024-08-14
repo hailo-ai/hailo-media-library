@@ -261,7 +261,8 @@ media_library_return DewarpMeshContext::initialize_dis_context()
     // Initialize dis dewarp mesh object using DIS library
     RetCodes ret = dis_init(&m_dis_ctx, m_pre_proc_configs.dis_config, calib,
                             m_input_width, m_input_height,
-                            m_pre_proc_configs.dewarp_config.camera_type, m_pre_proc_configs.dewarp_config.camera_fov, &dewarp_mesh);
+                            m_pre_proc_configs.dewarp_config.camera_type,
+                            m_pre_proc_configs.dis_config.camera_fov_factor, &dewarp_mesh);
     if (ret != DIS_OK)
     {
         LOGGER__ERROR("dewarp mesh initialization failed on error {}", ret);

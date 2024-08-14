@@ -76,6 +76,8 @@
 */
 namespace isp_utils
 {
+    extern bool m_auto_configure;
+    void set_auto_configure(bool auto_configure);
     void override_file(const std::string &src, const std::string &dst);
     void set_default_configuration();
     void set_denoise_configuration();

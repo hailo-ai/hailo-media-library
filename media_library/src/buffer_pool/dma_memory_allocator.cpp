@@ -35,7 +35,7 @@
 #include <sys/user.h>
 #include <unistd.h>
 
-#define DEVPATH "/dev/dma_heap/linux,cma"
+#define DEVPATH "/dev/dma_heap/hailo_media_buf,cma"
 
 DmaMemoryAllocator::DmaMemoryAllocator()
 {
@@ -102,7 +102,9 @@ media_library_return DmaMemoryAllocator::dmabuf_heap_alloc(dma_heap_allocation_d
 
     heap_data = {
         .len = size,
+        .fd = 0, // fd is an output parameter
         .fd_flags = O_RDWR | O_CLOEXEC,
+        .heap_flags = 0,
     };
 
     int ret = ioctl(m_dma_heap_fd, DMA_HEAP_IOCTL_ALLOC, &heap_data);
@@ -238,7 +240,7 @@ media_library_return DmaMemoryAllocator::dmabuf_sync(void *buffer, dma_buf_sync 
 }
 
 media_library_return DmaMemoryAllocator::dmabuf_sync_start(void *buffer)
-{   
+{
     // Read the cache from device and start the sync
     struct dma_buf_sync sync = {
         .flags = DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ,
@@ -257,7 +259,7 @@ media_library_return DmaMemoryAllocator::dmabuf_sync_end(void *buffer)
     return dmabuf_sync(buffer, sync);
 }
 
-media_library_return DmaMemoryAllocator::get_fd(void *buffer, int& fd)
+media_library_return DmaMemoryAllocator::get_fd(void *buffer, int &fd)
 {
     std::unique_lock<std::mutex> lock(*m_allocator_mutex);
     LOGGER__DEBUG("get_fd function-start: buffer = {}", fmt::ptr(buffer));
@@ -281,7 +283,7 @@ media_library_return DmaMemoryAllocator::get_ptr(uint fd, void **buffer)
     std::unique_lock<std::mutex> lock(*m_allocator_mutex);
     LOGGER__DEBUG("get_ptr function-start: fd = {}", fd);
 
-    for (auto const& [key, val] : m_allocated_buffers)
+    for (auto const &[key, val] : m_allocated_buffers)
     {
         if (val.fd == fd)
         {

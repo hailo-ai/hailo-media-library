@@ -67,29 +67,8 @@ executable('encoder_example',
 
 
 ################################################
-# Frontend with HRT Example
+# Misc
 ################################################
-
-hailort_dep = [
-    meson.get_compiler('cpp').find_library('hailort', required: true),
-]
-hailort_inc_dirs = include_directories(
-    sysroot + '/usr/include/hailo',
-    is_system: true
-)
-
-
-native_frontend_example_src = ['examples/native/main.cpp']
-
-executable('native_frontend_example',
-  native_frontend_example_src,
-  include_directories: hailort_inc_dirs,
-  dependencies : gstreamer_deps + [media_library_frontend_dep, gstmedialibrary_utils_dep, media_library_api_dep, hailort_dep, opencv_dep],
-  gnu_symbol_visibility : 'default',
-  install: true,
-  install_dir: get_option('bindir'),
-)
-
 
 polygon_example_src = ['examples/polygon_example.cpp']
 

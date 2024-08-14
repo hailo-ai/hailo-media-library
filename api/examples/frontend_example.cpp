@@ -107,7 +107,6 @@ void subscribe_elements(std::shared_ptr<MediaLibrary> media_lib)
             [media_lib, streamId](HailoMediaLibraryBufferPtr buffer, size_t size)
             {
                 write_encoded_data(buffer, size, media_lib->output_files[streamId]);
-                buffer->decrease_ref_count();
             });
     }
 }
@@ -173,7 +172,7 @@ int update_encoders_bitrate(std::map<output_stream_id_t, MediaLibraryEncoderPtr>
     uint enc_i = 0;
     for (const auto &entry : encoders)
     {
-        encoder_config_t encoder_config = entry.second->get_config();
+        encoder_config_t encoder_config = entry.second->get_user_config();
         if (entry.second->get_type() == EncoderType::Jpeg)
         {
             continue;
@@ -181,6 +180,48 @@ int update_encoders_bitrate(std::map<output_stream_id_t, MediaLibraryEncoderPtr>
         hailo_encoder_config_t &hailo_encoder_config = std::get<hailo_encoder_config_t>(encoder_config);
         std::cout << "Encoder " << enc_i << " current bitrate: " << hailo_encoder_config.rate_control.bitrate.target_bitrate << " Setting to " << new_bitrate << std::endl;
         hailo_encoder_config.rate_control.bitrate.target_bitrate = new_bitrate;
+        if (entry.second->configure(encoder_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        {
+            std::cout << "Failed to configure Encoder " << enc_i << std::endl;
+            return 1;
+        }
+        enc_i++;
+    }
+    return 0;
+}
+
+int update_encoders_bitrate_monitor_period(std::map<output_stream_id_t, MediaLibraryEncoderPtr> &encoders, uint32_t period)
+{
+    uint enc_i = 0;
+    for (const auto &entry : encoders)
+    {
+        encoder_config_t encoder_config = entry.second->get_user_config();
+        if (entry.second->get_type() == EncoderType::Jpeg) {
+            continue;
+        }
+        hailo_encoder_config_t &hailo_encoder_config = std::get<hailo_encoder_config_t>(encoder_config);
+        hailo_encoder_config.monitors_control.bitrate_monitor.period = period;
+        if (entry.second->configure(encoder_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        {
+            std::cout << "Failed to configure Encoder " << enc_i << std::endl;
+            return 1;
+        }
+        enc_i++;
+    }
+    return 0;
+}
+
+int disable_encoders_bitrate_monitor(std::map<output_stream_id_t, MediaLibraryEncoderPtr> &encoders)
+{
+    uint enc_i = 0;
+    for (const auto &entry : encoders)
+    {
+        encoder_config_t encoder_config = entry.second->get_user_config();
+        if (entry.second->get_type() == EncoderType::Jpeg) {
+            continue;
+        }
+        hailo_encoder_config_t &hailo_encoder_config = std::get<hailo_encoder_config_t>(encoder_config);
+        hailo_encoder_config.monitors_control.bitrate_monitor.enable = false;
         if (entry.second->configure(encoder_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
             std::cout << "Failed to configure Encoder " << enc_i << std::endl;
@@ -371,13 +412,29 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    if (update_encoders_bitrate(m_media_lib->encoders) != 0)
+    for (const auto &entry : m_media_lib->encoders)
     {
-        stop_pipeline();
-        return 1;
+        output_stream_id_t streamId = entry.first;
+        MediaLibraryEncoderPtr encoder = entry.second;
+        std::cout << "starting encoder for " << streamId << std::endl;
+        std::cout << "Current fps for " << streamId << " is " << encoder->get_current_fps() << std::endl;
     }
 
-    std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 14 seconds
+    m_media_lib->frontend->get_current_fps();
+    std::cout << "Current fps for frontend is " << m_media_lib->frontend->get_current_fps() << std::endl;
+
+    if (update_encoders_bitrate(m_media_lib->encoders) != 0)
+        return 1;
+
+    if (update_encoders_bitrate_monitor_period(m_media_lib->encoders, 2) != 0)
+        return 1;
+
+    std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
+
+    if (disable_encoders_bitrate_monitor(m_media_lib->encoders) != 0)
+        return 1;
+
+    std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
 
     stop_pipeline();
 

@@ -44,8 +44,8 @@ typedef struct _GstHailoOsdClass GstHailoOsdClass;
 struct _GstHailoOsd
 {
     GstBaseTransform base_hailoosd;
-    const gchar *config_path;
-    const gchar *config_str;
+    gchar *config_path;
+    gchar *config_str;
     std::shared_ptr<osd::Blender> blender;
     gboolean wait_for_writable_buffer;
     bool initialized;

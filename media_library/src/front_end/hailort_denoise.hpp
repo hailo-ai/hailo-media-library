@@ -32,9 +32,11 @@ public:
     ~HailortAsyncDenoise()
     {
         // Wait for last infer to finish
-        if (m_last_infer_job) {
+        if (m_last_infer_job)
+{
             auto status = m_last_infer_job->wait(std::chrono::milliseconds(1000));
-            if (HAILO_SUCCESS != status) {
+            if (HAILO_SUCCESS != status)
+            {
                 LOGGER__ERROR("Failed to wait for infer to finish, status = {}", status);
             }
         }
@@ -47,7 +49,7 @@ public:
         m_scheduler_timeout_in_ms = scheduler_timeout_in_ms;
         m_network_config = network_config;
 
-        hailo_vdevice_params_t vdevice_params = {0};
+        hailo_vdevice_params_t vdevice_params = {};
         hailo_init_vdevice_params(&vdevice_params);
         vdevice_params.group_id = m_group_id.c_str();
 
@@ -132,24 +134,63 @@ private:
         return SUCCESS;
     }
 
+    int set_input_buffer(int fd, std::string tensor_name)
+    {
+        auto input_frame_size = m_infer_model->input(tensor_name)->get_frame_size();
+        hailo_dma_buffer_t dma_buffer = {fd, input_frame_size};
+        auto status = m_bindings.input(tensor_name)->set_dma_buffer(dma_buffer);
+        if (HAILO_SUCCESS != status)
+        {
+            std::cerr << "Failed to set infer input buffer, status = " << status << std::endl;
+            return status;
+        }
+
+        return SUCCESS;
+    }
+    
+
     int set_input_buffers(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr loopback_buffer)
     {
-        if (set_input_buffer(input_buffer->get_plane(0), m_network_config.y_channel) != SUCCESS)
+        int fd;
+        fd = input_buffer->get_fd(0);
+        if(fd < 0)
+        {
+            std::cerr << "Failed to get file descriptor of input buffer plane 0"<< std::endl;
+            return ERROR;
+        }
+        if (set_input_buffer(fd, m_network_config.y_channel) != SUCCESS)
         {
             return ERROR;
         }
 
-        if (set_input_buffer(input_buffer->get_plane(1), m_network_config.uv_channel) != SUCCESS)
+        fd = input_buffer->get_fd(1);
+        if(fd < 0)
+        {
+            std::cerr << "Failed to get file descriptor of input buffer plane 1" << fd << std::endl;
+            return ERROR;
+        }
+        if (set_input_buffer(fd, m_network_config.uv_channel) != SUCCESS)
         {
             return ERROR;
         }
 
-        if (set_input_buffer(loopback_buffer->get_plane(0), m_network_config.feedback_y_channel) != SUCCESS)
+        fd = loopback_buffer->get_fd(0);
+        if(fd < 0)
+        {
+            std::cerr << "Failed to get file descriptor of loopback buffer plane 0" << fd << std::endl;
+            return ERROR;
+        }
+        if (set_input_buffer(fd, m_network_config.feedback_y_channel) != SUCCESS)
         {
             return ERROR;
         }
-
-        if (set_input_buffer(loopback_buffer->get_plane(1), m_network_config.feedback_uv_channel) != SUCCESS)
+        fd = loopback_buffer->get_fd(1);
+        if(fd < 0)
+        {
+            std::cerr << "Failed to get file descriptor of loopback buffer plane 1" << fd << std::endl;
+            return ERROR;
+        }
+        if (set_input_buffer(fd, m_network_config.feedback_uv_channel) != SUCCESS)
         {
             return ERROR;
         }
@@ -170,14 +211,41 @@ private:
         return SUCCESS;
     }
 
+    int set_output_buffer(int fd, std::string tensor_name)
+    {
+        auto output_frame_size = m_infer_model->output(tensor_name)->get_frame_size();
+        hailo_dma_buffer_t dma_buffer = {fd, output_frame_size};
+        auto status = m_bindings.output(tensor_name)->set_dma_buffer(dma_buffer);
+        if (HAILO_SUCCESS != status)
+        {
+            std::cerr << "Failed to set infer input buffer, status = " << status << std::endl;
+            return status;
+        }
+
+        return SUCCESS;
+    }
+
     int set_output_buffers(HailoMediaLibraryBufferPtr output_buffer)
     {
-        if (set_output_buffer(output_buffer->get_plane(0), m_network_config.output_y_channel) != SUCCESS)
+        int fd;
+        fd = output_buffer->get_fd(0);
+        if(fd < 0)
+        {
+            std::cerr << "Failed to get file descriptor of output buffer plane 0" << fd << std::endl;
+            return ERROR;
+        }
+        if (set_output_buffer(fd, m_network_config.output_y_channel) != SUCCESS)
         {
             return ERROR;
         }
+        fd = output_buffer->get_fd(1);
+        if(fd < 0)
+        {
+            std::cerr << "Failed to get file descriptor of output buffer plane 1" << fd << std::endl;
+            return ERROR;
+        }
 
-        if (set_output_buffer(output_buffer->get_plane(1), m_network_config.output_uv_channel) != SUCCESS)
+        if (set_output_buffer(fd, m_network_config.output_uv_channel) != SUCCESS)
         {
             return ERROR;
         }

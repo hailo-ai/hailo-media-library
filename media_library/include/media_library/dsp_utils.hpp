@@ -30,6 +30,7 @@
 #include "hailo/hailodsp.h"
 #include <stdint.h>
 #include <vector>
+#include <optional>
 
 #define MIN_ISP_AE_FPS_FOR_DIS (20)
 
@@ -66,13 +67,14 @@ namespace dsp_utils
   perform_resize(dsp_image_properties_t *input_image_properties,
                  dsp_image_properties_t *output_image_properties,
                  dsp_interpolation_type_t dsp_interpolation_type,
-                 bool letterbox);
+                 std::optional<dsp_letterbox_properties_t> letterbox_properties);
 
   dsp_status
   perform_crop_and_resize(dsp_image_properties_t *input_image_properties,
                           dsp_image_properties_t *output_image_properties,
                           crop_resize_dims_t args,
-                          dsp_interpolation_type_t dsp_interpolation_type);
+                          dsp_interpolation_type_t dsp_interpolation_type,
+                          std::optional<dsp_letterbox_properties_t> letterbox_properties);
 
   dsp_status
   perform_dsp_multi_resize(dsp_multi_crop_resize_params_t *multi_crop_resize_params);
@@ -108,6 +110,7 @@ namespace dsp_utils
   size_t get_dsp_desired_stride_from_width(size_t width);
 
   static constexpr int max_blend_overlays = 50;
+
 } // namespace dsp_utils
 
 /** @} */ // end of dsp_utils_definitions

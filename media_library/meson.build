@@ -14,6 +14,7 @@ common_sourcs = [
     'src/buffer_pool/dma_memory_allocator.cpp',
     'src/utils/media_library_logger.cpp',
     'src/utils/signal_utils.cpp',
+    'src/utils/threadpool.cpp',
     'src/config_manager/config_manager.cpp'
 ]
 
@@ -21,7 +22,7 @@ media_library_common_lib = shared_library('hailo_media_library_common',
     common_sourcs,
     cpp_args: common_args,
     include_directories: [incdir, utils_incdir],
-    dependencies : [dsp_dep, spdlog_dep, json_dep, expected_dep],
+    dependencies : [opencv_dep, dsp_dep, spdlog_dep, json_dep, expected_dep],
     version: meson.project_version(),
     install: true,
     install_dir: get_option('libdir'),
@@ -40,10 +41,9 @@ pkgc.generate(name: 'hailo_media_library_common',
 )
 
 subdir('./src/dis_library')
+subdir('./src/eis_library')
 
 frontend_sources = [
-    'src/vision_pre_proc/vision_pre_proc.cpp',
-    'src/vision_pre_proc/dewarp_mesh_context.cpp',
     'src/front_end/multi_resize.cpp',
     'src/front_end/dewarp.cpp',
     'src/front_end/ldc_mesh_context.cpp',
@@ -53,18 +53,42 @@ frontend_sources = [
     'src/front_end/defog.cpp'
 ]
 
-if get_option('hailort_4_16')
-    message('Building media_library with Hailort 4.16')
-    frontend_sources += [
-    ]
-    common_args += ['-DHAILORT_4_16']
-endif
+libiio_dep = dependency('libiio', version: '>=0.19', required: true)
+
+gyro_sources = [
+  'src/eis_library/gyro_device.cpp',
+  'src/eis_library/arguments_parser.cpp'
+]
+
+gyro_lib = shared_library('gyro_library',
+    gyro_sources,
+    cpp_args: common_args,
+    include_directories: [eis_incdir, incdir],
+    dependencies : [libiio_dep, media_library_common_dep],
+    version: meson.project_version(),
+    install: true,
+    install_dir: get_option('libdir'),
+)
+
+gyro_lib_dep = declare_dependency(
+  include_directories: [include_directories('.')],
+  dependencies : [],
+  link_with : gyro_lib)
+
+executable('gyro_calibration',
+  gyro_sources,
+  include_directories: [eis_incdir, incdir],
+  dependencies : [libiio_dep, media_library_common_dep],
+  gnu_symbol_visibility : 'default',
+  install: true,
+  install_dir: get_option('bindir'),
+)
 
 media_library_frontend_lib = shared_library('hailo_media_library_frontend',
     frontend_sources,
     cpp_args: common_args,
-    include_directories: [incdir, dis_incdir, utils_incdir],
-    dependencies : [opencv_dep,  dsp_dep, dis_library_dep, spdlog_dep, json_dep, expected_dep, media_library_common_dep, libhailort_dep],
+    include_directories: [incdir, dis_incdir, eis_incdir, utils_incdir],
+    dependencies : [opencv_dep,  dsp_dep, dis_library_dep, gyro_lib_dep, spdlog_dep, json_dep, expected_dep, media_library_common_dep, libhailort_dep, eis_lib_dep],
     version: meson.project_version(),
     install: true,
     install_dir: get_option('libdir'),
@@ -112,6 +136,7 @@ pkgc.generate(name: 'hailo_encoder',
 media_library_encoder_lib_sources = [
     'src/hailo_encoder/encoder.cpp',
     'src/hailo_encoder/encoder_config.cpp',
+    'src/hailo_encoder/encoder_config_presets.cpp',
     'src/hailo_encoder/encoder_gop_config.cpp',
 ]
 

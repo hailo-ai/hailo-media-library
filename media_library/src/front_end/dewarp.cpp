@@ -63,7 +63,7 @@ public:
     media_library_return configure(ldc_config_t &ldc_configs);
 
     // Perform pre-processing on the input frame and return the output frames
-    media_library_return handle_frame(hailo_media_library_buffer &input_frame, hailo_media_library_buffer &output_frame);
+    media_library_return handle_frame(HailoMediaLibraryBufferPtr input_frame, HailoMediaLibraryBufferPtr output_frame);
 
     // get the pre-processing configurations object
     ldc_config_t &get_ldc_configs();
@@ -105,9 +105,9 @@ private:
     std::vector<MediaLibraryDewarp::callbacks_t> m_callbacks;
     media_library_return decode_config_json_string(ldc_config_t &ldc_configs, std::string config_string);
     media_library_return create_and_initialize_buffer_pools();
-    media_library_return validate_input_frame(hailo_media_library_buffer &input_frame);
-    media_library_return perform_dewarp(hailo_media_library_buffer &input_buffer, hailo_media_library_buffer &dewarp_output_buffer);
-    media_library_return perform_angular_dis_dewarp(hailo_media_library_buffer &input_buffer, hailo_media_library_buffer &dewarp_output_buffer, dsp_image_properties_t *image, dsp_dewarp_mesh_t *mesh);
+    media_library_return validate_input_frame(HailoMediaLibraryBufferPtr input_frame);
+    media_library_return perform_dewarp(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr dewarp_output_buffer);
+    media_library_return perform_angular_dis_dewarp(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr dewarp_output_buffer, dsp_image_properties_t *image, dsp_dewarp_mesh_t *mesh);
     void stamp_time_and_log_fps(timespec &start_handle, timespec &end_handle);
     void increase_frame_counter();
 };
@@ -136,7 +136,7 @@ media_library_return MediaLibraryDewarp::configure(ldc_config_t &ldc_configs)
     return m_impl->configure(ldc_configs);
 }
 
-media_library_return MediaLibraryDewarp::handle_frame(hailo_media_library_buffer &input_frame, hailo_media_library_buffer &output_frame)
+media_library_return MediaLibraryDewarp::handle_frame(HailoMediaLibraryBufferPtr input_frame, HailoMediaLibraryBufferPtr output_frame)
 {
     return m_impl->handle_frame(input_frame, output_frame);
 }
@@ -272,18 +272,13 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
     // skip mesh context configure if caps not set yet
     if (m_ldc_configs.output_video_config.dimensions.destination_width == 0 || m_ldc_configs.output_video_config.dimensions.destination_height == 0)
     {
-        LOGGER__INFO("Skipping dewarp mesh configuration since input_video_config not set yet");
+        LOGGER__INFO("Skipping dewarp mesh configuration since output_video_config not set yet");
         return MEDIA_LIBRARY_SUCCESS;
     }
 
     if (m_ldc_configs.dewarp_config.enabled)
     {
-        // Validate dewarp configurations
-        if (m_ldc_configs.dewarp_config.camera_fov > 160.f && m_ldc_configs.dewarp_config.camera_type == CAMERA_TYPE_PINHOLE)
-        {
-            LOGGER__ERROR("Invalid value for camera_fov ({}) for a pin-hole camera type, must be lower than 160", m_ldc_configs.dewarp_config.camera_fov);
-            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-        }
+        // Only CAMERA_TYPE_PINHOLE camera_type is supported
         m_ldc_configs.dewarp_config.camera_type = CAMERA_TYPE_PINHOLE;
     }
     else
@@ -318,6 +313,12 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
         }
     }
 
+    if (!m_ldc_configs.eis_config.enabled && m_ldc_configs.eis_config.correction_applied)
+    {
+        LOGGER__ERROR("Correction is enabled, but EIS is not. Enable EIS to apply correction to frames!");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
     m_configured = true;
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -349,7 +350,7 @@ media_library_return MediaLibraryDewarp::Impl::create_and_initialize_buffer_pool
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryDewarp::Impl::perform_angular_dis_dewarp(hailo_media_library_buffer &input_buffer, hailo_media_library_buffer &dewarp_output_buffer, dsp_image_properties_t *image, dsp_dewarp_mesh_t *mesh)
+media_library_return MediaLibraryDewarp::Impl::perform_angular_dis_dewarp(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr dewarp_output_buffer, dsp_image_properties_t *image, dsp_dewarp_mesh_t *mesh)
 {
     std::shared_ptr<angular_dis_params_t> angular_dis_params = m_dewarp_mesh_ctx->get_angular_dis_params();
 
@@ -380,7 +381,7 @@ media_library_return MediaLibraryDewarp::Impl::perform_angular_dis_dewarp(hailo_
         .dy = angular_dis_params->isp_vsm.dy};
 
     dsp_status ret = dsp_utils::perform_dsp_dewarp(
-        input_buffer.hailo_pix_buffer.get(),
+        input_buffer->hailo_pix_buffer.get(),
         image, mesh,
         m_ldc_configs.dewarp_config.interpolation_type,
         isp_vsm,
@@ -409,8 +410,8 @@ media_library_return MediaLibraryDewarp::Impl::perform_angular_dis_dewarp(hailo_
  * @param[in] vsm - pointer to the vsm object
  */
 media_library_return MediaLibraryDewarp::Impl::perform_dewarp(
-    hailo_media_library_buffer &input_buffer,
-    hailo_media_library_buffer &dewarp_output_buffer)
+    HailoMediaLibraryBufferPtr input_buffer,
+    HailoMediaLibraryBufferPtr dewarp_output_buffer)
 {
     struct timespec start_dewarp, end_dewarp;
 
@@ -424,7 +425,7 @@ media_library_return MediaLibraryDewarp::Impl::perform_dewarp(
 
     // Perform dewarp
     dsp_dewarp_mesh_t *mesh = m_dewarp_mesh_ctx->get();
-    dsp_image_properties_t *image = dewarp_output_buffer.hailo_pix_buffer.get();
+    dsp_image_properties_t *image = dewarp_output_buffer->hailo_pix_buffer.get();
     LOGGER__TRACE("Performing dewarp with mesh (w={}, h={}) interpolation type {}", mesh->mesh_width, mesh->mesh_height, m_ldc_configs.dewarp_config.interpolation_type);
     clock_gettime(CLOCK_MONOTONIC, &start_dewarp);
 
@@ -437,7 +438,7 @@ media_library_return MediaLibraryDewarp::Impl::perform_dewarp(
     else
     {
         dsp_status ret = dsp_utils::perform_dsp_dewarp(
-            input_buffer.hailo_pix_buffer.get(),
+            input_buffer->hailo_pix_buffer.get(),
             image, mesh,
             m_ldc_configs.dewarp_config.interpolation_type);
 
@@ -468,10 +469,10 @@ void MediaLibraryDewarp::Impl::increase_frame_counter()
 
 media_library_return
 MediaLibraryDewarp::Impl::validate_input_frame(
-    hailo_media_library_buffer &input_frame)
+    HailoMediaLibraryBufferPtr input_frame)
 {
     output_resolution_t &input_res = m_ldc_configs.input_video_config.resolution;
-    dsp_image_properties_t *input_image_properties = input_frame.hailo_pix_buffer.get();
+    dsp_image_properties_t *input_image_properties = input_frame->hailo_pix_buffer.get();
 
     if (input_res != *input_image_properties)
     {
@@ -482,7 +483,7 @@ MediaLibraryDewarp::Impl::validate_input_frame(
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryDewarp::Impl::handle_frame(hailo_media_library_buffer &input_frame, hailo_media_library_buffer &output_frame)
+media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBufferPtr input_frame, HailoMediaLibraryBufferPtr output_frame)
 {
     std::shared_lock<std::shared_mutex> lock(rw_lock);
 
@@ -495,38 +496,46 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(hailo_media_library_
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
-    m_video_fd = input_frame.video_fd;
+    m_video_fd = input_frame->video_fd;
 
     // Dewarp
     media_library_return media_lib_ret = MEDIA_LIBRARY_SUCCESS;
     // If the frame is not converged, or the fps is lower than the minimum fps for DIS, we need to reset the VSM
-    if ((!input_frame.isp_ae_converged) ||
-        (!(input_frame.isp_ae_fps > MIN_ISP_AE_FPS_FOR_DIS || input_frame.isp_ae_fps == HAILO_ISP_AE_FPS_DEFAULT_VALUE)) ||
-        (input_frame.isp_ae_average_luma < m_ldc_configs.dis_config.average_luminance_threshold))
+    if ((!input_frame->isp_ae_converged) ||
+        (!(input_frame->isp_ae_fps > MIN_ISP_AE_FPS_FOR_DIS || input_frame->isp_ae_fps == HAILO_ISP_AE_FPS_DEFAULT_VALUE)) ||
+        (input_frame->isp_ae_average_luma < m_ldc_configs.dis_config.average_luminance_threshold))
     {
         LOGGER__INFO("Resetting VSM  - reason could be ae converged {} ae fps {} or ae luminance {}",
-                     input_frame.isp_ae_converged,
-                     input_frame.isp_ae_fps,
-                     input_frame.isp_ae_average_luma);
-        input_frame.vsm.dx = HAILO_VSM_DEFAULT_VALUE;
-        input_frame.vsm.dy = HAILO_VSM_DEFAULT_VALUE;
+                     input_frame->isp_ae_converged,
+                     input_frame->isp_ae_fps,
+                     input_frame->isp_ae_average_luma);
+        input_frame->vsm.dx = HAILO_VSM_DEFAULT_VALUE;
+        input_frame->vsm.dy = HAILO_VSM_DEFAULT_VALUE;
     }
 
     // Update mesh context if dis is enabled and vsm has changed
     else if (m_ldc_configs.dis_config.enabled)
     {
-        LOGGER__DEBUG("Updating vsm to dx {} dy {}", input_frame.vsm.dx, input_frame.vsm.dy);
-        m_dewarp_mesh_ctx->on_frame_vsm_update(input_frame.vsm);
+        LOGGER__DEBUG("Updating vsm to dx {} dy {}", input_frame->vsm.dx, input_frame->vsm.dy);
+        m_dewarp_mesh_ctx->on_frame_vsm_update(input_frame->vsm);
+    }
+
+    if (m_ldc_configs.eis_config.enabled)
+    {
+        m_dewarp_mesh_ctx->on_frame_eis_update(input_frame->isp_timestamp_ns,
+                                                m_ldc_configs.eis_config.correction_applied);
     }
 
     // Update last vsm
-    m_last_vsm.dx = input_frame.vsm.dx;
-    m_last_vsm.dy = input_frame.vsm.dy;
+    m_last_vsm.dx = input_frame->vsm.dx;
+    m_last_vsm.dy = input_frame->vsm.dy;
 
     media_lib_ret = perform_dewarp(input_frame, output_frame);
-    output_frame.isp_ae_fps = input_frame.isp_ae_fps;
-    output_frame.isp_ae_converged = input_frame.isp_ae_converged;
-    output_frame.isp_timestamp_ns = input_frame.isp_timestamp_ns;
+    output_frame->isp_ae_fps = input_frame->isp_ae_fps;
+    output_frame->isp_ae_converged = input_frame->isp_ae_converged;
+    output_frame->isp_ae_average_luma = input_frame->isp_ae_average_luma;
+    output_frame->isp_timestamp_ns = input_frame->isp_timestamp_ns;
+    output_frame->pts = input_frame->pts;
 
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
         return media_lib_ret;

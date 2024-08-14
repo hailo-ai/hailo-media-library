@@ -47,6 +47,7 @@ enum media_library_return
     MEDIA_LIBRARY_ENCODER_ENCODE_ERROR,
     MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS,
     MEDIA_LIBRARY_BUFFER_NOT_FOUND,
+    MEDIA_LIBRARY_FREETYPE_ERROR,
 
     /** Max enum value to maintain ABI Integrity */
     MEDIA_LIBRARY_MAX = INT_MAX
@@ -136,6 +137,11 @@ struct vsm_config_t
     uint32_t vsm_v_offset;
 };
 
+struct isp_t
+{
+    bool auto_configuration;
+};
+
 struct hailort_t
 {
     std::string device_id;
@@ -189,24 +195,10 @@ struct dewarp_config_t
     dsp_interpolation_type_t interpolation_type;
     camera_type_t camera_type;
 
-    /*
-    Diagonal FoV of output camera in degrees. The difference between input and output FOV, (horizontal, vertical
-    and diagonal) is the room for stabilization. Note the relation betwen aspect ratio and H,V,DFOV ratios:
-     - for fisheye camera:
-      HFOV / VFOV / DFOV = width / hight / diagonal
-     - for pinhole camera:
-      tan(HFOV/2) / tan(VFOV/2) / tan(DFOV/2) = width / hight / diagonal
-     Set to <=0  to let DIS calculate and use the maximum possible FOV at the given input camera model and output
-    aspect ratio.
-    values: pinhole: 1-179, fisheye: or 1-360, degrees, no default, <=0 means "maximum possible FOV"
-    */
-    float camera_fov;
-
     bool operator==(const dewarp_config_t &other) const
     {
         return sensor_calib_path == other.sensor_calib_path &&
-               interpolation_type == other.interpolation_type &&
-               camera_fov == other.camera_fov;
+               interpolation_type == other.interpolation_type;
     }
     bool operator!=(const dewarp_config_t &other) const
     {
@@ -371,7 +363,7 @@ public:
     output_resolution_t input_video_config;
     output_video_config_t output_video_config;
     digital_zoom_config_t digital_zoom_config;
-    rotation_angle_t rotation_config;
+    rotation_config_t rotation_config;
 
     multi_resize_config_t()
     {
@@ -380,7 +372,7 @@ public:
         input_video_config.pool_max_buffers = 0;
         input_video_config.dimensions.destination_width = 0;
         input_video_config.dimensions.destination_height = 0;
-        rotation_config = ROTATION_ANGLE_0;
+        rotation_config = {false, ROTATION_ANGLE_0};
         digital_zoom_config = digital_zoom_config_t();
         output_video_config.resolutions = std::vector<output_resolution_t>();
     }
@@ -395,23 +387,20 @@ public:
         {
             output_resolution_t &current_res = output_video_config.resolutions[i];
             output_resolution_t &new_res = mresize_config.output_video_config.resolutions[i];
-            if (!current_res.dimensions_equal(new_res, rotation_config % 2))
-            {
-                // Update output video dimensions is restricted
-                return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-            }
             current_res.framerate = new_res.framerate;
         }
 
         // rotate if necessary
-        return set_output_dimensions_rotation(rotation_config);
+        return set_output_dimensions_rotation(mresize_config.rotation_config);
     }
 
-    media_library_return set_output_dimensions_rotation(const rotation_angle_t &rotation_angle)
+    media_library_return set_output_dimensions_rotation(const rotation_config_t &new_rotation_config)
     {
-        if (rotation_angle % 2 == rotation_config % 2) // dimensions are the same
+        rotation_angle_t current_rotation_angle = rotation_config.effective_value();
+        rotation_angle_t new_rotation_angle = new_rotation_config.effective_value();
+        if (current_rotation_angle % 2 == new_rotation_angle  % 2)
         {
-            rotation_config = rotation_angle;
+            rotation_config = new_rotation_config;
             return MEDIA_LIBRARY_SUCCESS;
         }
 
@@ -420,9 +409,22 @@ public:
         {
             std::swap(current_res.dimensions.destination_width, current_res.dimensions.destination_height);
         }
-        rotation_config = rotation_angle;
+        rotation_config = new_rotation_config;
         return MEDIA_LIBRARY_SUCCESS;
     }
+};
+
+struct eis_config_t
+{
+    bool enabled;
+    bool correction_applied;
+    std::string eis_config_path;
+    std::string gyro_sensor_name;
+    std::string gyro_sensor_freq;
+    uint32_t window_size;
+    double gyro_scale;
+    double rotational_smoothing_coefficient;
+    double iir_hpf_coefficient;
 };
 
 struct ldc_config_t
@@ -435,6 +437,7 @@ public:
     optical_zoom_config_t optical_zoom_config;
     input_video_config_t input_video_config;
     output_resolution_t output_video_config;
+    eis_config_t eis_config;
 
     ldc_config_t()
     {
@@ -460,6 +463,7 @@ public:
         dewarp_config.enabled = disable_dewarp ? false : ldc_configs.dewarp_config.enabled;
         flip_config = ldc_configs.flip_config;
         dis_config = ldc_configs.dis_config;
+        optical_zoom_config = ldc_configs.optical_zoom_config;
 
         // TODO: can we change interpolation type?
         if (dewarp_config != ldc_configs.dewarp_config)
@@ -477,7 +481,9 @@ public:
                 rotate_output_dimensions();
             }
         }
+
         rotation_config = ldc_configs.rotation_config;
+        eis_config = ldc_configs.eis_config;
         return MEDIA_LIBRARY_SUCCESS;
     }
 
@@ -550,18 +556,38 @@ public:
     }
 };
 
-struct frontend_config_t
+struct frontend_element_config_t
 {
 public:
     ldc_config_t ldc_config;
     denoise_config_t denoise_config;
     multi_resize_config_t multi_resize_config;
 
-    frontend_config_t()
+    frontend_element_config_t() : ldc_config(), denoise_config(), multi_resize_config()
     {
-        ldc_config = ldc_config_t();
-        denoise_config = denoise_config_t();
-        multi_resize_config = multi_resize_config_t();
+    }
+
+    media_library_return update(frontend_element_config_t &frontend_element_configs)
+    {
+        ldc_config.update(frontend_element_configs.ldc_config);
+        denoise_config.update(frontend_element_configs.denoise_config);
+        multi_resize_config.update(frontend_element_configs.multi_resize_config);
+
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+};
+
+struct frontend_config_t
+{
+public:
+    ldc_config_t ldc_config;
+    denoise_config_t denoise_config;
+    multi_resize_config_t multi_resize_config;
+    hdr_config_t hdr_config;
+    hailort_t hailort_config;
+
+    frontend_config_t() : ldc_config(), denoise_config(), multi_resize_config(), hdr_config(), hailort_config()
+    {
     }
 
     media_library_return update(frontend_config_t &frontend_configs)
@@ -569,8 +595,10 @@ public:
         ldc_config.update(frontend_configs.ldc_config);
         denoise_config.update(frontend_configs.denoise_config);
         multi_resize_config.update(frontend_configs.multi_resize_config);
+        hdr_config = frontend_configs.hdr_config;
+        hailort_config = frontend_configs.hailort_config;
 
         return MEDIA_LIBRARY_SUCCESS;
     }
-};   
+};
 /** @} */ // end of media_library_types_definitions

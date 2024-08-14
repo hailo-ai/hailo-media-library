@@ -33,15 +33,12 @@ TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay &_overlay, media_library
 }
 
 TextOverlayImpl::TextOverlayImpl(const osd::BaseTextOverlay &_overlay, media_library_return &status)
-    : OverlayImpl(_overlay.id, _overlay.x, _overlay.y, 0, 0, _overlay.z_index, _overlay.angle, _overlay.rotation_alignment_policy, true),
-      m_text_color(_overlay.text_color),
-      m_background_color(_overlay.background_color),
-      m_shadow_color(_overlay.shadow_color),
-      m_shadow_offset_x(_overlay.shadow_offset_x),
-      m_shadow_offset_y(_overlay.shadow_offset_y),
-      m_font_size(_overlay.font_size),
-      m_line_thickness(_overlay.line_thickness),
-      m_font_path(_overlay.font_path)
+    : OverlayImpl(_overlay.id, _overlay.x, _overlay.y, 0, 0, _overlay.z_index, _overlay.angle,
+                  _overlay.rotation_alignment_policy, true, _overlay.horizontal_alignment, _overlay.vertical_alignment),
+      m_text_color(_overlay.text_color), m_background_color(_overlay.background_color),
+      m_font_path(_overlay.font_path), m_font_size(_overlay.font_size), m_line_thickness(_overlay.line_thickness),
+      m_shadow_color(_overlay.shadow_color), m_shadow_offset_x(_overlay.shadow_offset_x), m_shadow_offset_y(_overlay.shadow_offset_y),
+      m_font_weight(_overlay.font_weight), m_outline_size(_overlay.outline_size), m_outline_color(_overlay.outline_color)
 {
     auto extra_size = cv::Size2f(0, 0);
     auto foreground_text_position = cv::Point2f(0, 0);
@@ -60,9 +57,10 @@ TextOverlayImpl::TextOverlayImpl(const osd::BaseTextOverlay &_overlay, media_lib
         /* Create a copy of the overlay properties, but change the text color to be the shadow color */
         auto shadow_overlay = overlay;
         shadow_overlay.text_color = overlay.shadow_color;
+        shadow_overlay.outline_color = overlay.shadow_color;
 
         /* To make sure the shadow and foreground text overlays have the same matrix size,
-            we'll calculate the added size caused by the shadow offsets */
+           we'll calculate the added size caused by the shadow offsets */
         extra_size = cv::Size2f(std::abs(overlay.shadow_offset_x), std::abs(overlay.shadow_offset_y));
 
         /* Calculate the foreground and shadow text positions relative to the enlarged matrix */
@@ -125,9 +123,15 @@ TextOverlayImpl::create_async(const osd::TextOverlay &overlay)
 
 std::shared_ptr<osd::Overlay> TextOverlayImpl::get_metadata()
 {
-    return std::make_shared<osd::TextOverlay>(m_id, m_x, m_y, m_label, m_text_color, m_background_color,
-                                              m_font_size, m_line_thickness, m_z_index, m_font_path, m_angle, m_rotation_policy,
-                                              m_shadow_color, m_shadow_offset_x, m_shadow_offset_y);
+    auto text_size = m_foreground_text->get_text_size();
+    return std::make_shared<osd::TextOverlay>(m_id, m_x, m_y, m_label,
+                                              m_text_color, m_background_color,
+                                              m_font_size, m_line_thickness, m_z_index, m_font_path,
+                                              m_angle, m_rotation_policy,
+                                              m_shadow_color, m_shadow_offset_x, m_shadow_offset_y,
+                                              m_font_weight, m_outline_size, m_outline_color,
+                                              m_horizontal_alignment, m_vertical_alignment,
+                                              text_size.width, text_size.height);
 }
 
 tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return>

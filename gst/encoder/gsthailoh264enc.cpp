@@ -39,6 +39,7 @@ gst_hailoh264enc_profile_get_type(void)
 {
   static GType hailoh264enc_profile_type = 0;
   static const GEnumValue hailoh264enc_profiles[] = {
+      {-1, "Auto Profile", "auto"},
       {VCENC_H264_BASE_PROFILE, "Base Profile", "base"},
       {VCENC_H264_MAIN_PROFILE, "Main Profile", "main"},
       {VCENC_H264_HIGH_PROFILE, "High Profile", "high"},
@@ -58,6 +59,7 @@ gst_hailoh264enc_level_get_type(void)
 {
   static GType hailoh264enc_level_type = 0;
   static const GEnumValue hailoh264enc_levels[] = {
+      {-1, "Level auto", "level-auto"},
       {VCENC_H264_LEVEL_1, "Level 1", "level-1"},
       {VCENC_H264_LEVEL_1_b, "Level 1b", "level-1-b"},
       {VCENC_H264_LEVEL_1_1, "Level 1.1", "level-1-1"},
@@ -209,12 +211,12 @@ gst_hailoh264enc_set_property(GObject *object,
   {
   case PROP_PROFILE:
     GST_OBJECT_LOCK(hailoh264enc);
-    hailoenc->enc_params.profile = (VCEncProfile)g_value_get_enum(value);
+    hailoenc->enc_params.profile = g_value_get_enum(value);
     GST_OBJECT_UNLOCK(hailoh264enc);
     break;
   case PROP_LEVEL:
     GST_OBJECT_LOCK(hailoh264enc);
-    hailoenc->enc_params.level = (VCEncLevel)g_value_get_enum(value);
+    hailoenc->enc_params.level = g_value_get_enum(value);
     GST_OBJECT_UNLOCK(hailoh264enc);
     break;
   default:

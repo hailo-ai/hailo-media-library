@@ -36,7 +36,7 @@ mat_dims internal_calculate_text_size(const std::string &label, const std::strin
     if (!cv::utils::fs::exists(font_path))
     {
         LOGGER__ERROR("Error: file {} does not exist", font_path);
-        return {0, 0};
+        return {0, 0, 0};
     }
 
     cv::Ptr<cv::freetype::FreeType2> ft2;
@@ -535,6 +535,13 @@ namespace osd
             }
             auto dsp_overlays = dsp_overlays_expected.value();
             all_overlays_to_blend.insert(all_overlays_to_blend.end(), dsp_overlays.begin(), dsp_overlays.end());
+        }
+
+        // DSP blend have better color quality when the overlays have even x and y offsets
+        for (auto &dsp_overlay : all_overlays_to_blend)
+        {
+                dsp_overlay.x_offset -= dsp_overlay.x_offset % 2;
+                dsp_overlay.y_offset -= dsp_overlay.y_offset % 2;
         }
 
         LOGGER__DEBUG("Blending {} overlays", all_overlays_to_blend.size());

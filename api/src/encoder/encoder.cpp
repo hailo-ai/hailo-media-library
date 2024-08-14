@@ -71,6 +71,7 @@ MediaLibraryEncoder::Impl::Impl(std::string json_config,
     m_main_loop = g_main_loop_new(NULL, FALSE);
     this->set_gst_callbacks();
     m_appsrc_state = APPSRC_STATE_UNINITIALIZED;
+    m_current_fps = 0;
 
     status = MEDIA_LIBRARY_SUCCESS;
 }
@@ -202,7 +203,8 @@ void MediaLibraryEncoder::Impl::on_fps_measurement(GstElement *fpsdisplaysink,
 {
     gchar *name;
     g_object_get(G_OBJECT(fpsdisplaysink), "name", &name, NULL);
-    std::cout << name << ", DROP RATE: " << droprate << " FPS: " << fps << " AVG_FPS: " << avgfps << std::endl;
+    if (PRINT_FPS)
+        std::cout << name << ", DROP RATE: " << droprate << " FPS: " << fps << " AVG_FPS: " << avgfps << std::endl;
     g_free(name);
 }
 
@@ -234,15 +236,12 @@ static void on_queue_overrun(GstElement *queue, gpointer user_data)
  */
 void MediaLibraryEncoder::Impl::set_gst_callbacks()
 {
-    GstAppSinkCallbacks appsink_callbacks = {NULL};
+    GstAppSinkCallbacks appsink_callbacks = {};
 
     GstElement *fpssink =
     gst_bin_get_by_name(GST_BIN(m_pipeline), "fpsdisplaysink");
-    if (PRINT_FPS)
-    {
         g_signal_connect(fpssink, "fps-measurements", G_CALLBACK(fps_measurement),
                          this);
-    }
     GstElement *appsink = gst_bin_get_by_name(GST_BIN(m_pipeline), "encoder_sink");
     appsink_callbacks.new_sample = this->new_sample;
 
@@ -416,6 +415,7 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
     case EncoderType::Jpeg:
     {
         buffer_ptr = hailo_buffer_from_jpeg_gst_buffer(buffer);
+        buffer_ptr->pts = GST_BUFFER_PTS(buffer);
         if (!buffer_ptr)
         {
             GST_ERROR("Failed to get hailo buffer ptr from jpeg");
@@ -433,7 +433,6 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
 
     for (auto &callback : m_callbacks)
     {
-        buffer_ptr->increase_ref_count();
         callback(buffer_ptr, used_size);
     }
 
@@ -495,7 +494,7 @@ media_library_return MediaLibraryEncoder::Impl::configure(encoder_config_t &conf
         return MEDIA_LIBRARY_ERROR;
     }
 
-    g_object_set(encoder_bin, "config", config, NULL);
+    g_object_set(encoder_bin, "user-config", config, NULL);
     gst_object_unref(encoder_bin);
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -540,6 +539,27 @@ encoder_config_t MediaLibraryEncoder::Impl::get_config()
     return config;
 }
 
+encoder_config_t MediaLibraryEncoder::Impl::get_user_config()
+{
+    if (m_encoder_type == EncoderType::Jpeg) {
+        // Getting actual config from jpeg encoder is not supported
+        return jpeg_encoder_config_t{};
+    }
+
+    encoder_config_t config;
+    GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
+    if (encoder_bin == nullptr)
+    {
+        std::cout << "Got null encoder bin element in get_user_config" << std::endl;
+        return config;
+    }
+    gpointer value = nullptr;
+    g_object_get(encoder_bin, "user-config", &value, NULL);
+    config = *reinterpret_cast<encoder_config_t *>(value);
+    gst_object_unref(encoder_bin);
+    return config;
+}
+
 EncoderType MediaLibraryEncoder::Impl::get_type()
 {
     return m_encoder_type;
@@ -560,7 +580,22 @@ encoder_config_t MediaLibraryEncoder::get_config()
     return m_impl->get_config();
 }
 
+encoder_config_t MediaLibraryEncoder::get_user_config()
+{
+    return m_impl->get_user_config();
+}
+
 EncoderType MediaLibraryEncoder::get_type()
 {
     return m_impl->get_type();
+}
+
+float MediaLibraryEncoder::Impl::get_current_fps()
+{
+    return m_current_fps;
+}
+
+float MediaLibraryEncoder::get_current_fps()
+{
+    return m_impl->get_current_fps();
 }

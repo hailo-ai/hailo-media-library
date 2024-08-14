@@ -24,11 +24,15 @@
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
+#include <thread>
+#include <fstream>
 
 #include "encoder_class.hpp"
 #include "encoder_internal.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_utils.hpp"
+
+#define BITS_IN_BYTE 8
 
 Encoder::Encoder(std::string json_string)
 {
@@ -114,15 +118,27 @@ media_library_return Encoder::Impl::release()
         return MEDIA_LIBRARY_SUCCESS;
     }
 
-    if(m_header.buffer != nullptr)
-        m_header.buffer->decrease_ref_count();
+    m_header.buffer = nullptr;
 
     VCEncRelease(m_inst);
     if (m_output_memory.virtualAddress != NULL)
         EWLFreeLinear((const void *)m_ewl, &m_output_memory);
     if (NULL != m_ewl)
         (void)EWLRelease((const void *)m_ewl);
-    
+
+    while(!m_bitrate_monitor.frame_sizes.empty())
+        m_bitrate_monitor.frame_sizes.pop();
+
+    if (m_bitrate_monitor.output_file.is_open())
+    {
+        m_bitrate_monitor.output_file.close();
+    }
+
+    if (m_cycle_monitor.output_file.is_open())
+    {
+        m_cycle_monitor.output_file.close();
+    }
+
     m_state = ENCODER_STATE_UNINITIALIZED;
 
     return MEDIA_LIBRARY_SUCCESS;
@@ -160,9 +176,30 @@ media_library_return Encoder::Impl::init()
     // Update timescale to be framerate denom (must happen after init_encoder_config)
     m_enc_in.timeIncrement = m_vc_cfg.frameRateDenom;
 
+    m_bitrate_monitor.enabled = true;
+    if (m_vc_cfg.frameRateDenom == 0)
+    {
+        LOGGER__WARNING("Encoder - Frame rate denominator is 0");
+        m_vc_cfg.frameRateDenom = 1;
+    }
+    m_bitrate_monitor.fps = m_vc_cfg.frameRateNum / m_vc_cfg.frameRateDenom;
+    m_bitrate_monitor.period = 5;
+    m_bitrate_monitor.sum_period = 0;
+    m_bitrate_monitor.ma_bitrate = 0;
+    m_bitrate_monitor.frame_sizes = std::queue<u32>();
+
+    m_cycle_monitor.enabled = true;
+    m_cycle_monitor.deviation_threshold = 5;
+    m_cycle_monitor.monitor_frames = 60;
+    m_cycle_monitor.start_time = static_cast<std::time_t>(-1);
+    m_cycle_monitor.start_delay = 1;
+    m_cycle_monitor.frame_count = 0;
+    m_cycle_monitor.sum = 0;
+
     init_preprocessing_config();
     init_coding_control_config();
     init_rate_control_config();
+    init_monitors_config();
     m_update_required = {};
     m_stream_restart = STREAM_RESTART_NONE;
     m_state = ENCODER_STATE_INITIALIZED;
@@ -196,19 +233,33 @@ media_library_return Encoder::Impl::configure(const encoder_config_t &config)
 {
     m_update_required = {ENCODER_CONFIG_CODING_CONTROL, ENCODER_CONFIG_PRE_PROCESSING, ENCODER_CONFIG_RATE_CONTROL};
 
-    bool gop_update_required = gop_config_update_required(std::get<hailo_encoder_config_t>(config));
-    bool hard_restart = hard_restart_required(std::get<hailo_encoder_config_t>(config), gop_update_required);
+    auto enc_conf = std::get<hailo_encoder_config_t>(config);
+    auto monitors_conf = &enc_conf.monitors_control;
+    m_bitrate_monitor.enabled = monitors_conf->bitrate_monitor.enable;
+    m_bitrate_monitor.period = monitors_conf->bitrate_monitor.period;
 
-    // Gop change update required
-    if (gop_update_required)
-    {
-        m_update_required.emplace_back(ENCODER_CONFIG_GOP);
-    }
+    m_cycle_monitor.enabled = monitors_conf->cycle_monitor.enable;
+    m_cycle_monitor.start_delay = monitors_conf->cycle_monitor.start_delay;
+    m_cycle_monitor.deviation_threshold = monitors_conf->cycle_monitor.deviation_threshold;
+
+    auto old_config = m_config->get_hailo_config();
 
     if (m_config->configure(config) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to configure encoder");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    // Read the configuration again after the configuration is done
+    auto new_config = m_config->get_hailo_config();
+
+    bool gop_update_required = gop_config_update_required(old_config, new_config);
+    bool hard_restart = hard_restart_required(old_config, new_config, gop_update_required);
+
+    // Gop change update required
+    if (gop_update_required)
+    {
+        m_update_required.emplace_back(ENCODER_CONFIG_GOP);
     }
 
     if (hard_restart)
@@ -262,6 +313,11 @@ media_library_return Encoder::Impl::update_configurations()
         case ENCODER_CONFIG_CODING_CONTROL:
         {
             ret = init_coding_control_config();
+            break;
+        }
+        case ENCODER_CONFIG_MONITORS:
+        {
+            ret = init_monitors_config();
             break;
         }
         case ENCODER_CONFIG_GOP:
@@ -414,7 +470,6 @@ void Encoder::Impl::force_keyframe()
     {
         // remove oldest buffer from m_inputs
         HailoMediaLibraryBufferPtr buf = m_inputs[0];
-        buf->decrease_ref_count();
         m_inputs.erase(m_inputs.begin());
     }
 }
@@ -424,7 +479,14 @@ encoder_config_t Encoder::get_config()
     return m_impl->get_config();
 }
 
+encoder_config_t Encoder::get_user_config()
+{
+    return m_impl->get_user_config();
+}
+
 encoder_config_t Encoder::Impl::get_config() { return m_config->get_config(); }
+
+encoder_config_t Encoder::Impl::get_user_config() { return m_config->get_user_config(); }
 
 EncoderOutputBuffer Encoder::start() { return m_impl->start(); }
 
@@ -554,13 +616,12 @@ Encoder::Impl::create_output_buffer(EncoderOutputBuffer &output_buf)
     }
     else
     {
-        hailo_media_library_buffer buffer;
-        if (m_buffer_pool->acquire_buffer(buffer) != MEDIA_LIBRARY_SUCCESS)
+        buffer_ptr = std::make_shared<hailo_media_library_buffer>();
+        if (m_buffer_pool->acquire_buffer(buffer_ptr) != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR("Failed to acquire buffer");
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
-        buffer_ptr = std::make_shared<hailo_media_library_buffer>(std::move(buffer));
     }
 
     bool is_dmabuf = buffer_ptr->is_dmabuf();
@@ -663,19 +724,36 @@ Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
     case VCENC_FRAME_READY:
     {
         m_counters.picture_enc_cnt++;
-        if (m_enc_out.streamSize == 0)
+        if (!m_multislice_encoding)
         {
-            m_counters.picture_cnt++;
-        }
-        else
-        {
-            if (!m_multislice_encoding)
+            if (m_bitrate_monitor.enabled)
+                bitrate_monitor_sample();
+            if (m_cycle_monitor.enabled)
+                cycle_monitor_sample();
+
+            EncoderOutputBuffer output;
+            if (m_enc_out.streamSize == 0)
             {
-                EncoderOutputBuffer output;
+                LOGGER__INFO("Dropping frame {} of type {}",
+                m_counters.picture_enc_cnt - 1, m_enc_in.codingType);
+
+                /* restart with yuv of next frame for IDR or GOP start */
+                if(m_enc_in.poc == 0 || m_enc_in.gopPicIdx == 0) {
+                    m_counters.picture_cnt ++;
+                    m_counters.last_idr_picture_cnt++;
+                } else {
+
+                    /* follow current GOP, handling frame skip in API */
+                    m_next_coding_type = find_next_pic();
+                }
+                output.size = 0;
+                outputs.emplace_back(std::move(output));
+            }
+            else
+            {
                 if (m_enc_in.codingType == VCENC_INTRA_FRAME)
                 {
                     output = m_header;
-                    output.buffer->increase_ref_count();
                 }
                 ret = create_output_buffer(output);
                 if (ret != MEDIA_LIBRARY_SUCCESS)
@@ -687,19 +765,20 @@ Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
                     }
                     return ret;
                 }
+                output.buffer->pts = buf->pts;
                 outputs.emplace_back(std::move(output));
-            }
-            m_counters.validencodedframenumber++;
-            m_next_coding_type = find_next_pic();
-            if (m_next_coding_type == VCENC_INTRA_FRAME)
-            {
-                if (!m_update_required.empty())
+                m_counters.validencodedframenumber++;
+                m_next_coding_type = find_next_pic();
+                if (m_next_coding_type == VCENC_INTRA_FRAME)
                 {
-                    m_stream_restart = STREAM_RESTART;
-                    // check if m_update_required contains CONFIG_STREAM
-                    if (std::find(m_update_required.begin(), m_update_required.end(), ENCODER_CONFIG_STREAM) != m_update_required.end())
+                    if (!m_update_required.empty())
                     {
-                        m_stream_restart = STREAM_RESTART_HARD;
+                        m_stream_restart = STREAM_RESTART;
+                        // check if m_update_required contains CONFIG_STREAM
+                        if (std::find(m_update_required.begin(), m_update_required.end(), ENCODER_CONFIG_STREAM) != m_update_required.end())
+                        {
+                            m_stream_restart = STREAM_RESTART_HARD;
+                        }
                     }
                 }
             }
@@ -756,18 +835,12 @@ Encoder::Impl::handle_frame(HailoMediaLibraryBufferPtr buf)
     {
         if (m_inputs.size() == (size_t)m_enc_in.gopSize - 1)
         {
-            buf->increase_ref_count();
             m_inputs.emplace_back(buf);
             ret = encode_multiple_frames(outputs);
-            for (auto &input : m_inputs)
-            {
-                input->decrease_ref_count();
-            }
             m_inputs.clear();
         }
         else if (m_inputs.size() < (size_t)m_enc_in.gopSize - 1)
         {
-            buf->increase_ref_count();
             m_inputs.emplace_back(buf);
             ret = MEDIA_LIBRARY_SUCCESS;
         }
@@ -847,12 +920,12 @@ VCEncPictureCodingType Encoder::Impl::find_next_pic()
             int gop_shorten = 0;
 
             // cut by an IDR
-            if ((m_idr_interval) &&
+            if ((m_intra_pic_rate) &&
                 ((gop_end_pic - m_counters.last_idr_picture_cnt) >=
-                 (int)m_idr_interval))
+                 (int)m_intra_pic_rate))
                 gop_shorten =
                     1 + ((gop_end_pic - m_counters.last_idr_picture_cnt) -
-                         m_idr_interval);
+                         m_intra_pic_rate);
 
             if (gop_shorten >= next_gop_size)
             {
@@ -877,9 +950,9 @@ VCEncPictureCodingType Encoder::Impl::find_next_pic()
         m_enc_in.poc += m_counters.picture_cnt - picture_cnt_tmp;
         // next coding type
         bool forceIntra =
-            m_idr_interval &&
+            m_intra_pic_rate &&
             ((m_counters.picture_cnt - m_counters.last_idr_picture_cnt) >=
-             (int)m_idr_interval);
+             (int)m_intra_pic_rate);
         if (forceIntra)
             nextCodingType = VCENC_INTRA_FRAME;
         else
@@ -903,4 +976,107 @@ VCEncPictureCodingType Encoder::Impl::find_next_pic()
             gop_cfg->pGopPicCfg[gop_cfg->id_next].poc - next_poc;
     }
     return nextCodingType;
+}
+
+void Encoder::Impl::bitrate_monitor_sample()
+{
+    u32 cur_frame_size = m_enc_out.streamSize * BITS_IN_BYTE;
+
+    // if period changed and frame_sizes is too large, remove frames until we match the new period
+    if (m_bitrate_monitor.frame_sizes.size() >
+        m_bitrate_monitor.fps * m_bitrate_monitor.period)
+    {
+        while (m_bitrate_monitor.frame_sizes.size() > m_bitrate_monitor.fps * m_bitrate_monitor.period)
+        {
+            m_bitrate_monitor.sum_period -= m_bitrate_monitor.frame_sizes.front();
+            m_bitrate_monitor.frame_sizes.pop();
+        }
+    }
+    // normal case - maintian moving average by adding the new frame size and removing the oldest
+    else if (m_bitrate_monitor.frame_sizes.size() ==
+        m_bitrate_monitor.fps * m_bitrate_monitor.period)
+    {
+        m_bitrate_monitor.sum_period -= m_bitrate_monitor.frame_sizes.front();
+        m_bitrate_monitor.frame_sizes.pop();
+        m_bitrate_monitor.sum_period += cur_frame_size;
+        m_bitrate_monitor.frame_sizes.push(cur_frame_size);
+    }
+    // not enough samples yet, just add the new frame size
+    else
+    {
+        m_bitrate_monitor.sum_period += cur_frame_size;
+        m_bitrate_monitor.frame_sizes.push(cur_frame_size);
+    }
+
+    // if the number of samples is for at least 1 second, update the moving average
+    if (m_bitrate_monitor.frame_sizes.size() / m_bitrate_monitor.fps >= 1)
+    {
+        m_bitrate_monitor.ma_bitrate = m_bitrate_monitor.sum_period / (m_bitrate_monitor.frame_sizes.size() / m_bitrate_monitor.fps);
+        LOGGER__INFO("Stream with res: {}x{}, current bitrate = {}", m_vc_cfg.width, m_vc_cfg.height, m_bitrate_monitor.ma_bitrate);
+
+        if (m_bitrate_monitor.output_file.is_open())
+        {
+            monitor_write_to_file(m_bitrate_monitor.output_file, "Stream with res: " + std::to_string(m_vc_cfg.width) + "x" +
+                std::to_string(m_vc_cfg.height) + ", current bitrate = " + std::to_string(m_bitrate_monitor.ma_bitrate));
+        }
+    }
+}
+
+void Encoder::Impl::cycle_monitor_sample()
+{
+    if (m_cycle_monitor.frame_count == 0 &&
+        m_cycle_monitor.start_time == static_cast<std::time_t>(-1))
+    {
+        m_cycle_monitor.start_time = std::time(NULL);
+
+        // Delay the start of the monitoring
+        if (m_cycle_monitor.start_delay > 0)
+            return;
+    }
+
+    std::time_t currentTime = std::time(nullptr);
+    if (currentTime - m_cycle_monitor.start_time < m_cycle_monitor.start_delay)
+        return;
+
+    if (m_cycle_monitor.frame_count < m_cycle_monitor.monitor_frames)
+    {
+        m_cycle_monitor.frame_count++;
+        m_cycle_monitor.sum += VCEncGetPerformance(m_inst);
+        return;
+    }
+
+    float avg = m_cycle_monitor.sum / m_cycle_monitor.frame_count;
+    u32 cur_frame_cycles = VCEncGetPerformance(m_inst);
+
+    if (cur_frame_cycles > (u32)(avg + (avg * m_cycle_monitor.deviation_threshold / 100)) ||
+        cur_frame_cycles < (u32)(avg - (avg * m_cycle_monitor.deviation_threshold / 100)))
+    {
+        LOGGER__INFO("Encoder - Performance Warning - Current frame cycles: {}, Average cycles: {}",
+            cur_frame_cycles, avg);
+        if (m_cycle_monitor.output_file.is_open())
+        {
+            monitor_write_to_file(m_cycle_monitor.output_file, "Performance Warning - Current frame cycles: " +
+                std::to_string(cur_frame_cycles) + ", Average cycles: " + std::to_string(avg));
+        }
+    }
+    else
+    {
+        if (m_cycle_monitor.output_file.is_open())
+        {
+            monitor_write_to_file(m_cycle_monitor.output_file, "Current frame cycles: " + std::to_string(cur_frame_cycles));
+        }
+    }
+}
+
+void Encoder::Impl::monitor_write_to_file(std::ofstream &file, const std::string &data)
+{
+    std::time_t now = std::time(nullptr);
+    std::tm* timeinfo = std::localtime(&now);
+
+    std::thread([&file, data, timeinfo]() {
+        char timestamp[24];
+        std::strftime(timestamp, sizeof(timestamp), "[%Y-%m-%d %H:%M:%S]", timeinfo);
+        std::string timestampStr(timestamp);
+        file << timestampStr << " " << data << std::endl;
+    }).detach();
 }

@@ -113,7 +113,7 @@ public:
 
     /**
      * @brief Set the config object for the MediaLibraryFrontend module
-     * @param config 
+     * @param[in] config - [frontend_config_t] configuration object, obtained from the ``get_config`` function
      * @return media_library_return 
      */
     media_library_return set_config(frontend_config_t config);
@@ -187,6 +187,12 @@ public:
      * @return A tl::expected object containing either the vector of output stream IDs or an error code.
      */
     tl::expected<std::vector<frontend_output_stream_t>, media_library_return> get_outputs_streams();
+
+    /**
+     * @brief Get the current fps of the frontend output
+     * @return float - the current fps of the frontend output
+     */
+    float get_current_fps();
 
     /**
      * @brief Destructor for the frontend module

@@ -46,6 +46,7 @@ public:
     media_library_return configure(std::string json_string);
     media_library_return configure(const encoder_config_t &config);
     encoder_config_t get_config();
+    encoder_config_t get_user_config();
     std::vector<EncoderOutputBuffer> handle_frame(HailoMediaLibraryBufferPtr buf);
     EncoderOutputBuffer start();
     EncoderOutputBuffer stop();

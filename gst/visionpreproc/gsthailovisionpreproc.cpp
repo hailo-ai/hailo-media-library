@@ -133,7 +133,7 @@ gst_hailo_vision_preproc_init(GstHailoVisionPreProc *vision_preproc)
 }
 
 static GstFlowReturn gst_hailo_vision_preproc_push_output_frames(GstHailoVisionPreProc *self,
-                                                                 std::vector<hailo_media_library_buffer> &output_frames,
+                                                                 std::vector<HailoMediaLibraryBufferPtr> &output_frames,
                                                                  GstBuffer *buffer)
 {
   GstFlowReturn ret = GST_FLOW_OK;
@@ -141,9 +141,6 @@ static GstFlowReturn gst_hailo_vision_preproc_push_output_frames(GstHailoVisionP
   if (output_frames_size < self->srcpads.size())
   {
     GST_ERROR_OBJECT(self, "Number of output frames (%d) is lower than the number of srcpads (%ld)", output_frames_size, self->srcpads.size());
-    // Decrease ref count of output frames
-    for (guint i = 0; i < output_frames_size; i++)
-      output_frames[i].decrease_ref_count();
     return GST_FLOW_ERROR;
   }
   else if (output_frames_size > self->srcpads.size())
@@ -153,20 +150,19 @@ static GstFlowReturn gst_hailo_vision_preproc_push_output_frames(GstHailoVisionP
 
   for (guint i = 0; i < self->srcpads.size(); i++)
   {
-    if (output_frames[i].hailo_pix_buffer == nullptr)
+    if (output_frames[i]->hailo_pix_buffer == nullptr)
     {
       GST_DEBUG_OBJECT(self, "Skipping output frame %d to match requested framerate", i);
       continue;
     }
 
-    HailoMediaLibraryBufferPtr hailo_buffer = std::make_shared<hailo_media_library_buffer>(std::move(output_frames[i]));
+    HailoMediaLibraryBufferPtr hailo_buffer = output_frames[i];
     GstPad *srcpad = self->srcpads[i];
     // Get caps from srcpad
     GstCaps *caps = gst_pad_get_current_caps(srcpad);
     if (!caps)
     {
       GST_ERROR_OBJECT(self, "Failed to get caps from srcpad name %s", gst_pad_get_name(srcpad));
-      hailo_buffer->decrease_ref_count();
       ret = GST_FLOW_ERROR;
       continue;
     }
@@ -177,7 +173,6 @@ static GstFlowReturn gst_hailo_vision_preproc_push_output_frames(GstHailoVisionP
     if (!gst_outbuf)
     {
       GST_ERROR_OBJECT(self, "Failed to create GstBuffer from dsp buffer");
-      hailo_buffer->decrease_ref_count();
       ret = GST_FLOW_ERROR;
       continue;
     }
@@ -225,10 +220,10 @@ static GstFlowReturn gst_hailo_vision_preproc_chain(GstPad *pad, GstObject *pare
   }
   gst_caps_unref(input_caps);
 
-  std::vector<hailo_media_library_buffer> output_frames;
+  std::vector<HailoMediaLibraryBufferPtr> output_frames;
 
   GST_DEBUG_OBJECT(self, "Call media library handle frame - GstBuffer offset %ld", GST_BUFFER_OFFSET(buffer));
-  media_library_return media_lib_ret = self->medialib_vision_pre_proc->handle_frame(*input_frame_ptr.get(), output_frames);
+  media_library_return media_lib_ret = self->medialib_vision_pre_proc->handle_frame(input_frame_ptr, output_frames);
 
   if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
   {

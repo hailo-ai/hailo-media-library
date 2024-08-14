@@ -41,7 +41,7 @@ static void gst_hailoencodebin_get_property(GObject *object,
                                             guint property_id, GValue *value, GParamSpec *pspec);
 static void gst_hailoencodebin_init_ghost_sink(GstHailoEncodeBin *hailoencodebin);
 static void gst_hailoencodebin_init_ghost_src(GstHailoEncodeBin *hailoencodebin);
-static const EncoderType gst_hailoencodebin_get_encoder_type(nlohmann::json &config_json);
+static EncoderType gst_hailoencodebin_get_encoder_type(nlohmann::json &config_json);
 static nlohmann::json gst_hailoencodebin_get_encoder_json(const gchar *property_value, bool is_file);
 static void gst_hailoencodebin_set_encoder_properties(GstHailoEncodeBin *hailoencodebin,
                                                       const char* config_property,
@@ -67,6 +67,7 @@ typedef enum
     PROP_QUEUE_SIZE,
     PROP_ENFORCE_CAPS,
     PROP_FORCE_VIDEORATE,
+    PROP_USER_CONFIG,
 } hailoencodebin_prop_t;
 
 // Pad Templates
@@ -132,7 +133,12 @@ gst_hailoencodebin_class_init(GstHailoEncodeBinClass *klass)
 
     g_object_class_install_property(gobject_class, PROP_CONFIG,
                                     g_param_spec_pointer("config", "Config",
-                                                         "Pointer to the config object",
+                                                         "Pointer to the actual config object",
+                                                         (GParamFlags)(G_PARAM_READABLE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+
+    g_object_class_install_property(gobject_class, PROP_USER_CONFIG,
+                                    g_param_spec_pointer("user-config", "User Config",
+                                                         "Pointer to the user config object",
                                                          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 
     g_object_class_install_property(gobject_class, PROP_ENFORCE_CAPS,
@@ -279,10 +285,10 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id,
         }
         break;
     }
-    case PROP_CONFIG:
+    case PROP_USER_CONFIG:
     {
         gpointer config = g_value_get_pointer(value);
-        g_object_set(hailoencodebin->m_encoder, "config", config, NULL);
+        g_object_set(hailoencodebin->m_encoder, "user-config", config, NULL);
         break;
     }
     case PROP_WAIT_FOR_WRITABLE_BUFFER:
@@ -338,6 +344,13 @@ void gst_hailoencodebin_get_property(GObject *object, guint property_id,
     {
         gpointer config;
         g_object_get(hailoencodebin->m_encoder, "config", &config, NULL);
+        g_value_set_pointer(value, config);
+        break;
+    }
+    case PROP_USER_CONFIG:
+    {
+        gpointer config;
+        g_object_get(hailoencodebin->m_encoder, "user-config", &config, NULL);
         g_value_set_pointer(value, config);
         break;
     }
@@ -428,7 +441,7 @@ gst_hailoencodebin_get_encoder_element_name(const EncoderType encoder_type)
     }
 }
 
-static const EncoderType
+static EncoderType
 gst_hailoencodebin_get_encoder_type(nlohmann::json &config_json)
 {
     if (config_json.is_discarded() || !config_json.contains("encoding")) {

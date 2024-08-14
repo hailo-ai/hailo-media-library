@@ -24,8 +24,9 @@
 #include "image_overlay_impl.hpp"
 #include <opencv2/core/utils/filesystem.hpp>
 #include "media_library/media_library_logger.hpp"
+#include "media_library/threadpool.hpp"
 
-ImageOverlayImpl::ImageOverlayImpl(const osd::ImageOverlay &overlay, media_library_return &status) : OverlayImpl(overlay.id, overlay.x, overlay.y, overlay.width, overlay.height, overlay.z_index, overlay.angle, overlay.rotation_alignment_policy, false),
+ImageOverlayImpl::ImageOverlayImpl(const osd::ImageOverlay &overlay, media_library_return &status) : OverlayImpl(overlay.id, overlay.x, overlay.y, overlay.width, overlay.height, overlay.z_index, overlay.angle, overlay.rotation_alignment_policy, false, overlay.horizontal_alignment, overlay.vertical_alignment),
                                                                                                      m_path(overlay.image_path)
 {
     status = MEDIA_LIBRARY_SUCCESS;
@@ -64,24 +65,40 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> ImageO
     }
 
     // read the image from file, keeping alpha channel
-    m_image_mat = cv::imread(m_path, cv::IMREAD_UNCHANGED);
+    auto image_mat = cv::imread(m_path, cv::IMREAD_UNCHANGED);
 
     // check if the image was read successfully
-    if (m_image_mat.empty())
+    if (image_mat.empty())
     {
         LOGGER__ERROR("Error: failed to read image file {}", m_path);
         return tl::make_unexpected(MEDIA_LIBRARY_INVALID_ARGUMENT);
     }
 
     // convert image to 4-channel RGBA format if necessary
-    if (m_image_mat.channels() != 4)
+    if (image_mat.channels() != 4)
     {
         LOGGER__INFO("READ IMAGE THAT WAS NOT 4 channels");
-        cv::cvtColor(m_image_mat, m_image_mat, cv::COLOR_BGR2BGRA);
+        image_mat = ThreadPool::GetInstance()->invoke([image_mat]()
+                                                      { 
+                                        cv::Mat result_image;
+                                        cv::cvtColor(image_mat, result_image, cv::COLOR_BGR2BGRA);
+                                        return result_image; });
     }
 
-    m_image_mat = resize_mat(m_image_mat, m_width * frame_width, m_height * frame_height);
+    // calculate mat required size, and make sure width and height are even
+    auto width = (uint32_t)(m_width * frame_width);
+    auto height = (uint32_t)(m_height * frame_height);
+    width += width % 2;
+    height += height % 2;
 
+    // resize mat
+    m_image_mat = ThreadPool::GetInstance()->invoke([image_mat, width, height]()
+                                                    { 
+                                       
+                                        cv::Mat resized_image;
+                                        cv::resize(image_mat, resized_image, cv::Size(width, height), 0, 0, cv::INTER_AREA); 
+                                        return resized_image; });
+    image_mat.release();
     return OverlayImpl::create_dsp_overlays(frame_width, frame_height);
 }
 

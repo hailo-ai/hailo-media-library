@@ -32,6 +32,13 @@
 
 namespace isp_utils
 {
+    bool m_auto_configure = false;
+
+    void set_auto_configure(bool auto_configure)
+    {
+        m_auto_configure = auto_configure;
+    }
+
     std::string find_subdevice_path(const std::string &subdevice_name)
     {
         for (const auto &entry : std::filesystem::directory_iterator("/sys/class/video4linux/"))
@@ -58,22 +65,26 @@ namespace isp_utils
 
     void set_default_configuration()
     {
-        override_file(ISP_DEFAULT_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
+        if (m_auto_configure)
+            override_file(ISP_DEFAULT_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
     }
 
     void set_denoise_configuration()
     {
-        override_file(ISP_DENOISE_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
+        if (m_auto_configure)
+            override_file(ISP_DENOISE_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
     }
 
     void set_backlight_configuration()
     {
-        override_file(ISP_BACKLIGHT_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
+        if (m_auto_configure)
+            override_file(ISP_BACKLIGHT_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
     }
 
     void set_hdr_configuration(bool is_4k)
     {
-        override_file(is_4k ? ISP_HDR_3A_CONFIG_4K : ISP_HDR_3A_CONFIG_FHD, TRIPLE_A_CONFIG_PATH);
+        if (m_auto_configure)
+            override_file(is_4k ? ISP_HDR_3A_CONFIG_4K : ISP_HDR_3A_CONFIG_FHD, TRIPLE_A_CONFIG_PATH);
     }
 
     void setup_hdr(bool is_4k)
@@ -83,12 +94,14 @@ namespace isp_utils
         {
             override_file(MEDIA_SERVER_HDR_CONFIG, MEDIA_SERVER_CONFIG);
             override_file(ISP_SENSOR0_ENTRY_HDR_IMX678_CONFIG, ISP_SENSOR0_ENTRY_CONFIG);
-            override_file(ISP_HDR_3A_CONFIG_4K, TRIPLE_A_CONFIG_PATH);
+            if (m_auto_configure)
+                override_file(ISP_HDR_3A_CONFIG_4K, TRIPLE_A_CONFIG_PATH);
         }
         else
         {
             override_file(ISP_SENSOR0_ENTRY_IMX678_CONFIG, ISP_SENSOR0_ENTRY_CONFIG);
-            override_file(ISP_HDR_3A_CONFIG_FHD, TRIPLE_A_CONFIG_PATH);
+            if (m_auto_configure)
+                override_file(ISP_HDR_3A_CONFIG_FHD, TRIPLE_A_CONFIG_PATH);
         }
 
         if (auto imx678_path = find_subdevice_path("imx678"); !imx678_path.empty())
@@ -125,7 +138,8 @@ namespace isp_utils
         }
 
         override_file(ISP_SENSOR0_ENTRY_IMX678_CONFIG, ISP_SENSOR0_ENTRY_CONFIG);
-        override_file("/usr/bin/3aconfig_imx678.json", TRIPLE_A_CONFIG_PATH);
+        if (m_auto_configure)
+            override_file("/usr/bin/3aconfig_imx678.json", TRIPLE_A_CONFIG_PATH);
 
         if (auto imx678_path = find_subdevice_path("imx678"); !imx678_path.empty())
         {

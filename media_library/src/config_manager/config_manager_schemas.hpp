@@ -27,7 +27,7 @@
 
 namespace config_schemas
 {
-    static nlohmann::json encoder_config_schema = R"(
+  static nlohmann::json encoder_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for encoder configuration",
@@ -144,7 +144,8 @@ namespace config_schemas
                       "VCENC_HEVC_MAIN_STILL_PICTURE_PROFILE",
                       "VCENC_H264_BASE_PROFILE",
                       "VCENC_H264_MAIN_PROFILE",
-                      "VCENC_H264_HIGH_PROFILE"
+                      "VCENC_H264_HIGH_PROFILE",
+                      "auto"
                     ]
                   },
                   "level": {
@@ -162,8 +163,6 @@ namespace config_schemas
                 },
                 "required": [
                   "codec",
-                  "profile",
-                  "level",
                   "bit_depth_luma",
                   "bit_depth_chroma",
                   "stream_type"
@@ -181,7 +180,8 @@ namespace config_schemas
                         "profile": {
                           "enum": [
                             "VCENC_HEVC_MAIN_PROFILE",
-                            "VCENC_HEVC_MAIN_STILL_PICTURE_PROFILE"
+                            "VCENC_HEVC_MAIN_STILL_PICTURE_PROFILE",
+                            "auto"
                           ]
                         }
                       }
@@ -195,7 +195,8 @@ namespace config_schemas
                         "enum": [
                           "VCENC_H264_BASE_PROFILE",
                           "VCENC_H264_MAIN_PROFILE",
-                          "VCENC_H264_HIGH_PROFILE"
+                          "VCENC_H264_HIGH_PROFILE",
+                          "auto"
                         ]
                       }
                     }
@@ -290,6 +291,15 @@ namespace config_schemas
           "rate_control": {
             "type": "object",
             "properties": {
+              "rc_mode": {
+                "type": "string",
+                "enum": [
+                  "VBR",
+                  "CVBR",
+                  "HRD",
+                  "CQP"
+                ]
+              },
               "picture_rc": {
                 "type": "boolean"
               },
@@ -305,13 +315,22 @@ namespace config_schemas
               "hrd": {
                 "type": "boolean"
               },
+              "padding": {
+                "type": "boolean"
+              },
+              "cvbr": {
+                "type": "integer"
+              },
               "hrd_cpb_size": {
                 "type": "integer"
               },
-              "monitor_frames": {
+              "intra_pic_rate": {
                 "type": "integer"
               },
               "gop_length": {
+                "type": "integer"
+              },
+              "monitor_frames": {
                 "type": "integer"
               },
               "quantization": {
@@ -334,11 +353,7 @@ namespace config_schemas
                   }
                 },
                 "required": [
-                  "qp_min",
-                  "qp_max",
-                  "qp_hdr",
-                  "intra_qp_delta",
-                  "fixed_intra_qp"
+                  "qp_hdr"
                 ],
                 "additionalProperties": false
               },
@@ -359,29 +374,86 @@ namespace config_schemas
                   },
                   "tolerance_moving_bitrate": {
                     "type": "integer"
+                  },
+                  "variation": {
+                    "type": "integer"
                   }
                 },
                 "required": [
-                  "target_bitrate",
-                  "bit_var_range_i",
-                  "bit_var_range_p",
-                  "bit_var_range_b",
-                  "tolerance_moving_bitrate"
+                  "target_bitrate"
                 ],
                 "additionalProperties": false
               }
             },
             "required": [
+              "rc_mode",
               "picture_rc",
               "picture_skip",
-              "ctb_rc",
-              "block_rc_size",
-              "hrd",
-              "hrd_cpb_size",
-              "monitor_frames",
-              "gop_length",
+              "intra_pic_rate",
               "quantization",
               "bitrate"
+            ],
+            "additionalProperties": false
+          },
+          "monitors_control": {
+            "type": "object",
+            "properties": {
+              "bitrate_monitor": {
+                "type": "object",
+                "properties": {
+                  "enable": {
+                    "type": "boolean"
+                  },
+                  "period": {
+                    "type": "integer"
+                  },
+                  "result_output_path": {
+                    "type": "string"
+                  },
+                  "output_result_to_file": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "enable",
+                  "period",
+                  "result_output_path",
+                  "output_result_to_file"
+                ],
+                "additionalProperties": false
+              },
+              "cycle_monitor": {
+                "type": "object",
+                "properties": {
+                  "enable": {
+                    "type": "boolean"
+                  },
+                  "start_delay": {
+                    "type": "integer"
+                  },
+                  "deviation_threshold": {
+                    "type": "integer"
+                  },
+                  "result_output_path": {
+                    "type": "string"
+                  },
+                  "output_result_to_file": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "enable",
+                  "start_delay",
+                  "deviation_threshold",
+                  "result_output_path",
+                  "output_result_to_file"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "bitrate_monitor",
+              "cycle_monitor"
             ],
             "additionalProperties": false
           }
@@ -461,11 +533,86 @@ namespace config_schemas
     "additionalProperties": true
   })"_json;
 
-    static nlohmann::json osd_config_schema = R"(
+  static nlohmann::json osd_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for on screen display configuration",
     "type": "object",
+    "definitions": {
+      "color": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        }
+      },
+      "angle": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 359
+      },
+      "rotation_policy": {
+        "type": "string",
+        "enum": [
+          "CENTER",
+          "TOP_LEFT"
+        ]
+      },
+      "coordinate": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "z-index": {
+        "type": "integer"
+      },
+      "horizontal_alignment": {
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "RIGHT",
+              "LEFT",
+              "CENTER"
+            ]
+          },
+          {
+            "type": "number"
+          }
+        ]
+      },
+      "vertical_alignment": {
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "TOP",
+              "BOTTOM",
+              "CENTER"
+            ]
+          },
+          {
+            "type": "number"
+          }
+        ]
+      },
+      "font_weight": {
+        "type": "string",
+        "enum": [
+          "NORMAL",
+          "BOLD"
+        ]
+      },
+      "outline_size": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "line_thickness": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
     "properties": {
       "osd": {
         "type": "object",
@@ -488,25 +635,25 @@ namespace config_schemas
                   "type": "number"
                 },
                 "angle": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 359
+                  "$ref": "#/definitions/angle"
                 },
-                "rotation_policy":  {
-                    "type": "string",
-                    "enum": [
-                      "CENTER",
-                      "TOP_LEFT"
-                    ]
+                "rotation_policy": {
+                  "$ref": "#/definitions/rotation_policy"
                 },
                 "x": {
-                  "type": "number"
+                  "$ref": "#/definitions/coordinate"
                 },
                 "y": {
-                  "type": "number"
+                  "$ref": "#/definitions/coordinate"
                 },
                 "z-index": {
-                  "type": "integer"
+                  "$ref": "#/definitions/z-index"
+                },
+                "horizontal_alignment": {
+                  "$ref": "#/definitions/horizontal_alignment"
+                },
+                "vertical_alignment": {
+                  "$ref": "#/definitions/vertical_alignment"
                 }
               },
               "required": [
@@ -538,64 +685,62 @@ namespace config_schemas
                 "font_path": {
                   "type": "string"
                 },
+                "font_weight": {
+                  "$ref": "#/definitions/font_weight"
+                },
                 "datetime_format": {
                   "type": "string"
                 },
                 "line_thickness": {
-                  "type": "integer",
-                  "minimum": 1
+                  "$ref": "#/definitions/line_thickness"
                 },
                 "text_color": {
-                  "type": "array",
-                  "items": {
-                    "type": "integer"
-                  }
+                  "$ref": "#/definitions/color"
                 },
                 "background_color": {
-                  "type": "array",
-                  "items": {
-                    "type": "integer"
-                  }
+                  "$ref": "#/definitions/color"
+                },
+                "outline_size": {
+                  "$ref": "#/definitions/outline_size"
+                },
+                "outline_color": {
+                  "$ref": "#/definitions/color"
                 },
                 "angle": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 359
+                  "$ref": "#/definitions/angle"
                 },
-                "rotation_policy":  {
-                    "type": "string",
-                    "enum": [
-                      "CENTER",
-                      "TOP_LEFT"
-                    ]
+                "rotation_policy": {
+                  "$ref": "#/definitions/rotation_policy"
                 },
                 "x": {
-                  "type": "number"
+                  "$ref": "#/definitions/coordinate"
                 },
                 "y": {
-                  "type": "number"
+                  "$ref": "#/definitions/coordinate"
                 },
                 "z-index": {
-                  "type": "integer"
+                  "$ref": "#/definitions/z-index"
                 },
                 "shadow_color": {
-                  "type": "array",
-                  "items": {
-                    "type": "integer"
-                  }
+                  "$ref": "#/definitions/color"
                 },
                 "shadow_offset_x": {
                   "type": "number"
                 },
                 "shadow_offset_y": {
                   "type": "number"
+                },
+                "horizontal_alignment": {
+                  "$ref": "#/definitions/horizontal_alignment"
+                },
+                "vertical_alignment": {
+                  "$ref": "#/definitions/vertical_alignment"
                 }
               },
               "required": [
                 "id",
                 "font_size",
                 "font_path",
-                "line_thickness",
                 "text_color",
                 "angle",
                 "rotation_policy",
@@ -624,61 +769,59 @@ namespace config_schemas
                 "font_path": {
                   "type": "string"
                 },
+                "font_weight": {
+                  "$ref": "#/definitions/font_weight"
+                },
                 "line_thickness": {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                "angle": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 359
-                },
-                "rotation_policy":  {
-                    "type": "string",
-                    "enum": [
-                      "CENTER",
-                      "TOP_LEFT"
-                    ]
+                  "$ref": "#/definitions/line_thickness"
                 },
                 "text_color": {
-                  "type": "array",
-                  "items": {
-                    "type": "integer"
-                  }
+                  "$ref": "#/definitions/color"
                 },
                 "background_color": {
-                  "type": "array",
-                  "items": {
-                    "type": "integer"
-                  }
+                  "$ref": "#/definitions/color"
+                },
+                "outline_size": {
+                  "$ref": "#/definitions/outline_size"
+                },
+                "outline_color": {
+                  "$ref": "#/definitions/color"
+                },
+                "angle": {
+                  "$ref": "#/definitions/angle"
+                },
+                "rotation_policy": {
+                  "$ref": "#/definitions/rotation_policy"
                 },
                 "x": {
-                  "type": "number"
+                  "$ref": "#/definitions/coordinate"
                 },
                 "y": {
-                  "type": "number"
+                  "$ref": "#/definitions/coordinate"
                 },
                 "z-index": {
-                  "type": "integer"
+                  "$ref": "#/definitions/z-index"
                 },
                 "shadow_color": {
-                  "type": "array",
-                  "items": {
-                    "type": "integer"
-                  }
+                  "$ref": "#/definitions/color"
                 },
                 "shadow_offset_x": {
                   "type": "number"
                 },
                 "shadow_offset_y": {
                   "type": "number"
+                },
+                "horizontal_alignment": {
+                  "$ref": "#/definitions/horizontal_alignment"
+                },
+                "vertical_alignment": {
+                  "$ref": "#/definitions/vertical_alignment"
                 }
               },
               "required": [
                 "id",
                 "label",
                 "font_size",
-                "line_thickness",
                 "font_path",
                 "angle",
                 "rotation_policy",
@@ -701,7 +844,7 @@ namespace config_schemas
   }
   )"_json;
 
-    static nlohmann::json vision_config_schema = R"(
+  static nlohmann::json vision_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for vision pre proc configuration",
@@ -809,18 +952,13 @@ namespace config_schemas
           },
           "camera_type": {
             "type": "string"
-          },
-          "camera_fov": {
-            "type": "number",
-            "maximum": 359
           }
         },
         "required": [
           "enabled",
           "color_interpolation",
           "sensor_calib_path",
-          "camera_type",
-          "camera_fov"
+          "camera_type"
         ]
       },
       "dis": {
@@ -858,6 +996,11 @@ namespace config_schemas
           },
           "black_corners_threshold": {
             "type": "number"
+          },
+          "camera_fov_factor": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 1
           },
           "angular_dis": {
             "type": "object",
@@ -970,6 +1113,7 @@ namespace config_schemas
           "std_multiplier",
           "black_corners_correction_enabled",
           "black_corners_threshold",
+          "camera_fov_factor",
           "angular_dis",
           "debug"
         ]
@@ -1099,7 +1243,7 @@ namespace config_schemas
   }
   )"_json;
 
-    static nlohmann::json multi_resize_config_schema = R"(
+  static nlohmann::json multi_resize_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for multi-resize configuration",
@@ -1205,7 +1349,7 @@ namespace config_schemas
   }
   )"_json;
 
-    static nlohmann::json ldc_config_schema = R"(
+  static nlohmann::json ldc_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for LDC configuration",
@@ -1225,10 +1369,6 @@ namespace config_schemas
           },
           "camera_type": {
             "type": "string"
-          },
-          "camera_fov": {
-            "type": "number",
-            "maximum": 359
           }
         },
         "additionalProperties": false,
@@ -1236,8 +1376,7 @@ namespace config_schemas
           "enabled",
           "color_interpolation",
           "sensor_calib_path",
-          "camera_type",
-          "camera_fov"
+          "camera_type"
         ]
       },
       "dis": {
@@ -1280,6 +1419,11 @@ namespace config_schemas
             "type": "number",
             "minimum": 0,
             "maximum": 255
+          },
+          "camera_fov_factor": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 1
           },
           "angular_dis": {
             "type": "object",
@@ -1356,8 +1500,57 @@ namespace config_schemas
           "black_corners_correction_enabled",
           "black_corners_threshold",
           "average_luminance_threshold",
+          "camera_fov_factor",
           "angular_dis",
           "debug"
+        ]
+      },
+      "eis": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "correction_applied": {
+            "type": "boolean"
+          },          
+          "eis_config_path": {
+            "type": "string"
+          },
+          "gyro_sensor_name": {
+            "type": "string"
+          },
+          "gyro_sensor_freq": {
+            "type": "string"
+          },
+          "window_size": {
+            "type": "number"
+          },
+          "gyro_scale": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "rotational_smoothing_coefficient": {
+            "type": "number"
+          },
+          "iir_hpf_coefficient": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "correction_applied",
+          "eis_config_path",
+          "gyro_sensor_name",
+          "gyro_sensor_freq",
+          "window_size",
+          "gyro_scale",
+          "rotational_smoothing_coefficient",
+          "iir_hpf_coefficient"
         ]
       },
       "gmv": {
@@ -1431,6 +1624,7 @@ namespace config_schemas
     "required": [
       "dewarp",
       "dis",
+      "eis",
       "gmv",
       "optical_zoom",
       "rotation",
@@ -1439,7 +1633,7 @@ namespace config_schemas
   }
   )"_json;
 
-    static nlohmann::json hailort_config_schema = R"(
+  static nlohmann::json hailort_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for HailoRT configuration",
@@ -1464,7 +1658,32 @@ namespace config_schemas
   }
   )"_json;
 
-    static nlohmann::json hdr_config_schema = R"(
+  static nlohmann::json isp_config_schema = R"(
+  {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Media Library schema for ISP configuration",
+    "type": "object",
+    "properties": {
+      "isp": {
+        "type": "object",
+        "properties": {
+          "auto-configuration": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "auto-configuration"
+        ]
+      }
+    },
+    "required": [
+      "isp"
+    ]
+  }
+  )"_json;
+
+  static nlohmann::json hdr_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for HDR configuration",
@@ -1507,7 +1726,7 @@ namespace config_schemas
   }
   )"_json;
 
-    static nlohmann::json denoise_config_schema = R"(
+  static nlohmann::json denoise_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for denoise configuration",
@@ -1581,7 +1800,7 @@ namespace config_schemas
   }
   )"_json;
 
-    static nlohmann::json defog_config_schema = R"(
+  static nlohmann::json defog_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for defog configuration",
@@ -1635,7 +1854,7 @@ namespace config_schemas
   }
   )"_json;
 
-    static nlohmann::json vsm_config_schema = R"(
+  static nlohmann::json vsm_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for vsm media server configuration",

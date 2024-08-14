@@ -75,6 +75,9 @@ public:
         case ConfigSchema::CONFIG_SCHEMA_HAILORT:
             m_config_validator.set_root_schema(config_schemas::hailort_config_schema);
             break;
+        case ConfigSchema::CONFIG_SCHEMA_ISP:
+            m_config_validator.set_root_schema(config_schemas::isp_config_schema);
+            break;
         case ConfigSchema::CONFIG_SCHEMA_HDR:
             m_config_validator.set_root_schema(config_schemas::hdr_config_schema);
             break;
@@ -188,9 +191,11 @@ media_library_return ConfigManager::config_string_to_struct(const std::string &u
 // Explicit instantiation for config types (because they were defined in a .cpp file)
 template media_library_return ConfigManager::config_string_to_struct<pre_proc_op_configurations>(const std::string &user_config_string, pre_proc_op_configurations &conf);
 template media_library_return ConfigManager::config_string_to_struct<multi_resize_config_t>(const std::string &user_config_string, multi_resize_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<eis_config_t>(const std::string &user_config_string, eis_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<ldc_config_t>(const std::string &user_config_string, ldc_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<denoise_config_t>(const std::string &user_config_string, denoise_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<defog_config_t>(const std::string &user_config_string, defog_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<isp_t>(const std::string &user_config_string, isp_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<hailort_t>(const std::string &user_config_string, hailort_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<hdr_config_t>(const std::string &user_config_string, hdr_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<encoder_config_t>(const std::string &user_config_string, encoder_config_t &conf);

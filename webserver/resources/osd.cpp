@@ -18,7 +18,6 @@ webserver::resources::OsdResource::OsdResource() : Resource()
         nlohmann::json::parse(R"({
                 "id": "example_datetime",
                 "font_size": 100,
-                "line_thickness": 3,
                 "text_color": [
                     255,
                     0,
@@ -35,7 +34,6 @@ webserver::resources::OsdResource::OsdResource() : Resource()
                 "id": "example_text1",
                 "label": "HailoAI",
                 "font_size": 100,
-                "line_thickness": 3,
                 "text_color": [
                     255,
                     255,
@@ -52,7 +50,6 @@ webserver::resources::OsdResource::OsdResource() : Resource()
                 "id": "example_text2",
                 "label": "DemoApplication",
                 "font_size": 100,
-                "line_thickness": 3,
                 "text_color": [
                     102,
                     0,

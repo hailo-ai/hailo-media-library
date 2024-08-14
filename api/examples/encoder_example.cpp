@@ -85,7 +85,6 @@ void subscribe_elements(std::shared_ptr<MediaLibrary> media_lib)
         fe_callbacks[s.id] = [s, media_lib](HailoMediaLibraryBufferPtr buffer, size_t size) {
             if (media_lib->FrontendRestarting == false)
                 media_lib->encoders[s.id]->add_buffer(buffer);
-            buffer->decrease_ref_count();
         };
     }
     media_lib->frontend->subscribe(fe_callbacks);
@@ -97,7 +96,6 @@ void subscribe_elements(std::shared_ptr<MediaLibrary> media_lib)
         media_lib->encoders[streamId]->subscribe(
             [streamId, media_lib](HailoMediaLibraryBufferPtr buffer, size_t size) {
                 write_encoded_data(buffer, size, media_lib->output_files[streamId]);
-                buffer->decrease_ref_count();
             });
     }
 }
@@ -109,7 +107,7 @@ int update_encoders_bitrate(std::map<output_stream_id_t, MediaLibraryEncoderPtr>
     uint enc_i = 0;
     for (const auto &entry : encoders)
     {
-        encoder_config_t encoder_config = entry.second->get_config();
+        encoder_config_t encoder_config = entry.second->get_user_config();
         if (std::holds_alternative<jpeg_encoder_config_t>(encoder_config)) {
             continue;
         }

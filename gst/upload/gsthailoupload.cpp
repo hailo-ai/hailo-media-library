@@ -154,8 +154,11 @@ static GstFlowReturn gpdma_copy_channel(GstHailoUpload *hailoupload,
                                         size_t channel_size)
 {
     struct dma_copy_info ioctl_data = {
+        .src_fd = -1, // not used
+        .dst_fd = -1, // not used
         .length = channel_size,
         .status = 0,
+        .is_dma_buff = false,
         .virt_src_addr = (unsigned long)channel_data,
         .virt_dst_addr = (unsigned long)output_channel_data,
     };

@@ -58,7 +58,7 @@ public:
     media_library_return configure(multi_resize_config_t &mresize_config);
 
     // Perform multi-resize on the input frame and return the output frames
-    media_library_return handle_frame(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames);
+    media_library_return handle_frame(HailoMediaLibraryBufferPtr input_frame, std::vector<HailoMediaLibraryBufferPtr> &output_frames);
 
     // get the multi-resize configurations object
     multi_resize_config_t &get_multi_resize_configs();
@@ -86,10 +86,6 @@ private:
     std::shared_ptr<ConfigManager> m_config_manager;
     // operation configurations
     multi_resize_config_t m_multi_resize_config;
-    // dsp internal helper buffer pool
-    MediaLibraryBufferPoolPtr m_dsp_helper_buffer_pool;
-    // helper buffer for multi-resize (constantly in use)
-    hailo_media_library_buffer m_resize_helper_buffer;
     // privacy mask blender
     PrivacyMaskBlenderPtr m_privacy_mask_blender;
     // callbacks
@@ -104,10 +100,10 @@ private:
 
     media_library_return validate_configurations(multi_resize_config_t &mresize_config);
     media_library_return decode_config_json_string(multi_resize_config_t &mresize_config, std::string config_string);
-    media_library_return acquire_output_buffers(hailo_media_library_buffer &input_buffer, std::vector<hailo_media_library_buffer> &buffers);
+    media_library_return acquire_output_buffers(HailoMediaLibraryBufferPtr input_buffer, std::vector<HailoMediaLibraryBufferPtr> &buffers);
     media_library_return create_and_initialize_buffer_pools();
-    media_library_return validate_input_and_output_frames(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames);
-    media_library_return perform_multi_resize(hailo_media_library_buffer &input_buffer, std::vector<hailo_media_library_buffer> &output_frames);
+    media_library_return validate_input_and_output_frames(HailoMediaLibraryBufferPtr input_frame, std::vector<HailoMediaLibraryBufferPtr> &output_frames);
+    media_library_return perform_multi_resize(HailoMediaLibraryBufferPtr input_buffer, std::vector<HailoMediaLibraryBufferPtr> &output_frames);
     media_library_return configure_internal(multi_resize_config_t &mresize_config);
     void stamp_time_and_log_fps(timespec &start_handle, timespec &end_handle);
     void increase_frame_counter();
@@ -137,7 +133,7 @@ media_library_return MediaLibraryMultiResize::configure(multi_resize_config_t &m
     return m_impl->configure(mresize_config);
 }
 
-media_library_return MediaLibraryMultiResize::handle_frame(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames)
+media_library_return MediaLibraryMultiResize::handle_frame(HailoMediaLibraryBufferPtr input_frame, std::vector<HailoMediaLibraryBufferPtr> &output_frames)
 {
     return m_impl->handle_frame(input_frame, output_frames);
 }
@@ -209,7 +205,10 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
         return;
     }
 
-    if (configure(m_multi_resize_config) != MEDIA_LIBRARY_SUCCESS)
+    multi_resize_config_t mresize_config;
+    mresize_config = m_multi_resize_config;
+    m_multi_resize_config.rotation_config.angle = ROTATION_ANGLE_0;
+    if (configure(mresize_config) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to configure multi-resize");
         status = MEDIA_LIBRARY_CONFIGURATION_ERROR;
@@ -227,21 +226,11 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
         status = blender_expected.error();
     }
 
-    m_dsp_helper_buffer_pool = std::make_shared<MediaLibraryBufferPool>(1280, 720, DSP_IMAGE_FORMAT_GRAY8, 1, CMA, dsp_utils::get_dsp_desired_stride_from_width(1280), "multi_resize_input");
-    if (m_dsp_helper_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__ERROR("Failed to init internal helper buffer pool");
-        status = MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
-    }
-
-    m_dsp_helper_buffer_pool->acquire_buffer(m_resize_helper_buffer);
-
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
 MediaLibraryMultiResize::Impl::~Impl()
 {
-    m_resize_helper_buffer.decrease_ref_count();
     m_multi_resize_config.output_video_config.resolutions.clear();
     dsp_status status = dsp_utils::release_device();
     if (status != DSP_SUCCESS)
@@ -282,25 +271,27 @@ media_library_return MediaLibraryMultiResize::Impl::validate_configurations(mult
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryMultiResize::Impl::set_output_rotation(const rotation_angle_t &rotation)
+media_library_return MediaLibraryMultiResize::Impl::set_output_rotation(const rotation_angle_t &angle)
 {
-    rotation_angle_t current_rotation = m_multi_resize_config.rotation_config;
-    if (current_rotation == rotation)
+    rotation_config_t new_rotation = {true, angle};
+    rotation_config_t &current_rotation = m_multi_resize_config.rotation_config;
+    if (current_rotation == new_rotation)
     {
-        LOGGER__INFO("Output rotation is already set to {}", rotation);
+        LOGGER__INFO("Output rotation is already set to {}", current_rotation.angle);
         return MEDIA_LIBRARY_SUCCESS;
     }
-    LOGGER__INFO("Setting output rotation to {} from {}", rotation, m_multi_resize_config.rotation_config);
+    LOGGER__INFO("Setting output rotation from {} to {}", current_rotation.angle, new_rotation.angle);
 
     std::unique_lock<std::shared_mutex> lock(rw_lock);
 
-    m_multi_resize_config.set_output_dimensions_rotation(rotation);
+    m_multi_resize_config.set_output_dimensions_rotation(new_rotation);
+    LOGGER__DEBUG("Output rotation dims are now width {} height {}", m_multi_resize_config.output_video_config.resolutions[0].dimensions.destination_width, m_multi_resize_config.output_video_config.resolutions[0].dimensions.destination_height);
 
     // recreate buffer pools if needed
     media_library_return ret = create_and_initialize_buffer_pools();
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-        m_multi_resize_config.set_output_dimensions_rotation(current_rotation);
+        LOGGER__ERROR("Failed to recreate buffer pool after setting output rotation");
         return ret;
     }
 
@@ -419,10 +410,10 @@ media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer
  * @param[in] input_frame - pointer to the input frame
  * @param[in] buffers - vector of output buffers
  */
-media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(hailo_media_library_buffer &input_buffer, std::vector<hailo_media_library_buffer> &buffers)
+media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(HailoMediaLibraryBufferPtr input_buffer, std::vector<HailoMediaLibraryBufferPtr> &buffers)
 {
     // Acquire output buffers
-    int32_t isp_ae_fps = input_buffer.isp_ae_fps;
+    int32_t isp_ae_fps = input_buffer->isp_ae_fps;
     bool should_acquire_buffer;
     uint8_t num_of_outputs = m_multi_resize_config.output_video_config.resolutions.size();
     int64_t timestamp = media_library_get_timespec_ms();
@@ -431,7 +422,7 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(hailo
         uint32_t input_framerate = m_multi_resize_config.input_video_config.framerate;
         uint32_t output_framerate = m_multi_resize_config.output_video_config.resolutions[i].framerate;
         int64_t frame_latency = 1000 / output_framerate;
-        hailo_media_library_buffer buffer;
+        HailoMediaLibraryBufferPtr buffer = std::make_shared<hailo_media_library_buffer>();
         bool push_frame = timestamp - m_timestamps[i] >= frame_latency;
         if (push_frame)
         {
@@ -456,19 +447,22 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(hailo
         if (!should_acquire_buffer)
         {
             LOGGER__DEBUG("Skipping current frame to match framerate {}, no need to acquire buffer {}, counter is {}", output_framerate, i, m_frame_counter);
-            buffers.emplace_back(std::move(buffer));
+            buffers.emplace_back(buffer);
             continue;
         }
 
         if (m_buffer_pools[i]->acquire_buffer(buffer) != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__WARNING("Failed to acquire buffer, skipping buffer");
-            buffers.emplace_back(std::move(buffer));
+            buffers.emplace_back(buffer);
             continue;
         }
-        buffer.isp_ae_fps = isp_ae_fps;
-        buffer.isp_timestamp_ns = input_buffer.isp_timestamp_ns;
-        buffers.emplace_back(std::move(buffer));
+        buffer->isp_ae_fps = isp_ae_fps;
+        buffer->isp_ae_converged = input_buffer->isp_ae_converged;
+        buffer->isp_ae_average_luma = input_buffer->isp_ae_average_luma;
+        buffer->isp_timestamp_ns = input_buffer->isp_timestamp_ns;
+        buffer->pts = input_buffer->pts;
+        buffers.emplace_back(buffer);
         LOGGER__DEBUG("buffer acquired successfully");
     }
 
@@ -481,7 +475,7 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(hailo
  * @param[in] input_frame - pointer to the input frame
  * @param[out] output_frames - vector of output frames
  */
-media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(hailo_media_library_buffer &input_buffer, std::vector<hailo_media_library_buffer> &output_frames)
+media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(HailoMediaLibraryBufferPtr input_buffer, std::vector<HailoMediaLibraryBufferPtr> &output_frames)
 {
     struct timespec start_resize, end_resize;
     size_t output_frames_size = output_frames.size();
@@ -494,23 +488,22 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(hailo_m
 
     dsp_crop_resize_params_t crop_resize_params = {};
     dsp_multi_crop_resize_params_t multi_crop_resize_params = {
-        .src = input_buffer.hailo_pix_buffer.get(),
+        .src = input_buffer->hailo_pix_buffer.get(),
         .crop_resize_params = &crop_resize_params,
         .crop_resize_params_count = 1,
         .interpolation = m_multi_resize_config.output_video_config.interpolation_type,
-        .helper_plane = m_resize_helper_buffer.hailo_pix_buffer.get(),
     };
 
     uint num_bufs_to_resize = 0;
     for (size_t i = 0; i < num_of_output_resolutions; i++)
     {
         // TODO: Handle cases where its nullptr
-        if (output_frames[i].hailo_pix_buffer == nullptr)
+        if (output_frames[i]->hailo_pix_buffer == nullptr)
         {
             LOGGER__DEBUG("Skipping resize for output frame {} to match target framerate ({})", i, m_multi_resize_config.output_video_config.resolutions[i].framerate);
             continue;
         }
-        dsp_image_properties_t *output_frame = output_frames[i].hailo_pix_buffer.get();
+        dsp_image_properties_t *output_frame = output_frames[i]->hailo_pix_buffer.get();
         output_resolution_t &output_res = m_multi_resize_config.output_video_config.resolutions[i];
 
         if (output_res != *output_frame)
@@ -528,6 +521,11 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(hailo_m
     {
         LOGGER__DEBUG("No need to perform multi resize");
         return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    for (size_t i = num_bufs_to_resize; i < DSP_MULTI_RESIZE_OUTPUTS_COUNT; i++)
+    {
+        crop_resize_params.dst[i] = nullptr;
     }
 
     uint start_x = 0;
@@ -600,7 +598,7 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(hailo_m
     {
         dsp_roi_t dsp_rois[privacy_mask_data->rois_count];
         dsp_privacy_mask_t dsp_privacy_mask = {
-            .bitmask = (uint8_t *)privacy_mask_data->bitmask.get_plane(0),
+            .bitmask = (uint8_t *)privacy_mask_data->bitmask->get_plane(0),
             .y_color = privacy_mask_data->color.y,
             .u_color = privacy_mask_data->color.u,
             .v_color = privacy_mask_data->color.v,
@@ -652,7 +650,7 @@ void MediaLibraryMultiResize::Impl::increase_frame_counter()
     m_frame_counter = (m_frame_counter == 60) ? 1 : m_frame_counter + 1;
 }
 
-media_library_return MediaLibraryMultiResize::Impl::validate_input_and_output_frames(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames)
+media_library_return MediaLibraryMultiResize::Impl::validate_input_and_output_frames(HailoMediaLibraryBufferPtr input_frame, std::vector<HailoMediaLibraryBufferPtr> &output_frames)
 {
     // Check if vector of output buffers is not empty
     if (!output_frames.empty())
@@ -675,7 +673,7 @@ media_library_return MediaLibraryMultiResize::Impl::validate_input_and_output_fr
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryMultiResize::Impl::handle_frame(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames)
+media_library_return MediaLibraryMultiResize::Impl::handle_frame(HailoMediaLibraryBufferPtr input_frame, std::vector<HailoMediaLibraryBufferPtr> &output_frames)
 {
     // Stamp start time
     struct timespec start_handle, end_handle;
@@ -683,7 +681,6 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(hailo_media_lib
 
     if (validate_input_and_output_frames(input_frame, output_frames) != MEDIA_LIBRARY_SUCCESS)
     {
-        input_frame.decrease_ref_count();
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
@@ -694,7 +691,6 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(hailo_media_lib
     media_lib_ret = acquire_output_buffers(input_frame, output_frames);
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
     {
-        input_frame.decrease_ref_count();
         return media_lib_ret;
     }
 
@@ -702,15 +698,15 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(hailo_media_lib
     if (m_multi_resize_config.output_video_config.grayscale)
     {
         // Saturate UV plane to value of 128 - to get a grayscale image
-        if (input_frame.is_dmabuf())
+        if (input_frame->is_dmabuf())
         {
-            DmaMemoryAllocator::get_instance().dmabuf_sync_start(input_frame.get_plane(1));
-            memset(input_frame.get_plane(1), 128, input_frame.get_plane_size(1));
-            DmaMemoryAllocator::get_instance().dmabuf_sync_end(input_frame.get_plane(1));
+            DmaMemoryAllocator::get_instance().dmabuf_sync_start(input_frame->get_plane(1));
+            memset(input_frame->get_plane(1), 128, input_frame->get_plane_size(1));
+            DmaMemoryAllocator::get_instance().dmabuf_sync_end(input_frame->get_plane(1));
         }
         else
         {
-            memset(input_frame.get_plane(1), 128, input_frame.get_plane_size(1));
+            memset(input_frame->get_plane(1), 128, input_frame->get_plane_size(1));
         }
     }
 

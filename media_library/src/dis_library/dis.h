@@ -38,6 +38,7 @@
 #include <deque>
 #include <memory>
 #include <vector>
+#include <opencv2/opencv.hpp>
 
 #ifndef GRID_IS_IN_PIX_INDEXES
 // Depends on the warper implementation.
@@ -65,7 +66,7 @@ public:
 private:
     // Dewarp Configurations
     camera_type_t m_camera_type = CAMERA_TYPE_FISHEYE;
-    float m_camera_fov = 0;
+    float m_camera_fov_factor = 1;
     /// Flip/mirror/rotation code of last processed frame.
     int last_flip_mirror_rot = 0;
     /// Output camera model. Points to either a PinHole or a FishEye class according to config.
@@ -125,7 +126,7 @@ public:
     /// @brief initialize DIS class. parse_config() and init_in_cam() must be called first!
     /// @param out_width output image width
     /// @param out_height output image height
-    RetCodes init(int out_width, int out_height, camera_type_t camera_type, float camera_fov);
+    RetCodes init(int out_width, int out_height, camera_type_t camera_type, float camera_fov_factor);
 
     /// @brief creates Dis::in_cam
     /// @param calib camera calibration as a string with a terminating 0 read from a file
@@ -156,6 +157,17 @@ public:
     /// @param flip_mirror_rot as applied on the output image
     /// @param grid output grid
     RetCodes dewarp_only_grid(FlipMirrorRot flip_mirror_rot, DewarpT &grid);
+
+    /// @brief Calculates the grid for stabilization of the current frame,
+    /// using camera motion smoothing algorithms.
+    /// @param flip_mirror_rot as applied on the output image
+    /// @param curr_orientation the orientation matrix of the current frame
+    /// @param smooth_orientaion the orientation matrix calculated by the smoothing algorithm
+    /// @param grid output grid
+    RetCodes generate_eis_grid(FlipMirrorRot flip_mirror_rot,
+                               const cv::Mat& curr_orientation,
+                               const cv::Mat& smooth_orientaion,
+                               DewarpT &grid);
 
 private:
     /// @brief Generates grid, which only resizes the input image into the output one. Used for debug.

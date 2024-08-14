@@ -29,6 +29,7 @@
 #include "encoder_config.hpp"
 #include "encoder_internal.hpp"
 #include "media_library_logger.hpp"
+#include "encoder_config_presets.hpp"
 
 #define MIN_MONITOR_FRAMES (10)
 #define MAX_MONITOR_FRAMES (120)
@@ -52,7 +53,7 @@ EncoderConfig::EncoderConfig(const std::string &json_string)
 }
 
 media_library_return EncoderConfig::configure(const std::string &json_string)
-{   
+{
     std::string strapped_json = json_string;
     strip_string_syntax(strapped_json);
 
@@ -85,18 +86,45 @@ media_library_return EncoderConfig::configure(const std::string &json_string)
 
     m_doc = parsed_json["encoding"][encoder_name];
     m_json_string = strapped_json;
+
+    if (type == EncoderType::Hailo)
+    {
+        auto &config = std::get<hailo_encoder_config_t>(m_config);
+        m_user_config = config;
+        if (EncoderConfigPresets::get_instance().apply_preset(config) != MEDIA_LIBRARY_SUCCESS)
+        {
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+        }
+    }
+
     return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return EncoderConfig::configure(const encoder_config_t &encoder_config)
 {
     m_config = encoder_config;
+
+    if (type == EncoderType::Hailo)
+    {
+        auto &config = std::get<hailo_encoder_config_t>(m_config);
+        m_user_config = config;
+        if (EncoderConfigPresets::get_instance().apply_preset(config) != MEDIA_LIBRARY_SUCCESS)
+        {
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+        }
+    }
+
     return MEDIA_LIBRARY_SUCCESS;
 }
 
 encoder_config_t EncoderConfig::get_config()
 {
     return m_config;
+}
+
+encoder_config_t EncoderConfig::get_user_config()
+{
+    return m_user_config;
 }
 
 hailo_encoder_config_t EncoderConfig::get_hailo_config()
@@ -111,10 +139,9 @@ jpeg_encoder_config_t EncoderConfig::get_jpeg_config()
 
 const nlohmann::json &EncoderConfig::get_doc() const { return m_doc; }
 
-bool Encoder::Impl::gop_config_update_required(const hailo_encoder_config_t &new_config)
+bool Encoder::Impl::gop_config_update_required(const hailo_encoder_config_t &old_config, const hailo_encoder_config_t &new_config)
 {
-    hailo_encoder_config_t current_config = m_config->get_hailo_config();
-    if(new_config.gop.gop_size != current_config.gop.gop_size || new_config.gop.b_frame_qp_delta != current_config.gop.b_frame_qp_delta)
+    if(new_config.gop.gop_size != old_config.gop.gop_size || new_config.gop.b_frame_qp_delta != old_config.gop.b_frame_qp_delta)
     {
         return true;
     }
@@ -122,22 +149,22 @@ bool Encoder::Impl::gop_config_update_required(const hailo_encoder_config_t &new
     return false;
 }
 
-bool Encoder::Impl::hard_restart_required(const hailo_encoder_config_t &new_config, bool gop_update_required)
+bool Encoder::Impl::hard_restart_required(const hailo_encoder_config_t &old_config, const hailo_encoder_config_t &new_config,
+    bool gop_update_required)
 {
-    hailo_encoder_config_t current_config = m_config->get_hailo_config();
     // Output stream configs requires hard restart
-    if((new_config.output_stream.codec != current_config.output_stream.codec) || \
-    (new_config.output_stream.level != current_config.output_stream.level) || \
-    (new_config.output_stream.profile != current_config.output_stream.profile))
+    if((new_config.output_stream.codec != old_config.output_stream.codec) || \
+    (new_config.output_stream.level.value() != old_config.output_stream.level.value()) || \
+    (new_config.output_stream.profile.value() != old_config.output_stream.profile.value()))
     {
         return true;
     }
 
     // Input stream configs requires hard restart
-    if((new_config.input_stream.width != current_config.input_stream.width) || \
-    (new_config.input_stream.height != current_config.input_stream.height) || \
-    (new_config.input_stream.framerate != current_config.input_stream.framerate) || \
-    (new_config.input_stream.format != current_config.input_stream.format))
+    if((new_config.input_stream.width != old_config.input_stream.width) || \
+    (new_config.input_stream.height != old_config.input_stream.height) || \
+    (new_config.input_stream.framerate != old_config.input_stream.framerate) || \
+    (new_config.input_stream.format != old_config.input_stream.format))
     {
         return true;
     }
@@ -162,11 +189,26 @@ uint32_t Encoder::Impl::get_codec()
         return 0;
 }
 
-VCEncProfile Encoder::Impl::get_profile()
+VCEncProfile Encoder::Impl::get_profile(bool codecH264)
 {
     auto output_stream = m_config->get_hailo_config().output_stream;
-    std::string profile = output_stream.profile;
-    if (profile == "VCENC_H264_BASE_PROFILE")
+    std::string profile = output_stream.profile.value();
+
+    if (profile == "auto")
+    {
+        auto resolution = m_config->get_hailo_config().input_stream.width * m_config->get_hailo_config().input_stream.height;
+        auto bitrate = m_config->get_hailo_config().rate_control.bitrate.target_bitrate;
+
+        if ((resolution <= 1280 * 720) && (bitrate <= 5000000))
+        {
+            return (codecH264 ? VCENC_H264_MAIN_PROFILE : VCENC_HEVC_MAIN_PROFILE);
+        }
+        else
+        {
+            return (codecH264 ? VCENC_H264_HIGH_PROFILE : VCENC_HEVC_MAIN_10_PROFILE);
+        }
+    }
+    else if (profile == "VCENC_H264_BASE_PROFILE")
         return VCENC_H264_BASE_PROFILE;
     else if (profile == "VCENC_H264_MAIN_PROFILE")
         return VCENC_H264_MAIN_PROFILE;
@@ -188,6 +230,30 @@ VCEncPictureType Encoder::Impl::get_input_format(std::string format)
 
 VCEncLevel Encoder::Impl::get_level(std::string level, bool codecH264)
 {
+    if (level == "auto")
+    {
+        auto resolution = m_config->get_hailo_config().input_stream.width * m_config->get_hailo_config().input_stream.height;
+        auto bitrate = m_config->get_hailo_config().rate_control.bitrate.target_bitrate;
+        const auto &auto_level_map = codecH264 ? h264_auto_level_map : h265_auto_level_map;
+
+        for (auto &resolution_map : auto_level_map)
+        {
+            if (resolution <= resolution_map.first)
+            {
+                for (auto &bitrate_map : resolution_map.second)
+                {
+                    if (bitrate <= bitrate_map.first)
+                    {
+                        level = bitrate_map.second;
+                        break;
+                    }
+                }
+
+                break;
+            }
+        }
+    }
+
     if (codecH264)
     {
         if (h264_level.find(level) != h264_level.end())
@@ -282,13 +348,13 @@ VCEncRet Encoder::Impl::init_rate_control_config()
     }
 
     m_vc_rate_cfg.qpHdr = rate_control.quantization.qp_hdr;
-    m_vc_rate_cfg.qpMin = rate_control.quantization.qp_min;
-    m_vc_rate_cfg.qpMax = rate_control.quantization.qp_max;
+    m_vc_rate_cfg.qpMin = rate_control.quantization.qp_min.value();
+    m_vc_rate_cfg.qpMax = rate_control.quantization.qp_max.value();
     m_vc_rate_cfg.pictureSkip = rate_control.picture_skip;
     m_vc_rate_cfg.pictureRc = rate_control.picture_rc;
-    m_vc_rate_cfg.ctbRc = rate_control.ctb_rc;
+    m_vc_rate_cfg.ctbRc = rate_control.ctb_rc.value();
 
-    switch (rate_control.block_rc_size)
+    switch (rate_control.block_rc_size.value())
     {
     case 64:
         m_vc_rate_cfg.blockRCSize = 0;
@@ -304,12 +370,12 @@ VCEncRet Encoder::Impl::init_rate_control_config()
     }
 
     m_vc_rate_cfg.bitPerSecond = rate_control.bitrate.target_bitrate;
-    m_vc_rate_cfg.bitVarRangeI = rate_control.bitrate.bit_var_range_i;
-    m_vc_rate_cfg.bitVarRangeP = rate_control.bitrate.bit_var_range_p;
-    m_vc_rate_cfg.bitVarRangeB = rate_control.bitrate.bit_var_range_b;
-    m_vc_rate_cfg.tolMovingBitRate = rate_control.bitrate.tolerance_moving_bitrate;
+    m_vc_rate_cfg.bitVarRangeI = rate_control.bitrate.bit_var_range_i.value();
+    m_vc_rate_cfg.bitVarRangeP = rate_control.bitrate.bit_var_range_p.value();
+    m_vc_rate_cfg.bitVarRangeB = rate_control.bitrate.bit_var_range_b.value();
+    m_vc_rate_cfg.tolMovingBitRate = rate_control.bitrate.tolerance_moving_bitrate.value();
 
-    uint32_t monitor_frames = rate_control.monitor_frames;
+    uint32_t monitor_frames = rate_control.monitor_frames.value();
     if (monitor_frames != 0)
         m_vc_rate_cfg.monitorFrames = monitor_frames;
     else
@@ -322,12 +388,25 @@ VCEncRet Encoder::Impl::init_rate_control_config()
     if (m_vc_rate_cfg.monitorFrames < MIN_MONITOR_FRAMES)
         m_vc_rate_cfg.monitorFrames = MIN_MONITOR_FRAMES;
 
-    m_vc_rate_cfg.hrd = rate_control.hrd;
-    m_vc_rate_cfg.hrdCpbSize = rate_control.hrd_cpb_size;
+    m_vc_rate_cfg.hrd = rate_control.hrd.value();
+    m_vc_rate_cfg.hrdCbrFlag = rate_control.padding.value();
+    m_vc_rate_cfg.cvbr = rate_control.cvbr.value();
+    m_vc_rate_cfg.hrdCpbSize = rate_control.hrd_cpb_size.value();
 
-    m_vc_rate_cfg.gopLen = m_idr_interval = rate_control.gop_length;
-    m_vc_rate_cfg.intraQpDelta = rate_control.quantization.intra_qp_delta;
-    m_vc_rate_cfg.fixedIntraQp = rate_control.quantization.fixed_intra_qp;
+    if (rate_control.gop_length.value() == 0)
+    {
+        m_vc_rate_cfg.gopLen =
+            (m_vc_cfg.frameRateNum + m_vc_cfg.frameRateDenom - 1) / m_vc_cfg.frameRateDenom;
+    }
+    else
+    {
+        m_vc_rate_cfg.gopLen = rate_control.gop_length.value();
+    }
+
+    m_intra_pic_rate = rate_control.intra_pic_rate;
+
+    m_vc_rate_cfg.intraQpDelta = rate_control.quantization.intra_qp_delta.value();
+    m_vc_rate_cfg.fixedIntraQp = rate_control.quantization.fixed_intra_qp.value();
 
     if ((ret = VCEncSetRateCtrl(m_inst, &m_vc_rate_cfg)) != VCENC_OK)
     {
@@ -497,8 +576,16 @@ VCEncRet Encoder::Impl::init_encoder_config()
     m_vc_cfg.strongIntraSmoothing = 1;
     m_vc_cfg.streamType = VCENC_BYTE_STREAM;
     m_vc_cfg.codecH264 = get_codec();
-    m_vc_cfg.profile = get_profile();
-    m_vc_cfg.level = get_level(output_stream.level, m_vc_cfg.codecH264);
+
+    if (!m_config->get_hailo_config().rate_control.picture_rc &&
+        (output_stream.profile.value() == "auto" || output_stream.level.value() == "auto"))
+    {
+        LOGGER__ERROR("Profile and level cannot be set to 'auto' when rate control is disabled");
+        return VCENC_ERROR;
+    }
+
+    m_vc_cfg.profile = get_profile(m_vc_cfg.codecH264);
+    m_vc_cfg.level = get_level(output_stream.level.value(), m_vc_cfg.codecH264);
     m_vc_cfg.bitDepthLuma = 8;
     m_vc_cfg.bitDepthChroma = 8;
 
@@ -532,5 +619,43 @@ VCEncRet Encoder::Impl::init_encoder_config()
     m_vc_cfg.AXIreadOutstandingNum = 64;  // ENCH2_ASIC_AXI_READ_OUTSTANDING_NUM;
     m_vc_cfg.AXIwriteOutstandingNum = 64; // ENCH2_ASIC_AXI_WRITE_OUTSTANDING_NUM;
     ret = VCEncInit(&m_vc_cfg, &m_inst);
+    return ret;
+}
+
+VCEncRet Encoder::Impl::init_monitors_config()
+{
+    LOGGER__DEBUG("Encoder - init_monitors_config");
+    VCEncRet ret = VCENC_OK;
+
+    auto monitors_control = m_config->get_hailo_config().monitors_control;
+    m_bitrate_monitor.enabled = monitors_control.bitrate_monitor.enable;
+    m_bitrate_monitor.period = monitors_control.bitrate_monitor.period;
+
+    m_cycle_monitor.enabled = monitors_control.cycle_monitor.enable;
+    m_cycle_monitor.start_delay = monitors_control.cycle_monitor.start_delay;
+    m_cycle_monitor.deviation_threshold = monitors_control.cycle_monitor.deviation_threshold;
+
+    if (monitors_control.bitrate_monitor.output_result_to_file)
+    {
+        m_bitrate_monitor.output_file = std::ofstream(monitors_control.bitrate_monitor.result_output_path,
+            std::ios::out | std::ios::trunc);
+        if (m_bitrate_monitor.output_file.bad())
+        {
+            LOGGER__ERROR("Encoder - Failed to open bitrate output file");
+            ret = VCENC_SYSTEM_ERROR;
+        }
+    }
+
+    if (monitors_control.cycle_monitor.output_result_to_file)
+    {
+        m_cycle_monitor.output_file = std::ofstream(monitors_control.cycle_monitor.result_output_path,
+            std::ios::out | std::ios::trunc);
+        if (m_cycle_monitor.output_file.bad())
+        {
+            LOGGER__ERROR("Encoder - Failed to open cycle output file");
+            ret = VCENC_SYSTEM_ERROR;
+        }
+    }
+
     return ret;
 }

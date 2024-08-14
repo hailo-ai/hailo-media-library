@@ -25,7 +25,7 @@
 #include "media_library/media_library_logger.hpp"
 
 BackgroundTextOverlayImpl::BackgroundTextOverlayImpl(const osd::BaseTextOverlay &overlay, media_library_return &status)
-    : OverlayImpl(overlay.id, overlay.x, overlay.y, 0, 0, overlay.z_index, overlay.angle, overlay.rotation_alignment_policy, true),
+    : OverlayImpl(overlay.id, overlay.x, overlay.y, 0, 0, overlay.z_index, overlay.angle, overlay.rotation_alignment_policy, true, overlay.horizontal_alignment, overlay.vertical_alignment),
       m_size(0, 0), m_color(overlay.background_color)
 {
     status = MEDIA_LIBRARY_SUCCESS;
@@ -33,6 +33,7 @@ BackgroundTextOverlayImpl::BackgroundTextOverlayImpl(const osd::BaseTextOverlay 
 
 std::shared_ptr<osd::Overlay> BackgroundTextOverlayImpl::get_metadata()
 {
+    // This is an internal class, so we don't need to return metadata
     return nullptr;
 }
 

@@ -8,6 +8,9 @@
 #include <memory>
 #include <shared_mutex>
 #include <tl/expected.hpp>
+#include <opencv2/opencv.hpp>
+#include <gyro_device.h>
+#include "eis.hpp"
 
 #define LDC_VSM_CONFIG "/usr/bin/media_server_cfg.json"
 
@@ -18,6 +21,7 @@ private:
     size_t m_input_height;
     ldc_config_t m_ldc_configs;
     vsm_config_t m_vsm_config;
+    uint64_t m_last_frame_gyro_timestamp_ns;
     // configuration manager
     std::shared_ptr<ConfigManager> m_config_manager;
     // Pointer to internally allocated DIS instance. used for DIS library mesh generation
@@ -26,11 +30,13 @@ private:
     dsp_dewarp_mesh_t m_dewarp_mesh;
     // Angular DIS
     std::shared_ptr<angular_dis_params_t> m_angular_dis_params;
+    std::unique_ptr<EIS> m_eis_ptr;
 
     // optical zoom magnification level - used for dewarping
     float m_magnification;
     bool m_is_initialized = false;
     std::shared_mutex m_mutex;
+    bool prev_correction_applied = false;
 
     media_library_return
     initialize_dewarp_mesh();
@@ -49,6 +55,7 @@ public:
     ~LdcMeshContext();
     media_library_return configure(ldc_config_t &pre_proc_op_configs);
     media_library_return on_frame_vsm_update(struct hailo15_vsm &vsm);
+    void on_frame_eis_update(uint64_t curr_frame_isp_timestamp_ns, bool enabled);
     media_library_return set_optical_zoom(float magnification);
     std::shared_ptr<angular_dis_params_t> get_angular_dis_params();
     dsp_dewarp_mesh_t *get();

@@ -101,7 +101,7 @@ public:
    *
    * @return media_library_return - status of the pre-processing operation
    */
-  media_library_return handle_frame(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames);
+  media_library_return handle_frame(HailoMediaLibraryBufferPtr input_frame, std::vector<HailoMediaLibraryBufferPtr> &output_frames);
 
   /**
    * @brief get the pre-processing configurations object

@@ -61,10 +61,10 @@ int DIS::init_in_cam(dis_calibration_t calib)
 ///////////////////////////////////////////////////////////////////////////////
 // init_in_cam()
 ///////////////////////////////////////////////////////////////////////////////
-RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, float camera_fov)
+RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, float camera_fov_factor)
 {
     m_camera_type = camera_type;
-    m_camera_fov = camera_fov;
+    m_camera_fov_factor = camera_fov_factor;
 
     if (out_width <= 0 || out_height <= 0)
     {
@@ -72,10 +72,16 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
         return ERROR_INPUT_DATA;
     }
 
+    if (camera_fov_factor < 0.1 || camera_fov_factor > 1)
+    {
+        LOGE("Camera field of view factor must be between 0.1 and 1 ");
+        return ERROR_INPUT_DATA;
+    }
+
     // create input camera from 'calib' structure
     if (in_cam.res.x <= 1 || in_cam.res.x >= 4096 || in_cam.res.y <= 1 || in_cam.res.y >= 4096)
     {
-        LOGE("Input size my be between 2 and 4095. Otherwise the grid.mesh_table format can not be ");
+        LOGE("Input size may be between 2 and 4095. Otherwise the grid.mesh_table format can not be ");
         return ERROR_CALIB;
     }
 
@@ -96,9 +102,9 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
         flen = std::max(out_width / (in_tan_ltrb[0] + in_tan_ltrb[2]),
                         out_height / (in_tan_ltrb[1] + in_tan_ltrb[3])); // std::max() : smaller FOV, bigger flen
         max_out_fov = 2 * std::atan2(0.5f * out_diag, flen);
-        if (m_camera_fov > 0.f)
-        { // configured FOV
-            flen = 0.5f * out_diag / tan(RADIANS(std::min(m_camera_fov / 2, 89.9f)));
+        if (m_camera_fov_factor != 1)
+        {
+            flen = 0.5f * out_diag / tan(std::min((max_out_fov * m_camera_fov_factor) / 2, RADIANS(89.9f)));
         }
         // calc out OC such that the cropping to be symmetrical
         vec2 oc;
@@ -130,15 +136,10 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
         // find minimum half diagonal FOV -   the minimum theta angle of all 4 corners
         float in_fov_d = 2 * in_cam.rad2theta(std::hypotf(crop_in_x / 2, crop_in_y / 2)); // input half DFOV
 
-        out_fov = in_fov_d;
-        out_fov = std::min(out_fov, (in_cam.ltrb[0] + in_cam.ltrb[2]) * out_diag / out_width);
-        out_fov = std::min(out_fov, (in_cam.ltrb[1] + in_cam.ltrb[3]) * out_diag / out_height);
-        max_out_fov = out_fov;
-
-        if (m_camera_fov > 0.f)
-        { // configured FOV
-            out_fov = RADIANS(m_camera_fov);
-        }
+        max_out_fov = in_fov_d;
+        max_out_fov = std::min(max_out_fov, (in_cam.ltrb[0] + in_cam.ltrb[2]) * out_diag / out_width);
+        max_out_fov = std::min(max_out_fov, (in_cam.ltrb[1] + in_cam.ltrb[3]) * out_diag / out_height);
+        out_fov = m_camera_fov_factor * max_out_fov;
 
         // calc out OC such that the cropping to be symmetrical. Not accurate when DFOV is the limitation, but
         // accurate calc is too complex. DFOV is the limitation when output camera is more distorted than the
@@ -167,15 +168,19 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
         float crop_in_y = std::min(in_cam.res.y, in_cam.res.x * out_height / out_width);
         float crop_in_x = std::min(in_cam.res.x, in_cam.res.y * out_width / out_height);
         float crop_diag = std::hypotf(crop_in_x, crop_in_y);
-        out_fov = 2 * in_cam.rad2theta(crop_diag / 2);
-        max_out_fov = out_fov;
-        s = out_diag / crop_diag;
-
-        if (m_camera_fov > 0.f)
-        { // configured FOV
-            out_fov = RADIANS(m_camera_fov);
+        max_out_fov = 2 * in_cam.rad2theta(crop_diag / 2);
+        out_fov = m_camera_fov_factor * max_out_fov;
+        if (m_camera_fov_factor == 1)
+        {
+            s = out_diag / crop_diag;
+        } 
+        else
+        {
+            // when not using max_out_fov, out_fov in degrees needs to be an int for s to be calculated correctly.
+            out_fov = RADIANS((int)DEGREES(out_fov));
             s = out_diag / (2 * in_cam.theta2rad(out_fov / 2));
         }
+
         vec2 oc;
         oc.x = 0.5f * out_width + s * (in_cam.oc.x - 0.5f * in_cam.res.x);
         oc.y = 0.5f * out_height + s * (in_cam.oc.y - 0.5f * in_cam.res.y);
@@ -455,6 +460,62 @@ RetCodes DIS::generate_grid(vec2 fmv, int32_t panning,
         angular_dis_params->dsp_filter_angle->alpha = k;
         angular_dis_params->dsp_filter_angle->maximum_theta = room4stab_theta;
     }
+
+    return DIS_OK;
+}
+///////////////////////////////////////////////////////////////////////////////
+// generate_eis_grid()
+///////////////////////////////////////////////////////////////////////////////
+RetCodes DIS::generate_eis_grid(FlipMirrorRot flip_mirror_rot,
+                                const cv::Mat& curr_orientation,
+                                const cv::Mat& smooth_orientaion,
+                                DewarpT &grid)
+{
+    if (cfg.debug.generate_resize_grid)
+    {
+        gen_resize_grid(grid);
+        return DIS_OK;
+    }
+    
+    int cur_flip_mirror_rot = static_cast<int>(flip_mirror_rot);
+    if (cur_flip_mirror_rot != last_flip_mirror_rot)
+    {
+        if ((cur_flip_mirror_rot - last_flip_mirror_rot) % 2 != 0)
+        {
+            std::swap(grid.mesh_width, grid.mesh_height);
+        }
+        last_flip_mirror_rot = cur_flip_mirror_rot;
+        calc_out_rays(grid.mesh_width, grid.mesh_height, MESH_CELL_SIZE_PIX, flip_mirror_rot);
+    }
+
+    cv::Mat curr_orientation_float;
+    curr_orientation.convertTo(curr_orientation_float, CV_32F);
+
+    cv::Mat smooth_orientaion_float;
+    smooth_orientaion.convertTo(smooth_orientaion_float, CV_32F);
+
+    cv::Mat stab_rot = curr_orientation_float.t() * smooth_orientaion_float.t();
+    cv::Mat stab_rot_float;
+    stab_rot.convertTo(stab_rot_float, CV_32F);
+
+    cv::Mat stab_rot_flat = stab_rot_float.reshape(1, 1); // Reshape to a single row
+    mat3 stab_rot9;
+    std::memcpy(stab_rot9.data(), stab_rot_flat.ptr<float>(), stab_rot9.size() * sizeof(float));
+
+    for (int y = 0; y < grid.mesh_height; y++)
+    {
+        for (int x = 0; x < grid.mesh_width; x++)
+        {
+            int ind = y * grid.mesh_width + x;
+            vec2 pt = in_cam.ray2point(stab_rot9 * out_rays[ind]); // xi, yi
+#if GRID_IS_IN_PIX_INDEXES
+            pt = pt - vec2(0.5f, 0.5f); // convert coordinate to index
+#endif
+            grid.mesh_table[ind * 2] = pt.x * (1 << MESH_FRACT_BITS);     // x
+            grid.mesh_table[ind * 2 + 1] = pt.y * (1 << MESH_FRACT_BITS); // y
+        }
+    }
+    frame_cnt++;
 
     return DIS_OK;
 }

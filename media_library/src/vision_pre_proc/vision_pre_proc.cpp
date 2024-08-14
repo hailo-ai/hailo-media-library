@@ -63,7 +63,7 @@ public:
     media_library_return configure(pre_proc_op_configurations &pre_proc_op_configs);
 
     // Perform pre-processing on the input frame and return the output frames
-    media_library_return handle_frame(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames);
+    media_library_return handle_frame(HailoMediaLibraryBufferPtr input_frame, std::vector<HailoMediaLibraryBufferPtr> &output_frames);
 
     // get the pre-processing configurations object
     pre_proc_op_configurations &get_pre_proc_configs();
@@ -95,12 +95,12 @@ private:
 
     media_library_return validate_configurations(pre_proc_op_configurations &pre_proc_configs);
     media_library_return decode_config_json_string(pre_proc_op_configurations &pre_proc_configs, std::string config_string);
-    media_library_return acquire_output_buffers(hailo_media_library_buffer &input_buffer, std::vector<hailo_media_library_buffer> &buffers);
+    media_library_return acquire_output_buffers(HailoMediaLibraryBufferPtr input_buffer, std::vector<HailoMediaLibraryBufferPtr> &buffers);
     media_library_return create_and_initialize_buffer_pools();
-    media_library_return validate_input_and_output_frames(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames);
-    media_library_return perform_dewarp(hailo_media_library_buffer &input_buffer, hailo_media_library_buffer &dewarp_output_buffer);
-    media_library_return perform_multi_resize(hailo_media_library_buffer &input_buffer, std::vector<hailo_media_library_buffer> &output_frames);
-    media_library_return perform_dewarp_and_multi_resize(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames);
+    media_library_return validate_input_and_output_frames(HailoMediaLibraryBufferPtr input_frame, std::vector<HailoMediaLibraryBufferPtr> &output_frames);
+    media_library_return perform_dewarp(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr dewarp_output_buffer);
+    media_library_return perform_multi_resize(HailoMediaLibraryBufferPtr input_buffer, std::vector<HailoMediaLibraryBufferPtr> &output_frames);
+    media_library_return perform_dewarp_and_multi_resize(HailoMediaLibraryBufferPtr input_frame, std::vector<HailoMediaLibraryBufferPtr> &output_frames);
     void stamp_time_and_log_fps(timespec &start_handle, timespec &end_handle);
     void increase_frame_counter();
 };
@@ -129,7 +129,7 @@ media_library_return MediaLibraryVisionPreProc::configure(pre_proc_op_configurat
     return m_impl->configure(pre_proc_op_configs);
 }
 
-media_library_return MediaLibraryVisionPreProc::handle_frame(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames)
+media_library_return MediaLibraryVisionPreProc::handle_frame(HailoMediaLibraryBufferPtr input_frame, std::vector<HailoMediaLibraryBufferPtr> &output_frames)
 {
     return m_impl->handle_frame(input_frame, output_frames);
 }
@@ -239,16 +239,7 @@ media_library_return MediaLibraryVisionPreProc::Impl::validate_configurations(pr
         }
     }
 
-    if (m_pre_proc_configs.dewarp_config.enabled)
-    {
-        // Validate dewarp configurations
-        if (m_pre_proc_configs.dewarp_config.camera_fov > 160.f && m_pre_proc_configs.dewarp_config.camera_type == CAMERA_TYPE_PINHOLE)
-        {
-            LOGGER__ERROR("Invalid value for camera_fov ({}) for a pin-hole camera type, must be lower than 160", m_pre_proc_configs.dewarp_config.camera_fov);
-            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-        }
-    }
-    else
+    if (!m_pre_proc_configs.dewarp_config.enabled)
     {
         if (m_pre_proc_configs.dis_config.enabled)
             LOGGER__WARNING("DIS feature is enabled in the configuration, but dewarp is disabled. DIS will not be performed");
@@ -364,10 +355,10 @@ media_library_return MediaLibraryVisionPreProc::Impl::create_and_initialize_buff
  * @param[in] input_frame - pointer to the input frame
  * @param[in] buffers - vector of output buffers
  */
-media_library_return MediaLibraryVisionPreProc::Impl::acquire_output_buffers(hailo_media_library_buffer &input_buffer, std::vector<hailo_media_library_buffer> &buffers)
+media_library_return MediaLibraryVisionPreProc::Impl::acquire_output_buffers(HailoMediaLibraryBufferPtr input_buffer, std::vector<HailoMediaLibraryBufferPtr> &buffers)
 {
     // Acquire output buffers
-    int32_t isp_ae_fps = input_buffer.isp_ae_fps;
+    int32_t isp_ae_fps = input_buffer->isp_ae_fps;
     uint8_t output_size = m_pre_proc_configs.output_video_config.resolutions.size();
     for (uint8_t i = 0; i < output_size; i++)
     {
@@ -379,12 +370,12 @@ media_library_return MediaLibraryVisionPreProc::Impl::acquire_output_buffers(hai
         bool should_acquire_buffer = stream_period == 0 ? false : (m_frame_counter % stream_period == 0) || (isp_ae_fps != -1 && output_framerate >= static_cast<uint32_t>(isp_ae_fps));
         LOGGER__DEBUG("frame counter is {}, stream period is {}, should acquire buffer is {}", m_frame_counter, stream_period, should_acquire_buffer);
 
-        hailo_media_library_buffer buffer;
+        HailoMediaLibraryBufferPtr buffer = std::make_shared<hailo_media_library_buffer>();
 
         if (!should_acquire_buffer)
         {
             LOGGER__DEBUG("Skipping current frame to match framerate {}, no need to acquire buffer {}, counter is {}", output_framerate, i, m_frame_counter);
-            buffers.emplace_back(std::move(buffer));
+            buffers.emplace_back(buffer);
 
             continue;
         }
@@ -394,7 +385,7 @@ media_library_return MediaLibraryVisionPreProc::Impl::acquire_output_buffers(hai
             LOGGER__ERROR("Failed to acquire buffer");
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
-        buffers.emplace_back(std::move(buffer));
+        buffers.emplace_back(buffer);
         LOGGER__DEBUG("buffer acquired successfully");
     }
 
@@ -411,8 +402,8 @@ media_library_return MediaLibraryVisionPreProc::Impl::acquire_output_buffers(hai
  * @param[in] vsm - pointer to the vsm object
  */
 media_library_return MediaLibraryVisionPreProc::Impl::perform_dewarp(
-    hailo_media_library_buffer &input_buffer,
-    hailo_media_library_buffer &dewarp_output_buffer)
+    HailoMediaLibraryBufferPtr input_buffer,
+    HailoMediaLibraryBufferPtr dewarp_output_buffer)
 {
     struct timespec start_dewarp, end_dewarp;
 
@@ -429,8 +420,8 @@ media_library_return MediaLibraryVisionPreProc::Impl::perform_dewarp(
     LOGGER__TRACE("Performing dewarp with mesh (w={}, h={}) interpolation type {}", mesh->mesh_width, mesh->mesh_height, m_pre_proc_configs.dewarp_config.interpolation_type);
     clock_gettime(CLOCK_MONOTONIC, &start_dewarp);
     dsp_status ret = dsp_utils::perform_dsp_dewarp(
-        input_buffer.hailo_pix_buffer.get(),
-        dewarp_output_buffer.hailo_pix_buffer.get(),
+        input_buffer->hailo_pix_buffer.get(),
+        dewarp_output_buffer->hailo_pix_buffer.get(),
         mesh,
         m_pre_proc_configs.dewarp_config.interpolation_type);
     clock_gettime(CLOCK_MONOTONIC, &end_dewarp);
@@ -450,8 +441,8 @@ media_library_return MediaLibraryVisionPreProc::Impl::perform_dewarp(
  * @param[out] output_frames - vector of output frames
  */
 media_library_return MediaLibraryVisionPreProc::Impl::perform_multi_resize(
-    hailo_media_library_buffer &input_buffer,
-    std::vector<hailo_media_library_buffer> &output_frames)
+    HailoMediaLibraryBufferPtr input_buffer,
+    std::vector<HailoMediaLibraryBufferPtr> &output_frames)
 {
     struct timespec start_resize, end_resize;
     size_t output_frames_size = output_frames.size();
@@ -464,7 +455,7 @@ media_library_return MediaLibraryVisionPreProc::Impl::perform_multi_resize(
 
     dsp_crop_resize_params_t crop_resize_params;
     dsp_multi_crop_resize_params_t multi_crop_resize_params = {
-        .src = input_buffer.hailo_pix_buffer.get(),
+        .src = input_buffer->hailo_pix_buffer.get(),
         .crop_resize_params = &crop_resize_params,
         .crop_resize_params_count = 1,
         .interpolation = m_pre_proc_configs.output_video_config.interpolation_type,
@@ -474,12 +465,12 @@ media_library_return MediaLibraryVisionPreProc::Impl::perform_multi_resize(
     for (size_t i = 0; i < num_of_output_resolutions; i++)
     {
         // TODO: Handle cases where its nullptr
-        if (output_frames[i].hailo_pix_buffer == nullptr)
+        if (output_frames[i]->hailo_pix_buffer == nullptr)
         {
             LOGGER__DEBUG("Skipping resize for output frame {} to match target framerate", i);
             continue;
         }
-        dsp_image_properties_t *output_frame = output_frames[i].hailo_pix_buffer.get();
+        dsp_image_properties_t *output_frame = output_frames[i]->hailo_pix_buffer.get();
         output_resolution_t &output_res = m_pre_proc_configs.output_video_config.resolutions[i];
 
         if (output_res != *output_frame)
@@ -585,39 +576,37 @@ void MediaLibraryVisionPreProc::Impl::increase_frame_counter()
 
 media_library_return
 MediaLibraryVisionPreProc::Impl::perform_dewarp_and_multi_resize(
-    hailo_media_library_buffer &input_frame,
-    std::vector<hailo_media_library_buffer> &output_frames)
+    HailoMediaLibraryBufferPtr input_frame,
+    std::vector<HailoMediaLibraryBufferPtr> &output_frames)
 {
     // Perform dewarp and multi resize
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
-    hailo_media_library_buffer dewarp_output_buffer;
+    HailoMediaLibraryBufferPtr dewarp_output_buffer = std::make_shared<hailo_media_library_buffer>();
 
     ret = perform_dewarp(input_frame, dewarp_output_buffer);
 
     if (m_pre_proc_configs.output_video_config.grayscale)
     {
         // Saturate UV plane to value of 128 - to get a grayscale image
-        dsp_data_plane_t &uv_plane = dewarp_output_buffer.hailo_pix_buffer->planes[1];
+        dsp_data_plane_t &uv_plane = dewarp_output_buffer->hailo_pix_buffer->planes[1];
         memset(uv_plane.userptr, 128, uv_plane.bytesused);
     }
 
     if (ret == MEDIA_LIBRARY_SUCCESS)
         ret = perform_multi_resize(dewarp_output_buffer, output_frames);
 
-    LOGGER__DEBUG("decrease ref dewarp output buffer");
-    dewarp_output_buffer.decrease_ref_count();
     return ret;
 }
 
 media_library_return
 MediaLibraryVisionPreProc::Impl::validate_input_and_output_frames(
-    hailo_media_library_buffer &input_frame,
-    std::vector<hailo_media_library_buffer> &output_frames)
+    HailoMediaLibraryBufferPtr input_frame,
+    std::vector<HailoMediaLibraryBufferPtr> &output_frames)
 {
     output_resolution_t &input_res =
         m_pre_proc_configs.input_video_config.resolution;
     dsp_image_properties_t *input_image_properties =
-        input_frame.hailo_pix_buffer.get();
+        input_frame->hailo_pix_buffer.get();
 
     // Check if vector of output buffers is not empty
     if (!output_frames.empty())
@@ -650,7 +639,7 @@ MediaLibraryVisionPreProc::Impl::validate_input_and_output_frames(
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryVisionPreProc::Impl::handle_frame(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames)
+media_library_return MediaLibraryVisionPreProc::Impl::handle_frame(HailoMediaLibraryBufferPtr input_frame, std::vector<HailoMediaLibraryBufferPtr> &output_frames)
 {
     std::unique_lock<std::mutex> lock(*m_configuration_mutex);
 
@@ -660,7 +649,6 @@ media_library_return MediaLibraryVisionPreProc::Impl::handle_frame(hailo_media_l
 
     if (validate_input_and_output_frames(input_frame, output_frames) != MEDIA_LIBRARY_SUCCESS)
     {
-        input_frame.decrease_ref_count();
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
@@ -669,17 +657,16 @@ media_library_return MediaLibraryVisionPreProc::Impl::handle_frame(hailo_media_l
     media_lib_ret = acquire_output_buffers(input_frame, output_frames);
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
     {
-        input_frame.decrease_ref_count();
         return media_lib_ret;
     }
 
-    m_video_fd = input_frame.video_fd;
+    m_video_fd = input_frame->video_fd;
 
     // Dewarp and multi resize
     if (m_pre_proc_configs.dewarp_config.enabled)
     {
-        if (m_pre_proc_configs.dis_config.enabled && (input_frame.isp_ae_fps > MIN_ISP_AE_FPS_FOR_DIS || input_frame.isp_ae_fps == -1))
-            m_dewarp_mesh_ctx->on_frame_vsm_update(input_frame.vsm);
+        if (m_pre_proc_configs.dis_config.enabled && (input_frame->isp_ae_fps > MIN_ISP_AE_FPS_FOR_DIS || input_frame->isp_ae_fps == -1))
+            m_dewarp_mesh_ctx->on_frame_vsm_update(input_frame->vsm);
         media_lib_ret = perform_dewarp_and_multi_resize(input_frame, output_frames);
     }
     else
@@ -687,14 +674,11 @@ media_library_return MediaLibraryVisionPreProc::Impl::handle_frame(hailo_media_l
         if (m_pre_proc_configs.output_video_config.grayscale)
         {
             // Saturate UV plane to value of 128 - to get a grayscale image
-            dsp_data_plane_t &uv_plane = input_frame.hailo_pix_buffer->planes[1];
+            dsp_data_plane_t &uv_plane = input_frame->hailo_pix_buffer->planes[1];
             memset(uv_plane.userptr, 128, uv_plane.bytesused);
         }
         media_lib_ret = perform_multi_resize(input_frame, output_frames);
     }
-
-    // Unref the input frame
-    input_frame.decrease_ref_count();
 
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
         return media_lib_ret;

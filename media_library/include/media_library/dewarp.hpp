@@ -100,7 +100,7 @@ public:
      *
      * @return media_library_return - status of the dewarp operation
      */
-    media_library_return handle_frame(hailo_media_library_buffer &input_frame, hailo_media_library_buffer &output_frame);
+    media_library_return handle_frame(HailoMediaLibraryBufferPtr input_frame, HailoMediaLibraryBufferPtr output_frame);
 
     /**
      * @brief get the dewarp configurations object

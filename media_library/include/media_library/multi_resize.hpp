@@ -21,8 +21,8 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 /**
- * @file vision_pre_proc.hpp
- * @brief MediaLibrary VisionPreProc CPP API module
+ * @file multi_resize.hpp
+ * @brief MediaLibrary Multi resize module
  **/
 
 #pragma once
@@ -117,7 +117,7 @@ public:
      *
      * @return media_library_return - status of the multi-resize operation
      */
-    media_library_return handle_frame(hailo_media_library_buffer &input_frame, std::vector<hailo_media_library_buffer> &output_frames);
+    media_library_return handle_frame(HailoMediaLibraryBufferPtr input_frame, std::vector<HailoMediaLibraryBufferPtr> &output_frames);
 
     /**
      * @brief get the multi-resize configurations object

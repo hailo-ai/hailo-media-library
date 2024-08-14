@@ -192,6 +192,20 @@ struct dis_config_t
      */
     uint8_t average_luminance_threshold;
 
+    /**
+     * Diagonal FoV factor of output camera. The difference between input and output FOV, (horizontal, vertical
+     * and diagonal) is the room for stabilization. Note the relation betwen aspect ratio and H,V,DFOV ratios:
+     * - for fisheye camera:
+     * HFOV / VFOV / DFOV = width / hight / diagonal
+     * - for pinhole camera:
+     * tan(HFOV/2) / tan(VFOV/2) / tan(DFOV/2) = width / hight / diagonal
+     * Set to 1 to let DIS calculate and use the maximum possible FOV at the given input camera model and output
+     * aspect ratio.
+     * FoV factor here is multiplied by the maximum possible FoV, allowing more stabilization by decreasing it.
+     * values: 0.1 <= camera_fov_factor <= 1
+     */
+    float camera_fov_factor;
+
     // Angular Digital Image Stabilization
     angular_dis_config_t angular_dis_config;
 

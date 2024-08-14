@@ -63,7 +63,6 @@ PrivacyMaskBlender::~PrivacyMaskBlender()
     std::unique_lock<std::mutex> lock(*m_privacy_mask_mutex);
     if (m_latest_privacy_mask_data != NULL)
     {
-      m_latest_privacy_mask_data->bitmask.decrease_ref_count();
       m_latest_privacy_mask_data = NULL;
     }
     m_privacy_masks.clear();
@@ -137,7 +136,6 @@ void PrivacyMaskBlender::clean_latest_privacy_mask_data()
 {
   if (m_update_required && m_latest_privacy_mask_data != NULL)
   {
-    m_latest_privacy_mask_data->bitmask.decrease_ref_count();
     m_latest_privacy_mask_data = NULL;
   }
 }
@@ -350,15 +348,15 @@ tl::expected<PrivacyMaskDataPtr, media_library_return> PrivacyMaskBlender::blend
     return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
   }
   
-  m_latest_privacy_mask_data->bitmask.sync_start();
+  m_latest_privacy_mask_data->bitmask->sync_start();
   if (write_polygons_to_privacy_mask_data(m_privacy_masks, m_frame_width, m_frame_height, m_color, m_latest_privacy_mask_data) != media_library_return::MEDIA_LIBRARY_SUCCESS)
   {
     LOGGER__ERROR("PrivacyMaskBlender::blend: Failed to write polygon");
-    m_latest_privacy_mask_data->bitmask.sync_end();
+    m_latest_privacy_mask_data->bitmask->sync_end();
     return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
   }
 
-  m_latest_privacy_mask_data->bitmask.sync_end();
+  m_latest_privacy_mask_data->bitmask->sync_end();
   m_update_required = false;
   return m_latest_privacy_mask_data;
 }

@@ -197,7 +197,7 @@ namespace dsp_utils
      * @param[in] use_letterbox should letterbox resize be used
      * @return dsp_status
      */
-    dsp_status perform_resize(dsp_image_properties_t *input_image_properties, dsp_image_properties_t *output_image_properties, dsp_interpolation_type_t dsp_interpolation_type, bool letterbox)
+    dsp_status perform_resize(dsp_image_properties_t *input_image_properties, dsp_image_properties_t *output_image_properties, dsp_interpolation_type_t dsp_interpolation_type, std::optional<dsp_letterbox_properties_t> letterbox_properties)
     {
         if (device == NULL)
         {
@@ -218,10 +218,18 @@ namespace dsp_utils
             .end_y = input_image_properties->height,
         };
 
-        dsp_letterbox_properties_t letterbox_params{
-            .alignment = letterbox ? DSP_LETTERBOX_MIDDLE : DSP_NO_LETTERBOX,
-            .color = {.y = 0, .u = 128, .v = 128}, // Black letterbox border
-        };
+        dsp_letterbox_properties_t letterbox_params;
+        if (letterbox_properties.has_value())
+        {
+            letterbox_params = letterbox_properties.value();
+        }
+        else
+        {
+            letterbox_params.alignment = DSP_NO_LETTERBOX;
+            letterbox_params.color.y = 0;
+            letterbox_params.color.u = 128;
+            letterbox_params.color.v = 128;
+        }
 
         dsp_status status = dsp_crop_and_resize_letterbox(device, &resize_params, &crop_params, &letterbox_params);
 
@@ -250,7 +258,8 @@ namespace dsp_utils
     perform_crop_and_resize(dsp_image_properties_t *input_image_properties,
                             dsp_image_properties_t *output_image_properties,
                             crop_resize_dims_t args,
-                            dsp_interpolation_type_t dsp_interpolation_type)
+                            dsp_interpolation_type_t dsp_interpolation_type,
+                            std::optional<dsp_letterbox_properties_t> letterbox_properties)
     {
         if (device == NULL)
         {
@@ -264,6 +273,19 @@ namespace dsp_utils
             .interpolation = dsp_interpolation_type,
         };
 
+        dsp_letterbox_properties_t letterbox_params;
+        if (letterbox_properties.has_value())
+        {
+            letterbox_params = letterbox_properties.value();
+        }
+        else
+        {
+            letterbox_params.alignment = DSP_NO_LETTERBOX;
+            letterbox_params.color.y = 0;
+            letterbox_params.color.u = 128;
+            letterbox_params.color.v = 128;
+        }
+
         dsp_status status;
         if (args.perform_crop)
         {
@@ -273,11 +295,11 @@ namespace dsp_utils
                 .end_x = args.crop_end_x,
                 .end_y = args.crop_end_y,
             };
-            status = dsp_crop_and_resize(device, &resize_params, &crop_params);
+            status = dsp_crop_and_resize_letterbox(device, &resize_params, &crop_params, &letterbox_params);
         }
         else
         {
-            status = dsp_resize(device, &resize_params);
+            status = dsp_crop_and_resize_letterbox(device, &resize_params, nullptr, &letterbox_params);
         }
 
         if (status != DSP_SUCCESS)
