@@ -136,9 +136,9 @@ MediaLibraryFrontend::Impl::~Impl()
 
 tl::expected<GstElement *, media_library_return> MediaLibraryFrontend::Impl::get_frontend_element()
 {
-    //get gsthailofrontendbinsrc element from m_pipeline
+    // get gsthailofrontendbinsrc element from m_pipeline
     GstElement *frontendbinsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
-    //get the element with type hailofrontend from the bin
+    // get the element with type hailofrontend from the bin
     GstElement *frontend = gst_bin_get_by_name(GST_BIN(frontendbinsrc), "hailofrontendelement");
     if (frontend == nullptr)
     {
@@ -153,7 +153,7 @@ tl::expected<GstElement *, media_library_return> MediaLibraryFrontend::Impl::get
 tl::expected<frontend_config_t, media_library_return> MediaLibraryFrontend::Impl::get_config()
 {
     auto frontendbinsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
-    if(frontendbinsrc)
+    if (frontendbinsrc)
     {
         frontend_element_config_t frontend_element_config;
         gpointer value = nullptr;
@@ -168,12 +168,17 @@ tl::expected<frontend_config_t, media_library_return> MediaLibraryFrontend::Impl
         hailort_t hailort_config;
         hailort_config = *reinterpret_cast<hailort_t *>(value);
 
+        g_object_get(frontendbinsrc, "input-video-config", &value, NULL);
+        input_video_config_t input_config;
+        input_config = *reinterpret_cast<input_video_config_t *>(value);
+
         gst_object_unref(frontendbinsrc);
 
         frontend_config_t frontend_config;
         frontend_config.ldc_config = frontend_element_config.ldc_config;
         frontend_config.denoise_config = frontend_element_config.denoise_config;
         frontend_config.multi_resize_config = frontend_element_config.multi_resize_config;
+        frontend_config.input_config = input_config;
         frontend_config.hdr_config = hdr_config;
         frontend_config.hailort_config = hailort_config;
 
@@ -267,7 +272,7 @@ media_library_return MediaLibraryFrontend::Impl::configure(frontend_config_t con
 {
     auto frontendbinsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
     media_library_return ret = MEDIA_LIBRARY_ERROR;
-    if(frontendbinsrc)
+    if (frontendbinsrc)
     {
         g_object_set(G_OBJECT(frontendbinsrc), "config", &config, NULL);
         ret = MEDIA_LIBRARY_SUCCESS;

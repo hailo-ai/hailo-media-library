@@ -171,25 +171,64 @@ GyroDev::get_samples(uint64_t start_time_ns, uint64_t end_time_ns,
     return samplesInRange;
 }
 
-std::vector<gyro_sample_t> GyroDev::get_samples_closest_to_timestamp(uint64_t input_timestamp)
+bool GyroDev::get_closest_vsync_sample(uint64_t frame_timestamp, std::vector<gyro_sample_t>::iterator& it_closest)
 {
-    /* Find the sample with odd vx closest to the input timestamp */
-    auto it_closest = m_vector_samples.end();
+    it_closest = m_vector_samples.end();
+
     for (auto it = m_vector_samples.begin(); it != m_vector_samples.end(); it++)
     {
-        if (it->timestamp_ns > input_timestamp)
-        {
+        if (it->timestamp_ns > frame_timestamp)
             break;
-        }
 
         if (it->vx % 2 != 0)
-        {
             it_closest = it;
-        }
     }
 
-    std::vector<gyro_sample_t> result(m_vector_samples.begin(), it_closest);
-    m_vector_samples.erase(m_vector_samples.begin(), it_closest);
+    /* Return true if a VSYNC sample was found */
+    return it_closest != m_vector_samples.end();
+}
+
+std::vector<gyro_sample_t> GyroDev::get_gyro_samples_for_frame_vsync(std::vector<gyro_sample_t>::iterator odd_closest_sample,
+                                                               uint64_t threshold_timestamp)
+{
+    /* If no odd vx sample was found, return an empty vector */
+    if (odd_closest_sample == m_vector_samples.end())
+    {
+        return {};
+    }
+
+    /* We want all the gyro samples before: middle_exposure_timestamp + readout_time */
+    auto it_end = odd_closest_sample;
+    if (it_end->timestamp_ns >= threshold_timestamp)
+    {
+        while (it_end != m_vector_samples.begin() && (it_end - 1)->timestamp_ns >= threshold_timestamp)
+            it_end--;
+    }
+    else 
+    {
+        while (it_end != m_vector_samples.end() && (it_end + 1)->timestamp_ns < threshold_timestamp)
+            it_end++;
+    }
+
+    std::vector<gyro_sample_t> result(m_vector_samples.begin(), it_end);
+    m_vector_samples.erase(m_vector_samples.begin(), it_end);
+    return result;
+}
+
+std::vector<gyro_sample_t> GyroDev::get_gyro_samples_for_frame_isp_timestamp(uint64_t threshold_timestamp)
+{
+    auto last_relevant_sample = m_vector_samples.begin();
+
+    for (auto it = m_vector_samples.begin(); it != m_vector_samples.end(); it++)
+    {
+        if ((*it).timestamp_ns > threshold_timestamp)
+            break;
+    
+        last_relevant_sample = it;
+    }
+
+    std::vector<gyro_sample_t> result(m_vector_samples.begin(), last_relevant_sample);
+    m_vector_samples.erase(m_vector_samples.begin(), last_relevant_sample);
     return result;
 }
 
@@ -246,19 +285,53 @@ const char *GyroDev::device_name_get()
 
 void GyroDev::shutdown()
 {
-    disable_all_channels();
-
     LOGGER__INFO("destroying buffer");
     if (m_iio_device_data.buf)
     {
         iio_buffer_destroy(m_iio_device_data.buf);
     }
+    disable_all_channels();
+
     LOGGER__INFO("destroying ctx");
     if (m_ctx)
     {
         iio_context_destroy(m_ctx);
     }
     LOGGER__INFO("shutdown succeeded");
+}
+
+int GyroDev::start()
+{
+    int rc;
+
+    // Create context
+    m_ctx = iio_create_local_context();
+    if (!m_ctx)
+    {
+        LOGGER__ERROR("Unable to create IIO context");
+        return EXIT_FAILURE;
+    }
+
+    rc = iio_context_set_timeout(m_ctx, 100);
+    if (rc)
+    {
+        LOGGER__ERROR("set timeout failed");
+        iio_context_destroy(m_ctx);
+        return EXIT_FAILURE;
+    }
+
+    prepare_device();
+    if (!m_iio_dev)
+    {
+        rc = EXIT_FAILURE;
+    }
+    return rc;
+}
+
+int GyroDev::restart()
+{
+    shutdown();
+    return start();
 }
 
 /* write device attribute: string */
@@ -435,34 +508,27 @@ void GyroDev::prepare_device()
     }
 }
 
+
+
 int GyroDev::run()
 {
     int max_tries = 10;
     int rc;
 
-    // Create context
-    m_ctx = iio_create_local_context();
-    if (!m_ctx)
-    {
-        LOGGER__ERROR("Unable to create IIO context");
-        return EXIT_FAILURE;
-    }
-
-    rc = iio_context_set_timeout(m_ctx, 5000);
+    rc = start();
     if (rc)
-    {
-        LOGGER__ERROR("set timeout failed");
-        iio_context_destroy(m_ctx);
-        return EXIT_FAILURE;
-    }
-
-    prepare_device();
-    if (!m_iio_dev)
     {
         rc = EXIT_FAILURE;
         return rc;
     }
     show_device_info();
+
+    rc = restart();
+    if (rc)
+    {
+        rc = EXIT_FAILURE;
+        return rc;
+    }
 
     // Read data from the buffer
     while (!m_stopRunning)
@@ -473,8 +539,15 @@ int GyroDev::run()
             if (nbytes < 0 && !m_stopRunning)
             {
                 fprintf(stderr, "Error refilling buffer for device %s, rc = %zd\n", m_iio_device_data.name.c_str(), nbytes);
+                rc = restart();
+                if (rc)
+                {
+                    rc = EXIT_FAILURE;
+                    return rc;
+                }
                 break;
             }
+
             iio_buffer_foreach_sample(m_iio_device_data.buf, rd_sample_demux,
                                       (void *)&m_vector_samples);
         }

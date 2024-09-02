@@ -196,7 +196,7 @@ gst_hailoenc_class_init(GstHailoEncClass *klass)
                                                       (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
     g_object_class_install_property(gobject_class, PROP_BFRAME_QP_DELTA,
                                     g_param_spec_int("bframe-qp-delta", "BFrame QP Delta", "QP difference between BFrame QP and target QP, -1 = Disabled",
-                                                     MIN_BFRAME_QP_DELTA, MAX_BFRAME_QP_DELTA, (guint)DEFAULT_BFRAME_QP_DELTA,
+                                                     MIN_BFRAME_QP_DELTA, MAX_BFRAME_QP_DELTA, (gint)DEFAULT_BFRAME_QP_DELTA,
                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
     g_object_class_install_property(gobject_class, PROP_BITRATE,
                                     g_param_spec_uint("bitrate", "Target bitrate", "Target bitrate for rate control in bits/second",

@@ -21,7 +21,7 @@ private:
     size_t m_input_height;
     ldc_config_t m_ldc_configs;
     vsm_config_t m_vsm_config;
-    uint64_t m_last_frame_gyro_timestamp_ns;
+    uint64_t m_last_threshold_timestamp;
     // configuration manager
     std::shared_ptr<ConfigManager> m_config_manager;
     // Pointer to internally allocated DIS instance. used for DIS library mesh generation
@@ -36,7 +36,7 @@ private:
     float m_magnification;
     bool m_is_initialized = false;
     std::shared_mutex m_mutex;
-    bool prev_correction_applied = false;
+    bool eis_prev_enabled = false;
 
     media_library_return
     initialize_dewarp_mesh();
@@ -55,7 +55,9 @@ public:
     ~LdcMeshContext();
     media_library_return configure(ldc_config_t &pre_proc_op_configs);
     media_library_return on_frame_vsm_update(struct hailo15_vsm &vsm);
-    void on_frame_eis_update(uint64_t curr_frame_isp_timestamp_ns, bool enabled);
+    void on_frame_eis_update(uint64_t curr_frame_isp_timestamp_ns,
+                             uint64_t integration_time,
+                             bool enabled);
     media_library_return set_optical_zoom(float magnification);
     std::shared_ptr<angular_dis_params_t> get_angular_dis_params();
     dsp_dewarp_mesh_t *get();

@@ -57,36 +57,151 @@ static inline cv::Mat get_curr_gyro_rotation_mat(const unbiased_gyro_sample_t &g
     return gyro_rot_mat;
 }
 
-cv::Mat EIS::integrate_rotations(uint64_t last_frame_gyro_ts,
-                                 const std::vector<unbiased_gyro_sample_t> &frame_gyro_records)
+cv::Mat EIS::integrate_rotations(uint64_t last_threshold_timestamp, uint64_t curr_threshold_timestamp,
+                                    const std::vector<unbiased_gyro_sample_t> &frame_gyro_records)
 {
     if (frame_gyro_records.size() == 0)
     {
-        return prev_gyro_orientation.clone();
+        return m_prev_total_rotation.clone();
     }
+
     cv::Mat gyro_adjusted_orientation =
-        prev_gyro_orientation * get_curr_gyro_rotation_mat(frame_gyro_records[0],
-                                                            last_frame_gyro_ts, frame_gyro_records[0].timestamp_ns);
+        m_prev_total_rotation * get_curr_gyro_rotation_mat(frame_gyro_records[0],
+                                                            last_threshold_timestamp, frame_gyro_records[0].timestamp_ns);
     for (size_t i = 1; i < frame_gyro_records.size(); i++)
     {
         gyro_adjusted_orientation *= get_curr_gyro_rotation_mat(frame_gyro_records[i],
                                                                 frame_gyro_records[i - 1].timestamp_ns, frame_gyro_records[i].timestamp_ns);
     }
 
-    prev_gyro_orientation = gyro_adjusted_orientation.clone();
+    m_prev_total_rotation *= get_curr_gyro_rotation_mat(frame_gyro_records[frame_gyro_records.size() - 1],
+                                                        frame_gyro_records[frame_gyro_records.size() - 1].timestamp_ns, curr_threshold_timestamp);
 
-    cv::Vec3d calibs_rot_vec(m_gyro_calibration_config.rot_x, m_gyro_calibration_config.rot_y, m_gyro_calibration_config.rot_z);
-    cv::Mat calib_rot_mat;
-    cv::Rodrigues(calibs_rot_vec, calib_rot_mat);
-    gyro_adjusted_orientation = (calib_rot_mat * gyro_adjusted_orientation) * calib_rot_mat.t();
+    m_prev_total_rotation = gyro_adjusted_orientation.clone();
+    gyro_adjusted_orientation = (m_gyro_to_cam_rot_mat * gyro_adjusted_orientation) * m_gyro_to_cam_rot_mat.t();
 
     return gyro_adjusted_orientation;
 }
 
-void EIS::remove_bias(const std::vector<gyro_sample_t>& gyro_records,
-                      std::vector<unbiased_gyro_sample_t>& unbiased_records,
-                      double gyro_scale,
-                      double iir_hpf_coefficient)
+#ifdef ALTERNATIVE_ALGORITHM
+
+static cv::Mat eulerAnglesToRotationMatrix(double roll, double pitch, double yaw)
+{
+    // Calculate the rotation matrix elements
+    double sin_roll = std::sin(roll);
+    double sin_pitch = std::sin(pitch);
+    double sin_yaw = std::sin(yaw);
+    double cos_roll = std::cos(roll);
+    double cos_pitch = std::cos(pitch);
+    double cos_yaw = std::cos(yaw);
+
+    cv::Mat R_x = (cv::Mat_<double>(3, 3) <<
+        1, 0, 0,
+        0, cos_roll, -sin_roll,
+        0, sin_roll, cos_roll);
+
+    cv::Mat R_y = (cv::Mat_<double>(3, 3) <<
+        cos_pitch, 0, sin_pitch,
+        0, 1, 0,
+        -sin_pitch, 0, cos_pitch);
+
+    cv::Mat R_z = (cv::Mat_<double>(3, 3) <<
+        cos_yaw, -sin_yaw, 0,
+        sin_yaw, cos_yaw, 0,
+        0, 0, 1);
+
+    // Combine the rotation matrices
+    cv::Mat R = R_z * R_y * R_x;
+
+    return R;
+}
+
+std::vector<std::pair<uint64_t, cv::Mat>> EIS::integrate_rotations_rolling_shutter(uint64_t last_threshold_timestamp,
+                                                                                    uint64_t curr_threshold_timestamp,
+                                                                                    const std::vector<unbiased_gyro_sample_t> &frame_gyro_records)
+{
+    (void)last_threshold_timestamp;
+    (void)curr_threshold_timestamp;
+    double cur_angle_x = 0.0;
+    double cur_angle_y = 0.0;
+    double cur_angle_z = 0.0;
+    uint64_t cur_time;
+    double dt;
+    double angle_x, angle_y, angle_z;
+    std::vector<std::pair<uint64_t, cv::Mat>> out_rotations;
+
+    for (uint64_t i = 0; i < frame_gyro_records.size(); i++)
+    {
+        if (m_last_sample.timestamp_ns == 0) {
+            dt = ((double)frame_gyro_records[1].timestamp_ns - (double)frame_gyro_records[0].timestamp_ns)*1e-9;
+        } else if (i == 0) {
+            dt = ((double)frame_gyro_records[i].timestamp_ns - (double)m_last_sample.timestamp_ns)*1e-9;
+        } else {
+            dt = ((double)frame_gyro_records[i].timestamp_ns - (double)frame_gyro_records[i-1].timestamp_ns)*1e-9;
+        }
+
+        if (dt < 0) {
+            continue;
+        }
+      
+        cur_time = frame_gyro_records[i].timestamp_ns;
+        angle_x = (frame_gyro_records[i].vx)*dt;
+        angle_y = (frame_gyro_records[i].vy)*dt;
+        angle_z = (frame_gyro_records[i].vz)*dt;
+        cur_angle_x += angle_x;
+        cur_angle_y += angle_y;
+        cur_angle_z += angle_z;
+
+        // from euler angles to rotaion matrix
+        cv::Mat delta_rot = eulerAnglesToRotationMatrix(cur_angle_x, cur_angle_y, cur_angle_z);
+        cv::Mat delta_rot_camera = (m_gyro_to_cam_rot_mat * delta_rot.t()) * m_gyro_to_cam_rot_mat.t();
+        cv::Mat cur_new_rot = m_prev_total_rotation * delta_rot_camera;
+        out_rotations.push_back(std::pair<uint64_t, cv::Mat>(cur_time,cur_new_rot));
+    }
+
+    m_prev_total_rotation = out_rotations[out_rotations.size()-1].second;
+    m_last_sample = frame_gyro_records[out_rotations.size()-1];
+
+    return out_rotations;
+}
+
+#else 
+
+std::vector<std::pair<uint64_t, cv::Mat>> EIS::integrate_rotations_rolling_shutter(uint64_t last_threshold_timestamp,
+                                                                                    uint64_t curr_threshold_timestamp,
+                                                                                    const std::vector<unbiased_gyro_sample_t> &frame_gyro_records)
+{
+    std::vector<std::pair<uint64_t, cv::Mat>> out_rotations;
+
+    if (frame_gyro_records.size() == 0)
+    {
+        return {std::make_pair(0, m_prev_total_rotation.clone())};
+    }
+
+    cv::Mat gyro_adjusted_orientation =
+        m_prev_total_rotation * get_curr_gyro_rotation_mat(frame_gyro_records[0],
+                                                            last_threshold_timestamp, frame_gyro_records[0].timestamp_ns);
+    out_rotations.emplace_back(frame_gyro_records[0].timestamp_ns, (m_gyro_to_cam_rot_mat * gyro_adjusted_orientation) * m_gyro_to_cam_rot_mat.t());
+
+    for (size_t i = 1; i < frame_gyro_records.size(); i++)
+    {
+        gyro_adjusted_orientation *= get_curr_gyro_rotation_mat(frame_gyro_records[i],
+                                                                frame_gyro_records[i - 1].timestamp_ns, frame_gyro_records[i].timestamp_ns);
+        out_rotations.emplace_back(frame_gyro_records[i].timestamp_ns, (m_gyro_to_cam_rot_mat * gyro_adjusted_orientation) * m_gyro_to_cam_rot_mat.t());
+    }
+
+    gyro_adjusted_orientation *= get_curr_gyro_rotation_mat(frame_gyro_records[frame_gyro_records.size() - 1],
+                                                        frame_gyro_records[frame_gyro_records.size() - 1].timestamp_ns, curr_threshold_timestamp);
+    out_rotations.emplace_back(curr_threshold_timestamp, (m_gyro_to_cam_rot_mat * gyro_adjusted_orientation) * m_gyro_to_cam_rot_mat.t());
+
+    m_prev_total_rotation = gyro_adjusted_orientation.clone();
+    return out_rotations;
+}
+
+#endif
+
+void EIS::remove_bias(const std::vector<gyro_sample_t>& gyro_records, std::vector<unbiased_gyro_sample_t>& unbiased_records,
+                      double gyro_scale, double iir_hpf_coefficient)
 {
     /* Precompute invariant part of the filter formula 
        y_n = iir_hpf_coefficient * y_(n-1) + (1 + iir_hpf_coefficient) / 2 * (x_n - x_(n-1))
@@ -95,36 +210,84 @@ void EIS::remove_bias(const std::vector<gyro_sample_t>& gyro_records,
 
     unbiased_records.clear();
     unbiased_records.reserve(gyro_records.size());
+    
+    auto apply_high_pass_filter = [&](double current_value, double& prev_value, double& prev_smooth) -> double {
+        double filtered_value = iir_hpf_coefficient * prev_smooth + one_plus_beta_over_two * (current_value - prev_value);
+        prev_value = current_value;
+        prev_smooth = filtered_value;
+        return filtered_value;
+    };
 
-    for (const auto& record : gyro_records)
+    for (const auto& gyro : gyro_records)
     {
-        /* Use references to reduce struct member access overhead */
-        double vx = static_cast<double>(record.vx) * gyro_scale;
-        double vy = static_cast<double>(record.vy) * gyro_scale;
-        double vz = static_cast<double>(record.vz) * gyro_scale;
+        double corrected_vx = static_cast<double>(gyro.vx) * gyro_scale - static_cast<double>(m_gyro_calibration_config.gbias_x);
+        double corrected_vy = static_cast<double>(gyro.vy) * gyro_scale - static_cast<double>(m_gyro_calibration_config.gbias_y);
+        double corrected_vz = static_cast<double>(gyro.vz) * gyro_scale - static_cast<double>(m_gyro_calibration_config.gbias_z);
 
-        /* Apply bias correction */
-        vx -= static_cast<double>(m_gyro_calibration_config.gbias_x);
-        vy -= static_cast<double>(m_gyro_calibration_config.gbias_y);
-        vz -= static_cast<double>(m_gyro_calibration_config.gbias_z);
+        double smooth_x = apply_high_pass_filter(corrected_vx, prev_high_pass.prev_gyro_x, prev_high_pass.prev_smooth_x);
+        double smooth_y = apply_high_pass_filter(corrected_vy, prev_high_pass.prev_gyro_y, prev_high_pass.prev_smooth_y);
+        double smooth_z = apply_high_pass_filter(corrected_vz, prev_high_pass.prev_gyro_z, prev_high_pass.prev_smooth_z);
 
-        /* Apply high pass filter */
-        double new_smooth_x = iir_hpf_coefficient * prev_high_pass.prev_smooth_x + one_plus_beta_over_two * (vx - prev_high_pass.prev_gyro_x);
-        double new_smooth_y = iir_hpf_coefficient * prev_high_pass.prev_smooth_y + one_plus_beta_over_two * (vy - prev_high_pass.prev_gyro_y);
-        double new_smooth_z = iir_hpf_coefficient * prev_high_pass.prev_smooth_z + one_plus_beta_over_two * (vz - prev_high_pass.prev_gyro_z);
-
-        /* Update previous values for the next iteration */
-        prev_high_pass.prev_gyro_x = vx;
-        prev_high_pass.prev_gyro_y = vy;
-        prev_high_pass.prev_gyro_z = vz;
-
-        prev_high_pass.prev_smooth_x = new_smooth_x;
-        prev_high_pass.prev_smooth_y = new_smooth_y;
-        prev_high_pass.prev_smooth_z = new_smooth_z;
-
-        /* Update the record with the new smoothed values */
-        unbiased_records.emplace_back(new_smooth_x, new_smooth_y, new_smooth_z, record.timestamp_ns);
+        unbiased_records.emplace_back(smooth_x, smooth_y, smooth_z, gyro.timestamp_ns);
     }
+}
+
+static cv::Mat get_rotation_by_timestamp(uint64_t query_timestamp, const std::vector<std::pair<uint64_t, cv::Mat>>& rotations_buffer)
+{
+    if (rotations_buffer.empty() || rotations_buffer[0].first == 0) {
+        return cv::Mat::eye(3, 3, CV_32F);
+    }
+
+    /* First element with a timestamp greater than query_timestamp */
+    auto upper_it = std::upper_bound(rotations_buffer.begin(), rotations_buffer.end(), query_timestamp,
+        [](uint64_t value, const std::pair<uint64_t, cv::Mat>& element) {
+            return value <= element.first;
+        });
+
+    if (upper_it == rotations_buffer.begin()) {
+        return upper_it->second;
+    }
+
+    /* Get the closest lower-bound rotation */
+    auto lower_it = std::prev(upper_it);
+    if (upper_it == rotations_buffer.end()) {
+        return lower_it->second;
+    }
+    /* Calculate the interpolation between the two */
+    uint64_t delta = query_timestamp - lower_it->first;
+    uint64_t gyro_rate = upper_it->first - lower_it->first;
+    double tau = static_cast<double>(delta) / static_cast<double>(gyro_rate);
+
+    const cv::Mat& r1 = lower_it->second;
+    const cv::Mat& r2 = upper_it->second;
+    cv::Mat closest_rotation = SLERP(r1, r2, tau);
+
+    return closest_rotation;
+}
+
+std::vector<cv::Mat> EIS::get_rolling_shutter_rotations(const std::vector<std::pair<uint64_t, cv::Mat>>& rotations_buffer,
+                                                       int grid_height, uint64_t middle_exposure_time_of_first_row,
+                                                       uint64_t frame_readout_time)
+{
+    std::vector<cv::Mat> out_rotations(grid_height);
+    for (int y = 0; y < grid_height; y++)
+    {
+        cv::Mat stab_rot = cv::Mat::eye(3, 3, CV_32F);
+        if (middle_exposure_time_of_first_row != 0)
+        {
+            uint64_t row_time = middle_exposure_time_of_first_row +
+                (uint64_t)(((static_cast<double>(y) + 0.5)/static_cast<double>(grid_height)) * frame_readout_time);
+            stab_rot = get_rotation_by_timestamp(row_time, rotations_buffer);
+        }
+#ifdef ALTERNATIVE_ALGORITHM
+    stab_rot.convertTo(out_rotations[y], CV_32F);        
+#else
+    cv::Mat stab_rot_t = stab_rot.t();
+    stab_rot_t.convertTo(out_rotations[y], CV_32F);
+#endif
+    }
+
+    return out_rotations;
 }
 
 static int parse_gyro_calibration_config_file(const std::string &filename, gyro_calibration_config_t &gyro_calibration_config)
@@ -175,13 +338,48 @@ EIS::EIS(const std::string &config_filename, uint32_t window_size)
     /* Create a 3x3 identity matrix as the first matrix in the "previous orientations" */
     previous_orientations.push(cv::Mat::eye(3, 3, CV_64F));
     prev_high_pass = {0,0,0,0,0,0};
-    prev_gyro_orientation = cv::Mat::eye(3, 3, CV_64F);
+    m_prev_total_rotation = cv::Mat::eye(3, 3, CV_64F);
+#ifdef ALTERNATIVE_ALGORITHM
+    m_last_sample = unbiased_gyro_sample_t(0,0,0,0);
+#endif
+    cv::Vec3d calibs_rot_vec(m_gyro_calibration_config.rot_x, m_gyro_calibration_config.rot_y, m_gyro_calibration_config.rot_z);
+    cv::Rodrigues(calibs_rot_vec, m_gyro_to_cam_rot_mat);
+    frame_count = 0;
+}
+
+void EIS::periodic_reset(std::vector<cv::Mat> &rolling_shutter_rotations)
+{
+    /* If we haven't yet reached the hard deadline, check if this is a "good" time for reset:
+        If most of the rotation matrices are close to the eye matrix, that way the reset will
+        have less of a visual impact */
+    if (frame_count < (EIS_RESET_FRAMES_NUM + EIS_RESET_DEADLINE))
+    {
+        for (auto& rotation : rolling_shutter_rotations)
+        {
+            cv::Mat rvec;
+            cv::Rodrigues(rotation, rvec);
+            double angle = cv::norm(rvec);
+            
+            if (angle > EIS_RESET_ANGLES_THRESHOLD) {
+                /* If one of the angles is above the threshold,
+                    we are not close enough to the identity matrix */
+                return;
+            }
+        }
+    }
+
+    reset();     
 }
 
 void EIS::reset()
 {
+    LOGGER__WARNING("[EIS] EIS reset!");
     previous_orientations.clear();
     previous_orientations.push(cv::Mat::eye(3, 3, CV_64F));
     prev_high_pass = {0,0,0,0,0,0};
-    prev_gyro_orientation = cv::Mat::eye(3, 3, CV_64F);
+    m_prev_total_rotation = cv::Mat::eye(3, 3, CV_64F);
+#ifdef ALTERNATIVE_ALGORITHM
+    m_last_sample = unbiased_gyro_sample_t(0,0,0,0);
+#endif
+    frame_count = 0;
 }

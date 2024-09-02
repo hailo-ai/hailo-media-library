@@ -31,15 +31,15 @@
 #include <freetype/ftoutln.h>
 #include <freetype/ftsynth.h>
 
-#include <algorithm>
+#define INT_FROM_26_6_ROUND(x) (static_cast<int>(((x) + ((x) < 0 ? -(1 << 5) : (1 << 5))) >> 6))
 
-#define INT_FROM_26_6_ROUND(x) (static_cast<int>(((x) + (1 << 5)) >> 6))
-
-#define INT_FROM_26_6_FLOOR(x) (static_cast<int>((x) >> 6))
+#define INT_FROM_26_6_NO_ROUND(x) (static_cast<int>((x) >> 6))
 
 #define INT_TO_26_6(x) (static_cast<FT_F26Dot6>((x) << 6))
 
 #define INT_TO_16_16(x) (static_cast<FT_Fixed>((x) << 16))
+
+#define PADDING (3)
 
 SimpleTextOverlayImpl::SimpleTextOverlayImpl(const osd::BaseTextOverlay &overlay,
                                              cv::Size2f extra_size,
@@ -51,7 +51,7 @@ SimpleTextOverlayImpl::SimpleTextOverlayImpl(const osd::BaseTextOverlay &overlay
       m_rgba_text_color{(double)overlay.text_color.red, (double)overlay.text_color.green, (double)overlay.text_color.blue, (double)overlay.text_color.alpha},
       m_rgba_outline_color{(double)overlay.outline_color.red, (double)overlay.outline_color.green, (double)overlay.outline_color.blue, (double)overlay.outline_color.alpha},
       m_font_path(overlay.font_path), m_font_size(overlay.font_size), m_outline_size(overlay.outline_size), m_font_weight(overlay.font_weight),
-      m_extra_size(extra_size), m_text_position(text_position), m_first_glyph_left_bearing(0),
+      m_extra_size(extra_size), m_text_position(text_position),
       m_hb_font(nullptr, hb_font_destroy), m_hb_buffer(nullptr, hb_buffer_destroy), m_ft_library(nullptr, FT_Done_FreeType), m_ft_face(nullptr, FT_Done_Face), m_ft_stroker(nullptr, FT_Stroker_Done)
 {
     if (!cv::utils::fs::exists(m_font_path))
@@ -148,35 +148,6 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Simple
     return OverlayImpl::create_dsp_overlays(frame_width, frame_height);
 }
 
-media_library_return SimpleTextOverlayImpl::create_text_m_mat(int frame_width, int frame_height)
-{
-    auto text_size_baseline_expected = get_text_size_baseline(frame_width, frame_height);
-    if (!text_size_baseline_expected)
-    {
-        LOGGER__ERROR("Error: get_text_size_baseline() failed with {}", text_size_baseline_expected.error());
-        return text_size_baseline_expected.error();
-    }
-    cv::Size text_size = text_size_baseline_expected.value().first;
-    int baseline = text_size_baseline_expected.value().second;
-
-    /* Calculate text position by adjusting according to m_text_position */
-    auto text_position_offset = cv::Point(m_text_position.x * frame_width, m_text_position.y * frame_height);
-    auto text_position = cv::Point(0, text_size.height - baseline - m_extra_size.height * frame_height) + text_position_offset;
-
-    // init the matrix with transparent background (alpha channel = 0)
-    m_image_mat = cv::Mat(text_size, CV_8UC4, cv::Scalar{-1, -1, -1, 0});
-
-    // render the text onto the image matrix (alpha channel will be set for pixels with text)
-    auto status = put_text(m_image_mat, text_position);
-    if (status != MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__ERROR("Error: put_text() failed with {}", status);
-        return status;
-    }
-
-    return MEDIA_LIBRARY_SUCCESS;
-}
-
 // this function was refactored from OpenCV's freetype.cpp: getTextSize()
 tl::expected<size_baseline, media_library_return> SimpleTextOverlayImpl::get_text_size_baseline(int frame_width, int frame_height)
 {
@@ -226,11 +197,6 @@ tl::expected<size_baseline, media_library_return> SimpleTextOverlayImpl::get_tex
             FT_GlyphSlot_Embolden(m_ft_face->glyph);
         }
         
-        if (i == 0)
-        {
-            m_first_glyph_left_bearing = m_ft_face->glyph->metrics.horiBearingX;
-        }
-
         FT_Outline outline = m_ft_face->glyph->outline;
 
         // Flip ( in FreeType coordinates )
@@ -264,23 +230,26 @@ tl::expected<size_baseline, media_library_return> SimpleTextOverlayImpl::get_tex
         bbox.yMax += INT_TO_26_6(m_outline_size * 2);
 
         // Update current position ( in FreeType coordinates )
-        currentPos.x += INT_TO_26_6(INT_FROM_26_6_FLOOR(m_ft_face->glyph->advance.x)) + INT_TO_26_6(m_outline_size);
-        currentPos.y += INT_TO_26_6(INT_FROM_26_6_FLOOR(m_ft_face->glyph->advance.y));
+        currentPos.x += m_ft_face->glyph->advance.x + INT_TO_26_6(m_outline_size);
+        currentPos.y += m_ft_face->glyph->advance.y;
 
         // Update BoundaryBox ( in OpenCV coordinates )
-        xMin = std::min(xMin, INT_FROM_26_6_ROUND(bbox.xMin));
-        xMax = std::max(xMax, INT_FROM_26_6_ROUND(bbox.xMax));
-        yMin = std::min(yMin, INT_FROM_26_6_ROUND(bbox.yMin));
-        yMax = std::max(yMax, INT_FROM_26_6_ROUND(bbox.yMax));
+        xMin = cv::min(xMin, INT_FROM_26_6_ROUND(bbox.xMin));
+        xMax = cv::max(xMax, INT_FROM_26_6_ROUND(bbox.xMax));
+        yMin = cv::min(yMin, INT_FROM_26_6_ROUND(bbox.yMin));
+        yMax = cv::max(yMax, INT_FROM_26_6_ROUND(bbox.yMax));
     }
 
     // Calculate width/height/baseline (in OpenCV coordinates)
     int width = xMax - xMin;
     int height = -yMin;
 
-    // Keep a padding equal to the left bearing from each side, for the background
-    width += INT_FROM_26_6_ROUND(m_first_glyph_left_bearing * 2);
-    height += INT_FROM_26_6_ROUND(m_first_glyph_left_bearing * 2);
+    // Calculate right bearing and increase width so text isn't cut from the right
+    FT_Pos right_bearing = m_ft_face->glyph->advance.x - (m_ft_face->glyph->metrics.horiBearingX + m_ft_face->glyph->metrics.width);
+    width += INT_FROM_26_6_NO_ROUND(right_bearing);
+
+    // Add outline once more to make right size look good
+    width += m_outline_size;
 
     int baseline = yMax;
     cv::Size base_size = cv::Size(width, height);
@@ -298,94 +267,6 @@ tl::expected<size_baseline, media_library_return> SimpleTextOverlayImpl::get_tex
     final_size.height += baseline;
 
     return std::make_pair(final_size, baseline);
-}
-
-// this function was refactored from OpenCV's freetype.cpp: putTextBitmapMono()
-media_library_return SimpleTextOverlayImpl::put_text(cv::Mat dst, cv::Point org)
-{
-    auto ft_done_glyph = [](FT_Glyph *glyph) { FT_Done_Glyph(*glyph); };
-    using ft_glyph_ptr = std::unique_ptr<FT_Glyph, decltype(ft_done_glyph)>;
-
-    unsigned int glyph_count;
-    hb_glyph_info_t *glyph_info = hb_buffer_get_glyph_infos(m_hb_buffer.get(), &glyph_count);
-    if (!glyph_info)
-    {
-        LOGGER__ERROR("Error: hb_buffer_get_glyph_infos() failed");
-        return MEDIA_LIBRARY_FREETYPE_ERROR;
-    }
-
-    for (unsigned int i = 0; i < glyph_count; i++)
-    {
-        FT_Error ret = FT_Load_Glyph(m_ft_face.get(), glyph_info[i].codepoint, 0);
-        if (ret)
-        {
-            LOGGER__ERROR("Error: FT_Load_Glyph() failed with {}", ret);
-            return MEDIA_LIBRARY_FREETYPE_ERROR;
-        }
-
-        if (m_font_weight == osd::font_weight_t::BOLD)
-        {
-            FT_GlyphSlot_Embolden(m_ft_face->glyph);
-        }
-
-        cv::Point glyph_position = org;
-        glyph_position.y -= INT_FROM_26_6_FLOOR(m_ft_face->glyph->metrics.horiBearingY);
-        glyph_position.x += INT_FROM_26_6_FLOOR(m_ft_face->glyph->metrics.horiBearingX);
-
-        // same background padding from the top as from the left
-        glyph_position.y -= INT_FROM_26_6_FLOOR(m_first_glyph_left_bearing);
-
-        // Render outline if needed
-        if (m_outline_size > 0 && m_rgba_text_color != m_rgba_outline_color)
-        {
-            ft_glyph_ptr ft_glyph(nullptr, ft_done_glyph);
-            FT_Glyph glyph;
-            ret = FT_Get_Glyph(m_ft_face->glyph, &glyph);
-            if (ret)
-            {
-                LOGGER__ERROR("Error: FT_Get_Glyph() failed with {}", ret);
-                return MEDIA_LIBRARY_FREETYPE_ERROR;
-            }
-            ft_glyph.reset(&glyph);
-
-            ret = FT_Glyph_StrokeBorder(ft_glyph.get(), m_ft_stroker.get(), false, true);
-            if (ret)
-            {
-                LOGGER__ERROR("Error: FT_Glyph_StrokeBorder() failed with {}", ret);
-                return MEDIA_LIBRARY_FREETYPE_ERROR;
-            }
-
-            ret = FT_Glyph_To_Bitmap(ft_glyph.get(), FT_RENDER_MODE_MONO, 0, true);
-            if (ret)
-            {
-                LOGGER__ERROR("Error: FT_Glyph_To_Bitmap() failed with {}", ret);
-                return MEDIA_LIBRARY_FREETYPE_ERROR;
-            }
-
-            FT_BitmapGlyph bitmap_glyph = reinterpret_cast<FT_BitmapGlyph>(*ft_glyph.get());
-            put_glyph(dst, &bitmap_glyph->bitmap, glyph_position, m_rgba_outline_color);
-        }
-
-        // Render glyph (inside the outline, if needed)
-        ret = FT_Render_Glyph(m_ft_face->glyph, FT_RENDER_MODE_MONO);
-        if (ret)
-        {
-            LOGGER__ERROR("Error: FT_Render_Glyph() failed with {}", ret);
-            return MEDIA_LIBRARY_FREETYPE_ERROR;
-        }
-
-        glyph_position.y += m_outline_size;
-        glyph_position.x += m_outline_size;
-        put_glyph(dst, &m_ft_face->glyph->bitmap, glyph_position, m_rgba_text_color);
-
-        // advance origin point (the integer part) by glyph size
-        org.x += INT_FROM_26_6_FLOOR(m_ft_face->glyph->advance.x) + m_outline_size;
-        org.y += INT_FROM_26_6_FLOOR(m_ft_face->glyph->advance.y);
-    }
-
-    hb_buffer_reset(m_hb_buffer.get());
-
-    return MEDIA_LIBRARY_SUCCESS;
 }
 
 void SimpleTextOverlayImpl::put_glyph(cv::Mat dst, FT_Bitmap *bmp, cv::Point glyph_position, cv::Scalar color)
@@ -439,6 +320,120 @@ void SimpleTextOverlayImpl::put_glyph(cv::Mat dst, FT_Bitmap *bmp, cv::Point gly
             }
         }
     }
+}
+
+// this function was refactored from OpenCV's freetype.cpp: putTextBitmapMono()
+media_library_return SimpleTextOverlayImpl::put_text(cv::Mat dst, cv::Point org)
+{
+    auto ft_done_glyph = [](FT_Glyph *glyph) { FT_Done_Glyph(*glyph); };
+    using ft_glyph_ptr = std::unique_ptr<FT_Glyph, decltype(ft_done_glyph)>;
+
+    unsigned int glyph_count;
+    hb_glyph_info_t *glyph_info = hb_buffer_get_glyph_infos(m_hb_buffer.get(), &glyph_count);
+    if (!glyph_info)
+    {
+        LOGGER__ERROR("Error: hb_buffer_get_glyph_infos() failed");
+        return MEDIA_LIBRARY_FREETYPE_ERROR;
+    }
+
+    for (unsigned int i = 0; i < glyph_count; i++)
+    {
+        FT_Error ret = FT_Load_Glyph(m_ft_face.get(), glyph_info[i].codepoint, 0);
+        if (ret)
+        {
+            LOGGER__ERROR("Error: FT_Load_Glyph() failed with {}", ret);
+            return MEDIA_LIBRARY_FREETYPE_ERROR;
+        }
+
+        if (m_font_weight == osd::font_weight_t::BOLD)
+        {
+            FT_GlyphSlot_Embolden(m_ft_face->glyph);
+        }
+
+        cv::Point glyph_position = org;            
+        glyph_position.y -= INT_FROM_26_6_NO_ROUND(m_ft_face->glyph->metrics.horiBearingY);
+        glyph_position.x += INT_FROM_26_6_NO_ROUND(m_ft_face->glyph->metrics.horiBearingX);
+
+        // Render outline if needed
+        if (m_outline_size > 0 && m_rgba_text_color != m_rgba_outline_color)
+        {
+            ft_glyph_ptr ft_glyph(nullptr, ft_done_glyph);
+            FT_Glyph glyph;
+            ret = FT_Get_Glyph(m_ft_face->glyph, &glyph);
+            if (ret)
+            {
+                LOGGER__ERROR("Error: FT_Get_Glyph() failed with {}", ret);
+                return MEDIA_LIBRARY_FREETYPE_ERROR;
+            }
+            ft_glyph.reset(&glyph);
+
+            ret = FT_Glyph_StrokeBorder(ft_glyph.get(), m_ft_stroker.get(), false, true);
+            if (ret)
+            {
+                LOGGER__ERROR("Error: FT_Glyph_StrokeBorder() failed with {}", ret);
+                return MEDIA_LIBRARY_FREETYPE_ERROR;
+            }
+
+            ret = FT_Glyph_To_Bitmap(ft_glyph.get(), FT_RENDER_MODE_MONO, 0, true);
+            if (ret)
+            {
+                LOGGER__ERROR("Error: FT_Glyph_To_Bitmap() failed with {}", ret);
+                return MEDIA_LIBRARY_FREETYPE_ERROR;
+            }
+
+            FT_BitmapGlyph bitmap_glyph = reinterpret_cast<FT_BitmapGlyph>(*ft_glyph.get());
+            put_glyph(dst, &bitmap_glyph->bitmap, glyph_position, m_rgba_outline_color);
+        }
+
+        // Render glyph (inside the outline, if needed)
+        ret = FT_Render_Glyph(m_ft_face->glyph, FT_RENDER_MODE_MONO);
+        if (ret)
+        {
+            LOGGER__ERROR("Error: FT_Render_Glyph() failed with {}", ret);
+            return MEDIA_LIBRARY_FREETYPE_ERROR;
+        }
+
+        glyph_position.y += m_outline_size;
+        glyph_position.x += m_outline_size;
+        put_glyph(dst, &m_ft_face->glyph->bitmap, glyph_position, m_rgba_text_color);
+
+        // advance origin point (the integer part) by glyph size
+        org.x += INT_FROM_26_6_NO_ROUND(m_ft_face->glyph->advance.x) + m_outline_size;
+        org.y += INT_FROM_26_6_NO_ROUND(m_ft_face->glyph->advance.y);
+    }
+
+    hb_buffer_reset(m_hb_buffer.get());
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return SimpleTextOverlayImpl::create_text_m_mat(int frame_width, int frame_height)
+{
+    auto text_size_baseline_expected = get_text_size_baseline(frame_width, frame_height);
+    if (!text_size_baseline_expected)
+    {
+        LOGGER__ERROR("Error: get_text_size_baseline() failed with {}", text_size_baseline_expected.error());
+        return text_size_baseline_expected.error();
+    }
+    cv::Size text_size = text_size_baseline_expected.value().first;
+    int baseline = text_size_baseline_expected.value().second;
+
+    /* Calculate text position by adjusting according to m_text_position */
+    auto text_position_offset = cv::Point(m_text_position.x * frame_width, m_text_position.y * frame_height);
+    auto text_position = cv::Point(0, text_size.height - baseline - m_extra_size.height * frame_height) + text_position_offset;
+
+    // init the matrix with transparent background (alpha channel = 0)
+    m_image_mat = cv::Mat(text_size, CV_8UC4, cv::Scalar{-1, -1, -1, 0});
+
+    // render the text onto the image matrix (alpha channel will be set for pixels with text)
+    auto status = put_text(m_image_mat, text_position);
+    if (status != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Error: put_text() failed with {}", status);
+        return status;
+    }
+
+    return MEDIA_LIBRARY_SUCCESS;
 }
 
 /* Text will be rendered with the new label only after calling create_dsp_overlays */

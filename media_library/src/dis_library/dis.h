@@ -169,6 +169,15 @@ public:
                                const cv::Mat& smooth_orientaion,
                                DewarpT &grid);
 
+    /// @brief Calculates the grid for stabilization of the current frame,
+    /// using camera motion smoothing algorithms.
+    /// @param flip_mirror_rot as applied on the output image
+    /// @param rolling_shutter_rotations buffer of rotaions during the last 2 frames
+    /// @param grid output grid
+    RetCodes generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
+                                                const std::vector<cv::Mat> &rolling_shutter_rotations,
+                                                DewarpT &grid);
+
 private:
     /// @brief Generates grid, which only resizes the input image into the output one. Used for debug.
     void gen_resize_grid(DewarpT &grid);

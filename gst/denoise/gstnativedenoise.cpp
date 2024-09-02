@@ -218,11 +218,7 @@ gst_hailo_denoise_get_property(GObject *object, guint property_id, GValue *value
     }
     case PROP_CONFIG:
     {
-        if (self->medialib_denoise != nullptr) {
-            self->denoise_config = std::make_shared<denoise_config_t>(self->medialib_denoise->get_denoise_configs());
-        } else {
-            self->denoise_config = std::make_shared<denoise_config_t>();
-        }
+        self->denoise_config = std::make_shared<denoise_config_t>(self->medialib_denoise->get_denoise_configs());
         g_value_set_pointer(value, self->denoise_config.get());
         break;
     }

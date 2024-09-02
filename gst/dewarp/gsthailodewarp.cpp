@@ -144,6 +144,12 @@ static GstFlowReturn gst_hailo_dewarp_push_output_frame(GstHailoDewarp *self,
         return ret;
     }
 
+    if (GST_PAD_IS_FLUSHING(self->srcpad))
+    {
+        GST_WARNING_OBJECT(self, "Srcpad %s is flushing, Not sending frame", gst_pad_get_name(self->srcpad));
+        return ret;
+    }
+
     // Get caps from srcpad
     GstCaps *caps = gst_pad_get_current_caps(self->srcpad);
 
@@ -182,9 +188,9 @@ static GstFlowReturn gst_hailo_dewarp_chain(GstPad *pad, GstObject *parent, GstB
     GST_DEBUG_OBJECT(self, "Chain - Received buffer from sinkpad");
 
     // If Dewarp disbled, just push the buffer to srcpad
-    if (!self->medialib_dewarp->get_ldc_configs().dewarp_config.enabled)
+    if (!self->medialib_dewarp->get_ldc_configs().check_ops_enabled(true))
     {
-        GST_DEBUG_OBJECT(self, "Dewarp disabled, pushing buffer to srcpad");
+        GST_DEBUG_OBJECT(self, "Dewarp operations are disabled, pushing buffer to srcpad");
         gst_pad_push(self->srcpad, buffer);
         return ret;
     }
@@ -228,6 +234,7 @@ static GstFlowReturn gst_hailo_dewarp_chain(GstPad *pad, GstObject *parent, GstB
     GST_DEBUG_OBJECT(self, "Handle frame done");
 
     ret = gst_hailo_dewarp_push_output_frame(self, output_frame_ptr, buffer);
+
     gst_buffer_unref(buffer);
 
     return ret;
@@ -661,11 +668,7 @@ gst_hailo_dewarp_get_property(GObject *object, guint property_id, GValue *value,
     }
     case PROP_CONFIG:
     {
-        if (self->medialib_dewarp != nullptr) {
-            self->dewarp_config = std::make_shared<ldc_config_t>(self->medialib_dewarp->get_ldc_configs());
-        } else {
-            self->dewarp_config = std::make_shared<ldc_config_t>();
-        }
+        self->dewarp_config = std::make_shared<ldc_config_t>(self->medialib_dewarp->get_ldc_configs());
         g_value_set_pointer(value, self->dewarp_config.get());
         break;
     }

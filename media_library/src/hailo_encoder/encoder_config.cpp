@@ -391,7 +391,15 @@ VCEncRet Encoder::Impl::init_rate_control_config()
     m_vc_rate_cfg.hrd = rate_control.hrd.value();
     m_vc_rate_cfg.hrdCbrFlag = rate_control.padding.value();
     m_vc_rate_cfg.cvbr = rate_control.cvbr.value();
-    m_vc_rate_cfg.hrdCpbSize = rate_control.hrd_cpb_size.value();
+
+    if (rate_control.hrd_cpb_size.value() == 0)
+    {
+        m_vc_rate_cfg.hrdCpbSize = rate_control.bitrate.target_bitrate * 2;
+    }
+    else
+    {
+        m_vc_rate_cfg.hrdCpbSize = rate_control.hrd_cpb_size.value();
+    }
 
     if (rate_control.gop_length.value() == 0)
     {

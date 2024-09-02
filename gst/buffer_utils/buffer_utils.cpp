@@ -223,6 +223,7 @@ GstBuffer *gst_buffer_from_hailo_buffer(HailoMediaLibraryBufferPtr hailo_buffer,
                                    hailo_buffer->isp_ae_fps,
                                    hailo_buffer->isp_ae_converged,
                                    hailo_buffer->isp_ae_average_luma,
+                                   hailo_buffer->isp_ae_integration_time,
                                    hailo_buffer->isp_timestamp_ns);
 
     return gst_outbuf;
@@ -246,6 +247,7 @@ static bool create_hailo_buffer_from_video_frame(GstVideoFrame *video_frame, Hai
         hailo_buffer->vsm = hailo_v4l2_meta->vsm;
         hailo_buffer->isp_ae_fps = hailo_v4l2_meta->isp_ae_fps;
         hailo_buffer->isp_ae_converged = hailo_v4l2_meta->isp_ae_converged;
+        hailo_buffer->isp_ae_integration_time = hailo_v4l2_meta->isp_ae_integration_time;
         hailo_buffer->video_fd = hailo_v4l2_meta->video_fd;
         hailo_buffer->isp_ae_average_luma = hailo_v4l2_meta->isp_ae_average_luma;
         hailo_buffer->isp_timestamp_ns = hailo_v4l2_meta->isp_timestamp_ns;

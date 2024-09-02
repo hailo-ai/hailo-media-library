@@ -61,7 +61,9 @@ private:
     struct iio_device_data m_iio_device_data;
     std::mutex m_mtx;
 
+    int start();
     void shutdown();
+    int restart();
     void clear_samples(uint64_t until_time_ns);
     int device_attr_wr_str(const char *attr,
                            const char *str_val);
@@ -108,8 +110,10 @@ public:
         std::lock_guard<std::mutex> lock(m_mtx);
         return m_stopRunningAck;
     }
-
-    std::vector<gyro_sample_t> get_samples_closest_to_timestamp(uint64_t input_timestamp);
+    bool get_closest_vsync_sample(uint64_t frame_timestamp, std::vector<gyro_sample_t>::iterator& it_closest);
+    std::vector<gyro_sample_t> get_gyro_samples_for_frame_vsync(std::vector<gyro_sample_t>::iterator odd_closest_sample,
+                                                               uint64_t threshold_timestamp);
+    std::vector<gyro_sample_t> get_gyro_samples_for_frame_isp_timestamp(uint64_t threshold_timestamp);                                                           
     std::vector<gyro_sample_t> get_samples_until_next_odd_vx(uint64_t start_timestamp);
 };
 

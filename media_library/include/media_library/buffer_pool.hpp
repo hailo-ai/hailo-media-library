@@ -296,6 +296,7 @@ public:
     struct hailo15_vsm vsm;
     int32_t isp_ae_fps;
     bool isp_ae_converged;
+    uint64_t isp_ae_integration_time;
     uint8_t isp_ae_average_luma;
     int32_t video_fd;
     uint32_t buffer_index;
@@ -308,6 +309,7 @@ public:
           hailo_pix_buffer(nullptr), owner(nullptr),
           isp_ae_fps(HAILO_ISP_AE_FPS_DEFAULT_VALUE),
           isp_ae_converged(HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE),
+          isp_ae_integration_time(HAILO_ISP_AE_INTEGRATION_TIME_DEFAULT_VALUE),
           isp_ae_average_luma(HAILO_ISP_AE_LUMA_DEFUALT_VALUE),
           video_fd(-1),
           buffer_index(0),
@@ -340,6 +342,7 @@ public:
         vsm = other.vsm;
         isp_ae_fps = other.isp_ae_fps;
         isp_ae_converged = other.isp_ae_converged;
+        isp_ae_integration_time = other.isp_ae_integration_time;
         isp_ae_average_luma = other.isp_ae_average_luma;
         isp_timestamp_ns = other.isp_timestamp_ns;
         video_fd = other.video_fd;
@@ -351,6 +354,7 @@ public:
         other.m_plane_mutex = nullptr;
         other.isp_ae_fps = HAILO_ISP_AE_FPS_DEFAULT_VALUE;
         other.isp_ae_converged = HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE;
+        other.isp_ae_integration_time = HAILO_ISP_AE_INTEGRATION_TIME_DEFAULT_VALUE;
         other.isp_ae_average_luma = HAILO_ISP_AE_LUMA_DEFUALT_VALUE;
         other.isp_timestamp_ns = 0;
         other.video_fd = -1;
@@ -373,6 +377,7 @@ public:
             vsm = other.vsm;
             isp_ae_fps = other.isp_ae_fps;
             isp_ae_converged = other.isp_ae_converged;
+            isp_ae_integration_time = other.isp_ae_integration_time;
             isp_ae_average_luma = other.isp_ae_average_luma;
             isp_timestamp_ns = other.isp_timestamp_ns;
             video_fd = other.video_fd;
@@ -384,6 +389,7 @@ public:
             other.m_plane_mutex = nullptr;
             other.isp_ae_fps = HAILO_ISP_AE_FPS_DEFAULT_VALUE;
             other.isp_ae_converged = HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE;
+            other.isp_ae_integration_time = HAILO_ISP_AE_INTEGRATION_TIME_DEFAULT_VALUE;
             other.isp_ae_average_luma = HAILO_ISP_AE_LUMA_DEFUALT_VALUE;
             other.isp_timestamp_ns = 0;
             other.video_fd = -1;

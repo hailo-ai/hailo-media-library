@@ -517,7 +517,7 @@ gst_hailo_encoder_start(GstVideoEncoder *encoder)
     gst_buffer_add_hailo_buffer_meta(buf, output.buffer, output.size);
     gst_hailo_encoder_add_headers(hailoencoder, buf);
 
-    gst_video_encoder_set_min_pts(encoder, 0);
+    gst_video_encoder_set_min_pts(encoder, GST_SECOND);
 
     return TRUE;
 }
@@ -560,32 +560,32 @@ gst_hailo_encoder_encode_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *inp
     }
 
     GST_DEBUG_OBJECT(encoder, "Encode frame - calling handle_frame");
-    auto outputs = hailoencoder->encoder->handle_frame(hailo_buffer_ptr);
+    auto outputs = hailoencoder->encoder->handle_frame(hailo_buffer_ptr, input_frame->system_frame_number);
 
-    GST_DEBUG_OBJECT(hailoencoder, "Handle frame done got %d outputs", (int)outputs.size());
     for (EncoderOutputBuffer &output : outputs)
     {
-       auto oldest_frame = gst_video_encoder_get_oldest_frame(encoder);
-       if(oldest_frame == nullptr)
+        auto current_frame = gst_video_encoder_get_frame(encoder, output.frame_number);
+        if(current_frame == nullptr)
         {
             GST_ERROR_OBJECT(hailoencoder, "Failed to get oldest frame");
             return GST_FLOW_ERROR;
         }
 
-       if (output.size == 0)
+        if (output.size == 0)
         {
             GST_INFO_OBJECT(hailoencoder, "Send null buffer");
             null_buffer = gst_buffer_new();
             gst_buffer_set_size(null_buffer, 0);
-            oldest_frame->output_buffer = null_buffer;
+            current_frame->output_buffer = null_buffer;
         }
-       else
+        else
         {
-            oldest_frame->output_buffer = gst_hailo_encoder_get_output_buffer(hailoencoder, output);
+            current_frame->output_buffer = gst_hailo_encoder_get_output_buffer(hailoencoder, output);
         }
-        g_queue_pop_head(hailoencoder->dts_queue);
-        gst_buffer_add_hailo_buffer_meta(oldest_frame->output_buffer, output.buffer, output.size);
-        if (gst_video_encoder_finish_frame(encoder, oldest_frame) != GST_FLOW_OK)
+
+        current_frame->dts = GPOINTER_TO_UINT(g_queue_pop_head(hailoencoder->dts_queue));
+        gst_buffer_add_hailo_buffer_meta(current_frame->output_buffer, output.buffer, output.size);
+        if (gst_video_encoder_finish_frame(encoder, current_frame) != GST_FLOW_OK)
         {
             GST_WARNING_OBJECT(hailoencoder, "Failed to finish frame");
             return GST_FLOW_OK;

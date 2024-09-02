@@ -147,7 +147,7 @@ private:
   bool m_multislice_encoding;
   u32 m_intra_pic_rate;
   EWLLinearMem_t m_output_memory;
-  std::vector<HailoMediaLibraryBufferPtr> m_inputs;
+  std::vector<std::pair<uint32_t, HailoMediaLibraryBufferPtr>> m_inputs;
   EncoderOutputBuffer m_header;
   std::shared_ptr<EncoderConfig> m_config;
   class gopConfig;
@@ -163,7 +163,7 @@ private:
 public:
   Impl(std::string json_string);
   ~Impl();
-  std::vector<EncoderOutputBuffer> handle_frame(HailoMediaLibraryBufferPtr buf);
+  std::vector<EncoderOutputBuffer> handle_frame(HailoMediaLibraryBufferPtr buf, uint32_t frame_number);
   void force_keyframe();
   void update_stride(uint32_t stride);
   int get_gop_size();
@@ -201,9 +201,8 @@ private:
   media_library_return update_gop_configurations();
   media_library_return stream_restart();
   media_library_return encode_header();
-  media_library_return
-  encode_frame(HailoMediaLibraryBufferPtr buf,
-               std::vector<EncoderOutputBuffer> &outputs);
+  media_library_return encode_frame(HailoMediaLibraryBufferPtr buf, std::vector<EncoderOutputBuffer> &outputs,
+    uint32_t frame_number);
   media_library_return
   encode_multiple_frames(std::vector<EncoderOutputBuffer> &outputs);
   uint32_t get_codec();

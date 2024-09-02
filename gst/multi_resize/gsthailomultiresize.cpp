@@ -745,11 +745,7 @@ gst_hailo_multi_resize_get_property(GObject *object, guint property_id, GValue *
     }
     case PROP_CONFIG:
     {
-        if (self->medialib_multi_resize != nullptr) {
-            self->multi_resize_config = std::make_shared<multi_resize_config_t>(self->medialib_multi_resize->get_multi_resize_configs());
-        } else {
-            self->multi_resize_config = std::make_shared<multi_resize_config_t>();
-        }
+        self->multi_resize_config = std::make_shared<multi_resize_config_t>(self->medialib_multi_resize->get_multi_resize_configs());
         g_value_set_pointer(value, self->multi_resize_config.get());
         break;
     }

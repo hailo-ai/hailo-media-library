@@ -31,6 +31,7 @@
 #include "dis_common.h"
 #include "interface_types.h"
 
+#include <opencv2/opencv.hpp>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -56,14 +57,16 @@ extern "C"
     /// @param out_width output size. Necessary to determine grid size (grid cell size is square and constant)
     /// @param out_height output size. Necessary to determine grid size (grid cell size is square and constant)
     /// @param camera_fov_factor field of view factor. Value between 0.1 and 1 determining how much smaller the output
-    /// FoV should be from the maximum possible. If DIS is diabled in the config (cfg param), camera_fov_factor is set
-    /// to 1 (keep max), as changing FoV without DIS is not supported.
+    /// FoV should be from the maximum possible. If DIS and EIS are disabled in the config (cfg param), camera_fov_factor is set
+    /// to 1 (keep max), as changing FoV without DIS or EIS is not supported.
+    /// @param is_eis_enabled - is the EIS feature enabled.
     /// @param grid pointer to DewarpT (size of the grid vertexes to be allocated externally).
     RetCodes dis_init(void **ctx,
                       dis_config_t &cfg,
                       dis_calibration_t calib,
                       int32_t out_width, int32_t out_height,
                       camera_type_t camera_type, float camera_fov_factor,
+                      bool is_eis_enabled,
                       DewarpT *grid);
 
     /// @brief frees the internal memory for a given Dis instance and sets it to NULL.
@@ -113,8 +116,18 @@ extern "C"
     /// @param grid output grid
     RetCodes dis_generate_eis_grid(void *ctx,
                                     FlipMirrorRot flip_mirror_rot,
-                                    void *curr_orientation,
-                                    void *smooth_orientation,
+                                    cv::Mat &curr_orientation,
+                                    cv::Mat &smooth_orientation,
+                                    DewarpT *grid);
+
+    /// @brief Calculates the grid for stabilization of the current frame,
+    /// using camera motion smoothing algorithms.
+    /// @param flip_mirror_rot as applied on the output image
+    /// @param rolling_shutter_rotations buffer of rotaions during the last 2 frames
+    /// @param grid output grid
+    RetCodes dis_generate_eis_grid_rolling_shutter(void *ctx,
+                                    FlipMirrorRot flip_mirror_rot,
+                                    const std::vector<cv::Mat> &rolling_shutter_rotations,
                                     DewarpT *grid);
 
 #ifdef __cplusplus

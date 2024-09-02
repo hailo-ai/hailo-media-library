@@ -42,6 +42,8 @@
 #define HAILO15_ISP_CID_LSC_BASE (V4L2_CID_USER_BASE + 0x3200)
 #define HAILO15_ISP_CID_LSC_OPTICAL_ZOOM (HAILO15_ISP_CID_LSC_BASE + 0x0009)
 
+#define EIS_NUM_FRAMES_PULL_INTEGRATION_TIME (120)
+
 class MediaLibraryDewarp::Impl final
 {
 public:
@@ -101,6 +103,9 @@ private:
     int m_video_fd;
     // configuration mutex
     std::shared_mutex rw_lock;
+
+    uint64_t m_curr_ae_integration_time;
+    uint64_t m_curr_ae_integration_time_counter;
 
     std::vector<MediaLibraryDewarp::callbacks_t> m_callbacks;
     media_library_return decode_config_json_string(ldc_config_t &ldc_configs, std::string config_string);
@@ -276,21 +281,6 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
         return MEDIA_LIBRARY_SUCCESS;
     }
 
-    if (m_ldc_configs.dewarp_config.enabled)
-    {
-        // Only CAMERA_TYPE_PINHOLE camera_type is supported
-        m_ldc_configs.dewarp_config.camera_type = CAMERA_TYPE_PINHOLE;
-    }
-    else
-    {
-        if (m_ldc_configs.dis_config.enabled || m_ldc_configs.flip_config.enabled || m_ldc_configs.rotation_config.enabled)
-        {
-            LOGGER__INFO("Dewarp is disabled, but other features are enabled. Enabling dewarp in identity mode (ldc will not be performed).");
-            m_ldc_configs.dewarp_config.enabled = true;
-            m_ldc_configs.dewarp_config.camera_type = CAMERA_TYPE_INPUT_DISTORTIONS;
-        }
-    }
-
     m_dewarp_mesh_ctx->configure(m_ldc_configs);
 
     // Create and initialize buffer pools
@@ -313,10 +303,16 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
         }
     }
 
-    if (!m_ldc_configs.eis_config.enabled && m_ldc_configs.eis_config.correction_applied)
+    if (!m_ldc_configs.gyro_config.enabled && m_ldc_configs.eis_config.enabled)
     {
-        LOGGER__ERROR("Correction is enabled, but EIS is not. Enable EIS to apply correction to frames!");
+        LOGGER__ERROR("EIS is enabled, but Gyro is not. Enable both Gyro and EIS to enable EIS corrections to frames!");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    if (m_ldc_configs.eis_config.enabled)
+    {
+        m_curr_ae_integration_time = 0;
+        m_curr_ae_integration_time_counter = 0;
     }
 
     m_configured = true;
@@ -522,8 +518,20 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBuf
 
     if (m_ldc_configs.eis_config.enabled)
     {
+        /* Pull the integration time each time we are not converged or every 120 frames */
+        if ((!input_frame->isp_ae_converged) || (m_curr_ae_integration_time_counter % EIS_NUM_FRAMES_PULL_INTEGRATION_TIME == 0))
+        {
+            m_curr_ae_integration_time_counter = 0;
+            m_curr_ae_integration_time = input_frame->isp_ae_integration_time;
+            if (m_curr_ae_integration_time == 0)
+            {
+                LOGGER__WARNING("EIS: Integration time 0 received!");
+            }
+        }   
         m_dewarp_mesh_ctx->on_frame_eis_update(input_frame->isp_timestamp_ns,
-                                                m_ldc_configs.eis_config.correction_applied);
+                                                m_curr_ae_integration_time * 1000,
+                                                m_ldc_configs.eis_config.enabled);
+        m_curr_ae_integration_time_counter++;
     }
 
     // Update last vsm
@@ -531,9 +539,11 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBuf
     m_last_vsm.dy = input_frame->vsm.dy;
 
     media_lib_ret = perform_dewarp(input_frame, output_frame);
+
     output_frame->isp_ae_fps = input_frame->isp_ae_fps;
     output_frame->isp_ae_converged = input_frame->isp_ae_converged;
     output_frame->isp_ae_average_luma = input_frame->isp_ae_average_luma;
+    output_frame->isp_ae_integration_time = input_frame->isp_ae_integration_time;
     output_frame->isp_timestamp_ns = input_frame->isp_timestamp_ns;
     output_frame->pts = input_frame->pts;
 
@@ -604,7 +614,7 @@ media_library_return MediaLibraryDewarp::Impl::set_input_video_config(uint32_t w
     m_ldc_configs.output_video_config.dimensions.destination_height = height;
     m_ldc_configs.output_video_config.framerate = framerate;
 
-    if (m_ldc_configs.rotation_config.enabled || m_ldc_configs.flip_config.enabled || m_ldc_configs.dis_config.enabled || m_ldc_configs.dewarp_config.enabled || m_ldc_configs.optical_zoom_config.enabled)
+    if (m_ldc_configs.check_ops_enabled())
     {
         // after setting output video config, we need to make sure rotation will take place, because we set the dimensions as if we are with rotation 0
         // so set the current rotation to 0, and then run configure() with the actual rotation value, this will force the configuration to have correct rotation

@@ -164,7 +164,6 @@ struct hdr_config_t
     bool enabled;
     float ls_ratio;
     float vs_ratio;
-    hdr_resolution_t resolution;
     hdr_dol_t dol;
 };
 
@@ -253,6 +252,7 @@ struct output_resolution_t
     uint32_t framerate;
     uint32_t pool_max_buffers;
     dsp_utils::crop_resize_dims_t dimensions;
+
     bool operator==(const output_resolution_t &other) const
     {
         return framerate == other.framerate && dimensions.destination_width == other.dimensions.destination_width && dimensions.destination_height == other.dimensions.destination_height;
@@ -303,60 +303,6 @@ struct input_video_config_t
     }
 };
 
-struct pre_proc_op_configurations
-{
-public:
-    output_video_config_t output_video_config;
-    rotation_config_t rotation_config;
-    flip_config_t flip_config;
-    dewarp_config_t dewarp_config;
-    dis_config_t dis_config;
-    optical_zoom_config_t optical_zoom_config;
-    digital_zoom_config_t digital_zoom_config;
-    input_video_config_t input_video_config;
-
-    pre_proc_op_configurations()
-    {
-        output_video_config.resolutions = std::vector<output_resolution_t>();
-    }
-
-    media_library_return update(pre_proc_op_configurations &pre_proc_op_configs)
-    {
-        rotation_config = pre_proc_op_configs.rotation_config;
-        flip_config = pre_proc_op_configs.flip_config;
-        dis_config = pre_proc_op_configs.dis_config;
-        digital_zoom_config = pre_proc_op_configs.digital_zoom_config;
-        dewarp_config.enabled = pre_proc_op_configs.dewarp_config.enabled;
-        output_video_config.grayscale = pre_proc_op_configs.output_video_config.grayscale;
-        output_video_config.interpolation_type = pre_proc_op_configs.output_video_config.interpolation_type;
-
-        // TODO: can we change interpolation type?
-        if (dewarp_config != pre_proc_op_configs.dewarp_config)
-        {
-            // Update dewarp configuration is restricted
-            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-        }
-        if (input_video_config != pre_proc_op_configs.input_video_config)
-        {
-            // Update input video configuration which is restricted
-            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-        }
-
-        for (uint8_t i = 0; i < pre_proc_op_configs.output_video_config.resolutions.size(); i++)
-        {
-            output_resolution_t &current_res = output_video_config.resolutions[i];
-            output_resolution_t &new_res = pre_proc_op_configs.output_video_config.resolutions[i];
-            if (!current_res.dimensions_equal(new_res))
-            {
-                // Update output video dimensions is restricted
-                return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-            }
-            current_res.framerate = new_res.framerate;
-        }
-        return MEDIA_LIBRARY_SUCCESS;
-    }
-};
-
 struct multi_resize_config_t
 {
 public:
@@ -398,7 +344,7 @@ public:
     {
         rotation_angle_t current_rotation_angle = rotation_config.effective_value();
         rotation_angle_t new_rotation_angle = new_rotation_config.effective_value();
-        if (current_rotation_angle % 2 == new_rotation_angle  % 2)
+        if (current_rotation_angle % 2 == new_rotation_angle % 2)
         {
             rotation_config = new_rotation_config;
             return MEDIA_LIBRARY_SUCCESS;
@@ -417,14 +363,20 @@ public:
 struct eis_config_t
 {
     bool enabled;
-    bool correction_applied;
     std::string eis_config_path;
-    std::string gyro_sensor_name;
-    std::string gyro_sensor_freq;
     uint32_t window_size;
-    double gyro_scale;
     double rotational_smoothing_coefficient;
     double iir_hpf_coefficient;
+    float camera_fov_factor;
+    uint64_t line_readout_time;
+};
+
+struct gyro_config_t
+{
+    bool enabled;
+    std::string sensor_name;
+    std::string sensor_frequency;
+    double gyro_scale;
 };
 
 struct ldc_config_t
@@ -438,6 +390,7 @@ public:
     input_video_config_t input_video_config;
     output_resolution_t output_video_config;
     eis_config_t eis_config;
+    gyro_config_t gyro_config;
 
     ldc_config_t()
     {
@@ -461,8 +414,10 @@ public:
                               ldc_configs.optical_zoom_config.magnification >= ldc_configs.optical_zoom_config.max_dewarping_magnification;
 
         dewarp_config.enabled = disable_dewarp ? false : ldc_configs.dewarp_config.enabled;
+        dewarp_config.camera_type = dewarp_config.enabled ? CAMERA_TYPE_PINHOLE : CAMERA_TYPE_INPUT_DISTORTIONS;
         flip_config = ldc_configs.flip_config;
         dis_config = ldc_configs.dis_config;
+        eis_config = ldc_configs.eis_config;
         optical_zoom_config = ldc_configs.optical_zoom_config;
 
         // TODO: can we change interpolation type?
@@ -483,23 +438,24 @@ public:
         }
 
         rotation_config = ldc_configs.rotation_config;
-        eis_config = ldc_configs.eis_config;
         return MEDIA_LIBRARY_SUCCESS;
     }
 
-    bool check_ops_enabled()
+    bool check_ops_enabled(bool dewarp_actions_only = false)
     {
         return (dewarp_config.enabled ||
                 dis_config.enabled ||
+                eis_config.enabled ||
                 flip_config.enabled ||
                 rotation_config.enabled ||
-                optical_zoom_config.enabled);
+                (!dewarp_actions_only && optical_zoom_config.enabled));
     }
 
     bool check_ops_enabled_changed(ldc_config_t &other)
     {
         return (dewarp_config.enabled != other.dewarp_config.enabled ||
                 dis_config.enabled != other.dis_config.enabled ||
+                eis_config.enabled != other.eis_config.enabled ||
                 flip_config.enabled != other.flip_config.enabled ||
                 rotation_config.enabled != other.rotation_config.enabled ||
                 optical_zoom_config.enabled != other.optical_zoom_config.enabled);
@@ -580,23 +536,27 @@ public:
 struct frontend_config_t
 {
 public:
+    input_video_config_t input_config;
     ldc_config_t ldc_config;
     denoise_config_t denoise_config;
     multi_resize_config_t multi_resize_config;
     hdr_config_t hdr_config;
     hailort_t hailort_config;
+    isp_t isp_config;
 
-    frontend_config_t() : ldc_config(), denoise_config(), multi_resize_config(), hdr_config(), hailort_config()
+    frontend_config_t() : input_config(), ldc_config(), denoise_config(), multi_resize_config(), hdr_config(), hailort_config(), isp_config()
     {
     }
 
     media_library_return update(frontend_config_t &frontend_configs)
     {
+        input_config = frontend_configs.input_config;
         ldc_config.update(frontend_configs.ldc_config);
         denoise_config.update(frontend_configs.denoise_config);
         multi_resize_config.update(frontend_configs.multi_resize_config);
         hdr_config = frontend_configs.hdr_config;
         hailort_config = frontend_configs.hailort_config;
+        isp_config = frontend_configs.isp_config;
 
         return MEDIA_LIBRARY_SUCCESS;
     }

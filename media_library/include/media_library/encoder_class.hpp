@@ -33,6 +33,7 @@ struct EncoderOutputBuffer
 {
     HailoMediaLibraryBufferPtr buffer;
     uint32_t size;
+    uint32_t frame_number;
 };
 
 class Encoder
@@ -47,7 +48,7 @@ public:
     media_library_return configure(const encoder_config_t &config);
     encoder_config_t get_config();
     encoder_config_t get_user_config();
-    std::vector<EncoderOutputBuffer> handle_frame(HailoMediaLibraryBufferPtr buf);
+    std::vector<EncoderOutputBuffer> handle_frame(HailoMediaLibraryBufferPtr buf, uint32_t frame_number);
     EncoderOutputBuffer start();
     EncoderOutputBuffer stop();
     media_library_return init();

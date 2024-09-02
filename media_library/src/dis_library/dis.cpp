@@ -521,6 +521,61 @@ RetCodes DIS::generate_eis_grid(FlipMirrorRot flip_mirror_rot,
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+// generate_eis_grid_rolling_shutter()
+///////////////////////////////////////////////////////////////////////////////
+RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
+                                                const std::vector<cv::Mat> &rolling_shutter_rotations,
+                                                DewarpT &grid)
+{
+    if (cfg.debug.generate_resize_grid)
+    {
+        gen_resize_grid(grid);
+        return DIS_OK;
+    }
+
+    if (rolling_shutter_rotations.size() != (size_t)grid.mesh_height)
+    {
+        LOG("Rolling shutter rotations size (%ld) and grid height (%ld) mismatch!",
+            rolling_shutter_rotations.size(), (size_t)grid.mesh_height);
+        return ERROR_INPUT_DATA;
+    }
+    
+    int cur_flip_mirror_rot = static_cast<int>(flip_mirror_rot);
+    if (cur_flip_mirror_rot != last_flip_mirror_rot)
+    {
+        if ((cur_flip_mirror_rot - last_flip_mirror_rot) % 2 != 0)
+        {
+            std::swap(grid.mesh_width, grid.mesh_height);
+        }
+        last_flip_mirror_rot = cur_flip_mirror_rot;
+        calc_out_rays(grid.mesh_width, grid.mesh_height, MESH_CELL_SIZE_PIX, flip_mirror_rot);
+    }
+
+    for (int y = 0; y < grid.mesh_height; y++)
+    {
+        cv::Mat stab_rot = rolling_shutter_rotations[y];
+        cv::Mat stab_rot_flat = stab_rot.reshape(1, 1); // Reshape to a single row
+        mat3 stab_rot9;
+        std::memcpy(stab_rot9.data(), stab_rot_flat.ptr<float>(), stab_rot9.size() * sizeof(float));
+        
+        for (int x = 0; x < grid.mesh_width; x++)
+        {
+            int ind = y * grid.mesh_width + x;
+            vec2 pt = in_cam.ray2point(stab_rot9 * out_rays[ind]); // xi, yi
+#if GRID_IS_IN_PIX_INDEXES
+            pt = pt - vec2(0.5f, 0.5f); // convert coordinate to index
+#endif
+            grid.mesh_table[ind * 2] = pt.x * (1 << MESH_FRACT_BITS);     // x
+            grid.mesh_table[ind * 2 + 1] = pt.y * (1 << MESH_FRACT_BITS); // y
+        }
+    }
+    frame_cnt++;
+
+    return DIS_OK;
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
 // dewarp_only_grid()
 ///////////////////////////////////////////////////////////////////////////////
 RetCodes DIS::dewarp_only_grid(FlipMirrorRot flip_mirror_rot,

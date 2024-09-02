@@ -70,7 +70,6 @@ private:
     osd::font_weight_t m_font_weight;
     cv::Size2f m_extra_size;
     cv::Point2f m_text_position;
-    FT_F26Dot6 m_first_glyph_left_bearing;
 
     hb_font_ptr m_hb_font;
     hb_buffer_ptr m_hb_buffer;

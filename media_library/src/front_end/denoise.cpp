@@ -46,7 +46,7 @@
 #include <condition_variable>
 
 #define BPOOL_MAX_SIZE 10
-#define Q_SIZE 2
+#define Q_SIZE 4
 
 class MediaLibraryDenoise::Impl final
 {
@@ -123,6 +123,8 @@ private:
     media_library_return validate_configurations(denoise_config_t &denoise_configs, hailort_t &hailort_configs);
     media_library_return decode_config_json_string(denoise_config_t &denoise_configs, hailort_t &hailort_configs, std::string config_string);
     media_library_return perform_denoise(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr output_buffer);
+    media_library_return perform_initial_batch(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr output_buffer);
+    media_library_return perform_subsequent_batches(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr output_buffer);
     void set_default_members();
     void stamp_time_and_log_fps(timespec &start_handle, timespec &end_handle);
     void inference_callback(HailoMediaLibraryBufferPtr output_buffer);
@@ -353,7 +355,7 @@ media_library_return MediaLibraryDenoise::Impl::configure(denoise_config_t &deno
     // on first configure
     if (!m_configured)
     {
-        int status = m_hailort_denoise->init(m_denoise_configs.network_config, m_hailort_configs.device_id, 1, 1000);
+        int status = m_hailort_denoise->init(m_denoise_configs.network_config, m_hailort_configs.device_id, 1, 1000, 2);
         if (status != 0)
         {
             LOGGER__ERROR("Failed to init hailort");
@@ -436,8 +438,105 @@ void MediaLibraryDenoise::Impl::stamp_time_and_log_fps(timespec &start_handle, t
     LOGGER__DEBUG("denoise handle_frame took {} milliseconds ({} fps)", ms, framerate);
 }
 
+
 /**
- * @brief Perform denosie
+ * Performs the first batch of de-noising
+ * 
+ * Example of the loopback mechanism (loopback=3):
+ * ----------------------------------
+ * [Frame 0, concat with black frame]
+ * [Frame 1, concat with black frame]
+ * [Frame 2, concat with black frame]
+ * [Frame 3, concat with Frame 2]
+ * [Frame 4, concat with Frame 2]
+ * [Frame 5, concat with Frame 2]
+ * [Frame 6, concat with Frame 5]
+ * [Frame 7, concat with Frame 5]
+ * [Frame 8, concat with Frame 5]
+ * 
+ * @param input_buffer The input buffer containing the data to be denoised.
+ * @param output_buffer The output buffer to store the denoised data.
+ * @return The status of the denoising operation. Returns MEDIA_LIBRARY_SUCCESS if successful, MEDIA_LIBRARY_ERROR otherwise.
+ */
+media_library_return MediaLibraryDenoise::Impl::perform_initial_batch(
+    HailoMediaLibraryBufferPtr input_buffer,
+    HailoMediaLibraryBufferPtr output_buffer)
+{
+    int ret = m_hailort_denoise->process(input_buffer, input_buffer, output_buffer);
+
+    if (ret != 0)
+    {
+        LOGGER__ERROR("Failed to process denoise, during initial batch");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    if ((m_loop_counter + 1) == m_loopback_limit)
+    {
+        for (int i = 0; i < m_loopback_limit; i++)
+        {
+            queue_loopback_buffer(output_buffer);
+        }
+    }
+
+    m_loop_counter++;
+    m_loopback_batch_counter++;
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+/**
+ * Performs subsequent batches of de-noising
+ * 
+ * @param input_buffer The input buffer containing the data to be denoised.
+ * @param output_buffer The output buffer to store the denoised data.
+ * @return The status of the denoising operation. Returns MEDIA_LIBRARY_SUCCESS if successful, MEDIA_LIBRARY_ERROR otherwise.
+ */
+media_library_return MediaLibraryDenoise::Impl::perform_subsequent_batches(
+    HailoMediaLibraryBufferPtr input_buffer,
+    HailoMediaLibraryBufferPtr output_buffer)
+{
+    // Loopback in batches of m_loopback_limit
+    if ((m_loopback_batch_counter + 1) % m_loopback_limit == 0)
+    {
+        m_loopback_batch_counter = 0;
+
+        for (int i = 0; i < m_loopback_limit; i++)
+        {
+            queue_loopback_buffer(output_buffer);
+        }
+    }
+    else
+    {
+        m_loopback_batch_counter++;
+    }
+    
+    HailoMediaLibraryBufferPtr loopback_buffer = dequeue_loopback_buffer();
+
+    if (loopback_buffer == nullptr)
+    {
+        if (m_flushing)
+        {
+            return MEDIA_LIBRARY_SUCCESS;
+        }
+        LOGGER__ERROR("loopback buffer is null");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    queue_staging_buffer(loopback_buffer);
+    int ret = m_hailort_denoise->process(input_buffer, loopback_buffer, output_buffer);
+
+    if (ret != 0)
+    {
+        LOGGER__ERROR("Failed to process denoise");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+
+/**
+ * @brief Perform denoise
  * Acquire buffer for denoise output and perform denoise on
  * the NN core
  *
@@ -448,7 +547,6 @@ media_library_return MediaLibraryDenoise::Impl::perform_denoise(
     HailoMediaLibraryBufferPtr input_buffer,
     HailoMediaLibraryBufferPtr output_buffer)
 {
-
     // Acquire buffer for denoise output
     if (m_output_buffer_pool->acquire_buffer(output_buffer) !=
         MEDIA_LIBRARY_SUCCESS)
@@ -465,35 +563,13 @@ media_library_return MediaLibraryDenoise::Impl::perform_denoise(
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
-    // Perform denoise
-    int ret = -1;
     if (m_loop_counter < m_loopback_limit)
     {
-        ret = m_hailort_denoise->process(input_buffer, input_buffer, output_buffer);
-        m_loop_counter++;
-    }
-    else
-    {
-        HailoMediaLibraryBufferPtr loopback_buffer = dequeue_loopback_buffer();
-        if (loopback_buffer == nullptr)
-        {
-            if (m_flushing)
-            {
-                return MEDIA_LIBRARY_SUCCESS;
-            }
-            LOGGER__ERROR("loopback buffer is null");
-            return MEDIA_LIBRARY_ERROR;
-        }
-        queue_staging_buffer(loopback_buffer);
-        ret = m_hailort_denoise->process(input_buffer, loopback_buffer, output_buffer);
-    }
-    if (ret != 0)
-    {
-        LOGGER__ERROR("Failed to process denoise");
-        return MEDIA_LIBRARY_ERROR;
+        return perform_initial_batch(input_buffer, output_buffer);
+
     }
 
-    return MEDIA_LIBRARY_SUCCESS;
+    return perform_subsequent_batches(input_buffer, output_buffer);
 }
 
 media_library_return MediaLibraryDenoise::Impl::handle_frame(HailoMediaLibraryBufferPtr input_frame, HailoMediaLibraryBufferPtr output_frame)
@@ -506,6 +582,13 @@ media_library_return MediaLibraryDenoise::Impl::handle_frame(HailoMediaLibraryBu
 
     // Denoise
     media_library_return media_lib_ret = perform_denoise(input_frame, output_frame);
+
+    output_frame->isp_ae_fps = input_frame->isp_ae_fps;
+    output_frame->isp_ae_converged = input_frame->isp_ae_converged;
+    output_frame->isp_ae_average_luma = input_frame->isp_ae_average_luma;
+    output_frame->isp_ae_integration_time = input_frame->isp_ae_integration_time;
+    output_frame->isp_timestamp_ns = input_frame->isp_timestamp_ns;
+    output_frame->pts = input_frame->pts;
 
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
         return media_lib_ret;
@@ -559,20 +642,7 @@ void MediaLibraryDenoise::Impl::inference_callback_thread()
         {
             m_initial_batch_callback_counter++;
         }
-        // Loopback in batches of m_loopback_limit
-        if ((m_loopback_batch_counter + 1) % m_loopback_limit == 0)
-        {
-            m_loopback_batch_counter = 0;
-            // increase output_buffer ref count and loop it back m_loopback_limit times
-            for (int i = 0; i < m_loopback_limit; i++)
-            {
-                queue_loopback_buffer(output_buffer);
-            }
-        }
-        else
-        {
-            m_loopback_batch_counter++;
-        }
+
         for (auto &callbacks : m_callbacks)
         {
             if (callbacks.on_buffer_ready)

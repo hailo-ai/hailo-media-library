@@ -4,6 +4,16 @@
 #include <opencv2/opencv.hpp>
 #include "eis_types.hpp"
 
+/* The number of frames after which we want to reset the EIS */
+#define EIS_RESET_FRAMES_NUM (300)
+
+/* The delta after EIS_RESET_FRAMES_NUM after which we reset no matter what */
+#define EIS_RESET_DEADLINE (600)
+
+/* The threshold we consider to be "close enough" to the identity
+    matrix, is used when periodically resetting EIS */
+#define EIS_RESET_ANGLES_THRESHOLD (0.1 * (CV_PI / 180.0))
+
 template <typename T>
 class CircularBuffer {
 public:
@@ -121,18 +131,35 @@ private:
     gyro_calibration_config_t m_gyro_calibration_config;
     prev_high_pass_t prev_high_pass;    
     CircularBuffer<cv::Mat> previous_orientations;
-    cv::Mat prev_gyro_orientation;
+    cv::Mat m_prev_total_rotation;
+    cv::Mat m_gyro_to_cam_rot_mat;
+
+#ifdef ALTERNATIVE_ALGORITHM
+    unbiased_gyro_sample_t m_last_sample = unbiased_gyro_sample_t(0,0,0,0);
+#endif
 
 public:
+    size_t frame_count;
+
     EIS(const std::string &config_filename, uint32_t window_size);
     ~EIS() {};
 
     cv::Mat smooth(const cv::Mat& current_orientation, double rotational_smoothing_coefficient);
-    cv::Mat integrate_rotations(uint64_t last_frame_gyro_ts,
+    cv::Mat integrate_rotations(uint64_t last_threshold_timestamp,
+                                uint64_t curr_threshold_timestamp,
                                 const std::vector<unbiased_gyro_sample_t>& frame_gyro_records);
+    std::vector<std::pair<uint64_t, cv::Mat>> integrate_rotations_rolling_shutter(uint64_t last_threshold_timestamp,
+                                                                                  uint64_t curr_threshold_timestamp,
+                                                                                  const std::vector<unbiased_gyro_sample_t> &frame_gyro_records);
     void remove_bias(const std::vector<gyro_sample_t>& gyro_records,
                      std::vector<unbiased_gyro_sample_t>& unbiased_records,
                      double gyro_scale,
                      double iir_hpf_coefficient);
+
+    std::vector<cv::Mat> get_rolling_shutter_rotations(const std::vector<std::pair<uint64_t, cv::Mat>>& rotations_buffer,
+                                                       int grid_height, uint64_t middle_exposure_time_of_first_row,
+                                                       uint64_t frame_readout_time);
+
+    void periodic_reset(std::vector<cv::Mat> &rolling_shutter_rotations);                                                  
     void reset();
 };

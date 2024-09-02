@@ -460,6 +460,7 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(Hailo
         buffer->isp_ae_fps = isp_ae_fps;
         buffer->isp_ae_converged = input_buffer->isp_ae_converged;
         buffer->isp_ae_average_luma = input_buffer->isp_ae_average_luma;
+        buffer->isp_ae_integration_time = input_buffer->isp_ae_integration_time;
         buffer->isp_timestamp_ns = input_buffer->isp_timestamp_ns;
         buffer->pts = input_buffer->pts;
         buffers.emplace_back(buffer);

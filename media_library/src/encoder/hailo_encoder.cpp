@@ -121,8 +121,11 @@ VCEncLevel GetAutoLevel(EncoderParams *enc_params, bool codecH264)
                 if (bitrate <= bitrate_map.first)
                 {
                     level = bitrate_map.second;
+                    break;
                 }
             }
+
+            break;
         }
     }
 

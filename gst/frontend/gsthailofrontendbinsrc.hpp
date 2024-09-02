@@ -66,9 +66,11 @@ struct _GstHailoFrontendBinSrc
     GstElement *m_capsfilter;
     GstElement *m_queue;
     GstElement *m_frontend;
+    std::shared_ptr<ConfigManager> m_input_config_manager;
     std::shared_ptr<ConfigManager> m_isp_config_manager;
     std::shared_ptr<ConfigManager> m_hailort_config_manager;
     std::shared_ptr<ConfigManager> m_hdr_config_manager;
+    input_video_config_t m_input_config;
     hailort_t m_hailort_config;
     denoise_config_t m_denoise_config;
     isp_t m_isp_config;

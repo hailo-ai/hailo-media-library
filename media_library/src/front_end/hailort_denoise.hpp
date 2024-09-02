@@ -42,7 +42,7 @@ public:
         }
     }
 
-    int init(feedback_network_config_t network_config, std::string group_id, int scheduler_threshold, int scheduler_timeout_in_ms)
+    int init(feedback_network_config_t network_config, std::string group_id, int scheduler_threshold, int scheduler_timeout_in_ms, int batch_size)
     {
         m_group_id = group_id;
         m_scheduler_threshold = scheduler_threshold;
@@ -68,7 +68,7 @@ public:
             return infer_model_exp.status();
         }
         m_infer_model = infer_model_exp.release();
-        m_infer_model->set_batch_size(1);
+        m_infer_model->set_batch_size(batch_size);
 
         // input order
         m_infer_model->input(m_network_config.y_channel)->set_format_order(HAILO_FORMAT_ORDER_NHCW);
