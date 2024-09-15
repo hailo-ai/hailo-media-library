@@ -120,6 +120,32 @@ public:
         return SUCCESS;
     }
 
+
+    bool map_buffer_to_hailort(int fd, size_t size)
+    {
+        auto status = m_vdevice->dma_map_dmabuf(fd, size, hailo_dma_buffer_direction_t::HAILO_DMA_BUFFER_DIRECTION_BOTH);
+        if (HAILO_SUCCESS != status)
+        {
+            LOGGER__ERROR("Failed to map buffer to hailort, status = {}", status);
+            return false;
+        }
+
+        return true;
+    }
+
+    bool unmap_buffer_to_hailort(int fd, size_t size)
+    {
+        auto status = m_vdevice->dma_unmap_dmabuf(fd, size, hailo_dma_buffer_direction_t::HAILO_DMA_BUFFER_DIRECTION_BOTH);
+        if (HAILO_SUCCESS != status)
+        {
+            LOGGER__ERROR("Failed to unmap buffer to hailort, status = {}", status);
+            return false;
+        }
+
+        return true;
+    }
+
+
 private:
     int set_input_buffer(void *buffer_p, std::string tensor_name)
     {
@@ -152,7 +178,7 @@ private:
     int set_input_buffers(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr loopback_buffer)
     {
         int fd;
-        fd = input_buffer->get_fd(0);
+        fd = input_buffer->get_plane_fd(0);
         if(fd < 0)
         {
             std::cerr << "Failed to get file descriptor of input buffer plane 0"<< std::endl;
@@ -163,7 +189,7 @@ private:
             return ERROR;
         }
 
-        fd = input_buffer->get_fd(1);
+        fd = input_buffer->get_plane_fd(1);
         if(fd < 0)
         {
             std::cerr << "Failed to get file descriptor of input buffer plane 1" << fd << std::endl;
@@ -174,7 +200,7 @@ private:
             return ERROR;
         }
 
-        fd = loopback_buffer->get_fd(0);
+        fd = loopback_buffer->get_plane_fd(0);
         if(fd < 0)
         {
             std::cerr << "Failed to get file descriptor of loopback buffer plane 0" << fd << std::endl;
@@ -184,7 +210,7 @@ private:
         {
             return ERROR;
         }
-        fd = loopback_buffer->get_fd(1);
+        fd = loopback_buffer->get_plane_fd(1);
         if(fd < 0)
         {
             std::cerr << "Failed to get file descriptor of loopback buffer plane 1" << fd << std::endl;
@@ -228,7 +254,7 @@ private:
     int set_output_buffers(HailoMediaLibraryBufferPtr output_buffer)
     {
         int fd;
-        fd = output_buffer->get_fd(0);
+        fd = output_buffer->get_plane_fd(0);
         if(fd < 0)
         {
             std::cerr << "Failed to get file descriptor of output buffer plane 0" << fd << std::endl;
@@ -238,7 +264,7 @@ private:
         {
             return ERROR;
         }
-        fd = output_buffer->get_fd(1);
+        fd = output_buffer->get_plane_fd(1);
         if(fd < 0)
         {
             std::cerr << "Failed to get file descriptor of output buffer plane 1" << fd << std::endl;

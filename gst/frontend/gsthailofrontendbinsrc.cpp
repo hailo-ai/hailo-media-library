@@ -67,6 +67,7 @@ enum
     PROP_HDR_CONFIG,
     PROP_HAILORT_CONFIG,
     PROP_INPUT_VIDEO_CONFIG,
+    PROP_ISP_CONFIG,
 };
 
 // Pad Templates
@@ -125,6 +126,9 @@ gst_hailofrontendbinsrc_class_init(GstHailoFrontendBinSrcClass *klass)
                                                          (GParamFlags)(G_PARAM_READABLE)));
     g_object_class_install_property(gobject_class, PROP_INPUT_VIDEO_CONFIG,
                                     g_param_spec_pointer("input-video-config", "input video config", "video input config as input_video_config_t",
+                                                         (GParamFlags)(G_PARAM_READABLE)));
+    g_object_class_install_property(gobject_class, PROP_ISP_CONFIG,
+                                    g_param_spec_pointer("isp-config", "isp config", "isp config as isp_t",
                                                          (GParamFlags)(G_PARAM_READABLE)));
 
     element_class->change_state = GST_DEBUG_FUNCPTR(gst_hailofrontendbinsrc_change_state);
@@ -229,6 +233,7 @@ static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, fro
         return;
     }
     isp_utils::set_auto_configure(config.isp_config.auto_configuration);
+    isp_utils::set_isp_config_files_path(config.isp_config.isp_config_files_path);
     if (self->m_input_config != config.input_config)
     {
         // update capsfilter with input_config
@@ -330,7 +335,7 @@ void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id,
     }
     case PROP_CONFIG_STRING:
     {
-        self->config_string = g_strdup(g_value_get_string(value));
+        self->config_string = g_value_get_string(value);
         gstmedialibcommon::strip_string_syntax(self->config_string);
         GST_DEBUG_OBJECT(self, "config-string: %s", self->config_string.c_str());
 
@@ -409,6 +414,11 @@ void gst_hailofrontendbinsrc_get_property(GObject *object, guint property_id,
         g_value_set_pointer(value, &hailofrontendbinsrc->m_input_config);
         break;
     }
+    case PROP_ISP_CONFIG:
+    {
+        g_value_set_pointer(value, &hailofrontendbinsrc->m_isp_config);
+        break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
@@ -454,11 +464,7 @@ gst_hailofrontendbinsrc_change_state(GstElement *element, GstStateChange transit
         {
             GST_DEBUG_OBJECT(self, "Setting HDR configuration");
             isp_utils::setup_hdr(INPUT_VIDEO_IS_4K(self));
-        }
-        else if (denoise_config.enabled)
-        {
-            GST_DEBUG_OBJECT(self, "Setting denoise configuration");
-            isp_utils::set_denoise_configuration();
+            isp_utils::set_hdr_configuration(INPUT_VIDEO_IS_4K(self));
         }
         else
         {
@@ -466,6 +472,13 @@ gst_hailofrontendbinsrc_change_state(GstElement *element, GstStateChange transit
             isp_utils::setup_sdr();
             isp_utils::set_default_configuration();
         }
+
+        if (denoise_config.enabled)
+        {
+            GST_DEBUG_OBJECT(self, "Setting denoise configuration");
+            isp_utils::set_denoise_configuration();
+        }
+
         break;
     }
     default:

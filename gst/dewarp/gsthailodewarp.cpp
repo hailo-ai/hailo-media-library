@@ -137,7 +137,7 @@ static GstFlowReturn gst_hailo_dewarp_push_output_frame(GstHailoDewarp *self,
 {
     GstFlowReturn ret = GST_FLOW_OK;
 
-    if (!output_frame || output_frame->hailo_pix_buffer == nullptr)
+    if (!output_frame || output_frame->buffer_data == nullptr)
     {
         GST_ERROR_OBJECT(self, "Trying to push null output frame");
         ret = GST_FLOW_ERROR;
@@ -250,24 +250,24 @@ gst_hailo_create_caps_from_output_config(GstHailoDewarp *self, output_resolution
 
     // Format does not change from input to output
     input_video_config_t &input_config = self->medialib_dewarp->get_input_video_config();
-    dsp_image_format_t &dsp_image_format = input_config.format;
+    HailoFormat &image_format = input_config.format;
     std::string format = "";
-    switch (dsp_image_format)
+    switch (image_format)
     {
-    case DSP_IMAGE_FORMAT_RGB:
+    case HAILO_FORMAT_RGB:
         format = "RGB";
         break;
-    case DSP_IMAGE_FORMAT_GRAY8:
+    case HAILO_FORMAT_GRAY8:
         format = "GRAY8";
         break;
-    case DSP_IMAGE_FORMAT_NV12:
+    case HAILO_FORMAT_NV12:
         format = "NV12";
         break;
-    case DSP_IMAGE_FORMAT_A420:
+    case HAILO_FORMAT_A420:
         format = "A420";
         break;
     default:
-        GST_ERROR_OBJECT(self, "Unsupported dsp image format %d", dsp_image_format);
+        GST_ERROR_OBJECT(self, "Unsupported dsp image format %d", image_format);
         return NULL;
     }
 
@@ -323,17 +323,17 @@ gst_hailo_set_srcpad_caps(GstHailoDewarp *self, GstPad *srcpad, output_resolutio
     return ret;
 }
 
-static tl::expected<dsp_image_format_t, media_library_return>
-gstchar_format_to_dsp_format(const gchar *format)
+static tl::expected<HailoFormat, media_library_return>
+gstchar_format_to__format(const gchar *format)
 {
     if (strcmp(format, "RGB") == 0)
-        return DSP_IMAGE_FORMAT_RGB;
+        return HAILO_FORMAT_RGB;
     else if (strcmp(format, "GRAY8") == 0)
-        return DSP_IMAGE_FORMAT_GRAY8;
+        return HAILO_FORMAT_GRAY8;
     else if (strcmp(format, "NV12") == 0)
-        return DSP_IMAGE_FORMAT_NV12;
+        return HAILO_FORMAT_NV12;
     else if (strcmp(format, "A420") == 0)
-        return DSP_IMAGE_FORMAT_A420;
+        return HAILO_FORMAT_A420;
     else
         return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
 }
@@ -354,7 +354,7 @@ gst_hailo_handle_caps_event(GstHailoDewarp *self, GstCaps *caps)
     gst_structure_get_int(structure, "width", &width);
     gst_structure_get_int(structure, "height", &height);
     gst_structure_get_fraction(structure, "framerate", &numerator, &denominator);
-    tl::expected<dsp_image_format_t, media_library_return> format = gstchar_format_to_dsp_format(gst_structure_get_string(structure, "format"));
+    tl::expected<HailoFormat, media_library_return> format = gstchar_format_to__format(gst_structure_get_string(structure, "format"));
     if (!format.has_value())
     {
         GST_ERROR_OBJECT(self, "Failed to convert format %s to dsp format", gst_structure_get_string(structure, "format"));

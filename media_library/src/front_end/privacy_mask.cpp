@@ -121,7 +121,7 @@ media_library_return PrivacyMaskBlender::init_buffer_pool()
     uint frame_height = m_frame_height/4;
     std::string name = "privacy_mask";
     // TODO: set pool size
-    m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(frame_width, frame_height, DSP_IMAGE_FORMAT_GRAY8, 1, CMA, bytes_per_line, name);
+    m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(frame_width, frame_height, HAILO_FORMAT_GRAY8, 1, HAILO_MEMORY_TYPE_DMABUF, bytes_per_line, name);
     if (m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
       LOGGER__ERROR("PrivacyMaskBlender::PrivacyMaskBlender: Failed to initialize buffer pool");

@@ -82,7 +82,7 @@ void Encoder::Impl::init_buffer_pool(uint pool_size)
     {
         std::string name = "encoder_output";
         m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(
-            m_vc_cfg.width, m_vc_cfg.height, DSP_IMAGE_FORMAT_GRAY8, (pool_size), CMA, name);
+            m_vc_cfg.width, m_vc_cfg.height, HAILO_FORMAT_GRAY8, (pool_size), HAILO_MEMORY_TYPE_DMABUF, name);
         if (m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR(
@@ -417,11 +417,11 @@ media_library_return Encoder::Impl::encode_header()
     {
         bool is_dmabuf = m_header.buffer->is_dmabuf();
         if (is_dmabuf)
-            DmaMemoryAllocator::get_instance().dmabuf_sync_start(m_header.buffer->get_plane(0));
+            DmaMemoryAllocator::get_instance().dmabuf_sync_start(m_header.buffer->get_plane_ptr(0));
         // Clear the header buffer
-        memset(static_cast<char *>(m_header.buffer->get_plane(0)), 0, m_header.buffer->get_plane_size(0));
+        memset(static_cast<char *>(m_header.buffer->get_plane_ptr(0)), 0, m_header.buffer->get_plane_size(0));
         if (is_dmabuf)
-            DmaMemoryAllocator::get_instance().dmabuf_sync_end(m_header.buffer->get_plane(0));
+            DmaMemoryAllocator::get_instance().dmabuf_sync_end(m_header.buffer->get_plane_ptr(0));
         m_header.size = 0;
     }
 
@@ -568,7 +568,7 @@ media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferP
     {
         for (uint32_t i = 0; i < num_of_planes; i++)
         {
-            planeFd = buf->get_fd(i);
+            planeFd = buf->get_plane_fd(i);
             if (planeFd <= 0)
             {
                 LOGGER__ERROR("Could not get dmabuf fd of plane {}", i);
@@ -580,7 +580,7 @@ media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferP
                 LOGGER__ERROR("Could not get physical address of plane {}", i);
                 for (uint32_t j = 0; j < i; j++)
                 {
-                    EWLUnshareDmabuf(m_ewl, buf->get_fd(j));
+                    EWLUnshareDmabuf(m_ewl, buf->get_plane_fd(j));
                 }
                 return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
             }
@@ -590,7 +590,7 @@ media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferP
     {
         for (uint32_t i = 0; i < num_of_planes; i++)
         {
-            plane_ptr = static_cast<u32 *>(buf->get_plane(i));
+            plane_ptr = static_cast<u32 *>(buf->get_plane_ptr(i));
             plane_size = buf->get_plane_size(i);
             if (plane_ptr == nullptr || plane_size == 0)
             {
@@ -631,11 +631,11 @@ Encoder::Impl::create_output_buffer(EncoderOutputBuffer &output_buf)
 
     bool is_dmabuf = buffer_ptr->is_dmabuf();
     if (is_dmabuf)
-        DmaMemoryAllocator::get_instance().dmabuf_sync_start(buffer_ptr->get_plane(0));
+        DmaMemoryAllocator::get_instance().dmabuf_sync_start(buffer_ptr->get_plane_ptr(0));
         // Clear the header buffer
-    memcpy(static_cast<char *>(buffer_ptr->get_plane(0)) + offset, m_enc_in.pOutBuf, m_enc_out.streamSize);
+    memcpy(static_cast<char *>(buffer_ptr->get_plane_ptr(0)) + offset, m_enc_in.pOutBuf, m_enc_out.streamSize);
     if (is_dmabuf)
-        DmaMemoryAllocator::get_instance().dmabuf_sync_end(buffer_ptr->get_plane(0));
+        DmaMemoryAllocator::get_instance().dmabuf_sync_end(buffer_ptr->get_plane_ptr(0));
     output_buf.buffer = buffer_ptr;
     output_buf.size = m_enc_out.streamSize + offset;
 
@@ -681,7 +681,7 @@ static void releaseDmabuf(HailoMediaLibraryBufferPtr buf, void *ewl)
 {
     for (uint32_t i = 0; i < buf->get_num_of_planes(); i++)
     {
-        int planeFd = buf->get_fd(i);
+        int planeFd = buf->get_plane_fd(i);
         if (planeFd <= 0)
         {
             LOGGER__ERROR("Could not get dmabuf fd of plane {}", i);

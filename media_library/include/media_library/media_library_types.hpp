@@ -140,6 +140,7 @@ struct vsm_config_t
 struct isp_t
 {
     bool auto_configuration;
+    std::string isp_config_files_path;
 };
 
 struct hailort_t
@@ -261,13 +262,13 @@ struct output_resolution_t
     {
         return !(*this == other);
     }
-    bool operator==(const dsp_image_properties_t &dsp_image_props) const
+    bool operator==(const hailo_buffer_data_t &hailo_buffer_data) const
     {
-        return dimensions.destination_width == dsp_image_props.width && dimensions.destination_height == dsp_image_props.height;
+        return dimensions.destination_width == hailo_buffer_data.width && dimensions.destination_height == hailo_buffer_data.height;
     }
-    bool operator!=(const dsp_image_properties_t &dsp_image_props) const
+    bool operator!=(const hailo_buffer_data_t &hailo_buffer_data) const
     {
-        return !(*this == dsp_image_props);
+        return !(*this == hailo_buffer_data);
     }
     bool dimensions_equal(const output_resolution_t &other, bool rotated = false) const
     {
@@ -280,14 +281,14 @@ struct output_resolution_t
 struct output_video_config_t
 {
     dsp_interpolation_type_t interpolation_type;
-    dsp_image_format_t format;
+    HailoFormat format;
     bool grayscale;
     std::vector<output_resolution_t> resolutions;
 };
 
 struct input_video_config_t
 {
-    dsp_image_format_t format;
+    HailoFormat format;
     output_resolution_t resolution;
     std::string video_device;
 
@@ -395,7 +396,7 @@ public:
     ldc_config_t()
     {
         // Since we are not parsing input_video_config and output_video_config from json, we need to set the default values
-        input_video_config.format = DSP_IMAGE_FORMAT_NV12;
+        input_video_config.format = HAILO_FORMAT_NV12;
         input_video_config.video_device = "";
         input_video_config.resolution.framerate = 0;
         input_video_config.resolution.pool_max_buffers = 10;

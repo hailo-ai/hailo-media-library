@@ -165,7 +165,7 @@ static GstFlowReturn gst_hailo_multi_resize_push_output_frames(GstHailoMultiResi
     for (guint i = 0; i < self->srcpads->size(); i++)
     {
         gchar *srcpad_name = gst_pad_get_name(self->srcpads->at(i));
-        if (output_frames[i]->hailo_pix_buffer == nullptr)
+        if (output_frames[i]->buffer_data == nullptr)
         {
             GST_DEBUG_OBJECT(self, "Skipping output frame %d to match requested framerate", i);
             g_free(srcpad_name);
@@ -260,24 +260,24 @@ gst_hailo_create_caps_from_output_config(GstHailoMultiResize *self, output_resol
         framerate = 1;
 
     output_video_config_t &output_config = self->medialib_multi_resize->get_output_video_config();
-    dsp_image_format_t &dsp_image_format = output_config.format;
+    HailoFormat &hailo_format = output_config.format;
     std::string format = "";
-    switch (dsp_image_format)
+    switch (hailo_format)
     {
-    case DSP_IMAGE_FORMAT_RGB:
+    case HAILO_FORMAT_RGB:
         format = "RGB";
         break;
-    case DSP_IMAGE_FORMAT_GRAY8:
+    case HAILO_FORMAT_GRAY8:
         format = "GRAY8";
         break;
-    case DSP_IMAGE_FORMAT_NV12:
+    case HAILO_FORMAT_NV12:
         format = "NV12";
         break;
-    case DSP_IMAGE_FORMAT_A420:
+    case HAILO_FORMAT_A420:
         format = "A420";
         break;
     default:
-        GST_ERROR_OBJECT(self, "Unsupported dsp image format %d", dsp_image_format);
+        GST_ERROR_OBJECT(self, "Unsupported dsp image format %d", hailo_format);
         return NULL;
     }
 

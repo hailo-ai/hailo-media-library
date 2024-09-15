@@ -32,6 +32,9 @@
 #include <map>
 #include <sstream>
 
+#define DSP_MAX_MESH_WIDTH ((261 << MESH_FRACT_BITS) - ((1 << MESH_FRACT_BITS) / 2)  - 1)
+#define DSP_MAX_MESH_HEIGHT ((247 << MESH_FRACT_BITS) - 1)
+
 /// Map from the possible FlipMirrorRot values to their corresponding rotation matrices.
 const std::map<int, mat2> ROT_MAT_MAP = {
     {0, {1, 0, 0, 1}},
@@ -463,6 +466,27 @@ RetCodes DIS::generate_grid(vec2 fmv, int32_t panning,
 
     return DIS_OK;
 }
+
+static void eis_update_mesh(DewarpT &grid, int x, int y, mat3 stab_rot9,
+                            const FishEye &in_cam, const std::vector<vec3> &out_rays)
+{
+    int ind = y * grid.mesh_width + x;
+    vec2 pt = in_cam.ray2point(stab_rot9 * out_rays[ind]); // xi, yi
+#if GRID_IS_IN_PIX_INDEXES
+    pt = pt - vec2(0.5f, 0.5f); // convert coordinate to index
+#endif
+    grid.mesh_table[ind * 2] = pt.x * (1 << MESH_FRACT_BITS);     // x
+    grid.mesh_table[ind * 2 + 1] = pt.y * (1 << MESH_FRACT_BITS); // y
+}
+
+static mat3 flatten_stab_rot(const cv::Mat& stab_rot)
+{
+    cv::Mat stab_rot_flat = stab_rot.reshape(1, 1);
+    mat3 stab_rot9;
+    std::memcpy(stab_rot9.data(), stab_rot_flat.ptr<float>(), stab_rot9.size() * sizeof(float));
+    return stab_rot9;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // generate_eis_grid()
 ///////////////////////////////////////////////////////////////////////////////
@@ -497,27 +521,64 @@ RetCodes DIS::generate_eis_grid(FlipMirrorRot flip_mirror_rot,
     cv::Mat stab_rot = curr_orientation_float.t() * smooth_orientaion_float.t();
     cv::Mat stab_rot_float;
     stab_rot.convertTo(stab_rot_float, CV_32F);
-
-    cv::Mat stab_rot_flat = stab_rot_float.reshape(1, 1); // Reshape to a single row
-    mat3 stab_rot9;
-    std::memcpy(stab_rot9.data(), stab_rot_flat.ptr<float>(), stab_rot9.size() * sizeof(float));
+    mat3 stab_rot9 = flatten_stab_rot(stab_rot_float);
 
     for (int y = 0; y < grid.mesh_height; y++)
     {
         for (int x = 0; x < grid.mesh_width; x++)
         {
-            int ind = y * grid.mesh_width + x;
-            vec2 pt = in_cam.ray2point(stab_rot9 * out_rays[ind]); // xi, yi
-#if GRID_IS_IN_PIX_INDEXES
-            pt = pt - vec2(0.5f, 0.5f); // convert coordinate to index
-#endif
-            grid.mesh_table[ind * 2] = pt.x * (1 << MESH_FRACT_BITS);     // x
-            grid.mesh_table[ind * 2 + 1] = pt.y * (1 << MESH_FRACT_BITS); // y
+            eis_update_mesh(grid, x, y, stab_rot9, in_cam, out_rays);
         }
     }
     frame_cnt++;
 
     return DIS_OK;
+}
+
+static bool is_mesh_valid(DewarpT &grid)
+{
+    auto calculateMinMax = [](int& min_val, int& max_val, int val1, int val2, int val3, int val4) {
+        min_val = std::min({val1, val2, val3, val4});
+        max_val = std::max({val1, val2, val3, val4});
+    };
+
+    for (int mesh_y = 0; mesh_y < grid.mesh_height - 1; mesh_y++) {
+        for (int mesh_x = 0; mesh_x < grid.mesh_width - 1; mesh_x++) {
+
+            int idx00 = ((mesh_y + 0) * grid.mesh_width + mesh_x + 0) * 2;
+            int idx01 = ((mesh_y + 0) * grid.mesh_width + mesh_x + 1) * 2;
+            int idx10 = ((mesh_y + 1) * grid.mesh_width + mesh_x + 0) * 2;
+            int idx11 = ((mesh_y + 1) * grid.mesh_width + mesh_x + 1) * 2;
+
+            int* x_vals[4] = { &grid.mesh_table[idx00], &grid.mesh_table[idx01], &grid.mesh_table[idx10], &grid.mesh_table[idx11] };
+            int* y_vals[4] = { &grid.mesh_table[idx00 + 1], &grid.mesh_table[idx01 + 1], &grid.mesh_table[idx10 + 1], &grid.mesh_table[idx11 + 1] };
+
+            int min_x, max_x, min_y, max_y;
+            calculateMinMax(min_x, max_x, *x_vals[0], *x_vals[1], *x_vals[2], *x_vals[3]);
+            
+            int mesh_width = std::abs(max_x - min_x);
+            if (mesh_width > DSP_MAX_MESH_WIDTH)
+            {
+                LOGE("Invalid mesh width detected! This means that the dewarp mesh passed to the DSP was not created correctly."
+                     "The mesh width will be truncated for this frame to prevent DSP crash. Be aware that this will cause distortion in the output image.");
+
+                return false;
+            }
+
+            calculateMinMax(min_y, max_y, *y_vals[0], *y_vals[1], *y_vals[2], *y_vals[3]);
+            
+            int mesh_height = std::abs(max_y - min_y);
+            if (mesh_height > DSP_MAX_MESH_HEIGHT)
+            {
+                LOGE("Invalid mesh height detected! This means that the dewarp mesh passed to the DSP was not created correctly."
+                     "The mesh height will be truncated for this frame to prevent DSP crash. Be aware that this will cause distortion in the output image.");
+
+                return false;
+            }    
+        }
+    }
+
+    return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -553,22 +614,26 @@ RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
 
     for (int y = 0; y < grid.mesh_height; y++)
     {
-        cv::Mat stab_rot = rolling_shutter_rotations[y];
-        cv::Mat stab_rot_flat = stab_rot.reshape(1, 1); // Reshape to a single row
-        mat3 stab_rot9;
-        std::memcpy(stab_rot9.data(), stab_rot_flat.ptr<float>(), stab_rot9.size() * sizeof(float));
-        
+        mat3 stab_rot9 = flatten_stab_rot(rolling_shutter_rotations[y]);        
         for (int x = 0; x < grid.mesh_width; x++)
         {
-            int ind = y * grid.mesh_width + x;
-            vec2 pt = in_cam.ray2point(stab_rot9 * out_rays[ind]); // xi, yi
-#if GRID_IS_IN_PIX_INDEXES
-            pt = pt - vec2(0.5f, 0.5f); // convert coordinate to index
-#endif
-            grid.mesh_table[ind * 2] = pt.x * (1 << MESH_FRACT_BITS);     // x
-            grid.mesh_table[ind * 2 + 1] = pt.y * (1 << MESH_FRACT_BITS); // y
+            eis_update_mesh(grid, x, y, stab_rot9, in_cam, out_rays);
         }
     }
+
+    /* If for some reason the EIS created an invalid mesh, create a mesh without EIS correction */
+    if (is_mesh_valid(grid) == false)
+    {
+        mat3 stab_rot9 = flatten_stab_rot(cv::Mat::eye(3, 3, CV_32F));  
+        for (int y = 0; y < grid.mesh_height; y++)
+        {        
+            for (int x = 0; x < grid.mesh_width; x++)
+            {
+                eis_update_mesh(grid, x, y, stab_rot9, in_cam, out_rays);
+            }
+        }        
+    }
+
     frame_cnt++;
 
     return DIS_OK;

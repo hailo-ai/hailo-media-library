@@ -219,7 +219,7 @@ void gst_hailofrontend_set_property(GObject *object, guint property_id,
     }
     case PROP_CONFIG_STRING:
     {
-        gchar* config_string = g_value_dup_string(value);
+        gchar *config_string = g_value_dup_string(value);
         GST_DEBUG_OBJECT(hailofrontend, "config-string: %s", config_string);
 
         // set params for sub elements here
@@ -244,7 +244,7 @@ void gst_hailofrontend_set_property(GObject *object, guint property_id,
         g_object_set(hailofrontend->m_denoise, "config", &(config->denoise_config), NULL);
         g_object_set(hailofrontend->m_dis_dewarp, "config", &(config->ldc_config), NULL);
         g_object_set(hailofrontend->m_multi_resize, "config", &(config->multi_resize_config), NULL);
-    
+
         break;
     }
     case PROP_DEWARP_CONFIG:
@@ -302,11 +302,11 @@ void gst_hailofrontend_get_property(GObject *object, guint property_id,
         denoise_config_t denoise_config;
         ldc_config_t ldc_config;
         multi_resize_config_t multi_resize_config;
-        
+
         gpointer denoise_gvalue = nullptr;
         gpointer dewarp_gvalue = nullptr;
         gpointer multi_resize_gvalue = nullptr;
-        
+
         g_object_get(hailofrontend->m_dis_dewarp, "config", &dewarp_gvalue, NULL);
         ldc_config = *reinterpret_cast<ldc_config_t *>(dewarp_gvalue);
 
@@ -320,35 +320,23 @@ void gst_hailofrontend_get_property(GObject *object, guint property_id,
         hailofrontend->frontend_element_config->ldc_config = ldc_config;
         hailofrontend->frontend_element_config->denoise_config = denoise_config;
         hailofrontend->frontend_element_config->multi_resize_config = multi_resize_config;
-    
+
         g_value_set_pointer(value, hailofrontend->frontend_element_config.get());
         break;
     }
     case PROP_DEWARP_CONFIG:
     {
-        ldc_config_t ldc_config;
-        gpointer dewarp_gvalue = nullptr;
-        g_object_get(hailofrontend->m_dis_dewarp, "config", &dewarp_gvalue, NULL);
-        ldc_config = *reinterpret_cast<ldc_config_t *>(dewarp_gvalue);
-        g_value_set_pointer(value, &ldc_config);
+        g_object_get(hailofrontend->m_dis_dewarp, "config", &value, NULL);
         break;
     }
     case PROP_DENOISE_CONFIG:
     {
-        denoise_config_t denoise_config;
-        gpointer denoise_gvalue = nullptr;
-        g_object_get(hailofrontend->m_denoise, "config", &denoise_gvalue, NULL);
-        denoise_config = *reinterpret_cast<denoise_config_t *>(denoise_gvalue);
-        g_value_set_pointer(value, &denoise_config);
+        g_object_get(hailofrontend->m_denoise, "config", &value, NULL);
         break;
     }
     case PROP_MULTI_RESIZE_CONFIG:
     {
-        multi_resize_config_t multi_resize_config;
-        gpointer multi_resize_gvalue = nullptr;
-        g_object_get(hailofrontend->m_multi_resize, "config", &multi_resize_gvalue, NULL);
-        multi_resize_config = *reinterpret_cast<multi_resize_config_t *>(multi_resize_gvalue);
-        g_value_set_pointer(value, &multi_resize_config);
+        g_object_get(hailofrontend->m_multi_resize, "config", &value, NULL);
         break;
     }
     default:

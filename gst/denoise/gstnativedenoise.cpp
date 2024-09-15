@@ -270,7 +270,7 @@ gst_hailo_denoise_push_output_frame(GstHailoDenoise *self,
 {
     GstFlowReturn ret = GST_FLOW_OK;
 
-    if (hailo_buffer->hailo_pix_buffer == nullptr)
+    if (hailo_buffer->buffer_data == nullptr)
     {
         GST_ERROR_OBJECT(self, "Trying to push null output frame");
         ret = GST_FLOW_ERROR;

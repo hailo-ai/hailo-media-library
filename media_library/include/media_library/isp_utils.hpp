@@ -59,7 +59,7 @@
 // Media server config
 #define ISP_DEFAULT_MEDIA_SERVER_CONFIG (ISP_CONFIG_PATH _DEFAULT _MEDIA_SERVER_CONFIG)
 #define ISP_DENOISE_MEDIA_SERVER_CONFIG (ISP_CONFIG_PATH _DENOISE _MEDIA_SERVER_CONFIG)
-#define ISP_SENSOR0_ENTRY_CONFIG "/usr/bin/Sensor0_Entry.cfg"
+#define ISP_SENSOR0_ENTRY_CONFIG "Sensor0_Entry.cfg"
 #define ISP_SENSOR0_ENTRY_HDR_IMX678_CONFIG "/usr/bin/imx678hdr4k_Sensor0_Entry.cfg"
 #define ISP_SENSOR0_ENTRY_IMX678_CONFIG "/usr/bin/imx678_Sensor0_Entry.cfg"
 #define MEDIA_SERVER_HDR_CONFIG "/usr/bin/media_server_cfg_nnhdr.json"
@@ -78,6 +78,7 @@ namespace isp_utils
 {
     extern bool m_auto_configure;
     void set_auto_configure(bool auto_configure);
+    void set_isp_config_files_path(std::string &path);
     void override_file(const std::string &src, const std::string &dst);
     void set_default_configuration();
     void set_denoise_configuration();

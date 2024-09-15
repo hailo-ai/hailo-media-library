@@ -17,7 +17,7 @@
 #define CALIBRATION_VECOTR_SIZE 1024
 #define DEFAULT_ALPHA 0.1f
 
-extern GyroDev *gyroApi;
+extern std::unique_ptr<GyroDev> gyroApi;
 std::thread gyroThread;
 std::mutex global_mtx;
 
@@ -49,11 +49,11 @@ static void kill_gyro_thread()
     {
         printf("Timeout occurred while waiting for process to finish.\n");
     }
-    delete gyroApi;
 
     /* Change the signal handlers to their default values */
     signal(SIGINT, SIG_DFL);
     signal(SIGTERM, SIG_DFL);
+    gyroApi = nullptr;
 }
 
 LdcMeshContext::~LdcMeshContext()
@@ -107,7 +107,7 @@ LdcMeshContext::~LdcMeshContext()
     }
 
     // Free Gyro
-    if (m_ldc_configs.gyro_config.enabled)
+    if (m_ldc_configs.gyro_config.enabled && m_gyro_initialized)
     {
         kill_gyro_thread();
     }
@@ -357,20 +357,14 @@ media_library_return LdcMeshContext::initialize_dis_context()
         }
     }
 
-    if (m_ldc_configs.eis_config.enabled)
+    if (m_ldc_configs.eis_config.enabled && m_ldc_configs.gyro_config.enabled)
     {
         camera_fov_factor = m_ldc_configs.eis_config.camera_fov_factor;
-        if (!m_ldc_configs.gyro_config.enabled)
-        {
-            LOGGER__ERROR("EIS is enabled but gyro is not enabled");
-            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-        }
-        
         if (eis_prev_enabled == false)
         {
             if (m_eis_ptr != nullptr) {
                 /* We dynamically switched from EIS disabled to enabled, reset EIS data */
-                m_eis_ptr->reset();
+                m_eis_ptr->reset_history();
             } else {
                 /* This is the first time EIS is enabled, initialize it */
                 m_eis_ptr = std::make_unique<EIS>(m_ldc_configs.eis_config.eis_config_path.c_str(), m_ldc_configs.eis_config.window_size);
@@ -382,13 +376,22 @@ media_library_return LdcMeshContext::initialize_dis_context()
     if (m_ldc_configs.gyro_config.enabled && gyroApi == nullptr)
     {
         sigset_t set, oldset;
-        gyroApi = new GyroDev(m_ldc_configs.gyro_config.sensor_name, m_ldc_configs.gyro_config.sensor_frequency, m_ldc_configs.gyro_config.gyro_scale);
+        gyroApi = std::make_unique<GyroDev>(m_ldc_configs.gyro_config.sensor_name,
+                                            m_ldc_configs.gyro_config.sensor_frequency,
+                                            m_ldc_configs.gyro_config.gyro_scale);
+        
+        if (gyroApi->configure() != GYRO_STATUS_SUCCESS)
+        {
+            LOGGER__ERROR("Failed to configure GyroDev.");
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+        }
 
         set_handler(SIGINT, &handle_sig);
         set_handler(SIGTERM, &handle_sig);
         sigfillset(&set);
         pthread_sigmask(SIG_BLOCK, &set, &oldset);
-        gyroThread = std::thread(&GyroDev::run, gyroApi);
+        gyroThread = std::thread(&GyroDev::run, gyroApi.get());
+        m_gyro_initialized = true;
         pthread_sigmask(SIG_SETMASK, &oldset, NULL);
     }
 
@@ -643,8 +646,14 @@ media_library_return LdcMeshContext::on_frame_vsm_update(struct hailo15_vsm &vsm
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-void LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp_timestamp_ns, uint64_t integration_time, bool enabled)
+media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp_timestamp_ns, uint64_t integration_time, bool enabled)
 {
+    if (!m_gyro_initialized)
+    {
+        LOGGER__ERROR("on_frame_eis_update called with uninitialized gyro!");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
     std::vector<unbiased_gyro_sample_t> unbiased_gyro_samples;
     DewarpT grid = {(int)m_dewarp_mesh.mesh_width,
                     (int)m_dewarp_mesh.mesh_height,
@@ -667,7 +676,8 @@ void LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp_timestamp_ns, u
 #ifdef GLOBAL_SHUTTER    
     cv::Mat current_orientation = cv::Mat::eye(3, 3, CV_64F);
 #else
-    std::vector<std::pair<uint64_t, cv::Mat>> current_orientations = { {0, cv::Mat::eye(3, 3, CV_64F)} };
+    std::vector<std::pair<uint64_t, cv::Mat>> current_orientations = {{0, cv::Mat::eye(3, 3, CV_64F)}};
+    std::vector<cv::Mat> rolling_shutter_rotations(m_dewarp_mesh.mesh_height, cv::Mat::eye(3, 3, CV_32F));
 #endif
 
     std::vector<gyro_sample_t>::iterator closest_vsync_sample;
@@ -705,7 +715,7 @@ void LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp_timestamp_ns, u
     {
         /* If no gyro samples were found (at all) for any reason, perform dewarp with no correction */
         LOGGER__WARNING("No gyro samples found for the current frame (at all)!");
-        m_eis_ptr->reset();
+        m_eis_ptr->reset_history();
         m_last_threshold_timestamp = threshold_timestamp;
         goto generate_grid;
     }
@@ -726,6 +736,11 @@ void LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp_timestamp_ns, u
     current_orientation = m_eis_ptr->integrate_rotations(m_last_threshold_timestamp, curr_frame_isp_timestamp_ns, unbiased_gyro_samples);
 #else
     current_orientations = m_eis_ptr->integrate_rotations_rolling_shutter(m_last_threshold_timestamp, threshold_timestamp, unbiased_gyro_samples);
+
+    if ((!current_orientations.empty()) && (current_orientations[0].first != 0)) {
+        rolling_shutter_rotations = m_eis_ptr->get_rolling_shutter_rotations(current_orientations, m_dewarp_mesh.mesh_height,
+                                                                             middle_exposure_timestamp, readout_time);
+    }
 #endif
     m_last_threshold_timestamp = threshold_timestamp;
     // cv::Mat smooth_orientation = m_eis_ptr->smooth(current_orientation, m_ldc_configs.eis_config.rotational_smoothing_coefficient);
@@ -734,20 +749,25 @@ generate_grid:
 #ifdef GLOBAL_SHUTTER
     dis_generate_eis_grid(m_dis_ctx, flip_mirror_rot, current_orientation, smooth_orientation, &grid);
 #else
-    std::vector<cv::Mat> rolling_shutter_rotations = m_eis_ptr->get_rolling_shutter_rotations(current_orientations, m_dewarp_mesh.mesh_height,
-                                                                                              middle_exposure_timestamp, readout_time);
-
     /* A safety mechanism to remove any unwanted side effects that were gathered
      during the time EIS was on, such as bias */
-    if ((m_eis_ptr->frame_count++) >= EIS_RESET_FRAMES_NUM)
+    if ((enabled) && ((m_eis_ptr->m_frame_count++) >= EIS_RESET_FRAMES_NUM))
     {
-        m_eis_ptr->periodic_reset(rolling_shutter_rotations);
+        bool reset_needed = m_eis_ptr->check_periodic_reset(rolling_shutter_rotations);
+
+        if (reset_needed)
+        {
+            m_eis_ptr->reset_history();
+            m_last_threshold_timestamp = 0;
+        }    
     }
     dis_generate_eis_grid_rolling_shutter(m_dis_ctx, flip_mirror_rot, rolling_shutter_rotations, &grid);
 #endif
     m_dewarp_mesh.mesh_table = grid.mesh_table;
     m_dewarp_mesh.mesh_width = grid.mesh_width;
     m_dewarp_mesh.mesh_height = grid.mesh_height;
+
+    return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return LdcMeshContext::set_optical_zoom(float magnification)

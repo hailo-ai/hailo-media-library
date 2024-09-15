@@ -268,23 +268,30 @@ gst_hailo_upload_transform(GstBaseTransform *base_transform, GstBuffer *inbuf, G
         else 
         {
             GST_DEBUG_OBJECT(hailoupload, "Using CPU for memory copy");
-            int y_fd = -1, uv_fd = -1;
 
             // Copy Y channel to the contiguous memory
-            void *y_output_channel_data = (void *)GST_VIDEO_FRAME_PLANE_DATA(&video_frame_output, 0);
-            memcpy(y_output_channel_data, y_input_channel_data, y_channel_size);
-            if (DmaMemoryAllocator::get_instance().get_fd(y_output_channel_data, y_fd) != -1)
+            void *y_output_channel_userptr = (void *)GST_VIDEO_FRAME_PLANE_DATA(&video_frame_output, 0);
+            if (DmaMemoryAllocator::get_instance().dmabuf_sync_start(y_output_channel_userptr) != MEDIA_LIBRARY_SUCCESS)
             {
-                DmaMemoryAllocator::get_instance().dmabuf_sync_end(y_output_channel_data);
+                GST_ERROR_OBJECT(hailoupload, "Failed to sync start Y channel");
+            }
+            memcpy(y_output_channel_userptr, y_input_channel_data, y_channel_size);
+            if (DmaMemoryAllocator::get_instance().dmabuf_sync_end(y_output_channel_userptr) != MEDIA_LIBRARY_SUCCESS)
+            {
+                GST_ERROR_OBJECT(hailoupload, "Failed to sync end Y channel");
             }
             GST_DEBUG_OBJECT(hailoupload, "NV12 format: Copied Y channel %d bytes from input buffer to output buffer", (int)y_channel_size);
             
             // Copy UV channel to the contiguous memory
-            void *uv_output_channel_data = (void *)GST_VIDEO_FRAME_PLANE_DATA(&video_frame_output, 1);
-            memcpy(uv_output_channel_data, uv_input_channel_data, uv_channel_size);
-            if (DmaMemoryAllocator::get_instance().get_fd(uv_output_channel_data, uv_fd) != -1)
+            void *uv_output_channel_userptr = (void *)GST_VIDEO_FRAME_PLANE_DATA(&video_frame_output, 1);
+            if (DmaMemoryAllocator::get_instance().dmabuf_sync_start(uv_output_channel_userptr) != MEDIA_LIBRARY_SUCCESS)
             {
-                DmaMemoryAllocator::get_instance().dmabuf_sync_end(uv_output_channel_data);
+                GST_ERROR_OBJECT(hailoupload, "Failed to sync start UV channel");
+            }
+            memcpy(uv_output_channel_userptr, uv_input_channel_data, uv_channel_size);
+            if (DmaMemoryAllocator::get_instance().dmabuf_sync_end(uv_output_channel_userptr) != MEDIA_LIBRARY_SUCCESS)
+            {
+                GST_ERROR_OBJECT(hailoupload, "Failed to sync end UV channel");
             }
             GST_DEBUG_OBJECT(hailoupload, "NV12 format: Copied UV channel %d bytes from input buffer to output buffer", (int)uv_channel_size);
 

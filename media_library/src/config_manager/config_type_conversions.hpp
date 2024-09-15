@@ -82,11 +82,11 @@ MEDIALIB_JSON_SERIALIZE_ENUM(flip_direction_t, {
                                                    {FLIP_DIRECTION_BOTH, "FLIP_DIRECTION_BOTH"},
                                                })
 
-MEDIALIB_JSON_SERIALIZE_ENUM(dsp_image_format_t, {
-                                                     {DSP_IMAGE_FORMAT_GRAY8, "IMAGE_FORMAT_GRAY8"},
-                                                     {DSP_IMAGE_FORMAT_RGB, "IMAGE_FORMAT_RGB"},
-                                                     {DSP_IMAGE_FORMAT_NV12, "IMAGE_FORMAT_NV12"},
-                                                     {DSP_IMAGE_FORMAT_A420, "IMAGE_FORMAT_A420"},
+MEDIALIB_JSON_SERIALIZE_ENUM(HailoFormat, {
+                                                     {HAILO_FORMAT_GRAY8, "IMAGE_FORMAT_GRAY8"},
+                                                     {HAILO_FORMAT_RGB, "IMAGE_FORMAT_RGB"},
+                                                     {HAILO_FORMAT_NV12, "IMAGE_FORMAT_NV12"},
+                                                     {HAILO_FORMAT_A420, "IMAGE_FORMAT_A420"},
                                                  })
 
 MEDIALIB_JSON_SERIALIZE_ENUM(rotation_angle_t, {
@@ -934,8 +934,9 @@ void to_json(nlohmann::json &j, const isp_t &isp_conf)
 {
     j = nlohmann::json{
         {"isp", {
-                    {"auto-configuration", isp_conf.auto_configuration},
-                }},
+                {"auto-configuration", isp_conf.auto_configuration},
+                {"isp_config_files_path", isp_conf.isp_config_files_path},
+            }},
     };
 }
 
@@ -943,6 +944,7 @@ void from_json(const nlohmann::json &j, isp_t &isp_conf)
 {
     const auto &isp = j.at("isp");
     isp.at("auto-configuration").get_to(isp_conf.auto_configuration);
+    isp.at("isp_config_files_path").get_to(isp_conf.isp_config_files_path);
 }
 
 //------------------------ hailort_t ------------------------

@@ -336,7 +336,7 @@ gst_hailo_encoder_get_output_buffer(GstHailoEncoder *hailoencoder,
     PtrWrapper *wrapper = new PtrWrapper();
     wrapper->ptr = output.buffer;
     return gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS,
-                                       output.buffer->get_plane(0),
+                                       output.buffer->get_plane_ptr(0),
                                        output.buffer->get_plane_size(0),
                                        0, output.size, wrapper, GDestroyNotify(hailo_media_library_encoder_release));
 }
@@ -492,12 +492,12 @@ gst_hailo_encoder_open(GstVideoEncoder *encoder)
 
     if (hailoencoder->encoder)
     {
-        std::cout << "hailoencoder reusing encoder" << std::endl;
+        GST_DEBUG_OBJECT(hailoencoder, "Reusing encoder instance");
         hailoencoder->encoder->init();
     }
     else
     {
-        std::cout << "hailoencoder create new encoder" << std::endl;
+        GST_DEBUG_OBJECT(hailoencoder, "Creating new encoder instance");
         hailoencoder->encoder = std::make_unique<Encoder>(hailoencoder->config);
     }
     return TRUE;

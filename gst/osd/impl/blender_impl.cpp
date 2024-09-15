@@ -514,7 +514,7 @@ namespace osd
         return add_overlay_internal(overlay);
     }
 
-    media_library_return Blender::Impl::blend(dsp_image_properties_t &input_image_properties)
+    media_library_return Blender::Impl::blend(HailoMediaLibraryBufferPtr &input_buffer)
     {
         std::unique_lock lock(m_mutex);
 
@@ -559,7 +559,8 @@ namespace osd
 
             std::vector blend_chuck(first, last);
 
-            dsp_status status = dsp_utils::perform_dsp_multiblend(&input_image_properties, blend_chuck.data(), blend_chuck.size());
+            dsp_status status = dsp_utils::perform_dsp_multiblend(input_buffer->buffer_data.get(), blend_chuck.data(), blend_chuck.size());
+
             if (status != DSP_SUCCESS)
             {
                 LOGGER__ERROR("DSP blend failed with {}", status);

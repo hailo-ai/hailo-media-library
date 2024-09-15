@@ -344,15 +344,21 @@ EIS::EIS(const std::string &config_filename, uint32_t window_size)
 #endif
     cv::Vec3d calibs_rot_vec(m_gyro_calibration_config.rot_x, m_gyro_calibration_config.rot_y, m_gyro_calibration_config.rot_z);
     cv::Rodrigues(calibs_rot_vec, m_gyro_to_cam_rot_mat);
-    frame_count = 0;
+    m_frame_count = 0;
 }
 
-void EIS::periodic_reset(std::vector<cv::Mat> &rolling_shutter_rotations)
+bool EIS::check_periodic_reset(std::vector<cv::Mat> &rolling_shutter_rotations)
 {
     /* If we haven't yet reached the hard deadline, check if this is a "good" time for reset:
-        If most of the rotation matrices are close to the eye matrix, that way the reset will
-        have less of a visual impact */
-    if (frame_count < (EIS_RESET_FRAMES_NUM + EIS_RESET_DEADLINE))
+        If all of the rotation matrices are close to the identity matrix, that way the reset will
+        have less of a visual impact. Meaning:
+
+        if frame_count in [EIS_RESET_FRAMES_NUM ,EIS_RESET_FRAMES_NUM + EIS_RESET_DEADLINE]:
+            reset EIS only if all the rotation matrices are close to the identity matrix (all the angels are less then the threshold).
+        if frame_count >= EIS_RESET_FRAMES_NUM + EIS_RESET_DEADLINE
+            reset EIS
+    */
+    if (m_frame_count < (EIS_RESET_FRAMES_NUM + EIS_RESET_DEADLINE))
     {
         for (auto& rotation : rolling_shutter_rotations)
         {
@@ -363,15 +369,15 @@ void EIS::periodic_reset(std::vector<cv::Mat> &rolling_shutter_rotations)
             if (angle > EIS_RESET_ANGLES_THRESHOLD) {
                 /* If one of the angles is above the threshold,
                     we are not close enough to the identity matrix */
-                return;
+                return false;
             }
         }
     }
 
-    reset();     
+    return true;  
 }
 
-void EIS::reset()
+void EIS::reset_history()
 {
     LOGGER__WARNING("[EIS] EIS reset!");
     previous_orientations.clear();
@@ -381,5 +387,5 @@ void EIS::reset()
 #ifdef ALTERNATIVE_ALGORITHM
     m_last_sample = unbiased_gyro_sample_t(0,0,0,0);
 #endif
-    frame_count = 0;
+    m_frame_count = 0;
 }

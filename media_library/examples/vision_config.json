@@ -79,6 +79,10 @@
         "enabled": false,
         "direction": "FLIP_DIRECTION_HORIZONTAL"
     },
+    "isp": {
+        "auto-configuration": true,
+        "isp_config_files_path": "/usr/bin"
+    },
     "hailort": {
         "device-id": "device0"
     },

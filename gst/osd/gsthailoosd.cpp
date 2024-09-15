@@ -378,15 +378,19 @@ static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans,
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
     GstCaps *caps;
-    HailoMediaLibraryBufferPtr media_library_buffer = nullptr;
     GST_DEBUG_OBJECT(hailoosd, "transform_ip");
 
     caps = gst_pad_get_current_caps(trans->sinkpad);
-    media_library_buffer = hailo_buffer_from_gst_buffer(buffer, caps, false);
+    HailoMediaLibraryBufferPtr media_library_buffer = hailo_buffer_from_gst_buffer(buffer, caps);
+    if (!media_library_buffer)
+    {
+        GST_ERROR_OBJECT(trans, "Cannot create hailo buffer from GstBuffer");
+        return GST_FLOW_ERROR;
+    }
     gst_caps_unref(caps);
 
     // perform blending
-    ret = hailoosd->blender->blend(*media_library_buffer->hailo_pix_buffer.get());
+    ret = hailoosd->blender->blend(media_library_buffer);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
         GST_ERROR_OBJECT(trans, "Failed to do blend (%d)", ret);

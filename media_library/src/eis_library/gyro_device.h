@@ -19,10 +19,17 @@
 #define DEFAULT_GYRO_DEVICE_NAME "lsm6dsr_gyro"
 #define DEFAULT_DEVICE_ODR "833.000000" //"208.000000"
 #define DEFAULT_GYRO_SCALE "0.000152716"
-
-
 #define DEFAULT_GYRO_OUTPUT_PATH "/tmp/gyro_samples.txt"
 
+typedef enum {
+    GYRO_STATUS_SUCCESS = 0,
+    GYRO_STATUS_IIO_CONTEXT_FAILURE,
+    GYRO_STATUS_ILLEGAL_STATE,
+    GYRO_STATUS_DEVICE_INTERACTION_FAILURE,
+    GYRO_STATUS_CHAN_INTERACTION_FAILURE,
+
+    GYRO_STATUS_UNKNOWN_ERROR
+} gyro_status_t;
 
 struct iio_device_data
 {
@@ -31,21 +38,6 @@ struct iio_device_data
     unsigned int nb_channels;
     unsigned int nb_attrs;
     int sample_count;
-};
-
-struct generic_val
-{
-    union
-    {
-        int8_t val_8;
-        int16_t val_16;
-        int32_t val_32;
-        int64_t val_64;
-        uint8_t val_u8;
-        uint16_t val_u16;
-        uint32_t val_u32;
-        uint64_t val_u64;
-    };
 };
 
 class GyroDev
@@ -61,22 +53,17 @@ private:
     struct iio_device_data m_iio_device_data;
     std::mutex m_mtx;
 
-    int start();
+    gyro_status_t start();
     void shutdown();
-    int restart();
-    void clear_samples(uint64_t until_time_ns);
-    int device_attr_wr_str(const char *attr,
-                           const char *str_val);
-    int channel_attr_wr_str(struct iio_channel *chn, const char *attr,
-                            const char *str_val);
-    int channel_attr_set(struct iio_channel *chn, const char *attr, const char *str_val);
-    int device_cfg_set();
+    gyro_status_t restart();
+    gyro_status_t device_attr_wr_str(const char *attr, const char *str_val);
+    gyro_status_t channel_attr_wr_str(struct iio_channel *chn, const char *attr,
+                                        const char *str_val);
+    gyro_status_t device_cfg_set();
     void show_device_info();
     void prepare_device_data();
-    void prepare_channel_data();
-    void prepare_device();
-    void enable_all_channels();
-    void disable_all_channels();
+    gyro_status_t prepare_channel_data();
+    gyro_status_t prepare_device();
     const char *device_name_get();
 
 public:
@@ -95,8 +82,8 @@ public:
             .sample_count = FIFO_BUF_SIZE * 10000,
         };
     };
-    int run();
-    std::vector<gyro_sample_t> get_samples(uint64_t start_time_ns, uint64_t end_time_ns, bool clear_samples_until_end_time = true);
+    gyro_status_t configure();
+    gyro_status_t run();
     sig_atomic_t stopRunning()
     {
         if (m_stopRunning)
@@ -114,7 +101,6 @@ public:
     std::vector<gyro_sample_t> get_gyro_samples_for_frame_vsync(std::vector<gyro_sample_t>::iterator odd_closest_sample,
                                                                uint64_t threshold_timestamp);
     std::vector<gyro_sample_t> get_gyro_samples_for_frame_isp_timestamp(uint64_t threshold_timestamp);                                                           
-    std::vector<gyro_sample_t> get_samples_until_next_odd_vx(uint64_t start_timestamp);
 };
 
 #endif //  _GYRO_DEVICE_H_

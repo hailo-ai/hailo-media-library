@@ -139,7 +139,7 @@ private:
 #endif
 
 public:
-    size_t frame_count;
+    size_t m_frame_count;
 
     EIS(const std::string &config_filename, uint32_t window_size);
     ~EIS() {};
@@ -160,6 +160,6 @@ public:
                                                        int grid_height, uint64_t middle_exposure_time_of_first_row,
                                                        uint64_t frame_readout_time);
 
-    void periodic_reset(std::vector<cv::Mat> &rolling_shutter_rotations);                                                  
-    void reset();
+    bool check_periodic_reset(std::vector<cv::Mat> &rolling_shutter_rotations);                                                  
+    void reset_history();
 };

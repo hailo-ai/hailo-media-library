@@ -73,7 +73,7 @@ namespace osd
         std::shared_future<media_library_return> set_overlay_async(const TextOverlay &overlay);
         std::shared_future<media_library_return> set_overlay_async(const DateTimeOverlay &overlay);
 
-        media_library_return blend(dsp_image_properties_t &input_image_properties);
+        media_library_return blend(HailoMediaLibraryBufferPtr &input_buffer);
         media_library_return configure(const std::string &config);
 
     private:

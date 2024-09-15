@@ -577,7 +577,7 @@ namespace osd
 
     std::shared_future<media_library_return> Blender::remove_overlay_async(const std::string &id) { return m_impl->remove_overlay_async(id); }
 
-    media_library_return Blender::blend(dsp_image_properties_t &input_image_properties) { return m_impl->blend(input_image_properties); }
+    media_library_return Blender::blend(HailoMediaLibraryBufferPtr &input_buffer) { return m_impl->blend(input_buffer); }
 
     media_library_return Blender::set_frame_size(int frame_width, int frame_height) { return m_impl->set_frame_size(frame_width, frame_height); }
 

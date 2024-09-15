@@ -86,11 +86,11 @@ media_library_return EncoderConfig::configure(const std::string &json_string)
 
     m_doc = parsed_json["encoding"][encoder_name];
     m_json_string = strapped_json;
+    m_user_config = m_config;
 
     if (type == EncoderType::Hailo)
     {
         auto &config = std::get<hailo_encoder_config_t>(m_config);
-        m_user_config = config;
         if (EncoderConfigPresets::get_instance().apply_preset(config) != MEDIA_LIBRARY_SUCCESS)
         {
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
@@ -102,12 +102,11 @@ media_library_return EncoderConfig::configure(const std::string &json_string)
 
 media_library_return EncoderConfig::configure(const encoder_config_t &encoder_config)
 {
-    m_config = encoder_config;
+    m_user_config = m_config = encoder_config;
 
     if (type == EncoderType::Hailo)
     {
         auto &config = std::get<hailo_encoder_config_t>(m_config);
-        m_user_config = config;
         if (EncoderConfigPresets::get_instance().apply_preset(config) != MEDIA_LIBRARY_SUCCESS)
         {
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
@@ -445,7 +444,7 @@ VCEncRet Encoder::Impl::init_coding_control_config()
     m_vc_coding_cfg.deblockOverride = coding_control.deblocking_filter.deblock_override ? 1 : 0;
     m_vc_coding_cfg.enableCabac = 1;
     m_vc_coding_cfg.cabacInitFlag = 0;
-    m_vc_coding_cfg.vuiVideoFullRange = 0;
+    m_vc_coding_cfg.vuiVideoFullRange = 1;
     m_vc_coding_cfg.seiMessages = coding_control.sei_messages ? 1 : 0;
 
     /* Disabled */

@@ -88,7 +88,7 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Custom
     }
 
     dsp_image_properties_t dsp_image;
-    create_dsp_buffer_from_video_frame(&dest_frame, dsp_image, false);
+    create_dsp_buffer_from_video_frame(&dest_frame, dsp_image);
     m_video_frames.push_back(dest_frame);
     auto offsets_expected = calc_xy_offsets(m_id, m_x, m_y, dsp_image.width, dsp_image.height, frame_width,
                                             frame_height, 0, 0, m_horizontal_alignment, m_vertical_alignment);

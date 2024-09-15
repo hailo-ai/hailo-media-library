@@ -35,7 +35,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include "dsp_utils.hpp"
 #include "media_library_types.hpp"
 #include "hailo_v4l2/hailo_v4l2.h"
 #include "dma_memory_allocator.hpp"
@@ -44,15 +43,9 @@
  * API definitions
  *  @{
  */
-enum HailoMemoryType
-{
-    CMA
-};
 
 class MediaLibraryBufferPool;
 using MediaLibraryBufferPoolPtr = std::shared_ptr<MediaLibraryBufferPool>;
-
-using DspImagePropertiesPtr = std::shared_ptr<dsp_image_properties_t>;
 
 class HailoBucket;
 
@@ -104,7 +97,7 @@ using HailoBucketPtr = std::shared_ptr<HailoBucket>;
  * Example usage:
  * @code{.cpp}
  * // Create a buffer pool with a width of 640, height of 480, and maximum of 10 buffers
- * MediaLibraryBufferPool bufferPool(640, 480, DSP_IMAGE_FORMAT_RGB, 10);
+ * MediaLibraryBufferPool bufferPool(640, 480, HAILO_FORMAT_RGB, 10);
  * 
  * // Initialize the buffer pool
  * bufferPool.init();
@@ -132,7 +125,7 @@ private:
     uint m_width;
     uint m_height;
     uint m_bytes_per_line;
-    dsp_image_format_t m_format;
+    HailoFormat m_format;
     std::shared_ptr<std::mutex> m_buffer_pool_mutex;
     size_t m_max_buffers;
     uint32_t m_buffer_index;
@@ -148,7 +141,7 @@ public:
      * @param[in] memory_type - memory type
      * @param[in] name - buffer pool owner name
      */
-    MediaLibraryBufferPool(uint width, uint height, dsp_image_format_t format,
+    MediaLibraryBufferPool(uint width, uint height, HailoFormat format,
                            size_t max_buffers, HailoMemoryType memory_type, std::string name = "");
     /**
      * @brief Constructor of MediaLibraryBufferPool
@@ -161,7 +154,7 @@ public:
      * @param[in] bytes_per_line - bytes per line if the buffer stride is padded (when padding=0, bytes_per_line=width)
      * @param[in] name - buffer pool owner name
      */
-    MediaLibraryBufferPool(uint width, uint height, dsp_image_format_t format,
+    MediaLibraryBufferPool(uint width, uint height, HailoFormat format,
                            size_t max_buffers, HailoMemoryType memory_type, uint bytes_per_line, std::string name = "");
     ~MediaLibraryBufferPool();
     // Copy constructor - delete
@@ -243,6 +236,19 @@ public:
     media_library_return release_buffer(HailoMediaLibraryBufferPtr buffer);
 
     /**
+     * @brief Applies a given function to all the buffers in the buffer pool.
+     *
+     * This function iterates over all the available and used buffers in the buffer pool and applies
+     * the given function to each buffer. a common use of this function would be to map and unmap the buffers to a device.
+     *
+     * @param func The function to apply to each buffer, the function takes two parameters: the file descriptor (fd)
+     * associated with the buffer and the buffer size.
+     * @return media_library_return Returns MEDIA_LIBRARY_SUCCESS if the function was successfully
+     * applied to all buffers. Otherwise, it returns MEDIA_LIBRARY_ERROR.
+     */
+    media_library_return for_each_buffer(std::function<bool(int, size_t)> func);
+
+    /**
      * @brief Swaps the width and height of the buffer.
      * @return The return status of the swap operation.
      */
@@ -283,15 +289,12 @@ private:
     bool dispose()
     {
         owner = nullptr;
-        // free allocated planes memory resources
-        if (hailo_pix_buffer && hailo_pix_buffer->planes)
-            delete[] hailo_pix_buffer->planes;
-        hailo_pix_buffer = nullptr;
+        buffer_data = nullptr;
         return true;
     }
 
 public:
-    DspImagePropertiesPtr hailo_pix_buffer;
+    HailoBufferDataPtr buffer_data;
     MediaLibraryBufferPoolPtr owner;
     struct hailo15_vsm vsm;
     int32_t isp_ae_fps;
@@ -306,7 +309,7 @@ public:
     hailo_media_library_buffer()
         : m_buffer_mutex(std::make_shared<std::mutex>()),
           m_plane_mutex(std::make_shared<std::mutex>()),
-          hailo_pix_buffer(nullptr), owner(nullptr),
+          buffer_data(nullptr), owner(nullptr),
           isp_ae_fps(HAILO_ISP_AE_FPS_DEFAULT_VALUE),
           isp_ae_converged(HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE),
           isp_ae_integration_time(HAILO_ISP_AE_INTEGRATION_TIME_DEFAULT_VALUE),
@@ -323,11 +326,22 @@ public:
     ~hailo_media_library_buffer()
     {
         // free the planes back to their buffer pools
-        if (hailo_pix_buffer && owner != nullptr)
+        if (buffer_data)
         {
-            for (uint plane_index = 0; plane_index < hailo_pix_buffer->planes_count; plane_index++)
+            if (owner != nullptr)
             {
-                owner->release_plane(this, plane_index);
+                for (uint plane_index = 0; plane_index < buffer_data->planes_count; plane_index++)
+                {
+                    owner->release_plane(this, plane_index);
+                }
+            }
+            else
+            {
+                // External buffer, unmap from dma memory allocator if exists
+                for (uint plane_index = 0; plane_index < buffer_data->planes_count; plane_index++)
+                {
+                    DmaMemoryAllocator::get_instance().unmap_external_dma_buffer(get_plane_ptr(plane_index));
+                }
             }
         }
         dispose();
@@ -337,7 +351,7 @@ public:
     {
         m_buffer_mutex = other.m_buffer_mutex;
         m_plane_mutex = other.m_plane_mutex;
-        hailo_pix_buffer = other.hailo_pix_buffer;
+        buffer_data = other.buffer_data;
         owner = other.owner;
         vsm = other.vsm;
         isp_ae_fps = other.isp_ae_fps;
@@ -348,7 +362,7 @@ public:
         video_fd = other.video_fd;
         buffer_index = other.buffer_index;
         pts = other.pts;
-        other.hailo_pix_buffer = nullptr;
+        other.buffer_data = nullptr;
         other.owner = nullptr;
         other.m_buffer_mutex = nullptr;
         other.m_plane_mutex = nullptr;
@@ -372,7 +386,7 @@ public:
         {
             m_buffer_mutex = other.m_buffer_mutex;
             m_plane_mutex = other.m_plane_mutex;
-            hailo_pix_buffer = other.hailo_pix_buffer;
+            buffer_data = other.buffer_data;
             owner = other.owner;
             vsm = other.vsm;
             isp_ae_fps = other.isp_ae_fps;
@@ -383,7 +397,7 @@ public:
             video_fd = other.video_fd;
             buffer_index = other.buffer_index;
             pts = other.pts;
-            other.hailo_pix_buffer = nullptr;
+            other.buffer_data = nullptr;
             other.owner = nullptr;
             other.m_buffer_mutex = nullptr;
             other.m_plane_mutex = nullptr;
@@ -408,47 +422,53 @@ public:
     hailo_media_library_buffer &
     operator=(const hailo_media_library_buffer &other) = delete;
 
-    void *get_plane(uint32_t index)
+    void copy_metadata_from(const HailoMediaLibraryBufferPtr &other)
     {
-        if (index >= hailo_pix_buffer->planes_count)
-            return nullptr;
-
-        if (is_dmabuf())
+        if (other == nullptr)
         {
-            // Ugly trick, but its will work for now
-            void *ptr = nullptr;
-            DmaMemoryAllocator::get_instance().get_ptr(hailo_pix_buffer->planes[index].fd, &ptr);
+            return;
+        }
 
-            return ptr;
-        }
-        else
-        {
-            return hailo_pix_buffer->planes[index].userptr;
-        }
+        isp_ae_fps = other->isp_ae_fps;
+        isp_ae_converged = other->isp_ae_converged;
+        isp_ae_integration_time = other->isp_ae_integration_time;
+        isp_ae_average_luma = other->isp_ae_average_luma;
+        isp_timestamp_ns = other->isp_timestamp_ns;
+        video_fd = other->video_fd;
+        buffer_index = other->buffer_index;
+        pts = other->pts;
     }
 
-    int get_fd(uint32_t index)
+    void *get_plane_ptr(uint32_t index)
     {
-        if (index >= hailo_pix_buffer->planes_count)
+        if (index >= buffer_data->planes_count)
+            return nullptr;
+
+        return buffer_data->planes[index].userptr;
+    }
+
+    int get_plane_fd(uint32_t index)
+    {
+        if (index >= buffer_data->planes_count)
             return -1;
-        return hailo_pix_buffer->planes[index].fd;
+        return buffer_data->planes[index].fd;
     }
 
     uint32_t get_plane_size(uint32_t index)
     {
-        if (index >= hailo_pix_buffer->planes_count)
+        if (index >= buffer_data->planes_count)
             return 0;
-        return hailo_pix_buffer->planes[index].bytesused;
+        return buffer_data->planes[index].bytesused;
     }
 
     uint32_t get_plane_stride(uint32_t index)
     {
-        if (index >= hailo_pix_buffer->planes_count)
+        if (index >= buffer_data->planes_count)
             return 0;
-        return hailo_pix_buffer->planes[index].bytesperline;
+        return buffer_data->planes[index].bytesperline;
     }
 
-    uint32_t get_num_of_planes() { return hailo_pix_buffer->planes_count; }
+    uint32_t get_num_of_planes() { return buffer_data->planes_count; }
 
     void set_buffer_index(uint32_t buffer_index)
     {
@@ -456,16 +476,36 @@ public:
     }
 
     media_library_return create(MediaLibraryBufferPoolPtr owner,
-                                DspImagePropertiesPtr hailo_pix_buffer)
+                                HailoBufferDataPtr buffer_data)
     {
         this->owner = owner;
-        this->hailo_pix_buffer = hailo_pix_buffer;
+        this->buffer_data = buffer_data;
         return MEDIA_LIBRARY_SUCCESS;
     }
 
     bool is_dmabuf()
     {
-        return (hailo_pix_buffer->memory == DSP_MEMORY_TYPE_DMABUF);
+        return (buffer_data->memory == HAILO_MEMORY_TYPE_DMABUF);
+    }
+
+    media_library_return sync_start(uint plane)
+    {
+        if (!is_dmabuf())
+        {
+            return MEDIA_LIBRARY_ERROR;
+        }
+
+        int plane_fd = get_plane_fd(plane);
+        if (plane_fd == -1)
+            return MEDIA_LIBRARY_ERROR;
+
+        media_library_return ret = DmaMemoryAllocator::get_instance().dmabuf_sync_start(plane_fd);
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+        {
+            return ret;
+        }
+
+        return MEDIA_LIBRARY_SUCCESS;
     }
 
     media_library_return sync_start()
@@ -477,13 +517,25 @@ public:
 
         for (uint32_t i = 0; i < get_num_of_planes(); i++)
         {
-            void *plane_ptr = get_plane(i);
-            media_library_return ret = DmaMemoryAllocator::get_instance().dmabuf_sync_start(plane_ptr);
-
-            if (ret != MEDIA_LIBRARY_SUCCESS)
+            if(sync_start(i) != MEDIA_LIBRARY_SUCCESS)
             {
-                return ret;
+                return MEDIA_LIBRARY_ERROR;
             }
+        }
+
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    media_library_return sync_end(uint plane)
+    {
+        int plane_fd = get_plane_fd(plane);
+        if (plane_fd == -1)
+            return MEDIA_LIBRARY_ERROR;
+
+        media_library_return ret = DmaMemoryAllocator::get_instance().dmabuf_sync_end(plane_fd);
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+        {
+            return ret;
         }
 
         return MEDIA_LIBRARY_SUCCESS;
@@ -498,10 +550,8 @@ public:
 
         for (uint32_t i = 0; i < get_num_of_planes(); i++)
         {
-            void *plane_ptr = get_plane(i);
-            media_library_return ret = DmaMemoryAllocator::get_instance().dmabuf_sync_end(plane_ptr);
-
-            if (ret != MEDIA_LIBRARY_SUCCESS)
+            media_library_return ret = sync_end(i);
+            if(ret != MEDIA_LIBRARY_SUCCESS)
             {
                 return ret;
             }

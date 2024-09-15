@@ -31,6 +31,7 @@ private:
     // Angular DIS
     std::shared_ptr<angular_dis_params_t> m_angular_dis_params;
     std::unique_ptr<EIS> m_eis_ptr;
+    bool m_gyro_initialized = false;
 
     // optical zoom magnification level - used for dewarping
     float m_magnification;
@@ -55,9 +56,9 @@ public:
     ~LdcMeshContext();
     media_library_return configure(ldc_config_t &pre_proc_op_configs);
     media_library_return on_frame_vsm_update(struct hailo15_vsm &vsm);
-    void on_frame_eis_update(uint64_t curr_frame_isp_timestamp_ns,
-                             uint64_t integration_time,
-                             bool enabled);
+    media_library_return on_frame_eis_update(uint64_t curr_frame_isp_timestamp_ns,
+                                             uint64_t integration_time,
+                                             bool enabled);
     media_library_return set_optical_zoom(float magnification);
     std::shared_ptr<angular_dis_params_t> get_angular_dis_params();
     dsp_dewarp_mesh_t *get();

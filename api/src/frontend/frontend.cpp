@@ -172,6 +172,10 @@ tl::expected<frontend_config_t, media_library_return> MediaLibraryFrontend::Impl
         input_video_config_t input_config;
         input_config = *reinterpret_cast<input_video_config_t *>(value);
 
+        g_object_get(frontendbinsrc, "isp-config", &value, NULL);
+        isp_t isp_config;
+        isp_config = *reinterpret_cast<isp_t *>(value);
+
         gst_object_unref(frontendbinsrc);
 
         frontend_config_t frontend_config;
@@ -181,6 +185,7 @@ tl::expected<frontend_config_t, media_library_return> MediaLibraryFrontend::Impl
         frontend_config.input_config = input_config;
         frontend_config.hdr_config = hdr_config;
         frontend_config.hailort_config = hailort_config;
+        frontend_config.isp_config = isp_config;
 
         return frontend_config;
     }
@@ -353,10 +358,13 @@ void MediaLibraryFrontend::Impl::on_fps_measurement(GstElement *fpsdisplaysink,
                                                     gdouble droprate,
                                                     gdouble avgfps)
 {
-    gchar *name;
-    g_object_get(G_OBJECT(fpsdisplaysink), "name", &name, NULL);
     if (PRINT_FPS)
+    {
+        gchar *name;
+        g_object_get(G_OBJECT(fpsdisplaysink), "name", &name, NULL);
         std::cout << name << ", DROP RATE: " << droprate << " FPS: " << fps << " AVG_FPS: " << avgfps << std::endl;
+        g_free(name);
+    }
 }
 
 void MediaLibraryFrontend::Impl::set_gst_callbacks()

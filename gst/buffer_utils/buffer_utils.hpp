@@ -34,11 +34,14 @@
 #include <stdint.h>
 G_BEGIN_DECLS
 
-HailoMediaLibraryBufferPtr hailo_buffer_from_gst_buffer(GstBuffer *buffer, GstCaps *caps, bool gst_dma=true);
+HailoMediaLibraryBufferPtr hailo_buffer_from_gst_buffer(GstBuffer *buffer, GstCaps *caps);
 GstVideoMeta *add_video_meta_to_buffer(GstBuffer *buffer, GstVideoInfo *video_info);
 HailoMediaLibraryBufferPtr hailo_buffer_from_jpeg_gst_buffer(GstBuffer *buffer);
 GstBuffer *gst_buffer_from_hailo_buffer(HailoMediaLibraryBufferPtr hailo_buffer, GstCaps *caps);
-bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_properties_t &dsp_image_props, bool gst_dma=true);
+bool create_hailo_buffer_from_video_frame(GstVideoFrame *video_frame, HailoMediaLibraryBufferPtr hailo_buffer);
+bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_properties_t &dsp_image_props);
+bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, HailoBufferDataPtr &buffer_data);
+std::pair<void*, int> get_mapped_dmabuf_from_video_frame(GstVideoFrame *video_frame, int plane_index, size_t size);
 bool dma_buffer_sync_start(GstBuffer *buffer);
 bool dma_buffer_sync_end(GstBuffer *buffer);
 

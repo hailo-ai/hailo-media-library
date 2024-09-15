@@ -22,7 +22,6 @@
  */
 
 #pragma once
-
 #include <nlohmann/json-schema.hpp>
 
 namespace config_schemas
@@ -1289,6 +1288,9 @@ namespace config_schemas
         "properties": {
           "auto-configuration": {
             "type": "boolean"
+          },
+          "isp_config_files_path": {
+            "type" : "string"
           }
         },
         "additionalProperties": false,

@@ -289,6 +289,11 @@ MediaLibraryDenoise::Impl::~Impl()
     m_staging_condvar->notify_one();
     if (m_inference_callback_thread.joinable())
         m_inference_callback_thread.join();
+
+    m_output_buffer_pool->for_each_buffer([this](int fd, size_t size) {
+        return m_hailort_denoise->unmap_buffer_to_hailort(fd, size);
+    });
+
     m_hailort_denoise.reset();
     clear_inference_callback_queue();
     clear_loopback_queue();
@@ -420,12 +425,17 @@ media_library_return MediaLibraryDenoise::Impl::create_and_initialize_buffer_poo
     }
     // Create output buffer pool
     LOGGER__DEBUG("Creating buffer pool named {} for output resolution: width {} height {} in buffers size of {}", name, width, height, BPOOL_MAX_SIZE);
-    m_output_buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, DSP_IMAGE_FORMAT_NV12, BPOOL_MAX_SIZE, CMA, name);
+    m_output_buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, HAILO_FORMAT_NV12, BPOOL_MAX_SIZE, HAILO_MEMORY_TYPE_DMABUF, name);
     if (m_output_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to init buffer pool");
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
+
+    // Pre-mapping buffers to HailoRT boost performance
+    m_output_buffer_pool->for_each_buffer([this](int fd, size_t size) {
+        return m_hailort_denoise->map_buffer_to_hailort(fd, size);
+    });
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -582,6 +592,7 @@ media_library_return MediaLibraryDenoise::Impl::handle_frame(HailoMediaLibraryBu
 
     // Denoise
     media_library_return media_lib_ret = perform_denoise(input_frame, output_frame);
+    output_frame->copy_metadata_from(input_frame);
 
     output_frame->isp_ae_fps = input_frame->isp_ae_fps;
     output_frame->isp_ae_converged = input_frame->isp_ae_converged;

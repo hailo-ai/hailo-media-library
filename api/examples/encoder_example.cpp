@@ -34,7 +34,7 @@ inline std::string get_output_file(const std::string &id)
 void write_encoded_data(HailoMediaLibraryBufferPtr buffer, uint32_t size, std::ofstream &output_file)
 {
 #if ENABLE_FILE_WRITE
-    char *data = (char *)buffer->get_plane(0);
+    char *data = (char *)buffer->get_plane_ptr(0);
     if (!data)
     {
         std::cout << "Error occurred at writing time!" << std::endl;

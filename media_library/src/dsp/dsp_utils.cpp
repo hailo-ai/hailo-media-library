@@ -30,6 +30,22 @@
  *  @{
  */
 
+template <>
+dsp_data_plane_t hailo_data_plane_t::As() const
+{
+    dsp_data_plane_t plane;
+    plane.fd = fd;
+    plane.bytesperline = bytesperline;
+    plane.bytesused = bytesused;
+    return plane;
+}
+
+template <>
+hailo_dsp_buffer_data_t hailo_buffer_data_t::As() const
+{
+    return hailo_dsp_buffer_data_t(width, height, planes_count, format, memory, planes);
+}
+
 namespace dsp_utils
 {
     static dsp_device device = NULL;
@@ -314,6 +330,61 @@ namespace dsp_utils
     }
 
     /**
+     * Perform DSP Resize
+     * The function calls the DSP library to perform resize on a given buffer.
+     * DSP will place the result in the output buffer.
+     *
+     * @param[in] input_buffer_data input buffer data
+     * @param[in] output_buffer_data output buffer data
+     * @param[in] dsp_interpolation_type interpolation type to use
+     * @param[in] use_letterbox should letterbox resize be used
+     * @return dsp_status
+     */
+    dsp_status perform_resize(hailo_buffer_data_t *input_buffer_data, hailo_buffer_data_t *output_buffer_data, dsp_interpolation_type_t dsp_interpolation_type, std::optional<dsp_letterbox_properties_t> letterbox_properties)
+    {
+        if (device == NULL)
+        {
+            LOGGER__ERROR("Perform DSP crop and resize ERROR: Device is NULL");
+            return DSP_UNINITIALIZED;
+        }
+
+        hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
+        hailo_dsp_buffer_data_t output_dsp_buffer_data = output_buffer_data->As<hailo_dsp_buffer_data_t>();
+
+        return perform_resize(&input_dsp_buffer_data.properties, &output_dsp_buffer_data.properties, dsp_interpolation_type, letterbox_properties);
+    }
+
+    /**
+     * Perform DSP crop and resize
+     * The function calls the DSP library to perform crop and resize on a given
+     * buffer. DSP will place the result in the output buffer.
+     *
+     * @param[in] input_buffer_data input buffer data
+     * @param[out] output_buffer_data output buffer data
+     * @param[in] args crop and resize arguments
+     * @param[in] dsp_interpolation_type interpolation type to use
+     * @return dsp_status
+     */
+    dsp_status
+    perform_crop_and_resize(hailo_buffer_data_t *input_buffer_data,
+                            hailo_buffer_data_t *output_buffer_data,
+                            crop_resize_dims_t args,
+                            dsp_interpolation_type_t dsp_interpolation_type,
+                            std::optional<dsp_letterbox_properties_t> letterbox_properties)
+    {
+        if (device == NULL)
+        {
+            LOGGER__ERROR("Perform DSP crop and resize ERROR: Device is NULL");
+            return DSP_UNINITIALIZED;
+        }
+
+        hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
+        hailo_dsp_buffer_data_t output_dsp_buffer_data = output_buffer_data->As<hailo_dsp_buffer_data_t>();
+        return perform_crop_and_resize(&input_dsp_buffer_data.properties, &output_dsp_buffer_data.properties, args, dsp_interpolation_type, letterbox_properties);
+    }
+
+
+    /**
      * Perform multiple crops and resizes on the DSP
      * The function calls the DSP library to perform crops and resizes on a given
      * input buffer. DSP will place the results in the array of output buffer.
@@ -342,16 +413,17 @@ namespace dsp_utils
         return dsp_multi_crop_and_resize_privacy_mask(device, multi_crop_resize_params, privacy_mask_params);
     }
 
-    dsp_status perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
-                                  dsp_image_properties_t *output_image_properties,
-                                  dsp_dewarp_mesh_t *mesh,
-                                  dsp_interpolation_type_t interpolation,
-                                  const dsp_isp_vsm_t &isp_vsm,
-                                  const dsp_vsm_config_t &dsp_vsm_config,
-                                  const dsp_filter_angle_t &filter_angle,
-                                  uint16_t *cur_columns_sum,
-                                  uint16_t *cur_rows_sum,
-                                  bool do_mesh_correction)
+    dsp_status 
+    perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
+                       dsp_image_properties_t *output_image_properties,
+                       dsp_dewarp_mesh_t *mesh,
+                       dsp_interpolation_type_t interpolation,
+                       const dsp_isp_vsm_t &isp_vsm,
+                       const dsp_vsm_config_t &dsp_vsm_config,
+                       const dsp_filter_angle_t &filter_angle,
+                       uint16_t *cur_columns_sum,
+                       uint16_t *cur_rows_sum,
+                       bool do_mesh_correction)
 
     {
         dsp_dewarp_angular_dis_params_t dewarp_params = {
@@ -374,7 +446,8 @@ namespace dsp_utils
         return dsp_rot_dis_dewarp(device, &dewarp_params);
     }
 
-    dsp_status perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
+    dsp_status 
+    perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
                                   dsp_image_properties_t *output_image_properties,
                                   dsp_dewarp_mesh_t *mesh,
                                   dsp_interpolation_type_t interpolation)
@@ -401,6 +474,52 @@ namespace dsp_utils
         return dsp_blend(device, image_frame, overlay, overlays_count);
     }
 
+    dsp_status perform_dsp_dewarp(hailo_buffer_data_t *input_buffer_data,
+                                  hailo_buffer_data_t *output_buffer_data,
+                                  dsp_dewarp_mesh_t *mesh,
+                                  dsp_interpolation_type_t interpolation,
+                                  const dsp_isp_vsm_t &isp_vsm,
+                                  const dsp_vsm_config_t &dsp_vsm_config,
+                                  const dsp_filter_angle_t &filter_angle,
+                                  uint16_t *cur_columns_sum,
+                                  uint16_t *cur_rows_sum,
+                                  bool do_mesh_correction)
+
+    {
+        hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
+        hailo_dsp_buffer_data_t output_dsp_buffer_data = output_buffer_data->As<hailo_dsp_buffer_data_t>();
+        return perform_dsp_dewarp(&input_dsp_buffer_data.properties, &output_dsp_buffer_data.properties, mesh, interpolation, isp_vsm, dsp_vsm_config, filter_angle, cur_columns_sum, cur_rows_sum, do_mesh_correction);
+    }
+
+    dsp_status perform_dsp_dewarp(hailo_buffer_data_t *input_buffer_data,
+                                  hailo_buffer_data_t *output_buffer_data,
+                                  dsp_dewarp_mesh_t *mesh,
+                                  dsp_interpolation_type_t interpolation)
+    {
+        hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
+        hailo_dsp_buffer_data_t output_dsp_buffer_data = output_buffer_data->As<hailo_dsp_buffer_data_t>();
+        return dsp_dewarp(device, &input_dsp_buffer_data.properties, &output_dsp_buffer_data.properties, mesh, interpolation);
+    }
+
+    /**
+     * Perform DSP blending using multiple overlays
+     * The function calls the DSP library to perform blending between one
+     * main buffer and multiple overlay buffers.
+     * DSP will blend the overlay buffers onto the image frame in place
+     *
+     * @param[in] image_buffer_data pointer to input image to blend on
+     * @param[in] overlay pointer to input images to overlay with
+     * @param[in] overlays_count number of overlays to blend
+     * @return dsp_status
+     */
+    dsp_status perform_dsp_multiblend(hailo_buffer_data_t *input_buffer_data,
+                                      dsp_overlay_properties_t *overlay,
+                                      size_t overlays_count)
+    {
+        hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
+        return dsp_blend(device, &input_dsp_buffer_data.properties  , overlay, overlays_count);
+    }
+
     /**
      * Free DSP struct resources
      *
@@ -421,6 +540,39 @@ namespace dsp_utils
     void free_image_property_planes(dsp_image_properties_t *image_properties)
     {
         delete[] image_properties->planes;
+    }
+
+    hailo_dsp_buffer_data_t hailo_buffer_data_to_dsp_buffer_data(hailo_buffer_data_t *buffer_data)
+    {
+        return std::move(buffer_data->As<hailo_dsp_buffer_data_t>());
+    }
+
+    /**
+        * Convert hailo_buffer_data_t to dsp_image_properties_t
+        * Allocates memory - caller is responsible for freeing it with free_image_property_planes
+        *
+        * @param[in] buffer_data pointer to the hailo buffer data
+        * @param[out] out_dsp_buffer_props pointer to the dsp output image properties
+        * @return dsp_status
+    */
+    dsp_status hailo_buffer_data_to_dsp_image_props(hailo_buffer_data_t *buffer_data, dsp_image_properties_t *out_dsp_buffer_props)
+    {
+        hailo_dsp_buffer_data_t dsp_buffer_data = buffer_data->As<hailo_dsp_buffer_data_t>();
+        out_dsp_buffer_props->width = dsp_buffer_data.properties.width;
+        out_dsp_buffer_props->height = dsp_buffer_data.properties.height;
+        out_dsp_buffer_props->format = dsp_buffer_data.properties.format;
+        out_dsp_buffer_props->memory = dsp_buffer_data.properties.memory;
+        out_dsp_buffer_props->planes_count = dsp_buffer_data.properties.planes_count;
+
+        out_dsp_buffer_props->planes = new dsp_data_plane_t[dsp_buffer_data.properties.planes_count];
+        for (size_t i = 0; i < dsp_buffer_data.properties.planes_count; i++)
+        {
+            out_dsp_buffer_props->planes[i].fd = dsp_buffer_data.planes[i].fd;
+            out_dsp_buffer_props->planes[i].bytesperline = dsp_buffer_data.planes[i].bytesperline;
+            out_dsp_buffer_props->planes[i].bytesused = dsp_buffer_data.planes[i].bytesused;
+        }
+
+        return DSP_SUCCESS;
     }
 
     /**

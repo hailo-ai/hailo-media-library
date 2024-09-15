@@ -29,6 +29,7 @@
 #include <sstream>
 #include <thread>
 #include <vector>
+#include <sys/resource.h>
 #include <gst/allocators/gstfdmemory.h>
 #include "gsthailoenc.hpp"
 #include "buffer_utils/buffer_utils.hpp"
@@ -239,7 +240,7 @@ gst_hailoenc_class_init(GstHailoEncClass *klass)
                                                          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
     g_object_class_install_property(gobject_class, PROP_MONITOR_FRAMES,
                                     g_param_spec_uint("monitor-frames", "Monitor Frames", "How many frames will be monitored for moving bit rate. Default is using framerate",
-                                                      MIN_MONITOR_FRAMES, MAX_MONITOR_FRAMES, (gint)DEFAULT_MONITOR_FRAMES,
+                                                      AUTO_MONITOR_FRAMES, MAX_MONITOR_FRAMES, (gint)DEFAULT_MONITOR_FRAMES,
                                                       (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
     g_object_class_install_property(gobject_class, PROP_ROI_AREA_1,
                                     g_param_spec_string("roi-area1", "ROI Area and QP Delta",
@@ -296,12 +297,6 @@ gst_hailoenc_init(GstHailoEnc *hailoenc)
     hailoenc->framerate_tolerance = 1.15f;
     hailoenc->dts_queue = g_queue_new();
     g_queue_init(hailoenc->dts_queue);
-    int sched_policy = 0;
-    sched_param sch_params;
-    memset(&sch_params, 0, sizeof(sch_params));
-    pthread_getschedparam(pthread_self(), &sched_policy, &sch_params);
-    sch_params.sched_priority -= 10;
-    pthread_setschedparam(pthread_self(), SCHED_OTHER, &sch_params);
 }
 
 /************************
@@ -786,8 +781,8 @@ static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc *hailoenc,
 
     if (hailo_buffer->is_dmabuf())
     {
-        lumaFd = hailo_buffer->get_fd(0);
-        chromaFd = hailo_buffer->get_fd(1);
+        lumaFd = hailo_buffer->get_plane_fd(0);
+        chromaFd = hailo_buffer->get_plane_fd(1);
         if (lumaFd <= 0 || chromaFd <= 0)
         {
             GST_ERROR_OBJECT(hailoenc, "Could not get input dma buffer luma and chroma");
@@ -810,8 +805,8 @@ static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc *hailoenc,
     }
     else
     {
-        luma = static_cast<uint32_t *>(hailo_buffer->get_plane(0));
-        chroma = static_cast<uint32_t *>(hailo_buffer->get_plane(1));
+        luma = static_cast<uint32_t *>(hailo_buffer->get_plane_ptr(0));
+        chroma = static_cast<uint32_t *>(hailo_buffer->get_plane_ptr(1));
         if (luma == nullptr || chroma == nullptr)
         {
             GST_ERROR_OBJECT(hailoenc, "Could not get input buffer luma and chroma");
@@ -1149,7 +1144,7 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
         GST_ERROR_OBJECT(hailoenc, "Encoder not initialized");
         return GST_FLOW_ERROR;
     }
-    hailo_buffer = hailo_buffer_from_gst_buffer(frame->input_buffer, hailoenc->input_state->caps, true);
+    hailo_buffer = hailo_buffer_from_gst_buffer(frame->input_buffer, hailoenc->input_state->caps);
     if (!hailo_buffer)
     {
         GST_ERROR_OBJECT(hailoenc, "Could not get hailo buffer");
@@ -1163,7 +1158,7 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
         planeFds.resize(num_planes);
         for (int32_t i = 0; i < num_planes; i++)
         {
-            planeFds[i] = hailo_buffer->get_fd(i);
+            planeFds[i] = hailo_buffer->get_plane_fd(i);
             if (planeFds[i] <= 0)
             {
                 GST_ERROR_OBJECT(hailoenc, "Could not get dmabuf fd of plane %d", i);
@@ -1192,7 +1187,10 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
         if (enc_params->encOut.streamSize == 0)
         {
             ret = GST_FLOW_OK;
-            GST_WARNING_OBJECT(hailoenc, "Encoder didn't return any output for frame %d", enc_params->picture_cnt);
+            if(!hailoenc->enc_params.hrd && !hailoenc->enc_params.pictureSkip)
+            {
+                GST_WARNING_OBJECT(hailoenc, "Encoder didn't return any output for frame %d", enc_params->picture_cnt);
+            }
 
             ret = handle_frame_ready(hailoenc, frame, &planeFds, num_planes, is_dmabuf, true);
             if (ret != GST_FLOW_OK)
@@ -1211,6 +1209,12 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
                 {
                     GST_ERROR_OBJECT(hailoenc, "Could not send frame %d", enc_params->picture_cnt);
                     return ret;
+                }
+
+                if (hailoenc->update_config && enc_params->nextCodingType == VCENC_INTRA_FRAME)
+                {
+                    GST_INFO_OBJECT(hailoenc, "Finished GOP, restarting encoder in order to update config");
+                    hailoenc->stream_restart = TRUE;
                 }
             }
             UpdateEncoderGOP(enc_params, hailoenc->encoder_instance);
@@ -1292,12 +1296,6 @@ gst_hailoenc_encode_frames(GstVideoEncoder *encoder)
             GST_ERROR_OBJECT(hailoenc, "Encoding frame %u failed.", enc_params->picture_cnt);
             break;
         }
-    }
-
-    if (hailoenc->update_config && enc_params->nextCodingType == VCENC_INTRA_FRAME)
-    {
-        GST_INFO_OBJECT(hailoenc, "Finished GOP, restarting encoder in order to update config");
-        hailoenc->stream_restart = TRUE;
     }
 
     return ret;
@@ -1526,6 +1524,14 @@ gst_hailoenc_handle_frame(GstVideoEncoder *encoder,
     struct timespec start_handle, end_handle;
     clock_gettime(CLOCK_MONOTONIC, &start_handle);
     GST_DEBUG_OBJECT(hailoenc, "Received frame number %u", frame->system_frame_number);
+
+    if (enc_params->picture_enc_cnt == 0) {
+        // Set high-priority to encoder thread in order to achieve expected performance.
+        // This will change the priority of exactly one thread for each encoder instance.
+        int nice_value = -20;
+        setpriority(PRIO_PROCESS, gettid(), nice_value);
+        GST_DEBUG_OBJECT(hailoenc, "Set high-priority to encoder thread. nice value %d", nice_value);
+    }
 
     gst_hailoenc_handle_timestamps(hailoenc, frame);
 

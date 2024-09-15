@@ -80,7 +80,7 @@ public:
     media_library_return set_optical_zoom(float magnification);
 
     // set the input video configurations
-    media_library_return set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate, dsp_image_format_t format);
+    media_library_return set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate, HailoFormat format);
 
     // set the callbacks object
     media_library_return observe(const MediaLibraryDewarp::callbacks_t &callbacks);
@@ -112,7 +112,7 @@ private:
     media_library_return create_and_initialize_buffer_pools();
     media_library_return validate_input_frame(HailoMediaLibraryBufferPtr input_frame);
     media_library_return perform_dewarp(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr dewarp_output_buffer);
-    media_library_return perform_angular_dis_dewarp(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr dewarp_output_buffer, dsp_image_properties_t *image, dsp_dewarp_mesh_t *mesh);
+    media_library_return perform_angular_dis_dewarp(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr dewarp_output_buffer, dsp_dewarp_mesh_t *mesh);
     void stamp_time_and_log_fps(timespec &start_handle, timespec &end_handle);
     void increase_frame_counter();
 };
@@ -166,7 +166,7 @@ media_library_return MediaLibraryDewarp::set_optical_zoom(float magnification)
     return m_impl->set_optical_zoom(magnification);
 }
 
-media_library_return MediaLibraryDewarp::set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate, dsp_image_format_t format)
+media_library_return MediaLibraryDewarp::set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate, HailoFormat format)
 {
     return m_impl->set_input_video_config(width, height, framerate, format);
 }
@@ -260,6 +260,13 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
         return MEDIA_LIBRARY_SUCCESS;
     }
 
+    if (m_ldc_configs.dis_config.enabled && m_ldc_configs.eis_config.enabled)
+    {
+        LOGGER__ERROR("Both EIS and DIS are enabled, only one can run at a time!"
+            "Disable one of them for the pipeline to work. Aborting...");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
     LOGGER__INFO("Configuring dewarp");
 
     std::unique_lock<std::shared_mutex> lock(rw_lock);
@@ -281,7 +288,12 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
         return MEDIA_LIBRARY_SUCCESS;
     }
 
-    m_dewarp_mesh_ctx->configure(m_ldc_configs);
+    ret = m_dewarp_mesh_ctx->configure(m_ldc_configs);
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to configure dewarp mesh context, err: {}", ret);
+        return ret;
+    }
 
     // Create and initialize buffer pools
     ret = create_and_initialize_buffer_pools();
@@ -305,7 +317,8 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
 
     if (!m_ldc_configs.gyro_config.enabled && m_ldc_configs.eis_config.enabled)
     {
-        LOGGER__ERROR("EIS is enabled, but Gyro is not. Enable both Gyro and EIS to enable EIS corrections to frames!");
+        LOGGER__ERROR("EIS is enabled, but Gyro is not! This means that currently EIS correction will not be applied."
+            "Both Gyro and EIS must be enabled for the correction to be applied.");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -336,7 +349,7 @@ media_library_return MediaLibraryDewarp::Impl::create_and_initialize_buffer_pool
     // Forcing output video buffer pool to be max 5 buffers.
     m_ldc_configs.output_video_config.pool_max_buffers = 5;
     LOGGER__INFO("Creating buffer pool named {} for output resolution: width {} height {} in buffers size of {} and bytes per line {}", name, width, height, m_ldc_configs.output_video_config.pool_max_buffers, bytes_per_line);
-    m_output_buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, m_ldc_configs.input_video_config.format, (uint)m_ldc_configs.output_video_config.pool_max_buffers, CMA, bytes_per_line, name);
+    m_output_buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, m_ldc_configs.input_video_config.format, (uint)m_ldc_configs.output_video_config.pool_max_buffers, HAILO_MEMORY_TYPE_DMABUF, bytes_per_line, name);
     if (m_output_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to init buffer pool");
@@ -346,7 +359,7 @@ media_library_return MediaLibraryDewarp::Impl::create_and_initialize_buffer_pool
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryDewarp::Impl::perform_angular_dis_dewarp(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr dewarp_output_buffer, dsp_image_properties_t *image, dsp_dewarp_mesh_t *mesh)
+media_library_return MediaLibraryDewarp::Impl::perform_angular_dis_dewarp(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr dewarp_output_buffer, dsp_dewarp_mesh_t *mesh)
 {
     std::shared_ptr<angular_dis_params_t> angular_dis_params = m_dewarp_mesh_ctx->get_angular_dis_params();
 
@@ -377,8 +390,9 @@ media_library_return MediaLibraryDewarp::Impl::perform_angular_dis_dewarp(HailoM
         .dy = angular_dis_params->isp_vsm.dy};
 
     dsp_status ret = dsp_utils::perform_dsp_dewarp(
-        input_buffer->hailo_pix_buffer.get(),
-        image, mesh,
+        input_buffer->buffer_data.get(),
+        dewarp_output_buffer->buffer_data.get(),
+        mesh,
         m_ldc_configs.dewarp_config.interpolation_type,
         isp_vsm,
         vsm_config,
@@ -421,21 +435,21 @@ media_library_return MediaLibraryDewarp::Impl::perform_dewarp(
 
     // Perform dewarp
     dsp_dewarp_mesh_t *mesh = m_dewarp_mesh_ctx->get();
-    dsp_image_properties_t *image = dewarp_output_buffer->hailo_pix_buffer.get();
     LOGGER__TRACE("Performing dewarp with mesh (w={}, h={}) interpolation type {}", mesh->mesh_width, mesh->mesh_height, m_ldc_configs.dewarp_config.interpolation_type);
     clock_gettime(CLOCK_MONOTONIC, &start_dewarp);
 
     if (m_ldc_configs.dis_config.angular_dis_config.enabled)
     {
-        media_library_return ret = perform_angular_dis_dewarp(input_buffer, dewarp_output_buffer, image, mesh);
+        media_library_return ret = perform_angular_dis_dewarp(input_buffer, dewarp_output_buffer, mesh);
         if (ret != MEDIA_LIBRARY_SUCCESS)
             return ret;
     }
     else
     {
         dsp_status ret = dsp_utils::perform_dsp_dewarp(
-            input_buffer->hailo_pix_buffer.get(),
-            image, mesh,
+            input_buffer->buffer_data.get(),
+            dewarp_output_buffer->buffer_data.get(),
+            mesh,
             m_ldc_configs.dewarp_config.interpolation_type);
 
         if (ret != DSP_SUCCESS)
@@ -468,11 +482,11 @@ MediaLibraryDewarp::Impl::validate_input_frame(
     HailoMediaLibraryBufferPtr input_frame)
 {
     output_resolution_t &input_res = m_ldc_configs.input_video_config.resolution;
-    dsp_image_properties_t *input_image_properties = input_frame->hailo_pix_buffer.get();
+    hailo_buffer_data_t *input_image = input_frame->buffer_data.get();
 
-    if (input_res != *input_image_properties)
+    if (input_res != *input_image)
     {
-        LOGGER__ERROR("Invalid input frame width {} input frame height {}", input_image_properties->width, input_image_properties->height);
+        LOGGER__ERROR("Invalid input frame width {} input frame height {}", input_image->width, input_image->height);
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
@@ -516,7 +530,7 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBuf
         m_dewarp_mesh_ctx->on_frame_vsm_update(input_frame->vsm);
     }
 
-    if (m_ldc_configs.eis_config.enabled)
+    if (m_ldc_configs.gyro_config.enabled)
     {
         /* Pull the integration time each time we are not converged or every 120 frames */
         if ((!input_frame->isp_ae_converged) || (m_curr_ae_integration_time_counter % EIS_NUM_FRAMES_PULL_INTEGRATION_TIME == 0))
@@ -527,10 +541,12 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBuf
             {
                 LOGGER__WARNING("EIS: Integration time 0 received!");
             }
-        }   
-        m_dewarp_mesh_ctx->on_frame_eis_update(input_frame->isp_timestamp_ns,
-                                                m_curr_ae_integration_time * 1000,
-                                                m_ldc_configs.eis_config.enabled);
+        }
+        media_lib_ret = m_dewarp_mesh_ctx->on_frame_eis_update(input_frame->isp_timestamp_ns,
+                                               m_curr_ae_integration_time * 1000,
+                                               m_ldc_configs.eis_config.enabled);
+        if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
+            return media_lib_ret;
         m_curr_ae_integration_time_counter++;
     }
 
@@ -539,13 +555,7 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBuf
     m_last_vsm.dy = input_frame->vsm.dy;
 
     media_lib_ret = perform_dewarp(input_frame, output_frame);
-
-    output_frame->isp_ae_fps = input_frame->isp_ae_fps;
-    output_frame->isp_ae_converged = input_frame->isp_ae_converged;
-    output_frame->isp_ae_average_luma = input_frame->isp_ae_average_luma;
-    output_frame->isp_ae_integration_time = input_frame->isp_ae_integration_time;
-    output_frame->isp_timestamp_ns = input_frame->isp_timestamp_ns;
-    output_frame->pts = input_frame->pts;
+    output_frame->copy_metadata_from(input_frame);
 
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
         return media_lib_ret;
@@ -603,7 +613,7 @@ media_library_return MediaLibraryDewarp::Impl::set_optical_zoom(float magnificat
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryDewarp::Impl::set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate, dsp_image_format_t format)
+media_library_return MediaLibraryDewarp::Impl::set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate, HailoFormat format)
 {
     m_ldc_configs.input_video_config.resolution.dimensions.destination_width = width;
     m_ldc_configs.input_video_config.resolution.dimensions.destination_height = height;

@@ -9,81 +9,65 @@
 
 #define DEVICE_CLK_TIMESTAMP "monotonic_raw"
 
+#define IIO_CTX_TIMEOUT_MS (100)
+#define GYRO_USLEEP_BETWEEN_ITERATIONS (1000)
+
 static gyro_sample gyro_sampled;
-GyroDev *gyroApi;
+std::unique_ptr<GyroDev> gyroApi = nullptr;
 
 static ssize_t rd_sample_demux(const struct iio_channel *chn, void *sample,
                                size_t size, void *d)
 {
     std::vector<gyro_sample_t> *samples_vector = (std::vector<gyro_sample> *)d;
-    enum iio_chan_type iio_type;
-    struct generic_val val;
+    enum iio_chan_type iio_type = iio_channel_get_type(chn);
+    union {
+        uint16_t val_u16;
+        uint64_t val_u64;
+        uint8_t val_u8;
+        uint32_t val_u32;
+    } val;
 
-    iio_type = iio_channel_get_type(chn);
-
-    if (size == 2)
-    {
-        iio_channel_convert(chn, &val.val_u16, sample);
-    }
-    else if (size == 8)
-    {
-        iio_channel_convert(chn, &val.val_u64, sample);
-    }
-    else if (size == 1)
-    {
-        iio_channel_convert(chn, &val.val_u8, sample);
-    }
-    else if (size == 4)
-    {
-        iio_channel_convert(chn, &val.val_u32, sample);
-    }
-
-    if (IIO_TIMESTAMP == iio_type)
-    {
-        gyro_sampled.timestamp_ns = val.val_u64;
-
-        if (samples_vector->size() == MAX_VECTOR_SIZE)
-        {
-            samples_vector->erase(samples_vector->begin());
-        }
-        samples_vector->push_back(gyro_sampled);
-        memset(&gyro_sampled, 0, sizeof(gyro_sampled));
-    }
-    else if (IIO_ANGL_VEL == iio_type)
-    {
-        enum iio_modifier iio_modifier;
-        iio_modifier = iio_channel_get_modifier(chn);
-        switch (iio_modifier)
-        {
-        case IIO_MOD_X:
-            gyro_sampled.vx = (int16_t)val.val_u16;
+    switch (size) {
+        case 1:
+            iio_channel_convert(chn, &val.val_u8, sample);
             break;
-        case IIO_MOD_Y:
-            gyro_sampled.vy = (int16_t)val.val_u16;
+        case 2:
+            iio_channel_convert(chn, &val.val_u16, sample);
             break;
-        case IIO_MOD_Z:
-            gyro_sampled.vz = (int16_t)val.val_u16;
+        case 4:
+            iio_channel_convert(chn, &val.val_u32, sample);
+            break;
+        case 8:
+            iio_channel_convert(chn, &val.val_u64, sample);
             break;
         default:
-            break;
+            return 0;
+    }
+
+    if (iio_type == IIO_TIMESTAMP) {
+        gyro_sampled.timestamp_ns = val.val_u64;
+        if (samples_vector->size() == MAX_VECTOR_SIZE) {
+            samples_vector->erase(samples_vector->begin());
+        }
+        samples_vector->emplace_back(gyro_sampled);
+        memset(&gyro_sampled, 0, sizeof(gyro_sampled));
+    } else if (iio_type == IIO_ANGL_VEL) {
+        enum iio_modifier iio_modifier = iio_channel_get_modifier(chn);
+        switch (iio_modifier) {
+            case IIO_MOD_X:
+                gyro_sampled.vx = static_cast<int16_t>(val.val_u16);
+                break;
+            case IIO_MOD_Y:
+                gyro_sampled.vy = static_cast<int16_t>(val.val_u16);
+                break;
+            case IIO_MOD_Z:
+                gyro_sampled.vz = static_cast<int16_t>(val.val_u16);
+                break;
+            default:
+                break;
         }
     }
     return size;
-}
-
-// Function to clear samples with timestamps less than until_time_ns
-void GyroDev::clear_samples(uint64_t until_time_ns)
-{
-    // Find the partition point where elements should no longer be removed
-    auto partitionIt = std::lower_bound(
-        m_vector_samples.begin(), m_vector_samples.end(), until_time_ns,
-        [](const gyro_sample_t &sample, uint64_t time)
-        {
-            return sample.timestamp_ns <= time;
-        });
-
-    // Erase all elements up to the partition point
-    m_vector_samples.erase(m_vector_samples.begin(), partitionIt);
 }
 
 void GyroDev::dump_rec_samples(const std::string &file_path)
@@ -138,37 +122,6 @@ void GyroDev::dump_rec_samples(const std::string &file_path)
     LOGGER__INFO("Finished writing samples to file {}", file_path.c_str());
 
     file.close();
-}
-
-std::vector<gyro_sample_t>
-GyroDev::get_samples(uint64_t start_time_ns, uint64_t end_time_ns,
-                     bool clear_samples_until_end_time)
-{
-    // Find the start of the range
-    auto startIt = std::lower_bound(
-        m_vector_samples.begin(), m_vector_samples.end(), start_time_ns,
-        [](const gyro_sample_t &sample, uint64_t time)
-        {
-            return sample.timestamp_ns < time;
-        });
-
-    // Find the end of the range (exclusive)
-    auto endIt = std::upper_bound(startIt, m_vector_samples.end(), end_time_ns,
-                                  [](uint64_t time, const gyro_sample_t &sample)
-                                  {
-                                      return time < sample.timestamp_ns;
-                                  });
-
-    // Copy the elements within the range
-    std::vector<gyro_sample_t> samplesInRange(startIt, endIt);
-
-    // Optionally clear samples until the end time
-    if (clear_samples_until_end_time)
-    {
-        m_vector_samples.erase(m_vector_samples.begin(), endIt);
-    }
-
-    return samplesInRange;
 }
 
 bool GyroDev::get_closest_vsync_sample(uint64_t frame_timestamp, std::vector<gyro_sample_t>::iterator& it_closest)
@@ -232,50 +185,26 @@ std::vector<gyro_sample_t> GyroDev::get_gyro_samples_for_frame_isp_timestamp(uin
     return result;
 }
 
-std::vector<gyro_sample_t> GyroDev::get_samples_until_next_odd_vx(uint64_t start_timestamp)
-{
-    auto first_relevant_sample = m_vector_samples.begin();
-    auto last_relevant_sample = m_vector_samples.begin();
-
-    for (auto it = m_vector_samples.begin(); it != m_vector_samples.end(); it++)
-    {
-        const auto &sample = *it;
-        if (sample.timestamp_ns == start_timestamp)
-        {
-            first_relevant_sample = std::next(it);
-        }
-        else if ((sample.timestamp_ns > start_timestamp) && (sample.vx % 2 != 0))
-        {
-            last_relevant_sample = it;
-            break;
-        }
-    }
-
-    std::vector<gyro_sample_t> result(first_relevant_sample, std::next(last_relevant_sample));
-    m_vector_samples.erase(m_vector_samples.begin(), std::next(last_relevant_sample));
-    return result;
-}
-
 static void handle_sig(int sig)
 {
     if (gyroApi->stopRunning())
         LOGGER__INFO("Notify process to finish...");
 }
 
-void GyroDev::enable_all_channels()
+static void enable_all_channels(struct iio_device *iio_dev)
 {
-    unsigned int i, nb_channels = iio_device_get_channels_count(m_iio_dev);
-    LOGGER__INFO("enable all channels");
+    unsigned int i, nb_channels = iio_device_get_channels_count(iio_dev);
+    LOGGER__INFO("Enable all Gyro channels");
     for (i = 0; i < nb_channels; i++)
-        iio_channel_enable(iio_device_get_channel(m_iio_dev, i));
+        iio_channel_enable(iio_device_get_channel(iio_dev, i));
 }
 
-void GyroDev::disable_all_channels()
+static void disable_all_channels(struct iio_device *iio_dev)
 {
-    unsigned int i, nb_channels = iio_device_get_channels_count(m_iio_dev);
-    LOGGER__INFO("disable all channels");
+    unsigned int i, nb_channels = iio_device_get_channels_count(iio_dev);
+    LOGGER__INFO("Disabling all Gyro channels");
     for (i = 0; i < nb_channels; i++)
-        iio_channel_disable(iio_device_get_channel(m_iio_dev, i));
+        iio_channel_disable(iio_device_get_channel(iio_dev, i));
 }
 
 const char *GyroDev::device_name_get()
@@ -285,138 +214,116 @@ const char *GyroDev::device_name_get()
 
 void GyroDev::shutdown()
 {
-    LOGGER__INFO("destroying buffer");
+    LOGGER__INFO("Gyro shutdown started...");
+    LOGGER__INFO("Destroying buffer");
     if (m_iio_device_data.buf)
     {
         iio_buffer_destroy(m_iio_device_data.buf);
     }
-    disable_all_channels();
+    disable_all_channels(m_iio_dev);
 
-    LOGGER__INFO("destroying ctx");
+    LOGGER__INFO("Destroying ctx");
     if (m_ctx)
     {
         iio_context_destroy(m_ctx);
     }
-    LOGGER__INFO("shutdown succeeded");
+    LOGGER__INFO("Gyro shutdown succeeded!");
 }
 
-int GyroDev::start()
+gyro_status_t GyroDev::start()
 {
     int rc;
 
-    // Create context
     m_ctx = iio_create_local_context();
     if (!m_ctx)
     {
         LOGGER__ERROR("Unable to create IIO context");
-        return EXIT_FAILURE;
+        return GYRO_STATUS_IIO_CONTEXT_FAILURE;
     }
 
-    rc = iio_context_set_timeout(m_ctx, 100);
+    rc = iio_context_set_timeout(m_ctx, IIO_CTX_TIMEOUT_MS);
     if (rc)
     {
-        LOGGER__ERROR("set timeout failed");
+        LOGGER__ERROR("set timeout failed, err: {}", rc);
         iio_context_destroy(m_ctx);
-        return EXIT_FAILURE;
+        return GYRO_STATUS_IIO_CONTEXT_FAILURE;
     }
 
-    prepare_device();
-    if (!m_iio_dev)
+    gyro_status_t status = prepare_device();
+    if (status != GYRO_STATUS_SUCCESS)
     {
-        rc = EXIT_FAILURE;
+        LOGGER__ERROR("Failed to prepare device, err: {}", status);
+        iio_context_destroy(m_ctx);
+        return status;
     }
-    return rc;
+
+    return GYRO_STATUS_SUCCESS;
 }
 
-int GyroDev::restart()
+gyro_status_t GyroDev::restart()
 {
     shutdown();
     return start();
 }
 
-/* write device attribute: string */
-int GyroDev::device_attr_wr_str(const char *attr,
-                                const char *str_val)
+gyro_status_t GyroDev::device_attr_wr_str(const char *attr, const char *str_val)
 {
-    ssize_t rc;
-    char *attr_str;
-
-    LOGGER__INFO("Set attribute {} to {}", attr, str_val);
-    attr_str = (char *)iio_device_find_attr(m_iio_dev, attr);
-    if (!attr_str)
-    {
-        LOGGER__ERROR("{} attribute not found.", attr);
-        return -EINVAL;
+    if (iio_device_find_attr(m_iio_dev, attr) == nullptr) {
+        LOGGER__ERROR("Attribute '{}' not found on device.", attr);
+        return GYRO_STATUS_DEVICE_INTERACTION_FAILURE;
     }
 
-    rc = iio_device_attr_write(m_iio_dev, attr, str_val);
-    if (rc < 0)
-    {
-        LOGGER__ERROR("Failed to write attr[{}]={} to device {}, rc = {}",
+    ssize_t rc = iio_device_attr_write(m_iio_dev, attr, str_val);
+    if (rc < 0) {
+        LOGGER__ERROR("Failed to write attribute '{}={}' to device '{}', error code: {}", 
                       attr, str_val, device_name_get(), rc);
-        return -EIO;
+        return GYRO_STATUS_DEVICE_INTERACTION_FAILURE;
     }
 
-    return 0;
+    LOGGER__INFO("Successfully set attribute '{}' to '{}'.", attr, str_val);
+    return GYRO_STATUS_SUCCESS;
 }
 
-/* write channel attribute: string */
-int GyroDev::channel_attr_wr_str(struct iio_channel *chn, const char *attr,
-                                 const char *str_val)
+gyro_status_t GyroDev::channel_attr_wr_str(struct iio_channel *chn, const char *attr,
+                                            const char *str_val)
 {
-    ssize_t rc;
-    char *attr_str;
-
-    attr_str = (char *)iio_channel_find_attr(chn, attr);
-    if (!attr_str)
-    {
-        LOGGER__ERROR("{} attribute not found.", attr);
-        return -EINVAL;
+    if (iio_channel_find_attr(chn, attr) == nullptr) {
+        LOGGER__ERROR("Attribute '{}' not found on channel.", attr);
+        return GYRO_STATUS_CHAN_INTERACTION_FAILURE;
     }
 
-    rc = iio_channel_attr_write(chn, attr, str_val);
-    if (rc < 0)
-    {
-        LOGGER__ERROR("Failed to write attr[{}]={}, rc = {}", attr, str_val,
-                      rc);
-        return -EIO;
+    ssize_t rc = iio_channel_attr_write(chn, attr, str_val);
+    if (rc < 0) {
+        LOGGER__ERROR("Failed to write attr[{}]={}, rc = {}", attr, str_val, rc);
+        return GYRO_STATUS_CHAN_INTERACTION_FAILURE;
     }
 
-    return 0;
+    LOGGER__INFO("Successfully set attribute '{}' to '{}'.", attr, str_val);
+    return GYRO_STATUS_SUCCESS;
 }
 
-/* applies streaming configuration through IIO */
-int GyroDev::channel_attr_set(struct iio_channel *chn, const char *attr,
-                              const char *str_val)
+gyro_status_t GyroDev::device_cfg_set()
 {
-    if (!chn)
-    {
-        return -EINVAL;
-    }
-
-    return channel_attr_wr_str(chn, attr, str_val);
-}
-
-int GyroDev::device_cfg_set()
-{
-    int rc = 0;
-
     if (!m_iio_dev)
     {
-        return -EINVAL;
-    }
-    rc = device_attr_wr_str("current_timestamp_clock", DEVICE_CLK_TIMESTAMP);
-    if (rc)
-    {
-        return rc;
-    }
-    rc = device_attr_wr_str("sampling_frequency", m_device_freq.c_str());
-    if (rc)
-    {
-        return rc;
+        LOGGER__ERROR("Received uninitialized Gyro device!");
+        return GYRO_STATUS_ILLEGAL_STATE;
     }
 
-    return 0;
+    auto set_device_attr = [this](const char* attr, const char* value) -> int {
+        gyro_status_t status = device_attr_wr_str(attr, value);
+        if (status != GYRO_STATUS_SUCCESS) {
+            LOGGER__ERROR("Failed to set {}={} for Gyro device, error code: {}", attr, value, status);
+        }
+        return status;
+    };
+
+    if (set_device_attr("current_timestamp_clock", DEVICE_CLK_TIMESTAMP) ||
+        set_device_attr("sampling_frequency", m_device_freq.c_str())) {
+        return GYRO_STATUS_DEVICE_INTERACTION_FAILURE;
+    }
+
+    return GYRO_STATUS_SUCCESS;
 }
 
 void GyroDev::show_device_info()
@@ -453,7 +360,7 @@ void GyroDev::prepare_device_data()
                   m_iio_device_data.nb_channels, m_iio_device_data.nb_attrs);
 }
 
-void GyroDev::prepare_channel_data()
+gyro_status_t GyroDev::prepare_channel_data()
 {
     struct iio_channel *channel;
     for (unsigned int j = 0; j < m_iio_device_data.nb_channels && j < MAX_CHANNEL_ID;
@@ -471,25 +378,51 @@ void GyroDev::prepare_channel_data()
 
             if (chan_type == IIO_ANGL_VEL)
             {
-                channel_attr_set(channel, "scale", (std::stringstream() << m_gyro_scale).str().c_str());
+                gyro_status_t status = channel_attr_wr_str(channel, "scale", (std::stringstream() << m_gyro_scale).str().c_str());
+                if (status != GYRO_STATUS_SUCCESS)
+                {
+                    LOGGER__ERROR("Failed to set scale for channel[{}], error code: {}", j, status);
+                    return status;
+                }
             }
         }
     }
+
+    return GYRO_STATUS_SUCCESS;
 }
 
-void GyroDev::prepare_device()
+gyro_status_t GyroDev::prepare_device()
 {
+    gyro_status_t status;
+
     m_iio_dev = iio_context_find_device(m_ctx, m_iio_device_data.name.c_str());
     if (!m_iio_dev)
     {
-        LOGGER__ERROR("Unable to find IIO device {}", m_iio_device_data.name.c_str());
+        LOGGER__ERROR("Gyro device {} not found! Make sure the device is connected and "
+                        "sensor_name in the configuration file matches the gyro device name "
+                        "(the one displayed in iio_info).", m_iio_device_data.name.c_str());
         m_iio_dev = NULL;
+        return GYRO_STATUS_IIO_CONTEXT_FAILURE;
     }
 
-    device_cfg_set();
+    status = device_cfg_set();
+    if (status != GYRO_STATUS_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to configure Gyro device {}.", m_iio_device_data.name.c_str());
+        m_iio_dev = NULL;
+        return status;
+    }
+
     prepare_device_data();
-    prepare_channel_data();
-    enable_all_channels();
+    status = prepare_channel_data();
+    if (status != GYRO_STATUS_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to prepare channel data, err: {}.", status);
+        m_iio_dev = NULL;
+        return status;
+    }
+
+    enable_all_channels(m_iio_dev);
 
     m_iio_device_data.buf = iio_device_create_buffer(m_iio_dev, FIFO_BUF_SIZE, false);
     if (!m_iio_device_data.buf)
@@ -497,40 +430,38 @@ void GyroDev::prepare_device()
         LOGGER__ERROR("Unable to create IIO buffer for device {}",
                       m_iio_device_data.name.c_str());
         m_iio_dev = NULL;
+        return GYRO_STATUS_IIO_CONTEXT_FAILURE;
     }
 
-    // Enable the buffer
     if (!iio_buffer_start(m_iio_device_data.buf))
     {
         LOGGER__ERROR("Unable to start IIO buffer for device {}",
                       m_iio_device_data.name.c_str());
         m_iio_dev = NULL;
+        return GYRO_STATUS_IIO_CONTEXT_FAILURE;
     }
+
+    return GYRO_STATUS_SUCCESS;
 }
 
+gyro_status_t GyroDev::configure()
+{
+    gyro_status_t rc = start();
+    if (rc != GYRO_STATUS_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to configure Gyro device. err: {}", rc);
+        return rc;
+    }
 
+    show_device_info();
+    return rc;
+}
 
-int GyroDev::run()
+gyro_status_t GyroDev::run()
 {
     int max_tries = 10;
-    int rc;
+    gyro_status_t rc = GYRO_STATUS_SUCCESS;
 
-    rc = start();
-    if (rc)
-    {
-        rc = EXIT_FAILURE;
-        return rc;
-    }
-    show_device_info();
-
-    rc = restart();
-    if (rc)
-    {
-        rc = EXIT_FAILURE;
-        return rc;
-    }
-
-    // Read data from the buffer
     while (!m_stopRunning)
     {
         for (int i = 0; i < max_tries && !m_stopRunning; i++)
@@ -538,11 +469,11 @@ int GyroDev::run()
             ssize_t nbytes = iio_buffer_refill(m_iio_device_data.buf);
             if (nbytes < 0 && !m_stopRunning)
             {
-                fprintf(stderr, "Error refilling buffer for device %s, rc = %zd\n", m_iio_device_data.name.c_str(), nbytes);
+                LOGGER__ERROR("Error refilling buffer for device {}, rc = {}, restarting device", m_iio_device_data.name.c_str(), nbytes);
                 rc = restart();
-                if (rc)
+                if (rc != GYRO_STATUS_SUCCESS)
                 {
-                    rc = EXIT_FAILURE;
+                    LOGGER__ERROR("Failed to restart Gyro device. err: {}", rc);
                     return rc;
                 }
                 break;
@@ -551,7 +482,7 @@ int GyroDev::run()
             iio_buffer_foreach_sample(m_iio_device_data.buf, rd_sample_demux,
                                       (void *)&m_vector_samples);
         }
-        usleep(1000); // 1 msec delay
+        usleep(GYRO_USLEEP_BETWEEN_ITERATIONS); // 1 msec delay
     }
 
     shutdown();
@@ -560,7 +491,7 @@ int GyroDev::run()
     m_stopRunningAck = true;
     cv.notify_all();
 
-    return 0;
+    return rc;
 }
 
 static void set_handler(int signal_nb, void (*handler)(int))
@@ -584,16 +515,15 @@ int main(int argc, char *argv[])
         return 0;
     }
 
-    gyroApi = new GyroDev(iio_device_name, device_freq, std::stod(gyro_scale));
+    gyroApi = std::make_unique<GyroDev>(iio_device_name, device_freq, std::stod(gyro_scale));
     set_handler(SIGINT, &handle_sig);
     set_handler(SIGTERM, &handle_sig);
     sigfillset(&set);
     pthread_sigmask(SIG_BLOCK, &set, &oldset);
-    std::thread gyroThread = std::thread(&GyroDev::dump_rec_samples, gyroApi, output_path);
+    std::thread gyroThread = std::thread(&GyroDev::dump_rec_samples, gyroApi.get(), output_path);
     pthread_sigmask(SIG_SETMASK, &oldset, NULL);
 
     gyroApi->run();
     gyroThread.join();
-    delete gyroApi;
     return EXIT_SUCCESS;
 }

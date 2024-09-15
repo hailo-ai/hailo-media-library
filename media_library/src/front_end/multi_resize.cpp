@@ -37,6 +37,12 @@
 #include <shared_mutex>
 #define MAKE_EVEN(value) ((value) % 2 != 0 ? (value) + 1 : (value))
 
+struct timestamp_metadata
+{
+    uint64_t last_timestamp;
+    float accumulated_diff;
+};
+
 class MediaLibraryMultiResize::Impl final
 {
 public:
@@ -93,7 +99,7 @@ private:
     // output buffer pools
     std::vector<MediaLibraryBufferPoolPtr> m_buffer_pools;
     // Timestamps in ms.
-    std::vector<int64_t> m_timestamps;
+    std::vector<timestamp_metadata> m_timestamps;
     bool m_strict_framerate = true;
     // read/write lock for configuration manipulation/reading
     std::shared_mutex rw_lock;
@@ -101,6 +107,7 @@ private:
     media_library_return validate_configurations(multi_resize_config_t &mresize_config);
     media_library_return decode_config_json_string(multi_resize_config_t &mresize_config, std::string config_string);
     media_library_return acquire_output_buffers(HailoMediaLibraryBufferPtr input_buffer, std::vector<HailoMediaLibraryBufferPtr> &buffers);
+    bool should_push_frame_logic(uint32_t output_framerate, uint8_t output_index, uint64_t isp_timestamp_ns);
     media_library_return create_and_initialize_buffer_pools();
     media_library_return validate_input_and_output_frames(HailoMediaLibraryBufferPtr input_frame, std::vector<HailoMediaLibraryBufferPtr> &output_frames);
     media_library_return perform_multi_resize(HailoMediaLibraryBufferPtr input_buffer, std::vector<HailoMediaLibraryBufferPtr> &output_frames);
@@ -332,11 +339,11 @@ media_library_return MediaLibraryMultiResize::Impl::configure(multi_resize_confi
     if (ret != MEDIA_LIBRARY_SUCCESS)
         return ret;
 
-    auto timestamp = media_library_get_timespec_ms();
     for (uint8_t i = 0; i < m_buffer_pools.size(); i++)
     {
-        m_timestamps.push_back(timestamp);
+        m_timestamps.push_back({0, 0});
     }
+    
     m_configured = true;
 
     return MEDIA_LIBRARY_SUCCESS;
@@ -384,7 +391,7 @@ media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer
 
         auto bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width(width);
         LOGGER__INFO("Creating buffer pool named {} for output resolution: width {} height {} in buffers size of {} and bytes per line {}", name, width, height, output_res.pool_max_buffers, bytes_per_line);
-        MediaLibraryBufferPoolPtr buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, m_multi_resize_config.output_video_config.format, output_res.pool_max_buffers, CMA, bytes_per_line, name);
+        MediaLibraryBufferPoolPtr buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, m_multi_resize_config.output_video_config.format, output_res.pool_max_buffers, HAILO_MEMORY_TYPE_DMABUF, bytes_per_line, name);
         if (buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR("Failed to init buffer pool");
@@ -404,6 +411,40 @@ media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer
     return MEDIA_LIBRARY_SUCCESS;
 }
 
+bool MediaLibraryMultiResize::Impl::should_push_frame_logic(uint32_t output_framerate, uint8_t output_index, uint64_t isp_timestamp_ns)
+{
+    if (output_framerate == 0)
+    {
+        LOGGER__DEBUG("Skipping current frame because output framerate is 0, no need to acquire buffer {}", output_index);
+        return false;
+    }
+
+    float expected_frame_latency = 1000 / output_framerate;
+    float latency_since_last_frame = (isp_timestamp_ns - m_timestamps[output_index].last_timestamp) / pow(10,6);
+
+    if (m_timestamps[output_index].last_timestamp == 0)
+    {
+        // We can't save `latency_since_last_frame` in the first frame, because the isp timestamp is not starting from zero
+        m_timestamps[output_index].accumulated_diff = expected_frame_latency;
+    }
+    else
+    {
+        // In case of jitter, limit the accumulated diff to 3 frames
+        m_timestamps[output_index].accumulated_diff += std::min(latency_since_last_frame, expected_frame_latency * 3);
+    }
+
+    m_timestamps[output_index].last_timestamp = isp_timestamp_ns;
+
+    if (m_timestamps[output_index].accumulated_diff >= expected_frame_latency)
+    {
+        LOGGER__DEBUG("Should push frame, accumulated diff is {} and expected frame latency is {}", m_timestamps[output_index].accumulated_diff, expected_frame_latency);
+        m_timestamps[output_index].accumulated_diff -= expected_frame_latency;
+        return true;
+    }
+
+    return false;
+}
+
 /**
  * @brief Acquire output buffers from buffer pools
  *
@@ -412,41 +453,20 @@ media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer
  */
 media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(HailoMediaLibraryBufferPtr input_buffer, std::vector<HailoMediaLibraryBufferPtr> &buffers)
 {
-    // Acquire output buffers
-    int32_t isp_ae_fps = input_buffer->isp_ae_fps;
-    bool should_acquire_buffer;
     uint8_t num_of_outputs = m_multi_resize_config.output_video_config.resolutions.size();
-    int64_t timestamp = media_library_get_timespec_ms();
+
     for (uint8_t i = 0; i < num_of_outputs; i++)
     {
-        uint32_t input_framerate = m_multi_resize_config.input_video_config.framerate;
-        uint32_t output_framerate = m_multi_resize_config.output_video_config.resolutions[i].framerate;
-        int64_t frame_latency = 1000 / output_framerate;
         HailoMediaLibraryBufferPtr buffer = std::make_shared<hailo_media_library_buffer>();
-        bool push_frame = timestamp - m_timestamps[i] >= frame_latency;
-        if (push_frame)
-        {
-            // We want to advance the timestamp to the next frame time at least once.
-            // If we are still 2 frames behind, we will advance the timestamp again.
-            do
-            {
-                m_timestamps[i] += frame_latency;
-            } while (timestamp - m_timestamps[i] >= frame_latency * 2);
-        }
+
+        uint32_t output_framerate = m_multi_resize_config.output_video_config.resolutions[i].framerate;
+        bool should_acquire_buffer = should_push_frame_logic(output_framerate, i, input_buffer->isp_timestamp_ns);
+
         LOGGER__DEBUG("Acquiring buffer {}, target framerate is {}", i, output_framerate);
-        // m_strict_framerate is true, using new frame counter logic
-        if (m_strict_framerate)
-            should_acquire_buffer = (output_framerate != 0) && push_frame;
-        else
-        {
-            // This is the old logic, using the frame counter, deprecated.
-            uint stream_period = (output_framerate == 0) ? 0 : input_framerate / output_framerate;
-            should_acquire_buffer = stream_period == 0 ? false : (m_frame_counter % stream_period == 0) || (isp_ae_fps != -1 && output_framerate >= static_cast<uint32_t>(isp_ae_fps));
-            LOGGER__DEBUG("frame counter is {}, stream period is {}, should acquire buffer is {}", m_frame_counter, stream_period, should_acquire_buffer);
-        }
+
         if (!should_acquire_buffer)
         {
-            LOGGER__DEBUG("Skipping current frame to match framerate {}, no need to acquire buffer {}, counter is {}", output_framerate, i, m_frame_counter);
+            LOGGER__DEBUG("Skipping current frame [framerate {}], no need to acquire buffer {}, counter is {}", output_framerate, i, m_frame_counter);
             buffers.emplace_back(buffer);
             continue;
         }
@@ -457,12 +477,8 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(Hailo
             buffers.emplace_back(buffer);
             continue;
         }
-        buffer->isp_ae_fps = isp_ae_fps;
-        buffer->isp_ae_converged = input_buffer->isp_ae_converged;
-        buffer->isp_ae_average_luma = input_buffer->isp_ae_average_luma;
-        buffer->isp_ae_integration_time = input_buffer->isp_ae_integration_time;
-        buffer->isp_timestamp_ns = input_buffer->isp_timestamp_ns;
-        buffer->pts = input_buffer->pts;
+
+        buffer->copy_metadata_from(input_buffer);
         buffers.emplace_back(buffer);
         LOGGER__DEBUG("buffer acquired successfully");
     }
@@ -488,23 +504,29 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(HailoMe
     }
 
     dsp_crop_resize_params_t crop_resize_params = {};
+    hailo_dsp_buffer_data_t dsp_buffer_data = input_buffer->buffer_data->As<hailo_dsp_buffer_data_t>();
     dsp_multi_crop_resize_params_t multi_crop_resize_params = {
-        .src = input_buffer->hailo_pix_buffer.get(),
+        .src = &dsp_buffer_data.properties,
         .crop_resize_params = &crop_resize_params,
         .crop_resize_params_count = 1,
         .interpolation = m_multi_resize_config.output_video_config.interpolation_type,
     };
 
+    std::vector<hailo_dsp_buffer_data_t> output_dsp_buffers;
+    output_dsp_buffers.reserve(num_of_output_resolutions);
+
     uint num_bufs_to_resize = 0;
     for (size_t i = 0; i < num_of_output_resolutions; i++)
     {
         // TODO: Handle cases where its nullptr
-        if (output_frames[i]->hailo_pix_buffer == nullptr)
+        if (output_frames[i]->buffer_data == nullptr)
         {
             LOGGER__DEBUG("Skipping resize for output frame {} to match target framerate ({})", i, m_multi_resize_config.output_video_config.resolutions[i].framerate);
             continue;
         }
-        dsp_image_properties_t *output_frame = output_frames[i]->hailo_pix_buffer.get();
+
+        hailo_buffer_data_t *output_frame = output_frames[i]->buffer_data.get();
+        output_dsp_buffers.emplace_back(std::move(output_frame->As<hailo_dsp_buffer_data_t>()));
         output_resolution_t &output_res = m_multi_resize_config.output_video_config.resolutions[i];
 
         if (output_res != *output_frame)
@@ -513,8 +535,8 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(HailoMe
             return MEDIA_LIBRARY_ERROR;
         }
 
-        crop_resize_params.dst[num_bufs_to_resize] = output_frame;
-        LOGGER__DEBUG("Multi resize output frame ({}) - y_ptr = {}, uv_ptr = {}. dims: width {} output frame height {}", i, fmt::ptr(output_frame->planes[0].userptr), fmt::ptr(output_frame->planes[1].userptr), output_frame->width, output_frame->height);
+        crop_resize_params.dst[num_bufs_to_resize] = &output_dsp_buffers[num_bufs_to_resize].properties;
+        LOGGER__DEBUG("Multi resize output frame ({}) - y_ptr = {}, uv_ptr = {}. dims: width = {}, output frame height = {}, y plane fd = {}", i, fmt::ptr(output_frame->planes[0].userptr), fmt::ptr(output_frame->planes[1].userptr), output_frame->width, output_frame->height, output_frame->planes[0].fd);
         num_bufs_to_resize++;
     }
 
@@ -524,6 +546,7 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(HailoMe
         return MEDIA_LIBRARY_SUCCESS;
     }
 
+    //Filter out the rest of the buffers if something has not cleaned up properly
     for (size_t i = num_bufs_to_resize; i < DSP_MULTI_RESIZE_OUTPUTS_COUNT; i++)
     {
         crop_resize_params.dst[i] = nullptr;
@@ -599,7 +622,7 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(HailoMe
     {
         dsp_roi_t dsp_rois[privacy_mask_data->rois_count];
         dsp_privacy_mask_t dsp_privacy_mask = {
-            .bitmask = (uint8_t *)privacy_mask_data->bitmask->get_plane(0),
+            .bitmask = (uint8_t *)privacy_mask_data->bitmask->get_plane_ptr(0),
             .y_color = privacy_mask_data->color.y,
             .u_color = privacy_mask_data->color.u,
             .v_color = privacy_mask_data->color.v,
@@ -664,7 +687,7 @@ media_library_return MediaLibraryMultiResize::Impl::validate_input_and_output_fr
 
     if (m_multi_resize_config.output_video_config.grayscale)
     {
-        if (m_multi_resize_config.output_video_config.format != DSP_IMAGE_FORMAT_NV12)
+        if (m_multi_resize_config.output_video_config.format != HAILO_FORMAT_NV12)
         {
             LOGGER__ERROR("Saturating to grayscale is enabled only for NV12 format");
             return MEDIA_LIBRARY_INVALID_ARGUMENT;
@@ -701,13 +724,13 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(HailoMediaLibra
         // Saturate UV plane to value of 128 - to get a grayscale image
         if (input_frame->is_dmabuf())
         {
-            DmaMemoryAllocator::get_instance().dmabuf_sync_start(input_frame->get_plane(1));
-            memset(input_frame->get_plane(1), 128, input_frame->get_plane_size(1));
-            DmaMemoryAllocator::get_instance().dmabuf_sync_end(input_frame->get_plane(1));
+            input_frame->sync_start(1);
+            memset(input_frame->get_plane_ptr(1), 128, input_frame->get_plane_size(1));
+            input_frame->sync_end(1);
         }
         else
         {
-            memset(input_frame->get_plane(1), 128, input_frame->get_plane_size(1));
+            memset(input_frame->get_plane_ptr(1), 128, input_frame->get_plane_size(1));
         }
     }
 

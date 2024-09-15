@@ -4,6 +4,8 @@
 
 #include <gst/gst.h>
 #include <vector>
+#include <memory>
+#include "media_library/encoder_config.hpp"
 
 G_BEGIN_DECLS
 
@@ -16,6 +18,10 @@ G_BEGIN_DECLS
 struct GstHailoJpegEnc
 {
     GstBin parent;
+    std::string config;
+    std::string config_path;
+    std::unique_ptr<EncoderConfig> encoder_config;
+    std::shared_ptr<encoder_config_t> encoder_user_config;
     uint num_of_threads;
     GstPad *srcpad;
     GstPad *sinkpad;

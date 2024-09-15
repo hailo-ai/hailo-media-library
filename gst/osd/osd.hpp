@@ -468,7 +468,7 @@ namespace osd
         std::shared_future<media_library_return> remove_overlay_async(const std::string &id);
 
         media_library_return set_frame_size(int frame_width, int frame_height);
-        media_library_return blend(dsp_image_properties_t &input_image_properties);
+        media_library_return blend(HailoMediaLibraryBufferPtr &input_buffer);
 
     private:
         class Impl;

@@ -390,7 +390,7 @@ int InitEncoderRateConfig(EncoderParams *enc_params, VCEncInst *pEnc)
     rcCfg.bitVarRangeB = enc_params->bitVarRangeB;
     rcCfg.tolMovingBitRate = enc_params->tolMovingBitRate;
 
-    if (enc_params->monitorFrames != 0)
+    if (enc_params->monitorFrames != AUTO_MONITOR_FRAMES)
         rcCfg.monitorFrames = enc_params->monitorFrames;
     else
         rcCfg.monitorFrames =
