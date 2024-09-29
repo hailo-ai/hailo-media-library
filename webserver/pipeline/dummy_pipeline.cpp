@@ -71,12 +71,12 @@ void DummyPipeline::callback_handle_strategy(ResourceStateChangeNotification not
     {
         auto state = std::static_pointer_cast<PrivacyMaskResource::PrivacyMaskResourceState>(notif.resource_state);
         data_string = "\n\tenabled: ";
-        for (const auto &mask : state->enabled)
+        for (const auto &mask : state->changed_to_enabled)
         {
             data_string += mask + ", ";
         }
         data_string += "\n\tdisabled: ";
-        for (const auto &mask : state->disabled)
+        for (const auto &mask : state->changed_to_disabled)
         {
             data_string += mask + ", ";
         }

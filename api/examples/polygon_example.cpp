@@ -1,4 +1,3 @@
-#include "media_library/vision_pre_proc.hpp"
 #include "media_library/media_library_types.hpp"
 #include "media_library/privacy_mask.hpp"
 #include "media_library/privacy_mask_types.hpp"

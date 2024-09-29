@@ -1,6 +1,5 @@
 # Targets
 option('targets', type : 'array', choices : ['core', 'gst', 'api', 'docs'], value : ['core', 'gst','api'])
-option('hailort_4_16', type : 'boolean', value : false)
 
 # Unit tests
 option('include_unit_tests', type : 'boolean', value : true)

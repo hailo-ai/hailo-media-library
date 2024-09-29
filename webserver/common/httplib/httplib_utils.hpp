@@ -22,4 +22,5 @@ public:
     void Post(const std::string &pattern, std::function<void(const nlohmann::json &)> callback);
     void Post(const std::string &pattern, std::function<nlohmann::json(const nlohmann::json &)> callback);
     void Redirect(const std::string &pattern, const std::string &target);
+    void Delete(const std::string &pattern, std::function<nlohmann::json(const nlohmann::json &)> callback);
 };

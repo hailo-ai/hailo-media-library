@@ -32,6 +32,7 @@ public:
     void on_fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps);
 
     PrivacyMaskBlenderPtr get_privacy_mask_blender();
+    float get_current_fps();
 
 private:
     static void fps_measurement(GstElement *fpssink, gdouble fps,
@@ -40,6 +41,7 @@ private:
     {
         MediaLibraryFrontend::Impl *fe = static_cast<MediaLibraryFrontend::Impl *>(user_data);
         fe->on_fps_measurement(fpssink, fps, droprate, avgfps);
+        fe->update_fps(fps);
     }
     static void need_data(GstAppSrc *appsrc, guint size, gpointer user_data)
     {
@@ -59,6 +61,10 @@ private:
         g_free(name);
         return ret;
     }
+    void update_fps(gdouble fps) {
+        m_current_fps = static_cast<float>(fps);
+    }
+
     void set_gst_callbacks();
     std::string create_pipeline_string();
 
@@ -70,7 +76,7 @@ private:
     GstElement *m_pipeline;
     std::map<output_stream_id_t, std::vector<FrontendWrapperCallback>> m_callbacks;
     PrivacyMaskBlenderPtr m_privacy_blender;
-
+    float m_current_fps;
     GstAppSrc *m_appsrc;
     GstCaps *m_appsrc_caps;
     GMainLoop *m_main_loop;

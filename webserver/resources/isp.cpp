@@ -25,7 +25,7 @@ void IspResource::on_ai_state_change(std::shared_ptr<AiResource::AiResourceState
     if (std::find(state->enabled.begin(), state->enabled.end(), AiResource::AiApplications::AI_APPLICATION_DENOISE) == state->enabled.end() &&
         std::find(state->disabled.begin(), state->disabled.end(), AiResource::AiApplications::AI_APPLICATION_DENOISE) == state->disabled.end())
     {
-        WEBSERVER_LOG_ERROR("ISP: denoise state hasn't changed, no reset is needed");
+        WEBSERVER_LOG_DEBUG("ISP: denoise state hasn't changed, no reset is needed");
         return;
     };
 

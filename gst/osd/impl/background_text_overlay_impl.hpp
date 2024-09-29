@@ -30,7 +30,7 @@ class BackgroundTextOverlayImpl;
 using BackgroundTextOverlayImplPtr = std::shared_ptr<BackgroundTextOverlayImpl>;
 
 /* Helper overlay for background color */
-class BackgroundTextOverlayImpl : public OverlayImpl
+class BackgroundTextOverlayImpl final : public OverlayImpl
 {
 public:
     BackgroundTextOverlayImpl(const osd::BaseTextOverlay &overlay, media_library_return &status);
@@ -43,7 +43,7 @@ public:
     cv::Size get_size() const;
     void set_size(cv::Size size);
 
-protected:
+private:
     cv::Size m_size;
     osd::rgba_color_t m_color;
 };

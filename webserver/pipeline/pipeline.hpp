@@ -2,6 +2,8 @@
 #include "resources/resources.hpp"
 #include "resources/repository.hpp"
 #include <gst/gst.h>
+#include <gst/app/gstappsink.h>
+#include "rtc/rtc.hpp"
 
 namespace webserver
 {
@@ -13,6 +15,9 @@ namespace webserver
             WebserverResourceRepository m_resources;
             GstElement *m_pipeline;
             virtual std::string create_gst_pipeline_string() = 0;
+            void set_gst_callbacks();
+            static void new_sample(GstAppSink *appsink, gpointer user_data);
+            static void fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps, gpointer user_data);
 
         public:
             IPipeline(WebserverResourceRepository resources);

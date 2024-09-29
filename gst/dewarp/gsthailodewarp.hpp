@@ -60,7 +60,8 @@ struct _GstHailoDewarp
   GstPad *sinkpad;
   GstPad *srcpad;
   gchar *config_file_path;
-  std::string config_string;
+  gchar * config_string;
+
   std::shared_ptr<ldc_config_t> dewarp_config;
   std::shared_ptr<MediaLibraryDewarp> medialib_dewarp;
 };

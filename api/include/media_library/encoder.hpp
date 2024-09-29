@@ -37,7 +37,7 @@
 /*!
  * @brief type for user callback function to receive encoded frames
  *
- * the provided user function receives the encoded frames and their sizes
+ * The provided user function receives the encoded frames and their sizes
  * as uint32_t argument.
  * @ref EncoderOSD::subscribe
  */
@@ -105,7 +105,7 @@ public:
    * buffers
    * @param[in] callback - callback function to be called when a buffer is
    * ready. The callback function AppWrapperCallback object. The callback
-   * function should be thread safe. The callback function should not block.
+   * function should be thread-safe. The callback function should not block.
    * The callback function should not throw exceptions.
    * The callback function should not call the MediaLibraryEncoder module.
    * @return media_library_return - status of the subscription operation
@@ -147,14 +147,21 @@ public:
   media_library_return configure(encoder_config_t &config);
 
   /**
-   * @brief 
-   * Get a copy of the current configuration of the encoder module
-   * @return encoder_config_t - the current configuration of the encoder module
+   * @brief
+   * Get a copy of the current actual configuration of the encoder module
+   * @return encoder_config_t - the current actual configuration of the encoder module
    */
   encoder_config_t get_config();
 
   /**
-   * @brief 
+   * @brief
+   * Get a copy of the configuration of the encoder module, as given by the user
+   * @return encoder_config_t - the user configuration of the encoder module
+   */
+  encoder_config_t get_user_config();
+
+  /**
+   * @brief
    * Get the encoder type
    * @return EncoderType - the type of the encoder
    */
@@ -173,6 +180,12 @@ public:
    * @note This constructor is used internally by the create function.
    */
   MediaLibraryEncoder(std::shared_ptr<Impl> impl);
+
+  /**
+   * @brief Get the current fps of the encoder
+   * @return float - the current fps of the encoder
+   */
+  float get_current_fps();
 
   /**
    * @brief Destructor for the encoder module

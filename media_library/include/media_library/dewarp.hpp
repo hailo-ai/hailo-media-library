@@ -100,7 +100,7 @@ public:
      *
      * @return media_library_return - status of the dewarp operation
      */
-    media_library_return handle_frame(hailo_media_library_buffer &input_frame, hailo_media_library_buffer &output_frame);
+    media_library_return handle_frame(HailoMediaLibraryBufferPtr input_frame, HailoMediaLibraryBufferPtr output_frame);
 
     /**
      * @brief get the dewarp configurations object
@@ -141,7 +141,7 @@ public:
      * @param[in] format - the new format of the input video
      * @return media_library_return - status of the configuration operation
      */
-    media_library_return set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate, dsp_image_format_t format);
+    media_library_return set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate, HailoFormat format);
 
     /**
      * @brief Observes the media library by registering the provided callbacks.

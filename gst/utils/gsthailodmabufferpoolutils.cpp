@@ -9,7 +9,7 @@ gst_is_hailo_dmabuf_pool_type(GstBufferPool *pool)
 
 gboolean
 gst_hailo_dmabuf_configure_pool(GstDebugCategory *category, GstBufferPool *pool,
-                         GstCaps *caps, gsize size, guint min_buffers, guint max_buffers)
+                                GstCaps *caps, gsize size, guint min_buffers, guint max_buffers)
 {
     GstStructure *config = NULL;
 
@@ -39,8 +39,8 @@ gst_hailo_dmabuf_configure_pool(GstDebugCategory *category, GstBufferPool *pool,
 }
 
 GstBufferPool *
-gst_hailo_dma_create_new_pool(GstDebugCategory *category, GstCaps* caps, guint min_buffers,
-                       guint max_buffers, gsize size, guint padding)
+gst_hailo_dma_create_new_pool(GstDebugCategory *category, GstCaps *caps, guint min_buffers,
+                              guint max_buffers, gsize size, guint padding)
 {
     // Create a new bufferpool object
     GstBufferPool *pool = gst_hailo_dma_buffer_pool_new(padding);
@@ -65,7 +65,7 @@ gst_hailo_dma_create_new_pool(GstDebugCategory *category, GstCaps* caps, guint m
     return pool;
 }
 
-GstBufferPool * gst_create_hailo_dma_bufferpool_from_caps(GstElement *element, GstCaps* caps, guint bufferpool_min_size, guint bufferpool_max_size)
+GstBufferPool *gst_create_hailo_dma_bufferpool_from_caps(GstElement *element, GstCaps *caps, guint bufferpool_min_size, guint bufferpool_max_size)
 {
     GstAllocator *allocator = NULL;
     GstBufferPool *pool = NULL;
@@ -79,7 +79,7 @@ GstBufferPool * gst_create_hailo_dma_bufferpool_from_caps(GstElement *element, G
 
     guint buffer_size = video_info->size;
 
-    //get width and strid from caps
+    // get width and strid from caps
     GstStructure *s = gst_caps_get_structure(caps, 0);
     gint width, stride;
     gst_structure_get_int(s, "width", &width);
@@ -112,7 +112,6 @@ GstBufferPool * gst_create_hailo_dma_bufferpool_from_caps(GstElement *element, G
         gst_object_unref(allocator);
     }
 
-
-    //check if need more things here like in the function above
+    // check if need more things here like in the function above
     return pool;
 }

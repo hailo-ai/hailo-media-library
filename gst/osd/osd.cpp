@@ -21,15 +21,15 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "media_library/media_library_logger.hpp"
 #include "impl/blender_impl.hpp"
-#include "impl/overlay_impl.hpp"
 #include "impl/custom_overlay_impl.hpp"
-#include "impl/image_overlay_impl.hpp"
-#include "impl/text_overlay_impl.hpp"
 #include "impl/datetime_overlay_impl.hpp"
+#include "impl/image_overlay_impl.hpp"
+#include "impl/overlay_impl.hpp"
+#include "impl/text_overlay_impl.hpp"
+#include "media_library/media_library_logger.hpp"
+
 #include <algorithm>
-#include <vector>
 
 namespace osd
 {
@@ -40,7 +40,6 @@ namespace osd
                     "id" : "default_datetime",
                     "font_size" : 70,
                     "font_path" : "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
-                    "line_thickness" : 3,
                     "text_color" : [ 255, 255, 255 ],
                     "x" : 0.1,
                     "y" : 0.7,
@@ -55,7 +54,6 @@ namespace osd
                     "label" : "Hailo",
                     "font_size" : 70,
                     "font_path" : "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
-                    "line_thickness" : 3,
                     "text_color" : [ 255, 255, 255 ],
                     "x" : 0.7,
                     "y" : 0.7,
@@ -68,7 +66,6 @@ namespace osd
                     "label" : "Stream 0",
                     "font_size" : 70,
                     "font_path" : "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
-                    "line_thickness" : 3,
                     "text_color" : [ 255, 255, 255 ],
                     "x" : 0.1,
                     "y" : 0.1,
@@ -80,107 +77,258 @@ namespace osd
         }
     })";
 
-    Overlay::Overlay(std::string _id, float _x, float _y, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy) : id(_id), x(_x), y(_y), z_index(_z_index), angle(_angle), rotation_alignment_policy(_rotation_policy)
+    Overlay::Overlay(std::string _id, float _x, float _y, unsigned int _z_index,
+                     unsigned int _angle, rotation_alignment_policy_t _rotation_policy,
+                     HorizontalAlignment _horizontal_alignment, VerticalAlignment _vertical_alignment)
+        : id(_id), x(_x), y(_y), z_index(_z_index),
+          angle(_angle), rotation_alignment_policy(_rotation_policy),
+          horizontal_alignment(_horizontal_alignment), vertical_alignment(_vertical_alignment)
     {
     }
 
-    ImageOverlay::ImageOverlay(std::string _id, float _x, float _y, float _width, float _height, std::string _image_path, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy) : Overlay(_id, _x, _y, _z_index, _angle, _rotation_policy),
-                                                                                                                                                                                                                      width(_width), height(_height), image_path(_image_path)
+    ImageOverlay::ImageOverlay(std::string _id, float _x, float _y, float _width, float _height,
+                               std::string _image_path, unsigned int _z_index,
+                               unsigned int _angle, rotation_alignment_policy_t _rotation_policy,
+                               HorizontalAlignment _horizontal_alignment, VerticalAlignment _vertical_alignment)
+        : Overlay(_id, _x, _y, _z_index, _angle, _rotation_policy, _horizontal_alignment, _vertical_alignment),
+          width(_width), height(_height), image_path(_image_path)
     {
     }
 
-    BaseTextOverlay::BaseTextOverlay() : Overlay("", 0, 0, 1, 0, rotation_alignment_policy_t::CENTER),
-                                         label(""), text_color(rgba_color_t()), background_color({-1, -1, -1}), font_size(20),
-                                         line_thickness(1), font_path(DEFAULT_FONT_PATH), shadow_color({-1, -1, -1}), shadow_offset_x(0), shadow_offset_y(0)
+    BaseTextOverlay::BaseTextOverlay()
+        : Overlay("", 0, 0, 1, 0, rotation_alignment_policy_t::CENTER),
+          label(""), text_color(rgba_color_t()), background_color({-1, -1, -1, -1}),
+          font_path(DEFAULT_FONT_PATH), font_size(20), line_thickness(1),
+          shadow_color({-1, -1, -1, -1}), shadow_offset_x(0), shadow_offset_y(0),
+          font_weight(font_weight_t::NORMAL), outline_size(0), outline_color({-1, -1, -1, -1}),
+          m_width(0), m_height(0)
     {
     }
 
-    BaseTextOverlay::BaseTextOverlay(std::string _id, float _x, float _y, std::string _label, rgba_color_t _text_color, rgba_color_t _background_color,
-                                     float _font_size, int _line_thickness, unsigned int _z_index, std::string font_path,
+    BaseTextOverlay::BaseTextOverlay(std::string _id, float _x, float _y, std::string _label,
+                                     rgba_color_t _text_color, rgba_color_t _background_color,
+                                     float _font_size, int _line_thickness, unsigned int _z_index,
                                      unsigned int _angle, rotation_alignment_policy_t _rotation_policy)
-        : Overlay(_id, _x, _y, _z_index, _angle, _rotation_policy), label(_label), text_color(_text_color), background_color(_background_color),
-          font_size(_font_size), line_thickness(_line_thickness), font_path(font_path), shadow_color({-1, -1, -1}), shadow_offset_x(0), shadow_offset_y(0)
+        : Overlay(_id, _x, _y, _z_index, _angle, _rotation_policy),
+          label(_label), text_color(_text_color), background_color(_background_color),
+          font_path(DEFAULT_FONT_PATH), font_size(_font_size), line_thickness(_line_thickness),
+          shadow_color({-1, -1, -1, -1}), shadow_offset_x(0), shadow_offset_y(0),
+          font_weight(font_weight_t::NORMAL), outline_size(0), outline_color({-1, -1, -1, -1}),
+          m_width(0), m_height(0)    
     {
     }
 
-    BaseTextOverlay::BaseTextOverlay(std::string id, float x, float y, std::string label, rgba_color_t text_color, rgba_color_t background_color, float font_size, int line_thickness,
-                                     unsigned int z_index, std::string font_path, unsigned int angle, rotation_alignment_policy_t _rotation_policy,
-                                     rgba_color_t shadow_color, float shadow_offset_x, float shadow_offset_y)
-        : Overlay(id, x, y, z_index, angle, _rotation_policy),
-          label(label), text_color(text_color), background_color(background_color), font_size(font_size), line_thickness(line_thickness),
-          font_path(font_path), shadow_color(shadow_color), shadow_offset_x(shadow_offset_x), shadow_offset_y(shadow_offset_y)
+    BaseTextOverlay::BaseTextOverlay(std::string _id, float _x, float _y, std::string _label,
+                                     rgba_color_t _text_color, rgba_color_t _background_color,
+                                     float _font_size, int _line_thickness, unsigned int _z_index, std::string _font_path,
+                                     unsigned int _angle, rotation_alignment_policy_t _rotation_policy,
+                                     rgba_color_t _shadow_color, float _shadow_offset_x, float _shadow_offset_y,
+                                     font_weight_t _font_weight, int _outline_size, rgba_color_t _outline_color,
+                                     HorizontalAlignment _horizontal_alignment, VerticalAlignment _vertical_alignment)
+        : Overlay(_id, _x, _y, _z_index, _angle, _rotation_policy, _horizontal_alignment, _vertical_alignment),
+          label(_label), text_color(_text_color), background_color(_background_color),
+          font_path(_font_path), font_size(_font_size), line_thickness(_line_thickness),
+          shadow_color(_shadow_color), shadow_offset_x(_shadow_offset_x), shadow_offset_y(_shadow_offset_y),
+          font_weight(_font_weight), outline_size(_outline_size), outline_color(_outline_color),
+          m_width(0), m_height(0)
     {
     }
 
-    TextOverlay::TextOverlay() : BaseTextOverlay()
+    BaseTextOverlay::BaseTextOverlay(std::string _id, float _x, float _y, std::string _label,
+                                     rgba_color_t _text_color, rgba_color_t _background_color,
+                                     float _font_size, int _line_thickness, unsigned int _z_index, std::string _font_path,
+                                     unsigned int _angle, rotation_alignment_policy_t _rotation_policy,
+                                     rgba_color_t _shadow_color, float _shadow_offset_x, float _shadow_offset_y,
+                                     font_weight_t _font_weight, int _outline_size, rgba_color_t _outline_color,
+                                     HorizontalAlignment _horizontal_alignment, VerticalAlignment _vertical_alignment,
+                                     size_t _width, size_t _height)
+        : Overlay(_id, _x, _y, _z_index, _angle, _rotation_policy, _horizontal_alignment, _vertical_alignment),
+          label(_label), text_color(_text_color), background_color(_background_color),
+          font_path(_font_path), font_size(_font_size), line_thickness(_line_thickness), 
+          shadow_color(_shadow_color), shadow_offset_x(_shadow_offset_x), shadow_offset_y(_shadow_offset_y),
+          font_weight(_font_weight), outline_size(_outline_size), outline_color(_outline_color),
+          m_width(_width), m_height(_height)
     {
     }
 
-    TextOverlay::TextOverlay(std::string _id, float _x, float _y, std::string _label, rgba_color_t _text_color, rgba_color_t _background_color, float _font_size, int _line_thickness, unsigned int _z_index, std::string font_path, unsigned int _angle, rotation_alignment_policy_t _rotation_policy) : BaseTextOverlay(_id, _x, _y, _label, _text_color, _background_color, _font_size, _line_thickness, _z_index, font_path, _angle, _rotation_policy)
+    TextOverlay::TextOverlay() : BaseTextOverlay() {}
+
+
+    TextOverlay::TextOverlay(std::string _id, float _x, float _y, std::string _label,
+                             rgba_color_t _text_color, rgba_color_t _background_color,
+                             float _font_size, int _line_thickness, unsigned int _z_index,
+                             unsigned int _angle, rotation_alignment_policy_t _rotation_policy)
+        : BaseTextOverlay(_id, _x, _y, _label,
+                          _text_color, _background_color,
+                          _font_size, _line_thickness, _z_index,
+                          _angle, _rotation_policy)
     {
     }
 
-    TextOverlay::TextOverlay(std::string _id, float _x, float _y, std::string _label, rgba_color_t _text_color, rgba_color_t _background_color, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy) : BaseTextOverlay(_id, _x, _y, _label, _text_color, _background_color, _font_size, _line_thickness, _z_index, DEFAULT_FONT_PATH, _angle, _rotation_policy)
+    TextOverlay::TextOverlay(std::string _id, float _x, float _y, std::string _label,
+                             rgba_color_t _text_color, rgba_color_t _background_color,
+                             float _font_size, int _line_thickness, unsigned int _z_index, std::string _font_path,
+                             unsigned int _angle, rotation_alignment_policy_t _rotation_policy,
+                             rgba_color_t _shadow_color, float _shadow_offset_x, float _shadow_offset_y,
+                             font_weight_t _font_weight, int _outline_size, rgba_color_t _outline_color,
+                             HorizontalAlignment _horizontal_alignment, VerticalAlignment _vertical_alignment)
+        : BaseTextOverlay(_id, _x, _y, _label,
+                          _text_color, _background_color,
+                          _font_size, _line_thickness, _z_index, _font_path,
+                          _angle, _rotation_policy,
+                          _shadow_color, _shadow_offset_x, _shadow_offset_y,
+                          _font_weight, _outline_size, _outline_color,
+                          _horizontal_alignment, _vertical_alignment)
     {
     }
 
-    TextOverlay::TextOverlay(std::string id, float x, float y, std::string label, rgba_color_t text_color, rgba_color_t background_coloror, float font_size,
-                             int line_thickness, unsigned int z_index, std::string font_path, unsigned int angle, rotation_alignment_policy_t _rotation_policy,
-                             rgba_color_t shadow_color, float shadow_offset_x, float shadow_offset_y)
-        : BaseTextOverlay(id, x, y, label, text_color, background_color, font_size, line_thickness, z_index, font_path, angle, _rotation_policy,
-                          shadow_color, shadow_offset_x, shadow_offset_y)
+    TextOverlay::TextOverlay(std::string _id, float _x, float _y, std::string _label,
+                             rgba_color_t _text_color, rgba_color_t _background_color,
+                             float _font_size, int _line_thickness, unsigned int _z_index, std::string _font_path,
+                             unsigned int _angle, rotation_alignment_policy_t _rotation_policy,
+                             rgba_color_t _shadow_color, float _shadow_offset_x, float _shadow_offset_y,
+                             font_weight_t _font_weight, int _outline_size, rgba_color_t _outline_color,
+                             HorizontalAlignment _horizontal_alignment, VerticalAlignment _vertical_alignment,
+                             size_t _width, size_t _height)
+        : BaseTextOverlay(_id, _x, _y, _label,
+                          _text_color, _background_color,
+                          _font_size, _line_thickness, _z_index, _font_path,
+                          _angle, _rotation_policy,
+                          _shadow_color, _shadow_offset_x, _shadow_offset_y,
+                          _font_weight, _outline_size, _outline_color,
+                          _horizontal_alignment, _vertical_alignment,
+                          _width, _height)
     {
     }
 
-    DateTimeOverlay::DateTimeOverlay() : BaseTextOverlay(), datetime_format(DEFAULT_DATETIME_STRING)
+    DateTimeOverlay::DateTimeOverlay() : BaseTextOverlay(), datetime_format(DEFAULT_DATETIME_STRING) {}
+
+    DateTimeOverlay::DateTimeOverlay(std::string _id, float _x, float _y, rgba_color_t _text_color,
+                                     float _font_size, int _line_thickness, unsigned int _z_index,
+                                     unsigned int _angle, rotation_alignment_policy_t _rotation_policy)
+        : BaseTextOverlay(_id, _x, _y, "",
+                          _text_color, {-1, -1, -1, -1},
+                          _font_size, _line_thickness, _z_index,
+                          _angle, _rotation_policy),
+          datetime_format(DEFAULT_DATETIME_STRING)
     {
     }
 
-    DateTimeOverlay::DateTimeOverlay(std::string _id, float _x, float _y, rgba_color_t _text_color, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy) : BaseTextOverlay(_id, _x, _y, "", _text_color, {-1, -1, -1}, _font_size, _line_thickness, _z_index, DEFAULT_FONT_PATH, _angle, _rotation_policy), datetime_format(DEFAULT_DATETIME_STRING)
+    DateTimeOverlay::DateTimeOverlay(std::string _id, float _x, float _y,
+                                     rgba_color_t _text_color, rgba_color_t _background_color,
+                                     std::string _font_path, float _font_size, int _line_thickness, unsigned int _z_index,
+                                     unsigned int _angle, rotation_alignment_policy_t _rotation_policy)
+        : BaseTextOverlay(_id, _x, _y, "",
+                          _text_color, _background_color,
+                          _font_size, _line_thickness, _z_index, _font_path,
+                          _angle, _rotation_policy),
+          datetime_format(DEFAULT_DATETIME_STRING)
     {
     }
 
-    DateTimeOverlay::DateTimeOverlay(std::string _id, float _x, float _y, rgba_color_t _text_color, rgba_color_t _background_color, std::string font_path, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy) : BaseTextOverlay(_id, _x, _y, "", _text_color, _background_color, _font_size, _line_thickness, _z_index, font_path, _angle, _rotation_policy), datetime_format(DEFAULT_DATETIME_STRING)
+    DateTimeOverlay::DateTimeOverlay(std::string _id, float _x, float _y, std::string _datetime_format,
+                                     rgba_color_t _text_color, rgba_color_t _background_color,
+                                     std::string _font_path, float _font_size, int _line_thickness, unsigned int _z_index,
+                                     unsigned int _angle, rotation_alignment_policy_t _rotation_policy)
+        : BaseTextOverlay(_id, _x, _y, "",
+                          _text_color, _background_color,
+                          _font_size, _line_thickness, _z_index, _font_path,
+                          _angle, _rotation_policy),
+          datetime_format(_datetime_format)
     {
     }
 
-    DateTimeOverlay::DateTimeOverlay(std::string _id, float _x, float _y, std::string datetime_format, rgba_color_t _text_color, rgba_color_t _background_color, std::string font_path, float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy) : BaseTextOverlay(_id, _x, _y, datetime_format, _text_color, _background_color, _font_size, _line_thickness, _z_index, font_path, _angle, _rotation_policy), datetime_format(datetime_format)
+    DateTimeOverlay::DateTimeOverlay(std::string _id, float _x, float _y, std::string _datetime_format,
+                                     rgba_color_t _text_color, rgba_color_t _background_color,
+                                     std::string _font_path, float _font_size, int _line_thickness, unsigned int _z_index,
+                                     unsigned int _angle, rotation_alignment_policy_t _rotation_policy,
+                                     rgba_color_t _shadow_color, float _shadow_offset_x, float _shadow_offset_y,
+                                     font_weight_t _font_weight, int _outline_size, rgba_color_t _outline_color,
+                                     HorizontalAlignment _horizontal_alignment, VerticalAlignment _vertical_alignment)
+        : BaseTextOverlay(_id, _x, _y, _datetime_format,
+                          _text_color, _background_color,
+                          _font_size, _line_thickness, _z_index, _font_path,
+                          _angle, _rotation_policy,
+                          _shadow_color, _shadow_offset_x, _shadow_offset_y,
+                          _font_weight, _outline_size, _outline_color,
+                          _horizontal_alignment, _vertical_alignment),
+          datetime_format(_datetime_format)
     {
     }
 
-    DateTimeOverlay::DateTimeOverlay(std::string _id, float _x, float _y, std::string datetime_format, rgba_color_t _text_color, rgba_color_t _background_color, std::string font_path,
-                                     float _font_size, int _line_thickness, unsigned int _z_index, unsigned int _angle, rotation_alignment_policy_t _rotation_policy,
-                                     rgba_color_t shadow_color, float shadow_offset_x, float shadow_offset_y)
-        : BaseTextOverlay(_id, _x, _y, datetime_format, _text_color, _background_color, _font_size, _line_thickness, _z_index, font_path, _angle, _rotation_policy),
-          datetime_format(datetime_format)
+    DateTimeOverlay::DateTimeOverlay(std::string _id, float _x, float _y, std::string _datetime_format,
+                                     rgba_color_t _text_color, rgba_color_t _background_color,
+                                     std::string _font_path, float _font_size, int _line_thickness, unsigned int _z_index,
+                                     unsigned int _angle, rotation_alignment_policy_t _rotation_policy, 
+                                     rgba_color_t _shadow_color, float _shadow_offset_x, float _shadow_offset_y,
+                                     font_weight_t _font_weight, int _outline_size, rgba_color_t _outline_color,
+                                     HorizontalAlignment _horizontal_alignment, VerticalAlignment _vertical_alignment,
+                                     size_t _width, size_t _height)
+        : BaseTextOverlay(_id, _x, _y, _datetime_format,
+                          _text_color, _background_color,
+                          _font_size, _line_thickness, _z_index, _font_path,
+                          _angle, _rotation_policy,
+                          _shadow_color, _shadow_offset_x, _shadow_offset_y,
+                          _font_weight, _outline_size, _outline_color,
+                          _horizontal_alignment, _vertical_alignment,
+                          _width, _height),
+          datetime_format(_datetime_format)
     {
     }
 
-    CustomOverlay::CustomOverlay(std::string _id, float _x, float _y, float _width, float _height, DspImagePropertiesPtr buffer, unsigned int _z_index) : Overlay(_id, _x, _y, _z_index, 0, rotation_alignment_policy_t::CENTER),
-                                                                                                                                                          width(_width), height(_height), m_buffer(buffer)
+    CustomOverlay::CustomOverlay(std::string _id, float _x, float _y, unsigned int _z_index,
+                                 unsigned int _angle, rotation_alignment_policy_t _rotation_policy,
+                                 HorizontalAlignment _horizontal_alignment, VerticalAlignment _vertical_alignment,
+                                 float _width, float _height,
+                                 custom_overlay_format _format, DspImagePropertiesPtr _buffer)
+        : Overlay(_id, _x, _y, _z_index, _angle, _rotation_policy, _horizontal_alignment, _vertical_alignment),
+          width(_width), height(_height), m_format(_format), m_buffer(_buffer)
     {
     }
 
-    CustomOverlay::CustomOverlay(std::string id, float x, float y, float width, float height, unsigned int z_index, custom_overlay_format format = osd::custom_overlay_format::A420) : Overlay(id, x, y, z_index, 0, rotation_alignment_policy_t::CENTER),
-                                                                                                                                                                                       width(width), height(height), m_format(format)
+    CustomOverlay::CustomOverlay(std::string _id, float _x, float _y, float _width, float _height,
+                                 unsigned int _z_index, custom_overlay_format _format,
+                                 unsigned int _angle, rotation_alignment_policy_t _rotation_policy,
+                                 HorizontalAlignment _horizontal_alignment, VerticalAlignment _vertical_alignment)
+        : Overlay(_id, _x, _y, _z_index,
+                  _angle, _rotation_policy,
+                  _horizontal_alignment, _vertical_alignment),
+          width(_width), height(_height), m_format(_format)
     {
     }
 
     template <typename BasicJsonType>
-    inline void from_json(const BasicJsonType &j, rotation_alignment_policy_t &e)
+    void from_json(const BasicJsonType &j, rotation_alignment_policy_t &e)
     {
         if (j == "CENTER")
         {
-            e = CENTER;
+            e = rotation_alignment_policy_t::CENTER;
             return;
         }
         if (j == "TOP_LEFT")
         {
-            e = TOP_LEFT;
+            e = rotation_alignment_policy_t::TOP_LEFT;
             return;
         }
         LOGGER__ERROR("Unknown enum value received for rotation_alignment_policy_t");
         throw std::invalid_argument("Unknown enum value received for rotation_alignment_policy_t");
+    }
+
+    template <typename BasicJsonType>
+    inline void from_json(const BasicJsonType &j, font_weight_t &e)
+    {
+        if (j == "NORMAL")
+        {
+            e = font_weight_t::NORMAL;
+            return;
+        }
+        if (j == "BOLD")
+        {
+            e = font_weight_t::BOLD;
+            return;
+        }
+        LOGGER__ERROR("Unknown enum value received for font_weight_t");
+        throw std::invalid_argument("Unknown enum value received for font_weight_t");
     }
 
     void from_json(const nlohmann::json &json, rgba_color_t &text_color)
@@ -198,6 +346,90 @@ namespace osd
         }
     }
 
+    void from_json(const nlohmann::json &json, HorizontalAlignment &alignment)
+    {
+        if (json.is_string())
+        {
+            if (json == "LEFT")
+            {
+                alignment = HorizontalAlignment::LEFT;
+            }
+            else if (json == "CENTER")
+            {
+                alignment = HorizontalAlignment::CENTER;
+            }
+            else if (json == "RIGHT")
+            {
+                alignment = HorizontalAlignment::RIGHT;
+            }
+            else
+            {
+                LOGGER__ERROR("Unknown horizontal alignment value received");
+                throw std::invalid_argument("Unknown horizontal alignment value received");
+            }
+        }
+        else
+        {
+            float value;
+            json.get_to(value);
+            auto alignment_expected = HorizontalAlignment::create(value);
+            if (alignment_expected.has_value())
+            {
+                alignment = alignment_expected.value();
+            }
+            else
+            {
+                throw std::invalid_argument("Invalid horizontal alignment value received");
+            }
+        }
+    }
+
+    void from_json(const nlohmann::json &json, VerticalAlignment &alignment)
+    {
+        if (json.is_string())
+        {
+            if (json == "TOP")
+            {
+                alignment = VerticalAlignment::TOP;
+            }
+            else if (json == "CENTER")
+            {
+                alignment = VerticalAlignment::CENTER;
+            }
+            else if (json == "BOTTOM")
+            {
+                alignment = VerticalAlignment::BOTTOM;
+            }
+            else
+            {
+                LOGGER__ERROR("Unknown vertical alignment value received");
+                throw std::invalid_argument("Unknown vertical alignment value received");
+            }
+        }
+        else
+        {
+            float value;
+            json.get_to(value);
+            auto alignment_expected = VerticalAlignment::create(value);
+            if (alignment_expected.has_value())
+            {
+                alignment = alignment_expected.value();
+            }
+            else
+            {
+                throw std::invalid_argument("Invalid vertical alignment value received");
+            }
+        }
+    }
+
+    template <typename T>
+    void json_get_if_exists(const nlohmann::json &json, const std::string &key, T &overlay_member)
+    {
+        // If the key exists in the json object, assign the value to the overlay member
+        // Otherwise, keep the overlay member as is
+        overlay_member = json.value(key, overlay_member);
+    }
+
     void from_json(const nlohmann::json &json, ImageOverlay &overlay)
     {
         json.at("id").get_to(overlay.id);
@@ -209,6 +441,8 @@ namespace osd
         json.at("z-index").get_to(overlay.z_index);
         json.at("angle").get_to(overlay.angle);
         json.at("rotation_policy").get_to(overlay.rotation_alignment_policy);
+        json_get_if_exists(json, "horizontal_alignment", overlay.horizontal_alignment);
+        json_get_if_exists(json, "vertical_alignment", overlay.vertical_alignment);
     }
 
     void from_json(const nlohmann::json &json, TextOverlay &overlay)
@@ -218,28 +452,21 @@ namespace osd
         json.at("y").get_to(overlay.y);
         json.at("label").get_to(overlay.label);
         json.at("text_color").get_to(overlay.text_color);
-        if (json.find("background_color") != json.end())
-        {
-            json.at("background_color").get_to(overlay.background_color);
-        }
+        json_get_if_exists(json, "background_color", overlay.background_color);
         json.at("font_size").get_to(overlay.font_size);
-        json.at("line_thickness").get_to(overlay.line_thickness);
+        json_get_if_exists(json, "line_thickness", overlay.line_thickness);
+        json_get_if_exists(json, "outline_size", overlay.outline_size);
+        json_get_if_exists(json, "outline_color", overlay.outline_color);
         json.at("z-index").get_to(overlay.z_index);
         json.at("font_path").get_to(overlay.font_path);
         json.at("angle").get_to(overlay.angle);
         json.at("rotation_policy").get_to(overlay.rotation_alignment_policy);
-        if (json.find("shadow_offset_x") != json.end())
-        {
-            json.at("shadow_offset_x").get_to(overlay.shadow_offset_x);
-        }
-        if (json.find("shadow_offset_y") != json.end())
-        {
-            json.at("shadow_offset_y").get_to(overlay.shadow_offset_y);
-        }
-        if (json.find("shadow_color") != json.end())
-        {
-            json.at("shadow_color").get_to(overlay.shadow_color);
-        }
+        json_get_if_exists(json, "shadow_offset_x", overlay.shadow_offset_x);
+        json_get_if_exists(json, "shadow_offset_y", overlay.shadow_offset_y);
+        json_get_if_exists(json, "shadow_color", overlay.shadow_color);
+        json_get_if_exists(json, "font_weight", overlay.font_weight);
+        json_get_if_exists(json, "horizontal_alignment", overlay.horizontal_alignment);
+        json_get_if_exists(json, "vertical_alignment", overlay.vertical_alignment);        
     }
 
     void from_json(const nlohmann::json &json, DateTimeOverlay &overlay)
@@ -247,33 +474,23 @@ namespace osd
         json.at("id").get_to(overlay.id);
         json.at("x").get_to(overlay.x);
         json.at("y").get_to(overlay.y);
-        if (json.find("datetime_format") != json.end())
-        {
-            json.at("datetime_format").get_to(overlay.datetime_format);
-        }
+        json_get_if_exists(json, "datetime_format", overlay.datetime_format);
         json.at("text_color").get_to(overlay.text_color);
-        if (json.find("background_color") != json.end())
-        {
-            json.at("background_color").get_to(overlay.background_color);
-        }
+        json_get_if_exists(json, "background_color", overlay.background_color);
         json.at("font_size").get_to(overlay.font_size);
         json.at("font_path").get_to(overlay.font_path);
-        json.at("line_thickness").get_to(overlay.line_thickness);
+        json_get_if_exists(json, "line_thickness", overlay.line_thickness);
+        json_get_if_exists(json, "outline_size", overlay.outline_size);
+        json_get_if_exists(json, "outline_color", overlay.outline_color);
         json.at("z-index").get_to(overlay.z_index);
         json.at("angle").get_to(overlay.angle);
         json.at("rotation_policy").get_to(overlay.rotation_alignment_policy);
-        if (json.find("shadow_offset_x") != json.end())
-        {
-            json.at("shadow_offset_x").get_to(overlay.shadow_offset_x);
-        }
-        if (json.find("shadow_offset_y") != json.end())
-        {
-            json.at("shadow_offset_y").get_to(overlay.shadow_offset_y);
-        }
-        if (json.find("shadow_color") != json.end())
-        {
-            json.at("shadow_color").get_to(overlay.shadow_color);
-        }
+        json_get_if_exists(json, "shadow_offset_x", overlay.shadow_offset_x);
+        json_get_if_exists(json, "shadow_offset_y", overlay.shadow_offset_y);
+        json_get_if_exists(json, "shadow_color", overlay.shadow_color);
+        json_get_if_exists(json, "font_weight", overlay.font_weight);
+        json_get_if_exists(json, "horizontal_alignment", overlay.horizontal_alignment);
+        json_get_if_exists(json, "vertical_alignment", overlay.vertical_alignment);
     }
 
     void from_json(const nlohmann::json &json, CustomOverlay &overlay)
@@ -284,6 +501,8 @@ namespace osd
         json.at("width").get_to(overlay.width);
         json.at("height").get_to(overlay.height);
         json.at("z-index").get_to(overlay.z_index);
+        json_get_if_exists(json, "horizontal_alignment", overlay.horizontal_alignment);
+        json_get_if_exists(json, "vertical_alignment", overlay.vertical_alignment);
     }
 
     tl::expected<std::shared_ptr<Blender>, media_library_return> Blender::create()
@@ -358,7 +577,7 @@ namespace osd
 
     std::shared_future<media_library_return> Blender::remove_overlay_async(const std::string &id) { return m_impl->remove_overlay_async(id); }
 
-    media_library_return Blender::blend(dsp_image_properties_t &input_image_properties) { return m_impl->blend(input_image_properties); }
+    media_library_return Blender::blend(HailoMediaLibraryBufferPtr &input_buffer) { return m_impl->blend(input_buffer); }
 
     media_library_return Blender::set_frame_size(int frame_width, int frame_height) { return m_impl->set_frame_size(frame_width, frame_height); }
 
@@ -368,4 +587,4 @@ namespace osd
     }
 
     media_library_return Blender::configure(const std::string &config) { return m_impl->configure(config); }
-}
+} // namespace osd

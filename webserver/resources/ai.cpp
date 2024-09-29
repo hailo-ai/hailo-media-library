@@ -1,14 +1,71 @@
 #include "resources.hpp"
 #include <iostream>
+#include <filesystem>
 
-const std::string VD_L_NETWORK_HEF = "/usr/lib/medialib/denoise_config/vd_l_imx678.hef";
-const std::string VD_M_NETWORK_HEF = "/usr/lib/medialib/denoise_config/vd_m_imx678.hef";
-const std::string VD_S_NETWORK_HEF = "/usr/lib/medialib/denoise_config/vd_s_imx678.hef";
+#define VD_NETWORK_PATH "/usr/lib/medialib/denoise_config/"
+#define VD_L_NETWORK_FILE "vd_l_imx678.hef"
+#define VD_M_NETWORK_FILE "vd_m_imx678.hef"
+#define VD_S_NETWORK_FILE "vd_s_imx678.hef"
+#define VD_L_NETWORK_HEF VD_NETWORK_PATH VD_L_NETWORK_FILE
+#define VD_M_NETWORK_HEF VD_NETWORK_PATH VD_M_NETWORK_FILE
+#define VD_S_NETWORK_HEF VD_NETWORK_PATH VD_S_NETWORK_FILE
 
-#define DENOISE_NETWORK_PATH(n) VD_L_NETWORK_HEF
-
-webserver::resources::AiResource::AiResource() : Resource()
+inline std::string get_denoise_network_path(std::string network)
 {
+    if (network == "Small")
+    {
+        return VD_S_NETWORK_HEF;
+    }
+    else if (network == "Medium")
+    {
+        return VD_M_NETWORK_HEF;
+    }
+    else if (network == "Large")
+    {
+        return VD_L_NETWORK_HEF;
+    }
+    else
+    {
+        throw std::invalid_argument("Invalid denoise network size " + network);
+    }
+}
+
+inline std::string get_denoise_network_from_path(std::string net_path)
+{
+    std::string filename = std::filesystem::path(net_path).filename().string();
+    if (filename == VD_L_NETWORK_FILE)
+    {
+        return "Large";
+    }
+    else if (filename == VD_M_NETWORK_FILE)
+    {
+        return "Medium";
+    }
+    else if (filename == VD_S_NETWORK_FILE)
+    {
+        return "Small";
+    }
+    else
+    {
+        throw std::invalid_argument("Invalid denoise network path " + net_path);
+    }
+}
+
+webserver::resources::AiResource::AiResource(std::shared_ptr<webserver::resources::ConfigResource> configs) : Resource()
+{
+
+    m_denoise_config = configs->get_denoise_default_config();
+    m_defog_config = nlohmann::json::parse(R"({
+        "enabled": false,
+        "network": {
+            "network_path": "/usr/lib/medialib/defog_config/dehazenet.hef",
+            "y_channel": "dehazenet/input_layer1",
+            "uv_channel": "dehazenet/input_layer2",
+            "output_y_channel": "dehazenet/conv17",
+            "output_uv_channel": "dehazenet/ew_add1"
+        }
+    })");
+
     m_default_config = R"(
     {
         "detection": {
@@ -23,35 +80,11 @@ webserver::resources::AiResource::AiResource() : Resource()
             "enabled": false
         }
     })";
-    m_config = nlohmann::json::parse(m_default_config);
-    m_denoise_config = nlohmann::json::parse(R"({
-        "enabled": false,
-        "sensor": "imx678",
-        "method": "BALANCED",
-        "loopback-count": 1,
-        "network": {
-            "network_path": "/usr/lib/medialib/denoise_config/vd_l_imx678.hef",
-            "y_channel": "model/input_layer1",
-            "uv_channel": "model/input_layer4",
-            "feedback_y_channel": "model/input_layer3",
-            "feedback_uv_channel": "model/input_layer2",
-            "output_y_channel": "model/conv17",
-            "output_uv_channel": "model/conv14"
-        }
-    })");
-    m_defog_config = nlohmann::json::parse(R"({
-        "enabled": false,
-        "network": {
-            "network_path": "/usr/lib/medialib/defog_config/dehazenet.hef",
-            "y_channel": "dehazenet/input_layer1",
-            "uv_channel": "dehazenet/input_layer2",
-            "output_y_channel": "dehazenet/conv17",
-            "output_uv_channel": "dehazenet/ew_add1"
-        }
-    })");
 
-    m_denoise_config["enabled"] = m_config["denoise"]["enabled"];
+    m_config = nlohmann::json::parse(m_default_config);
     m_defog_config["enabled"] = m_config["defog"]["enabled"];
+    m_denoise_config["enabled"] = m_config["denoise"]["enabled"];
+    m_config["denoise"]["network"] = get_denoise_network_from_path(m_denoise_config["network"]["network_path"]);
 }
 
 std::vector<webserver::resources::AiResource::AiApplications> webserver::resources::AiResource::get_enabled_applications()
@@ -114,9 +147,9 @@ void webserver::resources::AiResource::http_patch(nlohmann::json body)
         m_config["denoise"]["enabled"] = false;
     }
 
-    m_denoise_config["network"]["network_path"] = DENOISE_NETWORK_PATH(m_config["denoise"]["network"]);
     m_defog_config["enabled"] = m_config["defog"]["enabled"];
     m_denoise_config["enabled"] = m_config["denoise"]["enabled"];
+    m_denoise_config["network"]["network_path"] = get_denoise_network_path(m_config["denoise"]["network"]);
     m_denoise_config["loopback-count"] = m_config["denoise"]["loopback-count"];
     WEBSERVER_LOG_INFO("AI: finished patching AI resource, calling on_resource_change");
 

@@ -511,13 +511,13 @@ media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mas
     }
     privacy_mask_data->rois_count = i;
 
-    if (privacy_mask_data->bitmask.hailo_pix_buffer->planes[0].bytesused != packaged_array_size)
+    if (privacy_mask_data->bitmask->buffer_data->planes[0].bytesused != packaged_array_size)
     {
         LOGGER__ERROR("Failed to fill polygon - privacy mask buffer size is not equal to the packaged array size");
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
     // memcopy packaged array to privacy_mask_data void pointer bit mask
-    memcpy(privacy_mask_data->bitmask.get_plane(0), packaged_array.data(), packaged_array_size);
+    memcpy(privacy_mask_data->bitmask->get_plane_ptr(0), packaged_array.data(), packaged_array_size);
 
     clock_gettime(CLOCK_MONOTONIC, &end_fill_polly);
     [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_fill_polly, start_fill_polly);

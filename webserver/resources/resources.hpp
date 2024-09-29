@@ -7,10 +7,12 @@
 #include "common/httplib/httplib_utils.hpp"
 #include "common/isp/common.hpp"
 #include "common/logger_macros.hpp"
+#include "rtc/rtc.hpp"
 
 #ifndef MEDIALIB_LOCAL_SERVER
-#include "privacy_mask_types.hpp"
-#include "privacy_mask.hpp"
+#include "media_library/gyro_device.hpp"
+#include "media_library/privacy_mask_types.hpp"
+#include "media_library/privacy_mask.hpp"
 using namespace privacy_mask_types;
 #else
 struct vertex
@@ -47,6 +49,7 @@ namespace webserver
             RESOURCE_AI,
             RESOURCE_ISP,
             RESOURCE_PRIVACY_MASK,
+            RESOURCE_WEBRTC,
         };
 
         enum ResourceBehaviorType
@@ -62,7 +65,8 @@ namespace webserver
                                                     {RESOURCE_AI, "ai"},
                                                     {RESOURCE_ISP, "isp"},
                                                     {RESOURCE_PRIVACY_MASK, "privacy_mask"},
-                                                    {RESOURCE_CONFIG_MANAGER, "config"}})
+                                                    {RESOURCE_CONFIG_MANAGER, "config"},
+                                                    {RESOURCE_WEBRTC, "webrtc"}})
 
         NLOHMANN_JSON_SERIALIZE_ENUM(ResourceBehaviorType, {
                                                                {RESOURCE_BEHAVIOR_CONFIG, "config"},
@@ -147,6 +151,7 @@ namespace webserver
             nlohmann::json get_encoder_default_config();
             nlohmann::json get_osd_default_config();
             nlohmann::json get_hdr_default_config();
+            nlohmann::json get_denoise_default_config();
         };
 
         class WebpageResource : public Resource
@@ -175,7 +180,7 @@ namespace webserver
                 std::vector<AiApplications> disabled;
             };
 
-            AiResource();
+            AiResource(std::shared_ptr<webserver::resources::ConfigResource> configs);
             void http_register(std::shared_ptr<HTTPServer> srv) override;
             std::string name() override { return "ai"; }
             ResourceType get_type() override { return RESOURCE_AI; }
@@ -293,14 +298,18 @@ namespace webserver
             class PrivacyMaskResourceState : public ResourceState
             {
             public:
-                std::vector<std::string> enabled;
-                std::vector<std::string> disabled;
+                std::vector<std::string> changed_to_enabled;
+                std::vector<std::string> changed_to_disabled;
+                std::vector<std::string> polygon_to_update;
+                std::vector<std::string> polygon_to_delete;
             };
 
         private:
             std::map<std::string, polygon> m_privacy_masks;
             std::shared_ptr<PrivacyMaskResourceState> parse_state(std::vector<std::string> current_enabled, std::vector<std::string> prev_enabled);
             std::vector<std::string> get_enabled_masks();
+            void parse_polygon(nlohmann::json j);
+            std::shared_ptr<webserver::resources::PrivacyMaskResource::PrivacyMaskResourceState> delete_masks_from_config(nlohmann::json config);
 
         public:
             PrivacyMaskResource();
@@ -309,6 +318,31 @@ namespace webserver
             ResourceType get_type() override { return RESOURCE_PRIVACY_MASK; }
             ResourceBehaviorType get_behavior_type() override { return RESOURCE_BEHAVIOR_CONFIG; }
             std::map<std::string, polygon> get_privacy_masks() { return m_privacy_masks; }
+        };
+
+        class WebRtcResource : public Resource {
+        private:
+            rtc::PeerConnection::State state;
+            rtc::PeerConnection::GatheringState gathering_state;
+            std::shared_ptr<rtc::PeerConnection> peer_connection;
+            std::shared_ptr<rtc::Track> track;
+            rtc::SSRC ssrc;
+            std::string codec;
+            const std::map<std::string, int> codec_payload_type_map = {
+                {"H264", 96},
+                {"H265", 98},
+            };
+            void create_media_sender();
+
+        public:
+            WebRtcResource();
+            rtc::PeerConnection::State get_state() { return state; }
+            void send_rtp_packet(GstSample *sample);
+            void setCodec(std::string codecType);
+            std::string getCodec() const { return codec; };
+            void http_register(std::shared_ptr<HTTPServer> srv) override;
+            std::string name() override { return "webrtc"; }
+            ResourceType get_type() override { return RESOURCE_WEBRTC; }
         };
 
         void to_json(nlohmann::json &j, const EncoderResource::encoder_control_t &b);

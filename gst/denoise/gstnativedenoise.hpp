@@ -63,14 +63,14 @@ struct _GstHailoDenoise
     GstPad *sinkpad;
     GstPad *srcpad;
     gchar *config_file_path;
-    std::string config_string;
+    gchar *config_string;
 
     gboolean m_flushing;
     std::unique_ptr<std::condition_variable> m_condvar;
     std::shared_ptr<std::mutex> m_mutex;
     std::shared_ptr<std::mutex> m_config_mutex;
     uint8_t m_queue_size;
-    std::queue<GstBuffer *> m_staging_queue;
+    std::shared_ptr<std::queue<GstBuffer *>> m_staging_queue;
 
     std::shared_ptr<MediaLibraryDenoise> medialib_denoise;
     std::shared_ptr<denoise_config_t> denoise_config;

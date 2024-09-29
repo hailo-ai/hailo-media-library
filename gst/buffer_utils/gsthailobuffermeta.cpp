@@ -87,8 +87,6 @@ static gboolean gst_hailo_buffer_meta_init(GstMeta *meta, gpointer params, GstBu
 static void gst_hailo_buffer_meta_free(GstMeta *meta, GstBuffer *buffer)
 {
     GstHailoBufferMeta *gst_hailo_buffer_meta = (GstHailoBufferMeta *)meta;
-    if (gst_hailo_buffer_meta->buffer_ptr)
-        gst_hailo_buffer_meta->buffer_ptr->decrease_ref_count();
     gst_hailo_buffer_meta->buffer_ptr = nullptr;
     gst_hailo_buffer_meta->used_size = 0;
 }
@@ -121,10 +119,6 @@ GstHailoBufferMeta *gst_buffer_add_hailo_buffer_meta(GstBuffer *buffer,
 
     // https://gstreamer.freedesktop.org/data/doc/gstreamer/head/gstreamer/html/GstBuffer.html#gst-buffer-add-meta
     gst_hailo_buffer_meta = (GstHailoBufferMeta *)gst_buffer_add_meta(buffer, GST_HAILO_BUFFER_META_INFO, NULL);
-
-    if (buffer_ptr)
-        buffer_ptr->increase_ref_count();
-
     gst_hailo_buffer_meta->buffer_ptr = buffer_ptr;
     gst_hailo_buffer_meta->used_size = used_size;
 

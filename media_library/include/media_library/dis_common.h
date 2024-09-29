@@ -119,7 +119,7 @@ struct dis_config_t
 
     /**
      * Minimal value of the coefficient 'k' used to filter the motion vectors (MVs).
-     * k takes values in the range [0, 1] and determines how fast we see changes in output from a given MV,
+     * k takes values in the range [0, 1] and determines how fast changes are observed in output from a given MV,
      * i.e. the result of the current frame's MV will be seen after 1/k frames.
      * Example: k = 0 results in complete filtering and lack of consideration of the current MV,
      * k = 1 means immediate impact (on the following frame).
@@ -156,14 +156,14 @@ struct dis_config_t
     float running_average_coefficient;
 
     /**
-     * Acceptable deviation, >0, normally 2.5-3.5. Set to a very big value to disable.
+     * Acceptable deviation, >0, normally 2.5-3.5. Set to a very large value to disable.
      */
     float std_multiplier;
 
     /**
      * If the shake is too strong, some frames may be impossible to stabilize without black corners appearing.
-     * Normally, Stabilized position (and output video) jumps in such cases, violating the stabilization,
-     * but avoiding black corners. If desired, The black corners could be left in order to keep smooth output - set to 1.
+     * Normally, the stabilized position (and output video) jumps in such cases, violating the stabilization,
+     * but avoiding black corners. If desired, The black corners could be left in order to maintain smooth output - set to 1.
      * true: enable, false: disable (smooth stab with black corners)
      */
     bool black_corners_correction_enabled;
@@ -173,7 +173,7 @@ struct dis_config_t
      * "BLKCRN_TO_K_THR * room-for-stabilization". The lower this coefficient is, the less chance for limitations,
      * but the more often the stabilization will be weakened without a real need for this.
      * Also, if a panning starts, and k adaptation is disabled (STAB_K_INC_BLKCRN = 0 or BLKCRN_TO_K_THR is much more than 1),
-     * the filter will follow the panning with too big delay and limitations will appear on each frame.
+     * the filter will follow the panning with too large delay and limitations will appear on each frame.
      * Hence, the stabilized video will follow the input one, repeating its shakes along the panning, shifted
      * (looks like delayed) by the room for stabilization.
      * If BLKCRN_TO_K_THR is between 0 and 1 this panning delay is (1 - BLKCRN_TO_K_THR) * room_for_stabilization.
@@ -191,6 +191,20 @@ struct dis_config_t
      * If the threshold is set to 255, the stabilizer is always disabled.
      */
     uint8_t average_luminance_threshold;
+
+    /**
+     * Diagonal FoV factor of output camera. The difference between input and output FOV, (horizontal, vertical
+     * and diagonal) is the room for stabilization. Note the relation betwen aspect ratio and H,V,DFOV ratios:
+     * - for fisheye camera:
+     * HFOV / VFOV / DFOV = width / hight / diagonal
+     * - for pinhole camera:
+     * tan(HFOV/2) / tan(VFOV/2) / tan(DFOV/2) = width / hight / diagonal
+     * Set to 1 to let DIS calculate and use the maximum possible FOV at the given input camera model and output
+     * aspect ratio.
+     * FoV factor here is multiplied by the maximum possible FoV, allowing more stabilization by decreasing it.
+     * values: 0.1 <= camera_fov_factor <= 1
+     */
+    float camera_fov_factor;
 
     // Angular Digital Image Stabilization
     angular_dis_config_t angular_dis_config;

@@ -31,7 +31,6 @@
 #include "osd/gsthailoosd.hpp"
 #include "jpeg/gsthailojpeg.hpp"
 #include "encodebin/gsthailoencodebin.hpp"
-#include "visionpreproc/gsthailovisionpreproc.hpp"
 #include "multi_resize/gsthailomultiresize.hpp"
 #include "dewarp/gsthailodewarp.hpp"
 #include "denoise/gstnativedenoise.hpp"
@@ -44,7 +43,6 @@
 static gboolean
 media_library_plugin_init(GstPlugin *plugin)
 {
-    gst_element_register(plugin, "hailovisionpreproc", GST_RANK_NONE, GST_TYPE_HAILO_VISION_PREPROC);
     gst_element_register(plugin, "hailoh265enc", GST_RANK_PRIMARY, GST_TYPE_HAILO_H265_ENC);
     gst_element_register(plugin, "hailoh264enc", GST_RANK_PRIMARY, GST_TYPE_HAILO_H264_ENC);
     gst_element_register(plugin, "hailoosd", GST_RANK_PRIMARY, GST_TYPE_HAILO_OSD);

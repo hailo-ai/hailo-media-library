@@ -29,7 +29,7 @@
 #include <vector>
 #include <string>
 #include <memory>
-#include "media_library_types.hpp"
+#include "media_library/media_library_types.hpp"
 #include "buffer_pool.hpp"
 
 #define MAX_NUM_OF_PRIVACY_MASKS  8
@@ -67,10 +67,12 @@ namespace privacy_mask_types
 
   struct privacy_mask_data_t
   {
-        hailo_media_library_buffer bitmask;
+        HailoMediaLibraryBufferPtr bitmask;
         yuv_color_t color;
         roi_t rois[MAX_NUM_OF_PRIVACY_MASKS];
         uint rois_count;
+
+        privacy_mask_data_t() : bitmask(std::make_shared<hailo_media_library_buffer>()) {};
   };
   using PrivacyMaskDataPtr = std::shared_ptr<privacy_mask_data_t>;
 }

@@ -20,6 +20,7 @@ public:
     void Post(const std::string &pattern, std::function<void(const nlohmann::json &)> callback);
     void Post(const std::string &pattern, std::function<nlohmann::json(const nlohmann::json &)> callback);
     void Redirect(const std::string &pattern, const std::string &target);
+    void Delete(const std::string &pattern, std::function<nlohmann::json(const nlohmann::json &)> callback);
 };
 
 HTTPServer::HTTPServer()
@@ -75,6 +76,11 @@ void HTTPServer::Post(const std::string &pattern, std::function<nlohmann::json(c
 void HTTPServer::Redirect(const std::string &pattern, const std::string &target)
 {
     m_impl->Redirect(pattern, target);
+}
+
+void HTTPServer::Delete(const std::string &pattern, std::function<nlohmann::json(const nlohmann::json &)> callback)
+{
+    m_impl->Delete(pattern, callback);
 }
 
 HTTPServer::Impl::Impl() : m_server()
@@ -147,4 +153,13 @@ void HTTPServer::Impl::Redirect(const std::string &pattern, const std::string &t
 {
     m_server.Get(pattern.c_str(), [target](const httplib::Request &req, httplib::Response &res)
                  { res.set_redirect(target.c_str()); });
+}
+
+void HTTPServer::Impl::Delete(const std::string &pattern, std::function<nlohmann::json(const nlohmann::json &)> callback)
+{
+    m_server.Delete(pattern.c_str(), [callback](const httplib::Request &req, httplib::Response &res)
+                    {
+                        nlohmann::json json = nlohmann::json::parse(req.body);
+                        nlohmann::json response = callback(json);
+                        res.set_content(response.dump(), "application/json"); });
 }

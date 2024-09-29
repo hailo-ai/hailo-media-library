@@ -23,15 +23,49 @@
 #include "isp_utils.hpp"
 #include "v4l2_ctrl.hpp"
 #include "media_library_logger.hpp"
+#include <nlohmann/json.hpp>
 #include <fstream>
+#include <regex>
 
 /** @defgroup isp_utils_definitions MediaLibrary ISP utilities CPP API
  * definitions
  *  @{
  */
 
+#define MEDIA_SERVER_AWB_ENTRY "awb"
+#define MEDIA_SERVER_AWB_STITCH_MODE_ENTRY "stitch_mode"
+#define MEDIA_SERVER_STITCH_MODE_COMPENSATION 2
+#define MEDIA_SERVER_STITCH_MODE_ISP_PIPELINE 0
+#define SENSOR_ENTRY_HDR_ENABLE_ENTRY "hdr_enable"
+#define SENSOR_ENTRY_MODE_ENTRY "mode"
+#define SENSOR_ENTRY_HDR_4K_MODE 3
+#define SENSOR_ENTRY_HDR_FHD_MODE 2
+#define SENSOR_ENTRY_SDR_4K_MODE 0
+#define SENSOR_ENTRY_SDR_FHD_MODE 1
+
+#define REGEX_INTEGER "\\d+"
+#define REGEX_XML_FILENAME "\\w+\\.xml"
+#define HDR_ENABLE_REGEX "hdr_enable = " REGEX_INTEGER
+#define MODE_REGEX "mode = " REGEX_INTEGER
+#define MODE_XML_REGEX(MODE) "(\\[mode\\." + std::to_string(MODE) + "\\]\\nxml = \")(" REGEX_XML_FILENAME ")"
+
+using json = nlohmann::json;
+
 namespace isp_utils
 {
+    bool m_auto_configure = false;
+    std::string m_isp_config_files_path;
+
+    void set_auto_configure(bool auto_configure)
+    {
+        m_auto_configure = auto_configure;
+    }
+
+    void set_isp_config_files_path(std::string &isp_config_files_path)
+    {
+        m_isp_config_files_path = isp_config_files_path;
+    }
+
     std::string find_subdevice_path(const std::string &subdevice_name)
     {
         for (const auto &entry : std::filesystem::directory_iterator("/sys/class/video4linux/"))
@@ -58,39 +92,114 @@ namespace isp_utils
 
     void set_default_configuration()
     {
-        override_file(ISP_DEFAULT_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
+        if (m_auto_configure)
+            override_file(ISP_DEFAULT_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
     }
 
     void set_denoise_configuration()
     {
-        override_file(ISP_DENOISE_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
+        if (m_auto_configure)
+            override_file(ISP_DENOISE_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
     }
 
     void set_backlight_configuration()
     {
-        override_file(ISP_BACKLIGHT_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
+        if (m_auto_configure)
+            override_file(ISP_BACKLIGHT_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
     }
 
     void set_hdr_configuration(bool is_4k)
     {
-        override_file(is_4k ? ISP_HDR_3A_CONFIG_4K : ISP_HDR_3A_CONFIG_FHD, TRIPLE_A_CONFIG_PATH);
+        if (m_auto_configure)
+            override_file(is_4k ? ISP_HDR_3A_CONFIG_4K : ISP_HDR_3A_CONFIG_FHD, TRIPLE_A_CONFIG_PATH);
+    }
+
+    void edit_media_server_cfg(const std::string &path, bool hdr_enable)
+    {
+        std::ifstream if_cfg(path.c_str());
+
+        if (!if_cfg.is_open())
+        {
+            LOGGER__ERROR("HDR: can't open {} for reading", path);
+            return;
+        }
+
+        json cfg = json::parse(if_cfg);
+        cfg[MEDIA_SERVER_AWB_ENTRY][MEDIA_SERVER_AWB_STITCH_MODE_ENTRY] = hdr_enable ? MEDIA_SERVER_STITCH_MODE_COMPENSATION : MEDIA_SERVER_STITCH_MODE_ISP_PIPELINE;
+        if_cfg.close();
+        std::ofstream of_cfg(path.c_str(), std::ofstream::trunc);
+        if (!of_cfg.is_open())
+        {
+            LOGGER__ERROR("HDR: can't open {} for writing", path);
+            return;
+        }
+        of_cfg << std::setw(4) << cfg << std::endl;
+        of_cfg.close();
+    }
+
+    inline std::string replace_by_regex(const std::string &file_content, const std::string &regex_pattern_find, const std::string &regex_pattern_replace, const std::string &replace_with)
+    {
+        std::smatch find_result;
+        if (!std::regex_search(file_content, find_result, std::regex(regex_pattern_find)))
+        {
+            return file_content;
+        }
+
+        std::string find_string = find_result.str();
+        std::string replaced_find = std::regex_replace(find_string, std::regex(regex_pattern_replace), replace_with);
+
+        return std::regex_replace(file_content, std::regex(regex_pattern_find), replaced_find);
+    }
+
+    void edit_sensor_entry(const std::string &path, bool hdr_enable, bool is_4k)
+    {
+        std::ifstream if_entry(path.c_str());
+        if (!if_entry.is_open())
+        {
+            LOGGER__ERROR("HDR: can't open {} for reading", path);
+            return;
+        }
+
+        std::string file_content = std::string(std::istreambuf_iterator<char>(if_entry), std::istreambuf_iterator<char>());
+        if_entry.close();
+
+        // Replace Sensor Mode
+        auto mode = is_4k ? (hdr_enable ? SENSOR_ENTRY_HDR_4K_MODE : SENSOR_ENTRY_SDR_4K_MODE) : (hdr_enable ? SENSOR_ENTRY_HDR_FHD_MODE : SENSOR_ENTRY_SDR_FHD_MODE);
+        file_content = replace_by_regex(file_content, MODE_REGEX, REGEX_INTEGER, std::to_string(mode));
+
+        // Replace HDR Enable
+        file_content = replace_by_regex(file_content, HDR_ENABLE_REGEX, REGEX_INTEGER, hdr_enable ? "1" : "0");
+
+        // Replace Mode 3 XML with Mode 0 XML
+        if (hdr_enable)
+        {
+            std::smatch mode_sdr_xml_match;
+            if (!std::regex_search(file_content, mode_sdr_xml_match, std::regex(MODE_XML_REGEX(is_4k ? SENSOR_ENTRY_SDR_4K_MODE : SENSOR_ENTRY_SDR_FHD_MODE))))
+            {
+                LOGGER__WARN("HDR: can't find mode 0 xml in {} mode 3 xml will need to change", path);
+            }
+            else
+            {
+                std::string mode_sdr_xml_str = mode_sdr_xml_match[2].str(); // the xml name is in the 2nd regex group
+                file_content = replace_by_regex(file_content, MODE_XML_REGEX(is_4k ? SENSOR_ENTRY_HDR_4K_MODE : SENSOR_ENTRY_HDR_FHD_MODE), REGEX_XML_FILENAME, mode_sdr_xml_str);
+            }
+        }
+
+        std::ofstream of_entry(path.c_str(), std::ofstream::trunc);
+        if (!of_entry.is_open())
+        {
+            LOGGER__ERROR("HDR: can't open {} for writing", path);
+            return;
+        }
+        of_entry << file_content;
+        of_entry.close();
     }
 
     void setup_hdr(bool is_4k)
     {
         LOGGER__DEBUG("Setting up HDR configuration");
-        if (is_4k)
-        {
-            override_file(MEDIA_SERVER_HDR_CONFIG, MEDIA_SERVER_CONFIG);
-            override_file(ISP_SENSOR0_ENTRY_HDR_IMX678_CONFIG, ISP_SENSOR0_ENTRY_CONFIG);
-            override_file(ISP_HDR_3A_CONFIG_4K, TRIPLE_A_CONFIG_PATH);
-        }
-        else
-        {
-            override_file(ISP_SENSOR0_ENTRY_IMX678_CONFIG, ISP_SENSOR0_ENTRY_CONFIG);
-            override_file(ISP_HDR_3A_CONFIG_FHD, TRIPLE_A_CONFIG_PATH);
-        }
-
+        edit_media_server_cfg(m_isp_config_files_path + std::string("/") + std::string(_MEDIA_SERVER_CONFIG), true);
+        edit_sensor_entry(m_isp_config_files_path + std::string("/") + std::string(ISP_SENSOR0_ENTRY_CONFIG), true, is_4k);
         if (auto imx678_path = find_subdevice_path("imx678"); !imx678_path.empty())
         {
             isp_utils::ctrl::v4l2Control v4l2_ctrl(imx678_path);
@@ -119,13 +228,9 @@ namespace isp_utils
     void setup_sdr()
     {
         LOGGER__DEBUG("Setting up SDR configuration");
-        if (std::filesystem::exists(MEDIA_SERVER_SDR_CONFIG))
-        {
-            override_file(MEDIA_SERVER_SDR_CONFIG, MEDIA_SERVER_CONFIG);
-        }
 
-        override_file(ISP_SENSOR0_ENTRY_IMX678_CONFIG, ISP_SENSOR0_ENTRY_CONFIG);
-        override_file("/usr/bin/3aconfig_imx678.json", TRIPLE_A_CONFIG_PATH);
+        edit_media_server_cfg(m_isp_config_files_path + std::string("/") + std::string(_MEDIA_SERVER_CONFIG), false);
+        edit_sensor_entry(m_isp_config_files_path + std::string("/") + std::string(ISP_SENSOR0_ENTRY_CONFIG), false, true);
 
         if (auto imx678_path = find_subdevice_path("imx678"); !imx678_path.empty())
         {

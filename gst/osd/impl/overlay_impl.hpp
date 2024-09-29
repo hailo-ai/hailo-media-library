@@ -42,7 +42,8 @@ mat_dims internal_calculate_text_size(const std::string &label, const std::strin
 class OverlayImpl
 {
 public:
-    OverlayImpl(std::string id, float x, float y, float width, float height, unsigned int z_index, unsigned int angle, osd::rotation_alignment_policy_t rotation_policy, bool enabled);
+    OverlayImpl(std::string id, float x, float y, float width, float height, unsigned int z_index, unsigned int angle, osd::rotation_alignment_policy_t rotation_policy, bool enabled,
+                osd::HorizontalAlignment horizontal_alignment, osd::VerticalAlignment vertical_alignment);
     virtual ~OverlayImpl();
 
     virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(int frame_width, int frame_height);
@@ -59,12 +60,11 @@ public:
     std::string get_id() { return m_id; }
 
 protected:
-    static tl::expected<std::tuple<int, int>, media_library_return> calc_xy_offsets(std::string id, float x_norm, float y_norm, size_t& overlay_width, size_t& overlay_height, int image_width, int image_height, int x_drift, int y_drift);
+    static tl::expected<std::tuple<int, int>, media_library_return> calc_xy_offsets(std::string id, float x_norm, float y_norm, size_t overlay_width, size_t overlay_height, int image_width, int image_height, int x_drift, int y_drift,
+                                                                                    osd::HorizontalAlignment horizontal_alignment, osd::VerticalAlignment vertical_alignment);
     static GstVideoFrame gst_video_frame_from_mat_bgra(cv::Mat mat);
     static media_library_return convert_2_dma_video_frame(GstVideoFrame *src_frame, GstVideoFrame *dest_frame, GstVideoFormat dest_format);
     static media_library_return create_gst_video_frame(uint width, uint height, std::string format, GstVideoFrame *frame);
-    static cv::Mat resize_mat(cv::Mat mat, int width, int height);
-    static cv::Mat rotate_mat(cv::Mat mat, uint angle, osd::rotation_alignment_policy_t alignment_policy, cv::Point *center_drift);
     void free_resources();
     static media_library_return create_dma_a420_video_frame(uint width, uint height, GstVideoFrame *frame);
     static media_library_return end_sync_buffer(GstVideoFrame *frame);
@@ -83,6 +83,8 @@ protected:
     unsigned int m_angle;
     osd::rotation_alignment_policy_t m_rotation_policy;
     bool m_enabled;
+    osd::HorizontalAlignment m_horizontal_alignment;
+    osd::VerticalAlignment m_vertical_alignment;
 
     std::shared_mutex m_overlay_mutex;
 };

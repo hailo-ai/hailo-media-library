@@ -1,8 +1,9 @@
 # Project Declaration
 project('media-library', 'c', 'cpp',
         version : '0.1.0',
-        default_options : [ 'warning_level=1',
+        default_options : [ 'warning_level=2',
                             'buildtype=release',
+                            'werror=true',
                             'c_std=c11', 'cpp_std=c++20']
        )
 
@@ -10,7 +11,11 @@ project('media-library', 'c', 'cpp',
 add_global_arguments('-Wpessimizing-move', language : 'cpp')
 add_global_arguments('-Wredundant-move', language : 'cpp')
 add_global_arguments('-fconcepts', language : 'cpp')
-
+add_global_arguments('-Wno-unused-variable', language : 'cpp')
+add_global_arguments('-Wno-unused-parameter', language : 'cpp')
+add_global_arguments('-Wno-format', language : 'cpp')
+add_global_arguments('-Wno-format-security', language : 'cpp')
+add_global_arguments('-Wno-cast-function-type', language : 'cpp')
 
 pkgc = import('pkgconfig')
 targets = get_option('targets')
@@ -48,6 +53,7 @@ else
     media_library_frontend_dep = dependency('hailo_media_library_frontend', method : 'pkg-config', required:false)
     media_library_encoder_dep = dependency('hailo_media_library_encoder', method : 'pkg-config', required:false)
     encoder_dep = dependency('hailo_encoder', method : 'pkg-config', required:false)
+    gyro_lib_dep = dependency('hailo_media_library_gyro', method : 'pkg-config', required:false)
 endif
 
 if 'gst' in targets

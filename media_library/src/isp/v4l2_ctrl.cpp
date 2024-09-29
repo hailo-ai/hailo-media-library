@@ -53,7 +53,7 @@ namespace isp_utils
             return m_ctrl_id_to_id[id];
         }
 
-        int v4l2Control::xioctl(int request, void *arg)
+        int v4l2Control::xioctl(unsigned long request, void *arg)
         {
             int r;
             int tries = IOCTL_TRIES_COUNT;
@@ -110,6 +110,11 @@ namespace isp_utils
             }
         }
 
+        v4l2Control::~v4l2Control()
+        {
+            close(m_fd);
+        }
+
         template <typename T>
         bool v4l2Control::v4l2_ctrl_set(v4l2_ctrl_id id, T val)
         {
@@ -155,7 +160,6 @@ namespace isp_utils
 
             ctrl.id = qctrl.id;
             ctrl.size = qctrl.elem_size * qctrl.elems;
-            ctrl.ptr = &val;
             ctrl.value = val;
             ctrls.count = 1;
             ctrls.controls = &ctrl;

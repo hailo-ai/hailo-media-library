@@ -24,11 +24,15 @@
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
+#include <thread>
+#include <fstream>
 
 #include "encoder_class.hpp"
 #include "encoder_internal.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_utils.hpp"
+
+#define BITS_IN_BYTE 8
 
 Encoder::Encoder(std::string json_string)
 {
@@ -44,7 +48,7 @@ Encoder::Impl::~Impl()
     dispose();
 }
 
-int Encoder::Impl::allocate_output_memory()
+media_library_return Encoder::Impl::allocate_output_memory()
 {
     i32 ret;
     u32 outbufSize;
@@ -53,7 +57,7 @@ int Encoder::Impl::allocate_output_memory()
     m_ewl = (void *)EWLInit(&ewl_params);
     if (NULL == m_ewl)
     {
-        return 1;
+        return MEDIA_LIBRARY_ERROR;
     }
 
     /* Limited amount of memory on some test environment */
@@ -63,13 +67,13 @@ int Encoder::Impl::allocate_output_memory()
     if (ret != EWL_OK)
     {
         m_output_memory.virtualAddress = NULL;
-        return 1;
+        return MEDIA_LIBRARY_ERROR;
     }
 
     m_enc_in.busOutBuf = m_output_memory.busAddress;
     m_enc_in.outBufSize = m_output_memory.size;
     m_enc_in.pOutBuf = m_output_memory.virtualAddress;
-    return 0;
+    return MEDIA_LIBRARY_SUCCESS;
 }
 
 void Encoder::Impl::init_buffer_pool(uint pool_size)
@@ -78,7 +82,7 @@ void Encoder::Impl::init_buffer_pool(uint pool_size)
     {
         std::string name = "encoder_output";
         m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(
-            m_vc_cfg.width, m_vc_cfg.height, DSP_IMAGE_FORMAT_GRAY8, (pool_size), CMA, name);
+            m_vc_cfg.width, m_vc_cfg.height, HAILO_FORMAT_GRAY8, (pool_size), HAILO_MEMORY_TYPE_DMABUF, name);
         if (m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR(
@@ -97,7 +101,7 @@ Encoder::Impl::Impl(std::string json_string)
 media_library_return Encoder::Impl::dispose()
 {
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
-    if(m_buffer_pool != nullptr)
+    if (m_buffer_pool != nullptr)
     {
         ret = m_buffer_pool->free(false);
         m_buffer_pool.reset();
@@ -114,15 +118,26 @@ media_library_return Encoder::Impl::release()
         return MEDIA_LIBRARY_SUCCESS;
     }
 
-    if(m_header.buffer != nullptr)
-        m_header.buffer->decrease_ref_count();
-
+    m_header.buffer = nullptr;
     VCEncRelease(m_inst);
     if (m_output_memory.virtualAddress != NULL)
         EWLFreeLinear((const void *)m_ewl, &m_output_memory);
     if (NULL != m_ewl)
         (void)EWLRelease((const void *)m_ewl);
-    
+
+    while (!m_bitrate_monitor.frame_sizes.empty())
+        m_bitrate_monitor.frame_sizes.pop();
+
+    if (m_bitrate_monitor.output_file.is_open())
+    {
+        m_bitrate_monitor.output_file.close();
+    }
+
+    if (m_cycle_monitor.output_file.is_open())
+    {
+        m_cycle_monitor.output_file.close();
+    }
+
     m_state = ENCODER_STATE_UNINITIALIZED;
 
     return MEDIA_LIBRARY_SUCCESS;
@@ -147,22 +162,80 @@ media_library_return Encoder::Impl::init()
 {
     memset(&m_enc_out, 0, sizeof(VCEncOut));
     memset(&m_enc_in, 0, sizeof(VCEncIn));
+    media_library_return ret = MEDIA_LIBRARY_SUCCESS;
     m_multislice_encoding = false;
     m_next_gop_size = 0;
     m_encoder_version = VCEncGetApiVersion();
     m_encoder_build = VCEncGetBuild();
     create_gop_config();
-    init_gop_config();
-    allocate_output_memory();
-    init_encoder_config();
+    if ((ret = init_gop_config()) != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to init gop config");
+        return ret;
+    }
+
+    if ((ret = allocate_output_memory()) != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to allocate output memory");
+        return ret;
+    }
+
+    if (init_encoder_config() != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to init encoder config");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
     init_buffer_pool(MAX_GOP_SIZE + 3);
 
     // Update timescale to be framerate denom (must happen after init_encoder_config)
-    m_enc_in.timeIncrement = m_vc_cfg.frameRateDenom;
+    m_enc_in.timeIncrement = 0;
 
-    init_preprocessing_config();
-    init_coding_control_config();
-    init_rate_control_config();
+    m_bitrate_monitor.enabled = true;
+    if (m_vc_cfg.frameRateDenom == 0)
+    {
+        LOGGER__WARNING("Encoder - Frame rate denominator is 0");
+        m_vc_cfg.frameRateDenom = 1;
+    }
+    m_bitrate_monitor.fps = m_vc_cfg.frameRateNum / m_vc_cfg.frameRateDenom;
+    m_bitrate_monitor.period = 5;
+    m_bitrate_monitor.sum_period = 0;
+    m_bitrate_monitor.ma_bitrate = 0;
+    m_bitrate_monitor.frame_sizes = std::queue<u32>();
+
+    m_cycle_monitor.enabled = true;
+    m_cycle_monitor.deviation_threshold = 5;
+    m_cycle_monitor.monitor_frames = 60;
+    m_cycle_monitor.start_time = static_cast<std::time_t>(-1);
+    m_cycle_monitor.start_delay = 1;
+    m_cycle_monitor.frame_count = 0;
+    m_cycle_monitor.sum = 0;
+
+    // The init functions must be in this order
+    if ((ret = init_coding_control_config()) != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to init coding control config");
+        return ret;
+    }
+
+    if ((ret = init_preprocessing_config()) != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to init preprocessing config");
+        return ret;
+    }
+
+    if ((ret = init_rate_control_config()) != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to init rate control config");
+        return ret;
+    }
+
+    if ((ret = init_monitors_config()) != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to init monitors config");
+        return ret;
+    }
+
     m_update_required = {};
     m_stream_restart = STREAM_RESTART_NONE;
     m_state = ENCODER_STATE_INITIALIZED;
@@ -196,19 +269,33 @@ media_library_return Encoder::Impl::configure(const encoder_config_t &config)
 {
     m_update_required = {ENCODER_CONFIG_CODING_CONTROL, ENCODER_CONFIG_PRE_PROCESSING, ENCODER_CONFIG_RATE_CONTROL};
 
-    bool gop_update_required = gop_config_update_required(std::get<hailo_encoder_config_t>(config));
-    bool hard_restart = hard_restart_required(std::get<hailo_encoder_config_t>(config), gop_update_required);
+    auto enc_conf = std::get<hailo_encoder_config_t>(config);
+    auto monitors_conf = &enc_conf.monitors_control;
+    m_bitrate_monitor.enabled = monitors_conf->bitrate_monitor.enable;
+    m_bitrate_monitor.period = monitors_conf->bitrate_monitor.period;
 
-    // Gop change update required
-    if (gop_update_required)
-    {
-        m_update_required.emplace_back(ENCODER_CONFIG_GOP);
-    }
+    m_cycle_monitor.enabled = monitors_conf->cycle_monitor.enable;
+    m_cycle_monitor.start_delay = monitors_conf->cycle_monitor.start_delay;
+    m_cycle_monitor.deviation_threshold = monitors_conf->cycle_monitor.deviation_threshold;
+
+    auto old_config = m_config->get_hailo_config();
 
     if (m_config->configure(config) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to configure encoder");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    // Read the configuration again after the configuration is done
+    auto new_config = m_config->get_hailo_config();
+
+    bool gop_update_required = gop_config_update_required(old_config, new_config);
+    bool hard_restart = hard_restart_required(old_config, new_config, gop_update_required);
+
+    // Gop change update required
+    if (gop_update_required)
+    {
+        m_update_required.emplace_back(ENCODER_CONFIG_GOP);
     }
 
     if (hard_restart)
@@ -229,7 +316,7 @@ media_library_return Encoder::Impl::update_gop_configurations()
     auto it_gop = std::find(m_update_required.begin(), m_update_required.end(), ENCODER_CONFIG_GOP);
     if (it_gop != m_update_required.end())
     {
-        if (init_gop_config() == -1)
+        if (init_gop_config() != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR("Failed to init gop config");
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
@@ -244,7 +331,7 @@ media_library_return Encoder::Impl::update_gop_configurations()
 
 media_library_return Encoder::Impl::update_configurations()
 {
-    VCEncRet ret = VCENC_OK;
+    media_library_return ret = MEDIA_LIBRARY_SUCCESS;
     for (auto &config : m_update_required)
     {
         switch (config)
@@ -262,6 +349,11 @@ media_library_return Encoder::Impl::update_configurations()
         case ENCODER_CONFIG_CODING_CONTROL:
         {
             ret = init_coding_control_config();
+            break;
+        }
+        case ENCODER_CONFIG_MONITORS:
+        {
+            ret = init_monitors_config();
             break;
         }
         case ENCODER_CONFIG_GOP:
@@ -283,12 +375,12 @@ media_library_return Encoder::Impl::update_configurations()
     // Clear update required list
     m_update_required.clear();
 
-    if (ret != VCENC_OK)
+    if (ret != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to update configurations");
-        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-    return MEDIA_LIBRARY_SUCCESS;
+
+    return ret;
 }
 
 media_library_return Encoder::Impl::stream_restart()
@@ -317,11 +409,11 @@ media_library_return Encoder::Impl::stream_restart()
 
     if (m_stream_restart == STREAM_RESTART_HARD)
     {
-        enc_ret = init_encoder_config();
-        if (enc_ret != VCENC_OK)
+        media_library_return ret = init_encoder_config();
+        if (ret != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__ERROR("Encoder HARD restart - Failed to init encoder config, returned {}", enc_ret);
-            return MEDIA_LIBRARY_ERROR;
+            LOGGER__ERROR("Encoder HARD restart - Failed to init encoder config");
+            return ret;
         }
     }
 
@@ -360,11 +452,11 @@ media_library_return Encoder::Impl::encode_header()
     {
         bool is_dmabuf = m_header.buffer->is_dmabuf();
         if (is_dmabuf)
-            DmaMemoryAllocator::get_instance().dmabuf_sync_start(m_header.buffer->get_plane(0));
+            DmaMemoryAllocator::get_instance().dmabuf_sync_start(m_header.buffer->get_plane_ptr(0));
         // Clear the header buffer
-        memset(static_cast<char *>(m_header.buffer->get_plane(0)), 0, m_header.buffer->get_plane_size(0));
+        memset(static_cast<char *>(m_header.buffer->get_plane_ptr(0)), 0, m_header.buffer->get_plane_size(0));
         if (is_dmabuf)
-            DmaMemoryAllocator::get_instance().dmabuf_sync_end(m_header.buffer->get_plane(0));
+            DmaMemoryAllocator::get_instance().dmabuf_sync_end(m_header.buffer->get_plane_ptr(0));
         m_header.size = 0;
     }
 
@@ -393,7 +485,11 @@ void Encoder::Impl::update_stride(uint32_t stride)
     if (stride != m_input_stride)
     {
         m_input_stride = stride;
-        init_preprocessing_config();
+        if (init_preprocessing_config() != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__ERROR("Failed to init preprocessing config");
+            //TOTO return error
+        }
     }
 }
 
@@ -405,16 +501,21 @@ void Encoder::force_keyframe() { m_impl->force_keyframe(); }
 
 void Encoder::Impl::force_keyframe()
 {
+    if(m_state != ENCODER_STATE_START)
+    {
+        LOGGER__WARNING("Encoder is not started, skipping force keyframe");
+        return;
+    }
+
     LOGGER__INFO("Encoder internal - Force Keyframe, setting next coding type to INTRA_FRAME poc to 0 and removing oldest input buffer");
     m_enc_in.codingType = m_next_coding_type = VCENC_INTRA_FRAME;
     m_enc_in.poc = 0;
     m_counters.last_idr_picture_cnt = m_counters.picture_cnt;
 
-    if(m_inputs.size() > 0)
+    if (m_inputs.size() > 0)
     {
         // remove oldest buffer from m_inputs
-        HailoMediaLibraryBufferPtr buf = m_inputs[0];
-        buf->decrease_ref_count();
+        HailoMediaLibraryBufferPtr buf = m_inputs[0].second;
         m_inputs.erase(m_inputs.begin());
     }
 }
@@ -424,18 +525,46 @@ encoder_config_t Encoder::get_config()
     return m_impl->get_config();
 }
 
+encoder_config_t Encoder::get_user_config()
+{
+    return m_impl->get_user_config();
+}
+
 encoder_config_t Encoder::Impl::get_config() { return m_config->get_config(); }
 
-EncoderOutputBuffer Encoder::start() { return m_impl->start(); }
+encoder_config_t Encoder::Impl::get_user_config() { return m_config->get_user_config(); }
 
-EncoderOutputBuffer Encoder::Impl::start()
+tl::expected<EncoderOutputBuffer, media_library_return> Encoder::start()
+{
+    return m_impl->start();
+}
+
+tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::start()
 {
     LOGGER__INFO("Encoder - Start the stream");
+
+    if(m_state == ENCODER_STATE_UNINITIALIZED)
+    {
+        LOGGER__ERROR("Encoder is not initialized");
+        m_header.buffer = nullptr;
+        m_header.size = 0;
+        return tl::make_unexpected(MEDIA_LIBRARY_UNINITIALIZED);
+    }
+
+    if (m_state == ENCODER_STATE_START)
+    {
+        LOGGER__WARNING("Encoder is already started");
+        return m_header;
+    }
+
+    m_enc_in.gopSize = get_gop_size();
+
     if (VCENC_OK != VCEncStrmStart(m_inst, &m_enc_in, &m_enc_out))
     {
         LOGGER__ERROR("Failed to start stream");
         m_header.buffer = nullptr;
         m_header.size = 0;
+        return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
     }
     else
     {
@@ -445,6 +574,7 @@ EncoderOutputBuffer Encoder::Impl::start()
             LOGGER__ERROR("Failed to create output buffer");
             m_header.buffer = nullptr;
             m_header.size = 0;
+            return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
         }
         else
         {
@@ -453,6 +583,7 @@ EncoderOutputBuffer Encoder::Impl::start()
             m_enc_in.gopSize = m_next_gop_size = get_gop_size();
             m_next_coding_type = VCENC_INTRA_FRAME;
             m_counters = {};
+            m_inputs.clear();
         }
     }
 
@@ -460,9 +591,11 @@ EncoderOutputBuffer Encoder::Impl::start()
     return m_header;
 }
 
-EncoderOutputBuffer Encoder::stop() { return m_impl->stop(); }
-
-EncoderOutputBuffer Encoder::Impl::stop()
+tl::expected<EncoderOutputBuffer, media_library_return> Encoder::stop()
+{
+    return m_impl->stop();
+}
+tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::stop()
 {
     VCEncStrmEnd(m_inst, &m_enc_in, &m_enc_out);
     EncoderOutputBuffer output;
@@ -473,7 +606,7 @@ EncoderOutputBuffer Encoder::Impl::stop()
         LOGGER__ERROR("Failed to create output buffer");
         output.buffer = nullptr;
         output.size = 0;
-        return output;
+        return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
     }
     return output;
 }
@@ -501,7 +634,7 @@ media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferP
     {
         for (uint32_t i = 0; i < num_of_planes; i++)
         {
-            planeFd = buf->get_fd(i);
+            planeFd = buf->get_plane_fd(i);
             if (planeFd <= 0)
             {
                 LOGGER__ERROR("Could not get dmabuf fd of plane {}", i);
@@ -513,7 +646,7 @@ media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferP
                 LOGGER__ERROR("Could not get physical address of plane {}", i);
                 for (uint32_t j = 0; j < i; j++)
                 {
-                    EWLUnshareDmabuf(m_ewl, buf->get_fd(j));
+                    EWLUnshareDmabuf(m_ewl, buf->get_plane_fd(j));
                 }
                 return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
             }
@@ -523,7 +656,7 @@ media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferP
     {
         for (uint32_t i = 0; i < num_of_planes; i++)
         {
-            plane_ptr = static_cast<u32 *>(buf->get_plane(i));
+            plane_ptr = static_cast<u32 *>(buf->get_plane_ptr(i));
             plane_size = buf->get_plane_size(i);
             if (plane_ptr == nullptr || plane_size == 0)
             {
@@ -554,22 +687,21 @@ Encoder::Impl::create_output_buffer(EncoderOutputBuffer &output_buf)
     }
     else
     {
-        hailo_media_library_buffer buffer;
-        if (m_buffer_pool->acquire_buffer(buffer) != MEDIA_LIBRARY_SUCCESS)
+        buffer_ptr = std::make_shared<hailo_media_library_buffer>();
+        if (m_buffer_pool->acquire_buffer(buffer_ptr) != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR("Failed to acquire buffer");
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
-        buffer_ptr = std::make_shared<hailo_media_library_buffer>(std::move(buffer));
     }
 
     bool is_dmabuf = buffer_ptr->is_dmabuf();
     if (is_dmabuf)
-        DmaMemoryAllocator::get_instance().dmabuf_sync_start(buffer_ptr->get_plane(0));
-        // Clear the header buffer
-    memcpy(static_cast<char *>(buffer_ptr->get_plane(0)) + offset, m_enc_in.pOutBuf, m_enc_out.streamSize);
+        DmaMemoryAllocator::get_instance().dmabuf_sync_start(buffer_ptr->get_plane_ptr(0));
+    // Clear the header buffer
+    memcpy(static_cast<char *>(buffer_ptr->get_plane_ptr(0)) + offset, m_enc_in.pOutBuf, m_enc_out.streamSize);
     if (is_dmabuf)
-        DmaMemoryAllocator::get_instance().dmabuf_sync_end(buffer_ptr->get_plane(0));
+        DmaMemoryAllocator::get_instance().dmabuf_sync_end(buffer_ptr->get_plane_ptr(0));
     output_buf.buffer = buffer_ptr;
     output_buf.size = m_enc_out.streamSize + offset;
 
@@ -594,7 +726,7 @@ Encoder::Impl::encode_multiple_frames(std::vector<EncoderOutputBuffer> &outputs)
         auto idx = m_enc_in.gopPicIdx +
                    m_gop_cfg->get_gop_cfg_offset()[m_enc_in.gopSize];
         auto poc = m_gop_cfg->get_gop_pic_cfg()[idx].poc;
-        ret = encode_frame(m_inputs[poc - 1], outputs);
+        ret = encode_frame(m_inputs[poc - 1].second, outputs, m_inputs[poc - 1].first);
         if (ret != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR("Error encoding frame {} with error {}", i, ret);
@@ -615,7 +747,7 @@ static void releaseDmabuf(HailoMediaLibraryBufferPtr buf, void *ewl)
 {
     for (uint32_t i = 0; i < buf->get_num_of_planes(); i++)
     {
-        int planeFd = buf->get_fd(i);
+        int planeFd = buf->get_plane_fd(i);
         if (planeFd <= 0)
         {
             LOGGER__ERROR("Could not get dmabuf fd of plane {}", i);
@@ -628,9 +760,8 @@ static void releaseDmabuf(HailoMediaLibraryBufferPtr buf, void *ewl)
     }
 }
 
-media_library_return
-Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
-                            std::vector<EncoderOutputBuffer> &outputs)
+media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf, std::vector<EncoderOutputBuffer> &outputs,
+                                                 uint32_t frame_number)
 {
     LOGGER__DEBUG("Encoder - encode_frame");
     VCEncRet enc_ret = VCENC_OK;
@@ -663,46 +794,69 @@ Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
     case VCENC_FRAME_READY:
     {
         m_counters.picture_enc_cnt++;
-        if (m_enc_out.streamSize == 0)
+        if (!m_multislice_encoding)
         {
-            m_counters.picture_cnt++;
-        }
-        else
-        {
-            if (!m_multislice_encoding)
+            if (m_bitrate_monitor.enabled)
+                bitrate_monitor_sample();
+            if (m_cycle_monitor.enabled)
+                cycle_monitor_sample();
+
+            EncoderOutputBuffer output;
+            if (m_enc_out.streamSize == 0)
             {
-                EncoderOutputBuffer output;
+                LOGGER__INFO("Dropping frame {} of type {}",
+                             m_counters.picture_enc_cnt - 1, m_enc_in.codingType);
+
+                /* restart with yuv of next frame for IDR or GOP start */
+                if (m_enc_in.poc == 0 || m_enc_in.gopPicIdx == 0)
+                {
+                    m_counters.picture_cnt++;
+                    m_counters.last_idr_picture_cnt++;
+                }
+                else
+                {
+
+                    /* follow current GOP, handling frame skip in API */
+                    m_next_coding_type = find_next_pic();
+                }
+                output.size = 0;
+                outputs.emplace_back(std::move(output));
+            }
+            else
+            {
                 if (m_enc_in.codingType == VCENC_INTRA_FRAME)
                 {
                     output = m_header;
-                    output.buffer->increase_ref_count();
                 }
                 ret = create_output_buffer(output);
                 if (ret != MEDIA_LIBRARY_SUCCESS)
                 {
                     LOGGER__ERROR("Encoder - encode_frame - Failed to create "
                                   "output buffer");
-                    if (buf->is_dmabuf()){
+                    if (buf->is_dmabuf())
+                    {
                         releaseDmabuf(buf, m_ewl);
                     }
                     return ret;
                 }
+                output.buffer->pts = buf->pts;
                 outputs.emplace_back(std::move(output));
-            }
-            m_counters.validencodedframenumber++;
-            m_next_coding_type = find_next_pic();
-            if (m_next_coding_type == VCENC_INTRA_FRAME)
-            {
-                if (!m_update_required.empty())
+                m_counters.validencodedframenumber++;
+                m_next_coding_type = find_next_pic();
+                if (m_next_coding_type == VCENC_INTRA_FRAME)
                 {
-                    m_stream_restart = STREAM_RESTART;
-                    // check if m_update_required contains CONFIG_STREAM
-                    if (std::find(m_update_required.begin(), m_update_required.end(), ENCODER_CONFIG_STREAM) != m_update_required.end())
+                    if (!m_update_required.empty())
                     {
-                        m_stream_restart = STREAM_RESTART_HARD;
+                        m_stream_restart = STREAM_RESTART;
+                        // check if m_update_required contains CONFIG_STREAM
+                        if (std::find(m_update_required.begin(), m_update_required.end(), ENCODER_CONFIG_STREAM) != m_update_required.end())
+                        {
+                            m_stream_restart = STREAM_RESTART_HARD;
+                        }
                     }
                 }
             }
+            outputs.at(outputs.size() - 1).frame_number = frame_number;
         }
         ret = MEDIA_LIBRARY_SUCCESS;
         break;
@@ -715,19 +869,20 @@ Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
         break;
     }
     }
-    if (buf->is_dmabuf()){
+    if (buf->is_dmabuf())
+    {
         releaseDmabuf(buf, m_ewl);
     }
     return ret;
 }
 
-std::vector<EncoderOutputBuffer> Encoder::handle_frame(HailoMediaLibraryBufferPtr buf)
+std::vector<EncoderOutputBuffer> Encoder::handle_frame(HailoMediaLibraryBufferPtr buf, uint32_t frame_number)
 {
-    return m_impl->handle_frame(buf);
+    return m_impl->handle_frame(buf, frame_number);
 }
 
 std::vector<EncoderOutputBuffer>
-Encoder::Impl::handle_frame(HailoMediaLibraryBufferPtr buf)
+Encoder::Impl::handle_frame(HailoMediaLibraryBufferPtr buf, uint32_t frame_number)
 {
     LOGGER__DEBUG("Start Handling Frame with plane 0 of size {} for buffer id {}", buf->get_plane_size(0), buf->buffer_index);
     std::vector<EncoderOutputBuffer> outputs;
@@ -749,26 +904,20 @@ Encoder::Impl::handle_frame(HailoMediaLibraryBufferPtr buf)
     {
     case VCENC_INTRA_FRAME:
     {
-        ret = encode_frame(buf, outputs);
+        ret = encode_frame(buf, outputs, frame_number);
         break;
     }
     case VCENC_PREDICTED_FRAME:
     {
         if (m_inputs.size() == (size_t)m_enc_in.gopSize - 1)
         {
-            buf->increase_ref_count();
-            m_inputs.emplace_back(buf);
+            m_inputs.emplace_back(frame_number, buf);
             ret = encode_multiple_frames(outputs);
-            for (auto &input : m_inputs)
-            {
-                input->decrease_ref_count();
-            }
             m_inputs.clear();
         }
         else if (m_inputs.size() < (size_t)m_enc_in.gopSize - 1)
         {
-            buf->increase_ref_count();
-            m_inputs.emplace_back(buf);
+            m_inputs.emplace_back(frame_number, buf);
             ret = MEDIA_LIBRARY_SUCCESS;
         }
         else
@@ -847,12 +996,12 @@ VCEncPictureCodingType Encoder::Impl::find_next_pic()
             int gop_shorten = 0;
 
             // cut by an IDR
-            if ((m_idr_interval) &&
+            if ((m_intra_pic_rate) &&
                 ((gop_end_pic - m_counters.last_idr_picture_cnt) >=
-                 (int)m_idr_interval))
+                 (int)m_intra_pic_rate))
                 gop_shorten =
                     1 + ((gop_end_pic - m_counters.last_idr_picture_cnt) -
-                         m_idr_interval);
+                         m_intra_pic_rate);
 
             if (gop_shorten >= next_gop_size)
             {
@@ -877,9 +1026,9 @@ VCEncPictureCodingType Encoder::Impl::find_next_pic()
         m_enc_in.poc += m_counters.picture_cnt - picture_cnt_tmp;
         // next coding type
         bool forceIntra =
-            m_idr_interval &&
+            m_intra_pic_rate &&
             ((m_counters.picture_cnt - m_counters.last_idr_picture_cnt) >=
-             (int)m_idr_interval);
+             (int)m_intra_pic_rate);
         if (forceIntra)
             nextCodingType = VCENC_INTRA_FRAME;
         else
@@ -902,5 +1051,112 @@ VCEncPictureCodingType Encoder::Impl::find_next_pic()
         gop_cfg->delta_poc_to_next =
             gop_cfg->pGopPicCfg[gop_cfg->id_next].poc - next_poc;
     }
+
+    m_enc_in.timeIncrement = m_vc_cfg.frameRateDenom;
+
     return nextCodingType;
+}
+
+void Encoder::Impl::bitrate_monitor_sample()
+{
+    u32 cur_frame_size = m_enc_out.streamSize * BITS_IN_BYTE;
+
+    // if period changed and frame_sizes is too large, remove frames until we match the new period
+    if (m_bitrate_monitor.frame_sizes.size() >
+        m_bitrate_monitor.fps * m_bitrate_monitor.period)
+    {
+        while (m_bitrate_monitor.frame_sizes.size() > m_bitrate_monitor.fps * m_bitrate_monitor.period)
+        {
+            m_bitrate_monitor.sum_period -= m_bitrate_monitor.frame_sizes.front();
+            m_bitrate_monitor.frame_sizes.pop();
+        }
+    }
+    // normal case - maintian moving average by adding the new frame size and removing the oldest
+    else if (m_bitrate_monitor.frame_sizes.size() ==
+             m_bitrate_monitor.fps * m_bitrate_monitor.period)
+    {
+        m_bitrate_monitor.sum_period -= m_bitrate_monitor.frame_sizes.front();
+        m_bitrate_monitor.frame_sizes.pop();
+        m_bitrate_monitor.sum_period += cur_frame_size;
+        m_bitrate_monitor.frame_sizes.push(cur_frame_size);
+    }
+    // not enough samples yet, just add the new frame size
+    else
+    {
+        m_bitrate_monitor.sum_period += cur_frame_size;
+        m_bitrate_monitor.frame_sizes.push(cur_frame_size);
+    }
+
+    // if the number of samples is for at least 1 second, update the moving average
+    if (m_bitrate_monitor.frame_sizes.size() / m_bitrate_monitor.fps >= 1)
+    {
+        m_bitrate_monitor.ma_bitrate = m_bitrate_monitor.sum_period / (m_bitrate_monitor.frame_sizes.size() / m_bitrate_monitor.fps);
+        LOGGER__INFO("Stream with res: {}x{}, current bitrate = {}", m_vc_cfg.width, m_vc_cfg.height, m_bitrate_monitor.ma_bitrate);
+
+        if (m_bitrate_monitor.output_file.is_open())
+        {
+            monitor_write_to_file(m_bitrate_monitor.output_file, "Stream with res: " + std::to_string(m_vc_cfg.width) + "x" +
+                                                                     std::to_string(m_vc_cfg.height) + ", current bitrate = " + std::to_string(m_bitrate_monitor.ma_bitrate));
+        }
+    }
+}
+
+void Encoder::Impl::cycle_monitor_sample()
+{
+    if (m_cycle_monitor.frame_count == 0 &&
+        m_cycle_monitor.start_time == static_cast<std::time_t>(-1))
+    {
+        m_cycle_monitor.start_time = std::time(NULL);
+
+        // Delay the start of the monitoring
+        if (m_cycle_monitor.start_delay > 0)
+            return;
+    }
+
+    std::time_t currentTime = std::time(nullptr);
+    if (currentTime - m_cycle_monitor.start_time < m_cycle_monitor.start_delay)
+        return;
+
+    if (m_cycle_monitor.frame_count < m_cycle_monitor.monitor_frames)
+    {
+        m_cycle_monitor.frame_count++;
+        m_cycle_monitor.sum += VCEncGetPerformance(m_inst);
+        return;
+    }
+
+    float avg = m_cycle_monitor.sum / m_cycle_monitor.frame_count;
+    u32 cur_frame_cycles = VCEncGetPerformance(m_inst);
+
+    if (cur_frame_cycles > (u32)(avg + (avg * m_cycle_monitor.deviation_threshold / 100)) ||
+        cur_frame_cycles < (u32)(avg - (avg * m_cycle_monitor.deviation_threshold / 100)))
+    {
+        LOGGER__INFO("Encoder - Performance Warning - Current frame cycles: {}, Average cycles: {}",
+                     cur_frame_cycles, avg);
+        if (m_cycle_monitor.output_file.is_open())
+        {
+            monitor_write_to_file(m_cycle_monitor.output_file, "Performance Warning - Current frame cycles: " +
+                                                                   std::to_string(cur_frame_cycles) + ", Average cycles: " + std::to_string(avg));
+        }
+    }
+    else
+    {
+        if (m_cycle_monitor.output_file.is_open())
+        {
+            monitor_write_to_file(m_cycle_monitor.output_file, "Current frame cycles: " + std::to_string(cur_frame_cycles));
+        }
+    }
+}
+
+void Encoder::Impl::monitor_write_to_file(std::ofstream &file, const std::string &data)
+{
+    std::time_t now = std::time(nullptr);
+    std::tm *timeinfo = std::localtime(&now);
+
+    std::thread([&file, data, timeinfo]()
+                {
+        char timestamp[24];
+        std::strftime(timestamp, sizeof(timestamp), "[%Y-%m-%d %H:%M:%S]", timeinfo);
+        std::string timestampStr(timestamp);
+        file << timestampStr << " " << data << std::endl; })
+        .detach();
 }

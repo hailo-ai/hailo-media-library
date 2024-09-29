@@ -25,7 +25,9 @@
 #include "buffer_utils/buffer_utils.hpp"
 #include "media_library/media_library_logger.hpp"
 
-CustomOverlayImpl::CustomOverlayImpl(const osd::CustomOverlay &overlay, media_library_return &status) : OverlayImpl(overlay.id, overlay.x, overlay.y, overlay.width, overlay.height, overlay.z_index, overlay.angle, overlay.rotation_alignment_policy, false)
+CustomOverlayImpl::CustomOverlayImpl(const osd::CustomOverlay &overlay, media_library_return &status)
+    : OverlayImpl(overlay.id, overlay.x, overlay.y, overlay.width, overlay.height, overlay.z_index, overlay.angle,
+                  overlay.rotation_alignment_policy, false, overlay.horizontal_alignment, overlay.vertical_alignment)
 {
     m_format = overlay.get_format();
     status = MEDIA_LIBRARY_SUCCESS;
@@ -86,9 +88,10 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Custom
     }
 
     dsp_image_properties_t dsp_image;
-    create_dsp_buffer_from_video_frame(&dest_frame, dsp_image, false);
+    create_dsp_buffer_from_video_frame(&dest_frame, dsp_image);
     m_video_frames.push_back(dest_frame);
-    auto offsets_expected = calc_xy_offsets(m_id, m_x, m_y, dsp_image.width, dsp_image.height, frame_width, frame_height, 0, 0);
+    auto offsets_expected = calc_xy_offsets(m_id, m_x, m_y, dsp_image.width, dsp_image.height, frame_width,
+                                            frame_height, 0, 0, m_horizontal_alignment, m_vertical_alignment);
     if (!offsets_expected.has_value())
     {
         return tl::make_unexpected(offsets_expected.error());
@@ -98,8 +101,8 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Custom
     dsp_overlay_properties_t dsp_overlay =
         {
             .overlay = dsp_image,
-            .x_offset = (size_t)x_offset,
-            .y_offset = (size_t)y_offset,
+            .x_offset = x_offset,
+            .y_offset = y_offset,
         };
 
     m_dsp_overlays.push_back(dsp_overlay);
@@ -110,5 +113,7 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Custom
 std::shared_ptr<osd::Overlay> CustomOverlayImpl::get_metadata()
 {
     DspImagePropertiesPtr dsp_image = std::make_shared<dsp_image_properties_t>(m_dsp_overlays[0].overlay);
-    return std::make_shared<osd::CustomOverlay>(m_id, m_x, m_y, m_width, m_height, dsp_image, m_z_index);
+    return std::make_shared<osd::CustomOverlay>(m_id, m_x, m_y, m_z_index, m_angle, m_rotation_policy,
+                                                m_horizontal_alignment, m_vertical_alignment, m_width, m_height,
+                                                m_format, dsp_image);
 }

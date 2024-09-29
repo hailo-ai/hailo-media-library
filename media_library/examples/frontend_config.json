@@ -1,4 +1,12 @@
 {
+    "input_video": {
+        "resolution": {
+            "width": 3840,
+            "height": 2160,
+            "framerate": 30
+        },
+        "source": "/dev/video0"
+    },
     "output_video": {
         "method": "INTERPOLATION_TYPE_BILINEAR",
         "format": "IMAGE_FORMAT_NV12",
@@ -8,25 +16,13 @@
                 "width": 3840,
                 "height": 2160,
                 "framerate": 30,
-                "pool_max_buffers": 15
-            },
-            {
-                "width": 1920,
-                "height": 1080,
-                "framerate": 30,
-                "pool_max_buffers": 10
+                "pool_max_buffers": 20
             },
             {
                 "width": 1280,
                 "height": 720,
                 "framerate": 30,
-                "pool_max_buffers": 10
-            },
-            {
-                "width": 640,
-                "height": 480,
-                "framerate": 30,
-                "pool_max_buffers": 10
+                "pool_max_buffers": 20
             }
         ]
     },
@@ -34,8 +30,7 @@
         "enabled": true,
         "color_interpolation": "INTERPOLATION_TYPE_BILINEAR",
         "sensor_calib_path": "/home/root/apps/resources/cam_intrinsics.txt",
-        "camera_type": "CAMERA_TYPE_PINHOLE",
-        "camera_fov": -1
+        "camera_type": "CAMERA_TYPE_PINHOLE"
     },
     "dis": {
         "enabled": false,
@@ -47,6 +42,7 @@
         "black_corners_correction_enabled": true,
         "black_corners_threshold": 0.5,
         "average_luminance_threshold": 0,
+        "camera_fov_factor": 1,
         "angular_dis": {
             "enabled": false,
             "vsm": {
@@ -64,6 +60,22 @@
             "fix_stabilization_latitude": 0.0
         }
     },
+    "eis": {
+        "enabled": false,
+        "eis_config_path": "/home/root/apps/resources/eis_calibration.json",
+        "window_size": 10,
+        "rotational_smoothing_coefficient": 0.0,
+        "iir_hpf_coefficient": 0.997,
+        "camera_fov_factor": 0.85,
+        "line_readout_time": 7410
+    },
+    "gyro":
+    {
+        "enabled": false,
+        "sensor_name": "lsm6dsr_gyro",
+        "sensor_frequency": "833.000000",
+        "scale": 0.000152716
+    },
     "gmv": {
         "source": "isp",
         "frequency": 0.0
@@ -75,7 +87,7 @@
     "digital_zoom": {
         "enabled": false,
         "mode": "DIGITAL_ZOOM_MODE_ROI",
-        "magnification": 1,
+        "magnification": 1.0,
         "roi": {
             "x": 200,
             "y": 200,
@@ -85,17 +97,36 @@
     },
     "rotation": {
         "enabled": false,
-        "angle": "ROTATION_ANGLE_270"
+        "angle": "ROTATION_ANGLE_180"
     },
     "flip": {
         "enabled": false,
-        "direction": "FLIP_DIRECTION_VERTICAL"
+        "direction": "FLIP_DIRECTION_HORIZONTAL"
+    },
+    "isp": {
+        "auto-configuration": false,
+        "isp_config_files_path": "/usr/bin"
+    },
+    "hailort": {
+        "device-id": "device0"
     },
     "hdr": {
         "enabled": false,
-        "dol": 3,
-        "resolution": "4k",
-        "lsRatio": 23.7,
-        "vsRatio": 6.25
+        "dol": 3
+    },
+    "denoise": {
+        "enabled": false,
+        "sensor": "imx678",
+        "method": "HIGH_QUALITY",
+        "loopback-count": 1,
+        "network": {
+            "network_path": "/usr/lib/medialib/denoise_config/vd_m_imx678.hef",
+            "y_channel": "model/input_layer1",
+            "uv_channel": "model/input_layer4",
+            "feedback_y_channel": "model/input_layer3",
+            "feedback_uv_channel": "model/input_layer2",
+            "output_y_channel": "model/conv17",
+            "output_uv_channel": "model/conv14"
+        }
     }
 }

@@ -39,8 +39,6 @@ gst_hailo_dma_buffer_pool_dispose(GObject *object)
         GstHailoDmaHeapControl::decrease_ref_count_dma_ctrl();
         pool->memory_allocator = NULL;
     }
-
-
 }
 
 static void
@@ -99,7 +97,7 @@ gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool, GstBuffer **output_b
         }
         GST_INFO_OBJECT(hailo_dmabuf_pool, "Allocating buffer of size %d with padding %d", buffer_size, hailo_dmabuf_pool->padding);
 
-        GstAllocationParams alloc_params = {(GstMemoryFlags)(GST_MEMORY_FLAG_ZERO_PREFIXED | GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS), ALIGNMENT, 0, hailo_dmabuf_pool->padding};
+        GstAllocationParams alloc_params = {(GstMemoryFlags)(GST_MEMORY_FLAG_ZERO_PREFIXED | GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS), ALIGNMENT, 0, hailo_dmabuf_pool->padding, 0};
         *output_buffer_ptr = gst_buffer_new_allocate((GstAllocator *)hailo_dmabuf_pool->memory_allocator, (size_t)buffer_size, &alloc_params);
 
         if (!*output_buffer_ptr)
@@ -113,7 +111,7 @@ gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool, GstBuffer **output_b
     case GST_VIDEO_FORMAT_NV12:
     {
         *output_buffer_ptr = gst_buffer_new();
-        GstAllocationParams alloc_params = {(GstMemoryFlags)(GST_MEMORY_FLAG_ZERO_PREFIXED | GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS), ALIGNMENT, 0, hailo_dmabuf_pool->padding};
+        GstAllocationParams alloc_params = {(GstMemoryFlags)(GST_MEMORY_FLAG_ZERO_PREFIXED | GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS), ALIGNMENT, 0, hailo_dmabuf_pool->padding, 0};
 
         for (int i = 0; i < 2; i++)
         {

@@ -24,24 +24,10 @@
 #include "overlay_impl.hpp"
 #include "buffer_utils/buffer_utils.hpp"
 #include "media_library/media_library_logger.hpp"
+#include "media_library/threadpool.hpp"
 
-OverlayImpl::OverlayImpl(std::string id, float x, float y, float width, float height, unsigned int z_index, unsigned int angle, osd::rotation_alignment_policy_t rotation_policy, bool enabled = true) : m_id(id), m_x(x), m_y(y), m_width(width), m_height(height), m_z_index(z_index), m_angle(angle), m_rotation_policy(rotation_policy), m_enabled(enabled)
-{
-}
-
-cv::Mat OverlayImpl::resize_mat(cv::Mat mat, int width, int height)
-{
-    // ensure even dimensions, round up not to clip image
-    width += (width % 2);
-    height += (height % 2);
-
-    // resize the mat image to target size
-    cv::Mat resized_image;
-    cv::resize(mat, resized_image, cv::Size(width, height), 0, 0, cv::INTER_AREA);
-    return resized_image;
-}
-
-cv::Mat OverlayImpl::rotate_mat(cv::Mat mat, uint angle, osd::rotation_alignment_policy_t alignment_policy, cv::Point *center_drift)
+// NOTE: this function may cause a memory leak (inside opencv) if called from the gstreamer thread. always call this function from a ThreadPool thread.
+inline cv::Mat rotate_mat(cv::Mat mat, uint angle, osd::rotation_alignment_policy_t alignment_policy, cv::Point *center_drift)
 {
     *center_drift = cv::Point(0, 0);
     if (angle == 0)
@@ -76,6 +62,16 @@ cv::Mat OverlayImpl::rotate_mat(cv::Mat mat, uint angle, osd::rotation_alignment
         *center_drift = center - new_center;
     }
     return result;
+}
+
+OverlayImpl::OverlayImpl(std::string id, float x, float y, float width, float height, unsigned int z_index,
+                         unsigned int angle, osd::rotation_alignment_policy_t rotation_policy, bool enabled,
+                         osd::HorizontalAlignment horizontal_alignment, osd::VerticalAlignment vertical_alignment)
+    : m_id(id), m_x(x), m_y(y), m_width(width), m_height(height), m_z_index(z_index), m_angle(angle),
+      m_rotation_policy(rotation_policy), m_enabled(enabled), m_horizontal_alignment(horizontal_alignment),
+      m_vertical_alignment(vertical_alignment)
+
+{
 }
 
 GstVideoFrame OverlayImpl::gst_video_frame_from_mat_bgra(cv::Mat mat)
@@ -117,7 +113,7 @@ media_library_return OverlayImpl::create_gst_video_frame(uint width, uint height
     GstVideoInfo *image_info = gst_video_info_new();
     gst_video_info_from_caps(image_info, caps);
     uint buffer_size = image_info->size;
-    dsp_status buffer_status = dsp_utils::create_hailo_dsp_buffer(buffer_size, &buffer_ptr);
+    dsp_status buffer_status = dsp_utils::create_hailo_dsp_buffer(buffer_size, &buffer_ptr, true);
 
     if (buffer_status != DSP_SUCCESS)
     {
@@ -249,7 +245,10 @@ media_library_return OverlayImpl::convert_2_dma_video_frame(GstVideoFrame *src_f
     return ret;
 }
 
-tl::expected<std::tuple<int, int>, media_library_return> OverlayImpl::calc_xy_offsets(std::string id, float x_norm, float y_norm, size_t &overlay_width, size_t &overlay_height, int image_width, int image_height, int x_drift, int y_drift)
+tl::expected<std::tuple<int, int>, media_library_return>
+OverlayImpl::calc_xy_offsets(std::string id, float x_norm, float y_norm, size_t overlay_width, size_t overlay_height,
+                             int image_width, int image_height, int x_drift, int y_drift,
+                             osd::HorizontalAlignment horizontal_alignment, osd::VerticalAlignment vertical_alignment)
 {
     if (x_norm < 0 || x_norm > 1 || y_norm < 0 || y_norm > 1)
     {
@@ -263,41 +262,8 @@ tl::expected<std::tuple<int, int>, media_library_return> OverlayImpl::calc_xy_of
     x_offset += x_drift;
     y_offset += y_drift;
 
-    if (x_offset + overlay_width > static_cast<size_t>(image_width))
-    {
-        if (x_offset >= image_width)
-        {
-            LOGGER__ERROR("overlay {} can't fit in frame! Adjust x offset. ({})", id, x_offset);
-            return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
-        }
-
-        overlay_width = image_width - x_offset;
-        overlay_width -= (overlay_width % 2);
-    }
-
-    if (y_offset + overlay_height > static_cast<size_t>(image_height))
-    {
-        if (y_offset >= image_height)
-        {
-            LOGGER__ERROR("overlay {} can't fit in frame! Adjust y offset. ({})", id, y_offset);
-            return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
-        }
-
-        overlay_height = image_height - y_offset;
-        overlay_height -= (overlay_height % 2);
-    }
-
-    if (x_offset < 0)
-    {
-        LOGGER__ERROR("overlay {} can't fit in frame! Adjust x offset. ({})", id, x_offset);
-        return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
-    }
-
-    if (y_offset < 0)
-    {
-        LOGGER__ERROR("overlay {} can't fit in frame! Adjust y offset. ({})", id, y_offset);
-        return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
-    }
+    x_offset -= overlay_width * horizontal_alignment.as_float();
+    y_offset -= overlay_height * vertical_alignment.as_float();
 
     std::tuple ret = {x_offset, y_offset};
     return ret;
@@ -374,7 +340,8 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
     cv::Point center_drift{0, 0};
     if (m_angle != 0)
     {
-        mat = OverlayImpl::rotate_mat(m_image_mat, m_angle, m_rotation_policy, &center_drift);
+        mat = ThreadPool::GetInstance()->invoke([this, &center_drift]()
+                                                { return rotate_mat(m_image_mat, m_angle, m_rotation_policy, &center_drift); });
         LOGGER__DEBUG("Rotated OSD by {} degrees, center drifted by {} pixels, around {}", m_angle, center_drift, m_rotation_policy);
     }
 
@@ -392,7 +359,7 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
     dsp_image_properties_t dsp_image;
     create_dsp_buffer_from_video_frame(&dest_frame, dsp_image);
     m_video_frames.push_back(dest_frame);
-    auto offsets_expected = calc_xy_offsets(m_id, m_x, m_y, dsp_image.width, dsp_image.height, frame_width, frame_height, center_drift.x, center_drift.y);
+    auto offsets_expected = calc_xy_offsets(m_id, m_x, m_y, dsp_image.width, dsp_image.height, frame_width, frame_height, center_drift.x, center_drift.y, m_horizontal_alignment, m_vertical_alignment);
     if (!offsets_expected.has_value())
     {
         return tl::make_unexpected(offsets_expected.error());
@@ -402,8 +369,8 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
     dsp_overlay_properties_t dsp_overlay =
         {
             .overlay = dsp_image,
-            .x_offset = (size_t)x_offset,
-            .y_offset = (size_t)y_offset,
+            .x_offset = x_offset,
+            .y_offset = y_offset,
         };
 
     m_dsp_overlays.push_back(dsp_overlay);

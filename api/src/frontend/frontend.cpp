@@ -122,6 +122,8 @@ MediaLibraryFrontend::Impl::Impl(frontend_src_element_t src_element, std::string
 
     set_gst_callbacks();
 
+    m_current_fps = 0;
+
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -134,9 +136,9 @@ MediaLibraryFrontend::Impl::~Impl()
 
 tl::expected<GstElement *, media_library_return> MediaLibraryFrontend::Impl::get_frontend_element()
 {
-    //get gsthailofrontendbinsrc element from m_pipeline
+    // get gsthailofrontendbinsrc element from m_pipeline
     GstElement *frontendbinsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
-    //get the element with type hailofrontend from the bin
+    // get the element with type hailofrontend from the bin
     GstElement *frontend = gst_bin_get_by_name(GST_BIN(frontendbinsrc), "hailofrontendelement");
     if (frontend == nullptr)
     {
@@ -150,20 +152,47 @@ tl::expected<GstElement *, media_library_return> MediaLibraryFrontend::Impl::get
 
 tl::expected<frontend_config_t, media_library_return> MediaLibraryFrontend::Impl::get_config()
 {
-    auto frontend_element = get_frontend_element();
-    if(frontend_element)
+    auto frontendbinsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
+    if (frontendbinsrc)
     {
-        frontend_config_t config;
+        frontend_element_config_t frontend_element_config;
         gpointer value = nullptr;
-        g_object_get(frontend_element.value(), "config", &value, NULL);
-        config = *reinterpret_cast<frontend_config_t *>(value);
-        gst_object_unref(frontend_element.value());
-        return config;
+        g_object_get(frontendbinsrc, "config", &value, NULL);
+        frontend_element_config = *reinterpret_cast<frontend_element_config_t *>(value);
+
+        hdr_config_t hdr_config;
+        g_object_get(frontendbinsrc, "hdr-config", &value, NULL);
+        hdr_config = *reinterpret_cast<hdr_config_t *>(value);
+
+        g_object_get(frontendbinsrc, "hailort-config", &value, NULL);
+        hailort_t hailort_config;
+        hailort_config = *reinterpret_cast<hailort_t *>(value);
+
+        g_object_get(frontendbinsrc, "input-video-config", &value, NULL);
+        input_video_config_t input_config;
+        input_config = *reinterpret_cast<input_video_config_t *>(value);
+
+        g_object_get(frontendbinsrc, "isp-config", &value, NULL);
+        isp_t isp_config;
+        isp_config = *reinterpret_cast<isp_t *>(value);
+
+        gst_object_unref(frontendbinsrc);
+
+        frontend_config_t frontend_config;
+        frontend_config.ldc_config = frontend_element_config.ldc_config;
+        frontend_config.denoise_config = frontend_element_config.denoise_config;
+        frontend_config.multi_resize_config = frontend_element_config.multi_resize_config;
+        frontend_config.input_config = input_config;
+        frontend_config.hdr_config = hdr_config;
+        frontend_config.hailort_config = hailort_config;
+        frontend_config.isp_config = isp_config;
+
+        return frontend_config;
     }
     else
     {
-        gst_object_unref(frontend_element.value());
-        return tl::make_unexpected(frontend_element.error());
+        gst_object_unref(frontendbinsrc);
+        return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
     }
 }
 
@@ -246,17 +275,15 @@ media_library_return MediaLibraryFrontend::Impl::configure(std::string json_conf
 
 media_library_return MediaLibraryFrontend::Impl::configure(frontend_config_t config)
 {
-    auto frontend_element = get_frontend_element();
-    if(frontend_element)
+    auto frontendbinsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
+    media_library_return ret = MEDIA_LIBRARY_ERROR;
+    if (frontendbinsrc)
     {
-        g_object_set(G_OBJECT(frontend_element.value()), "config", &config, NULL);
-        return MEDIA_LIBRARY_SUCCESS;
+        g_object_set(G_OBJECT(frontendbinsrc), "config", &config, NULL);
+        ret = MEDIA_LIBRARY_SUCCESS;
     }
-    else
-    {
-        return frontend_element.error();
-    }
-    return MEDIA_LIBRARY_SUCCESS;
+    gst_object_unref(frontendbinsrc);
+    return ret;
 }
 
 tl::expected<std::vector<frontend_output_stream_t>, media_library_return> MediaLibraryFrontend::Impl::get_outputs_streams()
@@ -331,16 +358,19 @@ void MediaLibraryFrontend::Impl::on_fps_measurement(GstElement *fpsdisplaysink,
                                                     gdouble droprate,
                                                     gdouble avgfps)
 {
-    gchar *name;
-    g_object_get(G_OBJECT(fpsdisplaysink), "name", &name, NULL);
-    std::cout << name << ", DROP RATE: " << droprate << " FPS: " << fps << " AVG_FPS: " << avgfps << std::endl;
+    if (PRINT_FPS)
+    {
+        gchar *name = gst_element_get_name(fpsdisplaysink);
+        std::cout << name << ", DROP RATE: " << droprate << " FPS: " << fps << " AVG_FPS: " << avgfps << std::endl;
+        g_free(name);
+    }
 }
 
 void MediaLibraryFrontend::Impl::set_gst_callbacks()
 {
     if (m_src_element == FRONTEND_SRC_ELEMENT_APPSRC)
     {
-        GstAppSrcCallbacks appsrc_callbacks = {NULL};
+        GstAppSrcCallbacks appsrc_callbacks = {};
         GstElement *appsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "src");
         m_appsrc = GST_APP_SRC(appsrc);
         gst_app_src_set_callbacks(GST_APP_SRC(appsrc), &appsrc_callbacks, (void *)this, NULL);
@@ -353,17 +383,14 @@ void MediaLibraryFrontend::Impl::set_gst_callbacks()
         LOGGER__ERROR("Failed to get output streams ids");
         return;
     }
-    GstAppSinkCallbacks appsink_callbacks = {NULL};
+    GstAppSinkCallbacks appsink_callbacks = {};
     appsink_callbacks.new_sample = new_sample;
     for (auto s : expected_streams.value())
     {
         LOGGER__INFO("Setting callback for sink {}", s.id);
-        if (PRINT_FPS)
-        {
-            GstElement *fpssink = gst_bin_get_by_name(GST_BIN(m_pipeline), (std::string("fpsdisplay") + s.id).c_str());
-            g_signal_connect(fpssink, "fps-measurements", G_CALLBACK(fps_measurement), this);
-            gst_object_unref(fpssink);
-        }
+        GstElement *fpssink = gst_bin_get_by_name(GST_BIN(m_pipeline), (std::string("fpsdisplay") + s.id).c_str());
+        g_signal_connect(fpssink, "fps-measurements", G_CALLBACK(fps_measurement), this);
+        gst_object_unref(fpssink);
         GstElement *appsink = gst_bin_get_by_name(GST_BIN(m_pipeline), s.id.c_str());
         gst_app_sink_set_callbacks(GST_APP_SINK(appsink), &appsink_callbacks, (void *)this, NULL);
         gst_object_unref(appsink);
@@ -407,7 +434,6 @@ GstFlowReturn MediaLibraryFrontend::Impl::on_new_sample(output_stream_id_t id, G
     }
     for (auto cb : cb_iter->second)
     {
-        buffer_ptr->increase_ref_count();
         cb(buffer_ptr, used_size);
     }
 
@@ -423,4 +449,14 @@ PrivacyMaskBlenderPtr MediaLibraryFrontend::Impl::get_privacy_mask_blender()
 PrivacyMaskBlenderPtr MediaLibraryFrontend::get_privacy_mask_blender()
 {
     return m_impl->get_privacy_mask_blender();
+}
+
+float MediaLibraryFrontend::Impl::get_current_fps()
+{
+    return m_current_fps;
+}
+
+float MediaLibraryFrontend::get_current_fps()
+{
+    return m_impl->get_current_fps();
 }

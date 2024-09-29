@@ -62,6 +62,7 @@ private:
     std::shared_ptr<osd::Blender> m_blender;
     appsrc_state m_appsrc_state;
     EncoderType m_encoder_type;
+    float m_current_fps;
 
 public:
     static tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>, media_library_return> create(std::string json_config, std::string name);
@@ -78,13 +79,15 @@ public:
     media_library_return configure(encoder_config_t &config);
     media_library_return set_force_videorate(bool force);
     encoder_config_t get_config();
+    encoder_config_t get_user_config();
     EncoderType get_type();
     GstFlowReturn add_gst_buffer(GstBuffer *buffer);
     media_library_return force_keyframe();
+    float get_current_fps();
 
     /**
      * Below are public functions that are not part of the public API
-     * but are public for gstreamer callbacks.
+     * but are public for GStreamer callbacks.
      */
 public:
     void on_fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate,
@@ -100,6 +103,7 @@ private:
         MediaLibraryEncoder::Impl *encoder =
             static_cast<MediaLibraryEncoder::Impl *>(user_data);
         encoder->on_fps_measurement(fpssink, fps, droprate, avgfps);
+        encoder->update_fps(fps);
     }
     static GstFlowReturn new_sample(GstAppSink *appsink, gpointer user_data)
     {
@@ -112,6 +116,9 @@ private:
         MediaLibraryEncoder::Impl *encoder =
             static_cast<MediaLibraryEncoder::Impl *>(user_data);
         return encoder->on_bus_call(bus, msg);
+    }
+    void update_fps(gdouble fps) {
+        m_current_fps = static_cast<float>(fps);
     }
 
 private:

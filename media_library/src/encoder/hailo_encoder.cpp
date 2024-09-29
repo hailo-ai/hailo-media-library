@@ -21,6 +21,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include "hailo_encoder.hpp"
+#include <map>
 
 void SetDefaultParameters(EncoderParams *enc_params, bool codecH264)
 {
@@ -84,6 +85,68 @@ void SetDefaultParameters(EncoderParams *enc_params, bool codecH264)
     enc_params->roiMapDeltaQpBlockUnit = 0;
 }
 
+VCEncLevel GetAutoLevel(EncoderParams *enc_params, bool codecH264)
+{
+    // Resolution to bitrate to level mapping
+    const std::map<int32_t, std::map<uint32_t, VCEncLevel>> H264_AUTO_LEVEL_MAP = {
+        {720 * 480, {{UINT32_MAX, VCENC_H264_LEVEL_3}}},
+        {1280 * 720, {{UINT32_MAX, VCENC_H264_LEVEL_3_1}}},
+        {1920 * 1080, {{2000000, VCENC_H264_LEVEL_3_1}, {4000000, VCENC_H264_LEVEL_3_2}, {8000000, VCENC_H264_LEVEL_4}, {UINT32_MAX, VCENC_H264_LEVEL_4_1}}},
+        {2560 * 1440, {{4000000, VCENC_H264_LEVEL_4}, {8000000, VCENC_H264_LEVEL_4_1}, {UINT32_MAX, VCENC_H264_LEVEL_4_2}}},
+        {3840 * 2160, {{8000000, VCENC_H264_LEVEL_4_2}, {16000000, VCENC_H264_LEVEL_5}, {UINT32_MAX, VCENC_H264_LEVEL_5_1}}},
+        {INT32_MAX, {{25000000, VCENC_H264_LEVEL_5_1}, {UINT32_MAX, VCENC_H264_LEVEL_5_2}}}};
+
+    const std::map<int32_t, std::map<uint32_t, VCEncLevel>> H265_AUTO_LEVEL_MAP = {
+        {720 * 480, {{UINT32_MAX, VCENC_HEVC_LEVEL_3}}},
+        {960 * 540, {{2000000, VCENC_HEVC_LEVEL_3}, {UINT32_MAX, VCENC_HEVC_LEVEL_3_1}}},
+        {1280 * 720, {{UINT32_MAX, VCENC_HEVC_LEVEL_3_1}}},
+        {1920 * 1080, {{2000000, VCENC_HEVC_LEVEL_3_1}, {8000000, VCENC_HEVC_LEVEL_4}, {UINT32_MAX, VCENC_HEVC_LEVEL_4_1}}},
+        {2048 * 1080, {{4000000, VCENC_HEVC_LEVEL_4}, {UINT32_MAX, VCENC_HEVC_LEVEL_4_1}}},
+        {2560 * 1440, {{4000000, VCENC_HEVC_LEVEL_5}, {UINT32_MAX, VCENC_HEVC_LEVEL_5_1}}},
+        {3840 * 2160, {{16000000, VCENC_HEVC_LEVEL_5}, {UINT32_MAX, VCENC_HEVC_LEVEL_5_1}}},
+        {INT32_MAX, {{25000000, VCENC_HEVC_LEVEL_5_1}, {UINT32_MAX, VCENC_HEVC_LEVEL_5_1}}}};
+
+    const auto &auto_level_map = codecH264 ? H264_AUTO_LEVEL_MAP : H265_AUTO_LEVEL_MAP;
+
+    auto resolution = enc_params->width * enc_params->height;
+    auto bitrate = enc_params->bitrate;
+    auto level = codecH264 ? VCENC_H264_LEVEL_5_2 : VCENC_HEVC_LEVEL_5_1;
+
+    for (auto &resolution_map : auto_level_map)
+    {
+        if (resolution <= resolution_map.first)
+        {
+            for (auto &bitrate_map : resolution_map.second)
+            {
+                if (bitrate <= bitrate_map.first)
+                {
+                    level = bitrate_map.second;
+                    break;
+                }
+            }
+
+            break;
+        }
+    }
+
+    return level;
+}
+
+VCEncProfile GetAutoProfile(EncoderParams *enc_params, bool codecH264)
+{
+    auto resolution = enc_params->width * enc_params->height;
+    auto bitrate = enc_params->bitrate;
+
+    if ((resolution <= 1280 * 720) && (bitrate <= 5000000))
+    {
+        return (codecH264 ? VCENC_H264_MAIN_PROFILE : VCENC_HEVC_MAIN_PROFILE);
+    }
+    else
+    {
+        return (codecH264 ? VCENC_H264_HIGH_PROFILE : VCENC_HEVC_MAIN_10_PROFILE);
+    }
+}
+
 int InitEncoderConfig(EncoderParams *enc_params, VCEncInst *pEnc)
 {
     VCEncRet ret;
@@ -101,8 +164,24 @@ int InitEncoderConfig(EncoderParams *enc_params, VCEncInst *pEnc)
     cfg.streamType = enc_params->streamType;
 
     cfg.codecH264 = enc_params->codecH264;
-    cfg.profile = enc_params->profile;
-    cfg.level = enc_params->level;
+
+    if (enc_params->profile == -1)
+    {
+        cfg.profile = GetAutoProfile(enc_params, enc_params->codecH264);
+    }
+    else
+    {
+        cfg.profile = (VCEncProfile)enc_params->profile;
+    }
+
+    if (enc_params->level == -1)
+    {
+        cfg.level = GetAutoLevel(enc_params, enc_params->codecH264);
+    }
+    else
+    {
+        cfg.level = (VCEncLevel)enc_params->level;
+    }
 
     if (cfg.profile == VCENC_HEVC_MAIN_10_PROFILE ||
         cfg.profile == VCENC_H264_HIGH_10_PROFILE)
@@ -159,14 +238,14 @@ static void UpdateROIArea(EncoderParams *enc_params, VCEncCodingCtrl codingCfg)
     if (enc_params->roiArea1)
     {
         codingCfg.roi1Area.enable = 1;
-        sscanf(enc_params->roiArea1, "%u:%u:%u:%u:%u", &codingCfg.roi1Area.left,
+        sscanf(enc_params->roiArea1, "%u:%u:%u:%u:%d", &codingCfg.roi1Area.left,
                &codingCfg.roi1Area.top, &codingCfg.roi1Area.right,
                &codingCfg.roi1Area.bottom, &codingCfg.roi1DeltaQp);
     }
     if (enc_params->roiArea2)
     {
         codingCfg.roi2Area.enable = 1;
-        sscanf(enc_params->roiArea2, "%u:%u:%u:%u:%u", &codingCfg.roi2Area.left,
+        sscanf(enc_params->roiArea2, "%u:%u:%u:%u:%d", &codingCfg.roi2Area.left,
                &codingCfg.roi2Area.top, &codingCfg.roi2Area.right,
                &codingCfg.roi2Area.bottom, &codingCfg.roi2DeltaQp);
     }
@@ -304,14 +383,13 @@ int InitEncoderRateConfig(EncoderParams *enc_params, VCEncInst *pEnc)
     rcCfg.ctbRc = enc_params->ctbRc;
 
     rcCfg.blockRCSize = enc_params->blockRcSize;
-
     rcCfg.bitPerSecond = enc_params->bitrate;
     rcCfg.bitVarRangeI = enc_params->bitVarRangeI;
     rcCfg.bitVarRangeP = enc_params->bitVarRangeP;
     rcCfg.bitVarRangeB = enc_params->bitVarRangeB;
     rcCfg.tolMovingBitRate = enc_params->tolMovingBitRate;
 
-    if (enc_params->monitorFrames != 0)
+    if (enc_params->monitorFrames != AUTO_MONITOR_FRAMES)
         rcCfg.monitorFrames = enc_params->monitorFrames;
     else
         rcCfg.monitorFrames =
@@ -324,9 +402,28 @@ int InitEncoderRateConfig(EncoderParams *enc_params, VCEncInst *pEnc)
         rcCfg.monitorFrames = MIN_MONITOR_FRAMES;
 
     rcCfg.hrd = enc_params->hrd;
+    rcCfg.cvbr = enc_params->cvbr;
+    rcCfg.hrdCbrFlag = enc_params->padding;
     rcCfg.hrdCpbSize = enc_params->hrdCpbSize;
 
-    rcCfg.gopLen = enc_params->gopLength;
+    if (enc_params->hrdCpbSize == 0)
+    {
+        rcCfg.hrdCpbSize = enc_params->bitrate * 2;
+    }
+    else
+    {
+        rcCfg.hrdCpbSize = enc_params->hrdCpbSize;
+    }
+
+    if (enc_params->gopLength == 0)
+    {
+        rcCfg.gopLen = enc_params->frameRateNumer / enc_params->frameRateDenom;
+    }
+    else
+    {
+        rcCfg.gopLen = enc_params->gopLength;
+    }
+
     rcCfg.intraQpDelta = enc_params->intra_qp_delta;
     rcCfg.fixedIntraQp = enc_params->fixed_intra_qp;
 
@@ -448,7 +545,7 @@ int OpenEncoder(VCEncInst *encoder, EncoderParams *enc_params)
 ------------------------------------------------------------------------------*/
 int UpdateEncoderConfig(VCEncInst *encoder, EncoderParams *enc_params)
 {
-    enc_params->idr_interval = enc_params->intraPicRate;
+    enc_params->intra_pic_rate = enc_params->intraPicRate;
 
     if (InitEncoderCodingConfig(enc_params, encoder) != 0)
         return -1;
@@ -528,9 +625,15 @@ int AllocRes(EncoderParams *enc_params)
 void FreeRes(EncoderParams *enc_params)
 {
     if (enc_params->outbufMem.virtualAddress != NULL)
+    {
         EWLFreeLinear((const void *)enc_params->ewl, &enc_params->outbufMem);
+        enc_params->outbufMem.virtualAddress = NULL;
+    }
     if (NULL != enc_params->ewl)
+    {
         (void)EWLRelease((const void *)enc_params->ewl);
+        enc_params->ewl = NULL;
+    }
 }
 
 VCEncRet EncodeFrame(EncoderParams *enc_params, VCEncInst encoder,

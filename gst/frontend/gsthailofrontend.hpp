@@ -52,7 +52,6 @@ struct _GstHailoFrontend
 {
     GstBin base_hailofrontend;
     GstPad *sinkpad;
-    std::vector<GstPad *> srcpads;
     
     gchar *config_file_path;
     std::string config_string;
@@ -64,7 +63,7 @@ struct _GstHailoFrontend
     GstElement *m_dewarp_mresize_queue;
     GstElement *m_multi_resize;
 
-    std::shared_ptr<frontend_config_t> frontend_config;
+    std::shared_ptr<frontend_element_config_t> frontend_element_config;
 
     media_library_return observe_denoising(const MediaLibraryDenoise::callbacks_t &callback) {
         // GstHailoDenoise* denoise = GST_HAILO_DENOISE(m_denoise);

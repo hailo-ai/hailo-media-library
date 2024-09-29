@@ -73,7 +73,7 @@ int Encoder::Impl::gopConfig::ReadGopConfig(std::vector<GopPicConfig> &config, i
     return ret;
 }
 
-int Encoder::Impl::gopConfig::init_config(VCEncGopConfig * gopConfig, int gop_size, int b_frame_qp_delta, bool codec_h264)
+media_library_return Encoder::Impl::gopConfig::init_config(VCEncGopConfig * gopConfig, int gop_size, int b_frame_qp_delta, bool codec_h264)
 {
     m_gop_cfg = gopConfig;
     memset(m_gop_pic_cfg, 0, sizeof(m_gop_pic_cfg));
@@ -95,7 +95,7 @@ int Encoder::Impl::gopConfig::init_config(VCEncGopConfig * gopConfig, int gop_si
     if (m_gop_size < 0 || m_gop_size > MAX_GOP_SIZE)
     {
         printf("GOP Config: Error, Invalid GOP Size\n");
-        return -1;
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
     // GOP size in rps array for gopSize=N
@@ -116,7 +116,7 @@ int Encoder::Impl::gopConfig::init_config(VCEncGopConfig * gopConfig, int gop_si
         if (ReadGopConfig(default_configs[i - 1], i))
         {
             printf("GOP Config: Error, could not read config %d\n", i);
-            return -1;
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
     }
 
@@ -126,13 +126,13 @@ int Encoder::Impl::gopConfig::init_config(VCEncGopConfig * gopConfig, int gop_si
         if (ReadGopConfig(default_configs[5], 6))
         {
             printf("GOP Config: Error, could not read config %d\n", 6);
-            return -1;
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
         // gop8
         if (ReadGopConfig(default_configs[7], 8))
         {
             printf("GOP Config: Error, could not read config %d\n", 8);
-            return -1;
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
     }
     else if (m_gop_size > 4)
@@ -141,7 +141,7 @@ int Encoder::Impl::gopConfig::init_config(VCEncGopConfig * gopConfig, int gop_si
         if (ReadGopConfig(default_configs[m_gop_size - 1], m_gop_size))
         {
             printf("GOP Config: Error, could not read config %d\n", m_gop_size);
-            return -1;
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
     }
 
@@ -167,7 +167,7 @@ int Encoder::Impl::gopConfig::init_config(VCEncGopConfig * gopConfig, int gop_si
         }
     }
 
-    return 0;
+    return MEDIA_LIBRARY_SUCCESS;
 }
 
 Encoder::Impl::gopConfig::gopConfig(VCEncGopConfig *gopConfig, int gopSize, int bFrameQpDelta, bool codecH264) : m_gop_cfg(gopConfig),

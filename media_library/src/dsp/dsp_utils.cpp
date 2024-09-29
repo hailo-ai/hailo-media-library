@@ -30,14 +30,30 @@
  *  @{
  */
 
+template <>
+dsp_data_plane_t hailo_data_plane_t::As() const
+{
+    dsp_data_plane_t plane;
+    plane.fd = fd;
+    plane.bytesperline = bytesperline;
+    plane.bytesused = bytesused;
+    return plane;
+}
+
+template <>
+hailo_dsp_buffer_data_t hailo_buffer_data_t::As() const
+{
+    return hailo_dsp_buffer_data_t(width, height, planes_count, format, memory, planes);
+}
+
 namespace dsp_utils
 {
     static dsp_device device = NULL;
     static uint dsp_device_refcount = 0;
 
     /**
-     * Create a DSP device, and store it globally
-     * The function requests a device from the DSP library.
+     * Create a DSP device and store it globally
+     * This function requests a device from the DSP library.
      * @return dsp_status
      */
     static dsp_status create_device()
@@ -61,7 +77,7 @@ namespace dsp_utils
 
     /**
      * Release the DSP device.
-     * The function releases the device using the DSP library.
+     * This function releases the device using the DSP library.
      * If there are other references to the device, just decrement the refcount and
      * skip the release.
      * @return dsp_status
@@ -119,7 +135,7 @@ namespace dsp_utils
 
     /**
      * Create a buffer on the DSP
-     * The function requests a buffer from the DSP library.
+     * This function requests a buffer from the DSP library.
      * The buffer can be used later for DSP operations.
      * @param[in] size the size of the buffer to create
      * @param[out] buffer a pointer to a buffer - DSP library will allocate the
@@ -188,7 +204,7 @@ namespace dsp_utils
 
     /**
      * Perform DSP Resize
-     * The function calls the DSP library to perform resize on a given buffer.
+     * This function calls the DSP library to perform resize on a given buffer.
      * DSP will place the result in the output buffer.
      *
      * @param[in] input_image_properties input image properties
@@ -197,7 +213,7 @@ namespace dsp_utils
      * @param[in] use_letterbox should letterbox resize be used
      * @return dsp_status
      */
-    dsp_status perform_resize(dsp_image_properties_t *input_image_properties, dsp_image_properties_t *output_image_properties, dsp_interpolation_type_t dsp_interpolation_type, bool letterbox)
+    dsp_status perform_resize(dsp_image_properties_t *input_image_properties, dsp_image_properties_t *output_image_properties, dsp_interpolation_type_t dsp_interpolation_type, std::optional<dsp_letterbox_properties_t> letterbox_properties)
     {
         if (device == NULL)
         {
@@ -218,10 +234,18 @@ namespace dsp_utils
             .end_y = input_image_properties->height,
         };
 
-        dsp_letterbox_properties_t letterbox_params{
-            .alignment = letterbox ? DSP_LETTERBOX_MIDDLE : DSP_NO_LETTERBOX,
-            .color = {.y = 0, .u = 128, .v = 128}, // Black letterbox border
-        };
+        dsp_letterbox_properties_t letterbox_params;
+        if (letterbox_properties.has_value())
+        {
+            letterbox_params = letterbox_properties.value();
+        }
+        else
+        {
+            letterbox_params.alignment = DSP_NO_LETTERBOX;
+            letterbox_params.color.y = 0;
+            letterbox_params.color.u = 128;
+            letterbox_params.color.v = 128;
+        }
 
         dsp_status status = dsp_crop_and_resize_letterbox(device, &resize_params, &crop_params, &letterbox_params);
 
@@ -237,7 +261,7 @@ namespace dsp_utils
 
     /**
      * Perform DSP crop and resize
-     * The function calls the DSP library to perform crop and resize on a given
+     * This function calls the DSP library to perform crop and resize on a given
      * buffer. DSP will place the result in the output buffer.
      *
      * @param[in] input_image_properties input image properties
@@ -250,7 +274,8 @@ namespace dsp_utils
     perform_crop_and_resize(dsp_image_properties_t *input_image_properties,
                             dsp_image_properties_t *output_image_properties,
                             crop_resize_dims_t args,
-                            dsp_interpolation_type_t dsp_interpolation_type)
+                            dsp_interpolation_type_t dsp_interpolation_type,
+                            std::optional<dsp_letterbox_properties_t> letterbox_properties)
     {
         if (device == NULL)
         {
@@ -264,6 +289,19 @@ namespace dsp_utils
             .interpolation = dsp_interpolation_type,
         };
 
+        dsp_letterbox_properties_t letterbox_params;
+        if (letterbox_properties.has_value())
+        {
+            letterbox_params = letterbox_properties.value();
+        }
+        else
+        {
+            letterbox_params.alignment = DSP_NO_LETTERBOX;
+            letterbox_params.color.y = 0;
+            letterbox_params.color.u = 128;
+            letterbox_params.color.v = 128;
+        }
+
         dsp_status status;
         if (args.perform_crop)
         {
@@ -273,11 +311,11 @@ namespace dsp_utils
                 .end_x = args.crop_end_x,
                 .end_y = args.crop_end_y,
             };
-            status = dsp_crop_and_resize(device, &resize_params, &crop_params);
+            status = dsp_crop_and_resize_letterbox(device, &resize_params, &crop_params, &letterbox_params);
         }
         else
         {
-            status = dsp_resize(device, &resize_params);
+            status = dsp_crop_and_resize_letterbox(device, &resize_params, nullptr, &letterbox_params);
         }
 
         if (status != DSP_SUCCESS)
@@ -292,8 +330,63 @@ namespace dsp_utils
     }
 
     /**
+     * Perform DSP Resize
+     * This function calls the DSP library to perform resize on a given buffer.
+     * DSP will place the result in the output buffer.
+     *
+     * @param[in] input_buffer_data input buffer data
+     * @param[in] output_buffer_data output buffer data
+     * @param[in] dsp_interpolation_type interpolation type to use
+     * @param[in] use_letterbox should letterbox resize be used
+     * @return dsp_status
+     */
+    dsp_status perform_resize(hailo_buffer_data_t *input_buffer_data, hailo_buffer_data_t *output_buffer_data, dsp_interpolation_type_t dsp_interpolation_type, std::optional<dsp_letterbox_properties_t> letterbox_properties)
+    {
+        if (device == NULL)
+        {
+            LOGGER__ERROR("Perform DSP crop and resize ERROR: Device is NULL");
+            return DSP_UNINITIALIZED;
+        }
+
+        hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
+        hailo_dsp_buffer_data_t output_dsp_buffer_data = output_buffer_data->As<hailo_dsp_buffer_data_t>();
+
+        return perform_resize(&input_dsp_buffer_data.properties, &output_dsp_buffer_data.properties, dsp_interpolation_type, letterbox_properties);
+    }
+
+    /**
+     * Perform DSP crop and resize
+     * This function calls the DSP library to perform crop and resize on a given
+     * buffer. DSP will place the result in the output buffer.
+     *
+     * @param[in] input_buffer_data input buffer data
+     * @param[out] output_buffer_data output buffer data
+     * @param[in] args crop and resize arguments
+     * @param[in] dsp_interpolation_type interpolation type to use
+     * @return dsp_status
+     */
+    dsp_status
+    perform_crop_and_resize(hailo_buffer_data_t *input_buffer_data,
+                            hailo_buffer_data_t *output_buffer_data,
+                            crop_resize_dims_t args,
+                            dsp_interpolation_type_t dsp_interpolation_type,
+                            std::optional<dsp_letterbox_properties_t> letterbox_properties)
+    {
+        if (device == NULL)
+        {
+            LOGGER__ERROR("Perform DSP crop and resize ERROR: Device is NULL");
+            return DSP_UNINITIALIZED;
+        }
+
+        hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
+        hailo_dsp_buffer_data_t output_dsp_buffer_data = output_buffer_data->As<hailo_dsp_buffer_data_t>();
+        return perform_crop_and_resize(&input_dsp_buffer_data.properties, &output_dsp_buffer_data.properties, args, dsp_interpolation_type, letterbox_properties);
+    }
+
+
+    /**
      * Perform multiple crops and resizes on the DSP
-     * The function calls the DSP library to perform crops and resizes on a given
+     * This function calls the DSP library to perform crops and resizes on a given
      * input buffer. DSP will place the results in the array of output buffer.
      *
      * @param[in] multi_crop_resize_params crop and resize metadata
@@ -307,7 +400,7 @@ namespace dsp_utils
 
     /**
      * Apply a privact mask and perform multiple crops and resizes on the DSP
-     * The function calls the DSP library to perform crops and resizes on a given
+     * This function calls the DSP library to perform crops and resizes on a given
      * input buffer. DSP will place the results in the array of output buffer.
      *
      * @param[in] multi_crop_resize_params crop and resize metadata
@@ -320,16 +413,17 @@ namespace dsp_utils
         return dsp_multi_crop_and_resize_privacy_mask(device, multi_crop_resize_params, privacy_mask_params);
     }
 
-    dsp_status perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
-                                  dsp_image_properties_t *output_image_properties,
-                                  dsp_dewarp_mesh_t *mesh,
-                                  dsp_interpolation_type_t interpolation,
-                                  const dsp_isp_vsm_t &isp_vsm,
-                                  const dsp_vsm_config_t &dsp_vsm_config,
-                                  const dsp_filter_angle_t &filter_angle,
-                                  uint16_t *cur_columns_sum,
-                                  uint16_t *cur_rows_sum,
-                                  bool do_mesh_correction)
+    dsp_status 
+    perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
+                       dsp_image_properties_t *output_image_properties,
+                       dsp_dewarp_mesh_t *mesh,
+                       dsp_interpolation_type_t interpolation,
+                       const dsp_isp_vsm_t &isp_vsm,
+                       const dsp_vsm_config_t &dsp_vsm_config,
+                       const dsp_filter_angle_t &filter_angle,
+                       uint16_t *cur_columns_sum,
+                       uint16_t *cur_rows_sum,
+                       bool do_mesh_correction)
 
     {
         dsp_dewarp_angular_dis_params_t dewarp_params = {
@@ -352,7 +446,8 @@ namespace dsp_utils
         return dsp_rot_dis_dewarp(device, &dewarp_params);
     }
 
-    dsp_status perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
+    dsp_status 
+    perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
                                   dsp_image_properties_t *output_image_properties,
                                   dsp_dewarp_mesh_t *mesh,
                                   dsp_interpolation_type_t interpolation)
@@ -363,7 +458,7 @@ namespace dsp_utils
 
     /**
      * Perform DSP blending using multiple overlays
-     * The function calls the DSP library to perform blending between one
+     * This function calls the DSP library to perform blending between one
      * main buffer and multiple overlay buffers.
      * DSP will blend the overlay buffers onto the image frame in place
      *
@@ -377,6 +472,52 @@ namespace dsp_utils
                                       size_t overlays_count)
     {
         return dsp_blend(device, image_frame, overlay, overlays_count);
+    }
+
+    dsp_status perform_dsp_dewarp(hailo_buffer_data_t *input_buffer_data,
+                                  hailo_buffer_data_t *output_buffer_data,
+                                  dsp_dewarp_mesh_t *mesh,
+                                  dsp_interpolation_type_t interpolation,
+                                  const dsp_isp_vsm_t &isp_vsm,
+                                  const dsp_vsm_config_t &dsp_vsm_config,
+                                  const dsp_filter_angle_t &filter_angle,
+                                  uint16_t *cur_columns_sum,
+                                  uint16_t *cur_rows_sum,
+                                  bool do_mesh_correction)
+
+    {
+        hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
+        hailo_dsp_buffer_data_t output_dsp_buffer_data = output_buffer_data->As<hailo_dsp_buffer_data_t>();
+        return perform_dsp_dewarp(&input_dsp_buffer_data.properties, &output_dsp_buffer_data.properties, mesh, interpolation, isp_vsm, dsp_vsm_config, filter_angle, cur_columns_sum, cur_rows_sum, do_mesh_correction);
+    }
+
+    dsp_status perform_dsp_dewarp(hailo_buffer_data_t *input_buffer_data,
+                                  hailo_buffer_data_t *output_buffer_data,
+                                  dsp_dewarp_mesh_t *mesh,
+                                  dsp_interpolation_type_t interpolation)
+    {
+        hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
+        hailo_dsp_buffer_data_t output_dsp_buffer_data = output_buffer_data->As<hailo_dsp_buffer_data_t>();
+        return dsp_dewarp(device, &input_dsp_buffer_data.properties, &output_dsp_buffer_data.properties, mesh, interpolation);
+    }
+
+    /**
+     * Perform DSP blending using multiple overlays
+     * This function calls the DSP library to perform blending between one
+     * main buffer and multiple overlay buffers.
+     * DSP will blend the overlay buffers onto the image frame in place
+     *
+     * @param[in] image_buffer_data pointer to input image to blend on
+     * @param[in] overlay pointer to input images to overlay with
+     * @param[in] overlays_count number of overlays to blend
+     * @return dsp_status
+     */
+    dsp_status perform_dsp_multiblend(hailo_buffer_data_t *input_buffer_data,
+                                      dsp_overlay_properties_t *overlay,
+                                      size_t overlays_count)
+    {
+        hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
+        return dsp_blend(device, &input_dsp_buffer_data.properties  , overlay, overlays_count);
     }
 
     /**
@@ -401,6 +542,39 @@ namespace dsp_utils
         delete[] image_properties->planes;
     }
 
+    hailo_dsp_buffer_data_t hailo_buffer_data_to_dsp_buffer_data(hailo_buffer_data_t *buffer_data)
+    {
+        return std::move(buffer_data->As<hailo_dsp_buffer_data_t>());
+    }
+
+    /**
+        * Convert hailo_buffer_data_t to dsp_image_properties_t
+        * Allocates memory - caller is responsible for freeing it with free_image_property_planes
+        *
+        * @param[in] buffer_data pointer to the hailo buffer data
+        * @param[out] out_dsp_buffer_props pointer to the dsp output image properties
+        * @return dsp_status
+    */
+    dsp_status hailo_buffer_data_to_dsp_image_props(hailo_buffer_data_t *buffer_data, dsp_image_properties_t *out_dsp_buffer_props)
+    {
+        hailo_dsp_buffer_data_t dsp_buffer_data = buffer_data->As<hailo_dsp_buffer_data_t>();
+        out_dsp_buffer_props->width = dsp_buffer_data.properties.width;
+        out_dsp_buffer_props->height = dsp_buffer_data.properties.height;
+        out_dsp_buffer_props->format = dsp_buffer_data.properties.format;
+        out_dsp_buffer_props->memory = dsp_buffer_data.properties.memory;
+        out_dsp_buffer_props->planes_count = dsp_buffer_data.properties.planes_count;
+
+        out_dsp_buffer_props->planes = new dsp_data_plane_t[dsp_buffer_data.properties.planes_count];
+        for (size_t i = 0; i < dsp_buffer_data.properties.planes_count; i++)
+        {
+            out_dsp_buffer_props->planes[i].fd = dsp_buffer_data.planes[i].fd;
+            out_dsp_buffer_props->planes[i].bytesperline = dsp_buffer_data.planes[i].bytesperline;
+            out_dsp_buffer_props->planes[i].bytesused = dsp_buffer_data.planes[i].bytesused;
+        }
+
+        return DSP_SUCCESS;
+    }
+
     /**
      * get_dsp_desired_stride_from_width will return the appropriate buffer stride for each resolution
      * DSP operation with these strides are more efficient
@@ -414,6 +588,8 @@ namespace dsp_utils
         {
         case 2160:
             return 2304;
+        case 1440:
+            return 1536;
         case 1080:
             return 1152;
         case 720:

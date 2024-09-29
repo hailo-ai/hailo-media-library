@@ -121,7 +121,7 @@ gst_hailodefog_init(GstHailoDefog *hailodefog)
     // Prepare internal elements
 
     // hailonet2 to perform the defog
-    hailodefog->m_hailonet = gst_element_factory_make("hailonet2", NULL);
+    hailodefog->m_hailonet = gst_element_factory_make("hailonet", NULL);
 
     // Connect elements and pads in the bin
     gst_bin_add_many(GST_BIN(hailodefog), hailodefog->m_hailonet, NULL);

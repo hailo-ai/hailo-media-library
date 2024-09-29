@@ -26,16 +26,19 @@
 #include <gst/video/video.h>
 #include <fstream>
 #include <string>
+#include <sstream>
 
-namespace gstmedialibcommon {
-
+namespace gstmedialibcommon
+{
     inline std::string read_json_string_from_file(const gchar *file_path)
     {
         std::ifstream file_to_read;
         file_to_read.open(file_path);
         if (!file_to_read.is_open())
             throw std::runtime_error("config path is not valid");
-        std::string file_string((std::istreambuf_iterator<char>(file_to_read)), std::istreambuf_iterator<char>());
+        std::stringstream buffer;
+        buffer << file_to_read.rdbuf();
+        std::string file_string = buffer.str();
         file_to_read.close();
         return file_string;
     }

@@ -55,7 +55,7 @@ struct frontend_output_stream_t
 /*!
  * @brief type for user callback function to receive output frames
  *
- * the provided user function receives the output frames and their sizes
+ * The provided user function receives the output frames and their sizes
  * as uint32_t argument.
  * @ref MediaLibraryFrontend::subscribe
  */
@@ -78,7 +78,7 @@ using MediaLibraryFrontendPtr = std::shared_ptr<MediaLibraryFrontend>;
  * @brief Frontend object with Dewarp and MultiResize features.
  *
  * Each instance represents a Frontend Bin.
- * Each Frontend bin have 1 input stream and may have several output streams, depending on configuration.
+ * Each Frontend bin have one input stream and may have several output streams, depending on configuration.
  */
 class MediaLibraryFrontend
 {
@@ -113,7 +113,7 @@ public:
 
     /**
      * @brief Set the config object for the MediaLibraryFrontend module
-     * @param config 
+     * @param[in] config - [frontend_config_t] configuration object, obtained from the ``get_config`` function
      * @return media_library_return 
      */
     media_library_return set_config(frontend_config_t config);
@@ -146,14 +146,15 @@ public:
      * buffers
      * @param[in] callbacks - a map of callbacks functions to be called when a buffer is
      * ready. The callback function AppWrapperCallback object. The callback
-     * function should be thread safe.
+     * function should be thread-safe.
      * number of callback functions should be equal to number of outputs.
-     * The callback function should not be blocking.
-     * The callback function should not throw exceptions.
-     * The callback function should not call the MediaLibraryFrontend module.
+     * The callback function should not:
+     * * Block.
+     * * Throw exceptions.
+     * * Call the MediaLibraryFrontend module.
      * @return media_library_return - status of the subscription operation
-     * @note if user wishes to add additional arguments for the callback
-     * execution it may use lambda wrapper and pass as single argument to the
+     * @note if the user wishes to add additional arguments for the callback
+     * execution a lambda wrapper and pass as single argument to the
      * subscribe function.
      * @ref AppWrapperCallback
      */
@@ -161,12 +162,12 @@ public:
 
     /**
      * @brief Add a buffer to the MediaLibraryFrontend module, to be processed.
-     * The add_buffer function receives raw video frame, and applies
+     * The add_buffer function receives raw video frame and applies
      * Dewarping and MultiResize on the raw frames.
      * @param[in] ptr - a shared pointer to hailo_media_library_buffer to be processed.
      * @return media_library_return - status of the add buffer operation.
      * @note The MediaLibraryFrontend module will take ownership of the buffer.
-     * @warning can be called only when the MediaLibraryFrontend module is configured with FRONTEND_SRC_ELEMENT_APPSRC.
+     * @warning Can be called only when the MediaLibraryFrontend module is configured with FRONTEND_SRC_ELEMENT_APPSRC.
      */
     media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
 
@@ -187,6 +188,12 @@ public:
      * @return A tl::expected object containing either the vector of output stream IDs or an error code.
      */
     tl::expected<std::vector<frontend_output_stream_t>, media_library_return> get_outputs_streams();
+
+    /**
+     * @brief Get the current fps of the frontend output
+     * @return float - the current fps of the frontend output
+     */
+    float get_current_fps();
 
     /**
      * @brief Destructor for the frontend module

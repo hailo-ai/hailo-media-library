@@ -23,10 +23,10 @@
 
 #pragma once
 
+#include "../osd.hpp"
+#include "background_text_overlay_impl.hpp"
 #include "overlay_impl.hpp"
 #include "simple_text_overlay_impl.hpp"
-#include "background_text_overlay_impl.hpp"
-#include "../osd.hpp"
 #include <optional>
 
 class TextOverlayImpl;
@@ -53,14 +53,23 @@ protected:
     SimpleTextOverlayImplPtr m_foreground_text;
     SimpleTextOverlayImplPtr m_shadow_text;
     BackgroundTextOverlayImplPtr m_background;
+
     std::string m_label;
     std::string m_rendered_label;
+
     osd::rgba_color_t m_text_color;
     osd::rgba_color_t m_background_color;
+
+    std::string m_font_path;
+    float m_font_size;
+    int m_line_thickness;
+
     osd::rgba_color_t m_shadow_color;
     float m_shadow_offset_x;
     float m_shadow_offset_y;
-    float m_font_size;
-    int m_line_thickness;
-    std::string m_font_path;
+
+    osd::font_weight_t m_font_weight;
+
+    int m_outline_size;
+    osd::rgba_color_t m_outline_color;
 };

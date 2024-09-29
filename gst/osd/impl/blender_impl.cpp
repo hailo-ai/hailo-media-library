@@ -36,7 +36,7 @@ mat_dims internal_calculate_text_size(const std::string &label, const std::strin
     if (!cv::utils::fs::exists(font_path))
     {
         LOGGER__ERROR("Error: file {} does not exist", font_path);
-        return {0, 0};
+        return {0, 0, 0};
     }
 
     cv::Ptr<cv::freetype::FreeType2> ft2;
@@ -514,7 +514,7 @@ namespace osd
         return add_overlay_internal(overlay);
     }
 
-    media_library_return Blender::Impl::blend(dsp_image_properties_t &input_image_properties)
+    media_library_return Blender::Impl::blend(HailoMediaLibraryBufferPtr &input_buffer)
     {
         std::unique_lock lock(m_mutex);
 
@@ -537,6 +537,13 @@ namespace osd
             all_overlays_to_blend.insert(all_overlays_to_blend.end(), dsp_overlays.begin(), dsp_overlays.end());
         }
 
+        // DSP blend have better color quality when the overlays have even x and y offsets
+        for (auto &dsp_overlay : all_overlays_to_blend)
+        {
+                dsp_overlay.x_offset -= dsp_overlay.x_offset % 2;
+                dsp_overlay.y_offset -= dsp_overlay.y_offset % 2;
+        }
+
         LOGGER__DEBUG("Blending {} overlays", all_overlays_to_blend.size());
 
         // Perform blending for all overlays
@@ -552,7 +559,8 @@ namespace osd
 
             std::vector blend_chuck(first, last);
 
-            dsp_status status = dsp_utils::perform_dsp_multiblend(&input_image_properties, blend_chuck.data(), blend_chuck.size());
+            dsp_status status = dsp_utils::perform_dsp_multiblend(input_buffer->buffer_data.get(), blend_chuck.data(), blend_chuck.size());
+
             if (status != DSP_SUCCESS)
             {
                 LOGGER__ERROR("DSP blend failed with {}", status);

@@ -51,12 +51,13 @@ namespace isp_utils
             int m_fd;
             std::unordered_map<v4l2_ctrl_id, uint> m_ctrl_id_to_id;
             uint get_id(v4l2_ctrl_id id);
-            int xioctl(int request, void *arg);
+            int xioctl(unsigned long request, void *arg);
             uint v4l2_get_ctrl_id(const std::string &v4l2_ctrl_name);
 
         public:
             static std::unordered_map<v4l2_ctrl_id, std::string> m_ctrl_id_to_name;
             v4l2Control(std::string device);
+            ~v4l2Control();
 
             template <typename T>
             bool v4l2_ctrl_set(v4l2_ctrl_id id, T val);

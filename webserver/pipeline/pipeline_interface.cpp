@@ -33,7 +33,7 @@ void IPipeline::start()
         WEBSERVER_LOG_ERROR("Failed to create pipeline");
         throw std::runtime_error("Failed to create pipeline");
     }
-
+    this->set_gst_callbacks();
     WEBSERVER_LOG_INFO("Setting pipeline to PLAYING");
     GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE)
@@ -63,4 +63,30 @@ void IPipeline::stop()
     gst_element_set_state(m_pipeline, GST_STATE_NULL);
     WEBSERVER_LOG_INFO("Pipeline stopped");
     gst_object_unref(m_pipeline);
+}
+
+void IPipeline::set_gst_callbacks()
+{
+    GstElement *appsink = gst_bin_get_by_name(GST_BIN(m_pipeline), "webtrc_appsink");
+    if (!appsink)
+    {
+        WEBSERVER_LOG_ERROR("Failed to get appsink");
+        throw std::runtime_error("Failed to get appsink");
+    }
+    auto webrtc_resource = std::static_pointer_cast<WebRtcResource>(m_resources->get(RESOURCE_WEBRTC));
+    g_signal_connect(appsink, "new-sample", G_CALLBACK(new_sample), webrtc_resource.get());
+    gst_object_unref(appsink);
+}
+
+void IPipeline::new_sample(GstAppSink *appsink, gpointer user_data)
+{
+    WebRtcResource* webRtcResource = static_cast<WebRtcResource*>(user_data);
+    GstSample *sample = gst_app_sink_pull_sample(appsink);
+    GstBuffer* buffer = gst_sample_get_buffer(sample);
+    GstClockTime timestamp = GST_BUFFER_PTS(buffer);
+    if(webRtcResource->get_state() == rtc::PeerConnection::State::Connected)
+    {
+        webRtcResource->send_rtp_packet(sample);
+    }
+    gst_sample_unref(sample);
 }

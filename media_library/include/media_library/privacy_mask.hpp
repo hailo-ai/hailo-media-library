@@ -125,7 +125,7 @@ class PrivacyMaskBlender : public std::enable_shared_from_this<PrivacyMaskBlende
 
         /**
          * @brief Blend privacy masks
-         * Calculate the quantized bitmask representing the all the privacy masks combined
+         * calculate the quantized bitmask representing the all privacy masks combined
          * 
          * @return tl::expected<PrivacyMaskDataPtr, media_library_return> containing the bitmask and relevant metadata
         */

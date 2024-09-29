@@ -57,9 +57,10 @@ std::string Pipeline::create_gst_pipeline_string()
     pipeline << "queue name=q9 leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! ";
     pipeline << "h264parse config-interval=-1 ! ";
     pipeline << "queue name=q10 leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! ";
-    pipeline << "rtph264pay config-interval=1 ! ";
+    pipeline << "rtph264pay config-interval=-1 ! ";
     pipeline << "application/x-rtp, media=(string)video, encoding-name=(string)H264 ! ";
-    pipeline << "udpsink host=" << UDP_HOST << " port=5000";
+    pipeline << "queue name=q11 leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! ";
+    pipeline << "appsink name=webtrc_appsink emit-signals=true max-buffers=0 ";
     std::string pipeline_str = pipeline.str();
     std::cout << "Pipeline: \n"
               << pipeline_str << std::endl;
@@ -135,7 +136,7 @@ void Pipeline::callback_handle_strategy(ResourceStateChangeNotification notif)
     case RESOURCE_PRIVACY_MASK:
     {
         auto state = std::static_pointer_cast<PrivacyMaskResource::PrivacyMaskResourceState>(notif.resource_state);
-        if (state->enabled.empty() && state->disabled.empty())
+        if (state->changed_to_enabled.empty() && state->changed_to_disabled.empty() && state->polygon_to_update.empty() && state->polygon_to_delete.empty())
         {
             break;
         }
@@ -148,7 +149,7 @@ void Pipeline::callback_handle_strategy(ResourceStateChangeNotification notif)
         void *value_ptr = g_value_get_pointer(&val);
         auto privacy_blender = (PrivacyMaskBlender *)value_ptr;
 
-        for (std::string id : state->enabled)
+        for (std::string id : state->changed_to_enabled)
         {
             if (masks.find(id) != masks.end())
             {
@@ -156,7 +157,7 @@ void Pipeline::callback_handle_strategy(ResourceStateChangeNotification notif)
                 privacy_blender->add_privacy_mask(masks[id]);
             }
         }
-        for (std::string id : state->disabled)
+        for (std::string id : state->changed_to_disabled)
         {
             if (masks.find(id) != masks.end())
             {
@@ -164,7 +165,22 @@ void Pipeline::callback_handle_strategy(ResourceStateChangeNotification notif)
                 privacy_blender->remove_privacy_mask(id);
             }
         }
-
+        for (std::string &mask : state->polygon_to_update)
+        {
+            if (masks.find(mask) != masks.end())
+            {
+                WEBSERVER_LOG_DEBUG("Pipeline: Updating privacy mask: {}", mask);
+                privacy_blender->set_privacy_mask(masks[mask]);
+            }
+        }
+        for (std::string &mask : state->polygon_to_delete)
+        {
+            if (masks.find(mask) != masks.end())
+            {
+                WEBSERVER_LOG_DEBUG("Pipeline: Deleting privacy mask: {}", mask);
+                privacy_blender->remove_privacy_mask(mask);
+            }
+        }
         break;
     }
     case RESOURCE_ISP:

@@ -54,9 +54,6 @@ public:
     {
         switch (schema)
         {
-        case ConfigSchema::CONFIG_SCHEMA_VISION:
-            m_config_validator.set_root_schema(config_schemas::vision_config_schema);
-            break;
         case ConfigSchema::CONFIG_SCHEMA_ENCODER:
             m_config_validator.set_root_schema(config_schemas::encoder_config_schema);
             break;
@@ -75,6 +72,9 @@ public:
         case ConfigSchema::CONFIG_SCHEMA_HAILORT:
             m_config_validator.set_root_schema(config_schemas::hailort_config_schema);
             break;
+        case ConfigSchema::CONFIG_SCHEMA_ISP:
+            m_config_validator.set_root_schema(config_schemas::isp_config_schema);
+            break;
         case ConfigSchema::CONFIG_SCHEMA_HDR:
             m_config_validator.set_root_schema(config_schemas::hdr_config_schema);
             break;
@@ -84,15 +84,16 @@ public:
         case ConfigSchema::CONFIG_SCHEMA_DEFOG:
             m_config_validator.set_root_schema(config_schemas::defog_config_schema);
             break;
-        default:
-            m_config_validator.set_root_schema(config_schemas::vision_config_schema); // Default to the vision_config schema
+        case ConfigSchema::CONFIG_SCHEMA_INPUT_VIDEO:
+            m_config_validator.set_root_schema(config_schemas::input_video_config_schema);
+            break;
         }
     };
 
     /**
      * @brief Destructor for the ConfigManagerImpl module
      */
-    ~ConfigManagerImpl(){};
+    ~ConfigManagerImpl() {};
 
     /**
      * @brief Copy constructor (deleted)
@@ -143,11 +144,11 @@ public:
     static tl::expected<std::string, media_library_return> parse_config(std::string config_string, std::string entry);
 
     /**
-    * @brief Retrieve the encoder type from an input JSON configuration
-    *
-    * @param[in] config_json - the user's configuration (as a json object)
-    * @return EncoderType
-    */
+     * @brief Retrieve the encoder type from an input JSON configuration
+     *
+     * @param[in] config_json - the user's configuration (as a json object)
+     * @return EncoderType
+     */
     static EncoderType get_encoder_type(const nlohmann::json &config_json);
 
 private:
@@ -186,11 +187,14 @@ media_library_return ConfigManager::config_string_to_struct(const std::string &u
 }
 
 // Explicit instantiation for config types (because they were defined in a .cpp file)
-template media_library_return ConfigManager::config_string_to_struct<pre_proc_op_configurations>(const std::string &user_config_string, pre_proc_op_configurations &conf);
+template media_library_return ConfigManager::config_string_to_struct<input_video_config_t>(const std::string &user_config_string, input_video_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<multi_resize_config_t>(const std::string &user_config_string, multi_resize_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<eis_config_t>(const std::string &user_config_string, eis_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<gyro_config_t>(const std::string &user_config_string, gyro_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<ldc_config_t>(const std::string &user_config_string, ldc_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<denoise_config_t>(const std::string &user_config_string, denoise_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<defog_config_t>(const std::string &user_config_string, defog_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<isp_t>(const std::string &user_config_string, isp_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<hailort_t>(const std::string &user_config_string, hailort_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<hdr_config_t>(const std::string &user_config_string, hdr_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<encoder_config_t>(const std::string &user_config_string, encoder_config_t &conf);
@@ -254,7 +258,8 @@ media_library_return ConfigManager::ConfigManagerImpl::config_string_to_struct(c
     // Convert JSON to struct
     try
     {
-        if constexpr (std::is_same<TConf, encoder_config_t>::value) {
+        if constexpr (std::is_same<TConf, encoder_config_t>::value)
+        {
             switch (get_encoder_type(user_config_json))
             {
             case EncoderType::Jpeg:
@@ -267,7 +272,9 @@ media_library_return ConfigManager::ConfigManagerImpl::config_string_to_struct(c
                 LOGGER__ERROR("Config Manager failed to convert JSON to struct: No supported encoder found");
                 return MEDIA_LIBRARY_CONFIGURATION_ERROR;
             }
-        } else {
+        }
+        else
+        {
             conf = user_config_json.get<TConf>();
         }
     }
@@ -303,15 +310,18 @@ tl::expected<std::string, media_library_return> ConfigManager::ConfigManagerImpl
 
 EncoderType ConfigManager::ConfigManagerImpl::get_encoder_type(const nlohmann::json &config_json)
 {
-    if (!config_json.contains("encoding")) {
+    if (!config_json.contains("encoding"))
+    {
         return EncoderType::None;
     }
 
-    if (config_json["encoding"].contains("jpeg_encoder")) {
+    if (config_json["encoding"].contains("jpeg_encoder"))
+    {
         return EncoderType::Jpeg;
-    } 
-    
-    if (config_json["encoding"].contains("hailo_encoder")) {
+    }
+
+    if (config_json["encoding"].contains("hailo_encoder"))
+    {
         return EncoderType::Hailo;
     }
 

@@ -50,13 +50,16 @@ extern "C"
 
 #define MIN_BITRATE (10000)
 #define MAX_BITRATE (40000000)
-#define MIN_HRD_CPB_SIZE (10000)
+#define MIN_HRD_CPB_SIZE (0)
 #define MAX_HRD_CPB_SIZE (40000000)
+#define MIN_CVBR_MODE (0)
+#define MAX_CVBR_MODE (0x7FFFFFFF)
+#define AUTO_MONITOR_FRAMES (0)
 #define MIN_MONITOR_FRAMES (10)
 #define MAX_MONITOR_FRAMES (120)
 #define MIN_INTRA_PIC_RATE (0)
 #define MAX_INTRA_PIC_RATE (300)
-#define MIN_GOP_LENGTH (1)
+#define MIN_GOP_LENGTH (0)
 #define MAX_GOP_LENGTH (300)
 #define MIN_GOP_SIZE (1)
 // #define MAX_GOP_SIZE (8) - Defined in hevcencapi.h
@@ -71,40 +74,41 @@ extern "C"
 
 #define DEFAULT_UNCHANGED (-255)
 #define DEFAULT_INPUT_FORMAT (VCENC_YUV420_SEMIPLANAR)
-#define DEFAULT_HEVC_PROFILE (VCENC_HEVC_MAIN_PROFILE)
-#define DEFAULT_HEVC_LEVEL (VCENC_HEVC_LEVEL_5)
-#define DEFAULT_H264_PROFILE (VCENC_H264_MAIN_PROFILE)
-#define DEFAULT_H264_LEVEL (VCENC_H264_LEVEL_5_1)
-#define DEFAULT_INTRA_PIC_RATE (120)
-#define DEFAULT_GOP_LENGTH (120)
+#define DEFAULT_HEVC_PROFILE (-1)
+#define DEFAULT_HEVC_LEVEL (-1)
+#define DEFAULT_H264_PROFILE (-1)
+#define DEFAULT_H264_LEVEL (-1)
+#define DEFAULT_INTRA_PIC_RATE (60)
+#define DEFAULT_GOP_LENGTH (0)
 #define DEFAULT_GOP_SIZE (1)
-#define DEFAULT_QPHDR (26)
-#define DEFAULT_QPMIN (20)
-#define DEFAULT_QPMAX (MAX_QP_VALUE)
+#define DEFAULT_QPHDR (-1)
+#define DEFAULT_QPMIN (10)
+#define DEFAULT_QPMAX (48)
 #define DEFAULT_INTRA_QP_DELTA (-5)
 #define DEFAULT_FIXED_INTRA_QP (MIN_QP_VALUE)
 #define DEFAULT_BFRAME_QP_DELTA (MIN_BFRAME_QP_DELTA)
 #define DEFAULT_BITRATE (25000000)
-#define DEFAULT_TOL_MOVING_BITRATE (MAX_BITRATE_VARIABLE_RANGE)
-#define DEFAULT_BITVAR_RANGE_I (10)
-#define DEFAULT_BITVAR_RANGE_P (10)
-#define DEFAULT_BITVAR_RANGE_B (10)
-#define DEFAULT_MONITOR_FRAMES (30)
-#define DEFAULT_HRD_CPB_SIZE (1000000)
+#define DEFAULT_TOL_MOVING_BITRATE (15)
+#define DEFAULT_BITVAR_RANGE_I (2000)
+#define DEFAULT_BITVAR_RANGE_P (2000)
+#define DEFAULT_BITVAR_RANGE_B (2000)
+#define DEFAULT_MONITOR_FRAMES (0)
+#define DEFAULT_HRD_CPB_SIZE (0)
+#define DEFAULT_CVBR_MODE (0)
 
 typedef struct
 {
     i32 width;
     i32 height;
     VCEncPictureType inputFormat;
-    VCEncProfile profile;
-    VCEncLevel level;
+    i32 profile;
+    i32 level;
     VCEncStreamType streamType;
     i32 frameRateNumer; /* Output frame rate numerator */
     i32 frameRateDenom; /* Output frame rate denominator */
     i32 picture_cnt;
     i32 picture_enc_cnt;
-    u32 idr_interval;
+    u32 intra_pic_rate;
     i32 last_idr_picture_cnt;
     u32 validencodedframenumber;
     u32 stride; /* Used for padded buffers, and specify the pad size to crop in each buffer line*/
@@ -136,6 +140,8 @@ typedef struct
     u32 blockRcSize; /*size of block rate control : 2=16x16,1= 32x32, 0=64x64*/
     u32 pictureSkip;
     u32 hrd;
+    u32 padding;
+    u32 cvbr;
     u32 hrdCpbSize;
 
     u32 compressor;

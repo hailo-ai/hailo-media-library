@@ -28,6 +28,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -35,7 +36,7 @@
 #include <sys/user.h>
 #include <unistd.h>
 
-#define DEVPATH "/dev/dma_heap/linux,cma"
+#define DEVPATH "/dev/dma_heap/hailo_media_buf,cma"
 
 DmaMemoryAllocator::DmaMemoryAllocator()
 {
@@ -96,13 +97,16 @@ media_library_return DmaMemoryAllocator::dmabuf_fd_close()
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return DmaMemoryAllocator::dmabuf_heap_alloc(dma_heap_allocation_data &heap_data, uint size)
+
+media_library_return DmaMemoryAllocator::dmabuf_heap_alloc(dma_heap_allocation_data &heap_data, uint size, uint min_fd_range)
 {
     LOGGER__DEBUG("dmabuf_heap_alloc function-start: heap_data.fd = {}, heap_data.len = {}", heap_data.fd, heap_data.len);
 
     heap_data = {
         .len = size,
+        .fd = 0, // fd is an output parameter
         .fd_flags = O_RDWR | O_CLOEXEC,
+        .heap_flags = 0,
     };
 
     int ret = ioctl(m_dma_heap_fd, DMA_HEAP_IOCTL_ALLOC, &heap_data);
@@ -113,20 +117,84 @@ media_library_return DmaMemoryAllocator::dmabuf_heap_alloc(dma_heap_allocation_d
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
+    // F_DUPFD is used to ensure that applications running in a single process do not run out of available file descriptors.
+    // In Linux, a process has a limit of 1024 file descriptors. and some legacy applications might only use the first 1023 file descriptors.
+    int new_fd = fcntl(heap_data.fd, F_DUPFD, min_fd_range);
+    if (new_fd < 0) 
+    { 
+        LOGGER__ERROR("F_DUPFD failed for fd = {} and new_fd = {} with error = {}", heap_data.fd, new_fd, errno);
+        close(heap_data.fd);
+        return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+    }
+    close(heap_data.fd);
+    heap_data.fd = new_fd;
+
     LOGGER__DEBUG("dmabuf_heap_alloc heap_data.fd = {}, heap_data.len = {}", heap_data.fd, heap_data.len);
 
     return MEDIA_LIBRARY_SUCCESS;
 }
 
+media_library_return DmaMemoryAllocator::unmap_external_dma_buffer(void *buffer)
+{
+    LOGGER__DEBUG("unmap external dma buffer function-start: buffer = {}", fmt::ptr(buffer));
+    std::unique_lock<std::mutex> lock(*m_allocator_mutex);
+
+    if (m_external_buffers.find(buffer) == m_external_buffers.end())
+    {
+        LOGGER__DEBUG("buffer {} not found in m_external_buffers", fmt::ptr(buffer));
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    auto length = m_external_buffers[buffer].len;
+    if (munmap(buffer, length) == -1)
+    {
+        LOGGER__ERROR("munmap failed for external buffer = {}!", fmt::ptr(buffer));
+        return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+    }
+    m_external_buffers.erase(buffer);
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return DmaMemoryAllocator::map_external_dma_buffer(uint size, uint fd, void **buffer)
+{
+    LOGGER__DEBUG("map external dma buffer function-start: size = {}", size);
+
+    if(get_ptr(fd, buffer) == MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__DEBUG("buffer already exists (fd = {})", fd);
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    std::unique_lock<std::mutex> lock(*m_allocator_mutex);
+
+    dma_heap_allocation_data heap_data = {
+        .len = size,
+        .fd = fd,
+        .fd_flags = O_RDWR | O_CLOEXEC,
+        .heap_flags = 0,
+    };
+
+    if (dmabuf_map(heap_data, buffer) != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("dmabuf_map failed!");
+        return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+    }
+
+    m_external_buffers[*buffer] = heap_data;
+
+    LOGGER__DEBUG("map_dma_buffer function-end: buffer = {}, size = {}", fmt::ptr(*buffer), size);
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
 media_library_return DmaMemoryAllocator::dmabuf_map(dma_heap_allocation_data &heap_data, void **mapped_memory)
 {
-    LOGGER__DEBUG("dmabuf_map start: heap_data.fd = {}, heap_data.len = {}", heap_data.fd, heap_data.len);
+    LOGGER__INFO("dmabuf_map start: heap_data.fd = {}, heap_data.len = {}", heap_data.fd, heap_data.len);
 
     *mapped_memory = mmap(NULL, heap_data.len, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, heap_data.fd, 0);
 
     if (*mapped_memory == MAP_FAILED)
     {
-        LOGGER__ERROR("dmabuf map failed");
+        LOGGER__ERROR("dmabuf map failed, errno = {}", strerror(errno));
         close(heap_data.fd);
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
@@ -153,7 +221,7 @@ media_library_return DmaMemoryAllocator::allocate_dma_buffer(uint size, void **b
     dma_heap_allocation_data heap_data;
     if (dmabuf_heap_alloc(heap_data, size) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("dmabuf_heap_alloc failed!");
+        LOGGER__ERROR("Dma buffer allocation failed on dmabuf_heap_alloc with buffer size = {}", size);
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
@@ -178,22 +246,17 @@ media_library_return DmaMemoryAllocator::allocate_dma_buffer(uint size, void **b
 }
 media_library_return DmaMemoryAllocator::free_dma_buffer(void *buffer)
 {
-    std::unique_lock<std::mutex> lock(*m_allocator_mutex);
     LOGGER__DEBUG("freeing dma buffer function-start: buffer = {}", fmt::ptr(buffer));
 
-    if (m_allocated_buffers.find(buffer) == m_allocated_buffers.end())
+    int fd;
+    if(get_fd(buffer, fd, false) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("buffer not found in m_allocated_buffers");
+        LOGGER__ERROR("Buffer not found - get_fd failed for buffer = {}", fmt::ptr(buffer));
         return MEDIA_LIBRARY_BUFFER_NOT_FOUND;
     }
 
-    if (m_allocated_buffers.find(buffer) == m_allocated_buffers.end())
-    {
-        LOGGER__ERROR("buffer not found in m_allocated_buffers");
-        return MEDIA_LIBRARY_BUFFER_NOT_FOUND;
-    }
+    std::unique_lock<std::mutex> lock(*m_allocator_mutex);
 
-    int fd = m_allocated_buffers[buffer].fd;
     auto length = m_allocated_buffers[buffer].len;
     m_allocated_buffers.erase(buffer);
 
@@ -212,18 +275,34 @@ media_library_return DmaMemoryAllocator::free_dma_buffer(void *buffer)
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return DmaMemoryAllocator::dmabuf_sync(void *buffer, dma_buf_sync &sync)
+media_library_return DmaMemoryAllocator::dmabuf_sync(int fd, dma_buf_sync &sync)
 {
     std::unique_lock<std::mutex> lock(*m_allocator_mutex);
+    int ret = ioctl(fd, DMA_BUF_IOCTL_SYNC, &sync);
+
+    if (ret < 0)
+    {
+        LOGGER__ERROR("ioctl DMA_BUF_IOCTL_SYNC[{}] failed [{}] - fd = {} !", sync.flags, errno, fd);
+        return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+    }
+
+    LOGGER__DEBUG("dmabuf_sync function-end: fd = {}, start_stop = {}", fd, sync.flags);
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return DmaMemoryAllocator::dmabuf_sync(void *buffer, dma_buf_sync &sync)
+{
     LOGGER__DEBUG("dmabuf_sync function-start: buffer = {}, start_stop = {}", fmt::ptr(buffer), sync.flags);
 
-    if (m_allocated_buffers.find(buffer) == m_allocated_buffers.end())
+    int fd;
+    if(get_fd(buffer, fd) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("buffer not found in m_allocated_buffers");
+        LOGGER__ERROR("get_fd failed for buffer = {}", fmt::ptr(buffer));
         return MEDIA_LIBRARY_BUFFER_NOT_FOUND;
     }
 
-    int fd = m_allocated_buffers[buffer].fd;
+    std::unique_lock<std::mutex> lock(*m_allocator_mutex);
     int ret = ioctl(fd, DMA_BUF_IOCTL_SYNC, &sync);
 
     if (ret < 0)
@@ -237,8 +316,18 @@ media_library_return DmaMemoryAllocator::dmabuf_sync(void *buffer, dma_buf_sync 
     return MEDIA_LIBRARY_SUCCESS;
 }
 
+media_library_return DmaMemoryAllocator::dmabuf_sync_start(int fd)
+{
+    // Read the cache from device and start the sync
+    struct dma_buf_sync sync = {
+        .flags = DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ,
+    };
+
+    return dmabuf_sync(fd, sync);
+}
+
 media_library_return DmaMemoryAllocator::dmabuf_sync_start(void *buffer)
-{   
+{
     // Read the cache from device and start the sync
     struct dma_buf_sync sync = {
         .flags = DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ,
@@ -257,7 +346,17 @@ media_library_return DmaMemoryAllocator::dmabuf_sync_end(void *buffer)
     return dmabuf_sync(buffer, sync);
 }
 
-media_library_return DmaMemoryAllocator::get_fd(void *buffer, int& fd)
+media_library_return DmaMemoryAllocator::dmabuf_sync_end(int fd)
+{
+    // Write the cache to the device and finish the sync
+    struct dma_buf_sync sync = {
+        .flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_WRITE,
+    };
+
+    return dmabuf_sync(fd, sync);
+}
+
+media_library_return DmaMemoryAllocator::get_fd(void *buffer, int &fd, bool include_external)
 {
     std::unique_lock<std::mutex> lock(*m_allocator_mutex);
     LOGGER__DEBUG("get_fd function-start: buffer = {}", fmt::ptr(buffer));
@@ -265,32 +364,45 @@ media_library_return DmaMemoryAllocator::get_fd(void *buffer, int& fd)
     if (m_allocated_buffers.find(buffer) == m_allocated_buffers.end())
     {
         // TOOD: Change to error once userptr is not supported anymore
-        LOGGER__INFO("buffer not found in m_allocated_buffers");
+        if(include_external && m_external_buffers.find(buffer) != m_external_buffers.end())
+        {
+            fd = m_external_buffers[buffer].fd;
+            return MEDIA_LIBRARY_SUCCESS;
+        }
+        LOGGER__DEBUG("buffer not found in pre allocated or external buffers (ptr = {})", fmt::ptr(buffer));
         return MEDIA_LIBRARY_BUFFER_NOT_FOUND;
     }
 
     fd = m_allocated_buffers[buffer].fd;
-
-    LOGGER__DEBUG("get_fd function-end: buffer = {}", fmt::ptr(buffer));
-
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return DmaMemoryAllocator::get_ptr(uint fd, void **buffer)
+media_library_return DmaMemoryAllocator::get_ptr(uint fd, void **buffer, bool include_external)
 {
     std::unique_lock<std::mutex> lock(*m_allocator_mutex);
     LOGGER__DEBUG("get_ptr function-start: fd = {}", fd);
 
-    for (auto const& [key, val] : m_allocated_buffers)
+    for (auto const &[key, val] : m_allocated_buffers)
     {
         if (val.fd == fd)
         {
             *buffer = key;
-            LOGGER__DEBUG("get_ptr function-end: fd = {}, buffer = {}", fd, fmt::ptr(buffer));
             return MEDIA_LIBRARY_SUCCESS;
         }
     }
 
-    LOGGER__ERROR("buffer not found in m_allocated_buffers");
+    if(include_external)
+    {
+        for (auto const &[key, val] : m_external_buffers)
+        {
+            if (val.fd == fd)
+            {
+                *buffer = key;
+                return MEDIA_LIBRARY_SUCCESS;
+            }
+        }
+    }
+
+    LOGGER__DEBUG("buffer not found in allocated or external buffers");
     return MEDIA_LIBRARY_BUFFER_NOT_FOUND;
 }

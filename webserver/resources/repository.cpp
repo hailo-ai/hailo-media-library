@@ -5,7 +5,7 @@ WebserverResourceRepository webserver::resources::ResourceRepository::create()
 {
     std::vector<WebserverResource> resources_vec{};
     auto config_resource = std::make_shared<webserver::resources::ConfigResource>();
-    auto ai_resource = std::make_shared<webserver::resources::AiResource>();
+    auto ai_resource = std::make_shared<webserver::resources::AiResource>(config_resource);
     auto isp_resource = std::make_shared<webserver::resources::IspResource>(ai_resource, config_resource);
     resources_vec.push_back(config_resource);
     resources_vec.push_back(ai_resource);
@@ -15,6 +15,7 @@ WebserverResourceRepository webserver::resources::ResourceRepository::create()
     resources_vec.push_back(std::make_shared<webserver::resources::OsdResource>());
     resources_vec.push_back(std::make_shared<webserver::resources::PrivacyMaskResource>());
     resources_vec.push_back(std::make_shared<webserver::resources::WebpageResource>());
+    resources_vec.push_back(std::make_shared<webserver::resources::WebRtcResource>());
 
     return std::make_shared<webserver::resources::ResourceRepository>(resources_vec);
 }

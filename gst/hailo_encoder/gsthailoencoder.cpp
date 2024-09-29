@@ -44,6 +44,7 @@ enum
     PROP_CONFIG_PATH,
     PROP_CONFIG,
     PROP_ENFORCE_CAPS,
+    PROP_USER_CONFIG,
     NUM_OF_PROPS,
 };
 
@@ -143,6 +144,10 @@ gst_hailo_encoder_class_init(GstHailoEncoderClass *klass)
 
     g_object_class_install_property(gobject_class, PROP_CONFIG,
                                     g_param_spec_pointer("config", "Encoder config", "Encoder config as encoder_config_t",
+                                                         (GParamFlags)(G_PARAM_READABLE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+
+    g_object_class_install_property(gobject_class, PROP_USER_CONFIG,
+                                    g_param_spec_pointer("user-config", "Encoder user config", "Encoder user config, used for setting the encoder configuration",
                                                          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 
     venc_class->open = gst_hailo_encoder_open;
@@ -202,6 +207,19 @@ gst_hailo_encoder_get_property(GObject *object,
         }
         break;
     }
+    case PROP_USER_CONFIG:
+    {
+        if (hailoencoder->encoder)
+        {
+            hailoencoder->encoder_user_config = std::make_shared<encoder_config_t>(hailoencoder->encoder->get_user_config());
+            g_value_set_pointer(value, hailoencoder->encoder_user_config.get());
+        }
+        else
+        {
+            g_value_set_pointer(value, nullptr);
+        }
+        break;
+    }
     case PROP_ENFORCE_CAPS:
     {
         g_value_set_boolean(value, hailoencoder->enforce_caps);
@@ -237,7 +255,7 @@ gst_hailo_encoder_set_property(GObject *object,
         hailoencoder->config_path = encoder_config_path;
         break;
     }
-    case PROP_CONFIG:
+    case PROP_USER_CONFIG:
     {
         if (hailoencoder->encoder)
         {
@@ -306,11 +324,9 @@ struct PtrWrapper
     HailoMediaLibraryBufferPtr ptr;
 };
 
-static inline bool hailo_media_library_encoder_unref(PtrWrapper *wrapper)
+static inline void hailo_media_library_encoder_release(PtrWrapper *wrapper)
 {
-    HailoMediaLibraryBufferPtr buffer = wrapper->ptr;
     delete wrapper;
-    return buffer->decrease_ref_count();
 }
 
 static GstBuffer *
@@ -320,9 +336,9 @@ gst_hailo_encoder_get_output_buffer(GstHailoEncoder *hailoencoder,
     PtrWrapper *wrapper = new PtrWrapper();
     wrapper->ptr = output.buffer;
     return gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS,
-                                       output.buffer->get_plane(0),
+                                       output.buffer->get_plane_ptr(0),
                                        output.buffer->get_plane_size(0),
-                                       0, output.size, wrapper, GDestroyNotify(hailo_media_library_encoder_unref));
+                                       0, output.size, wrapper, GDestroyNotify(hailo_media_library_encoder_release));
 }
 
 /**
@@ -476,12 +492,16 @@ gst_hailo_encoder_open(GstVideoEncoder *encoder)
 
     if (hailoencoder->encoder)
     {
-        std::cout << "hailoencoder reusing encoder" << std::endl;
-        hailoencoder->encoder->init();
+        GST_DEBUG_OBJECT(hailoencoder, "Reusing encoder instance");
+        if (hailoencoder->encoder->init() != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        {
+            GST_ERROR_OBJECT(hailoencoder, "Failed to initialize encoder");
+            return FALSE;
+        }
     }
     else
     {
-        std::cout << "hailoencoder create new encoder" << std::endl;
+        GST_DEBUG_OBJECT(hailoencoder, "Creating new encoder instance");
         hailoencoder->encoder = std::make_unique<Encoder>(hailoencoder->config);
     }
     return TRUE;
@@ -496,12 +516,17 @@ gst_hailo_encoder_start(GstVideoEncoder *encoder)
     hailoencoder->dts_queue = g_queue_new();
     g_queue_init(hailoencoder->dts_queue);
 
-    auto output = hailoencoder->encoder->start();
-    GstBuffer *buf = gst_hailo_encoder_get_output_buffer(hailoencoder, output);
-    gst_buffer_add_hailo_buffer_meta(buf, output.buffer, output.size);
+    auto output_expected = hailoencoder->encoder->start();
+    if (!output_expected.has_value())
+    {
+        GST_ERROR_OBJECT(hailoencoder, "Failed to start encoder");
+        return FALSE;
+    }
+    GstBuffer *buf = gst_hailo_encoder_get_output_buffer(hailoencoder, output_expected.value());
+    gst_buffer_add_hailo_buffer_meta(buf, output_expected.value().buffer, output_expected.value().size);
     gst_hailo_encoder_add_headers(hailoencoder, buf);
 
-    gst_video_encoder_set_min_pts(encoder, 0);
+    gst_video_encoder_set_min_pts(encoder, GST_SECOND);
 
     return TRUE;
 }
@@ -522,9 +547,14 @@ gst_hailo_encoder_finish(GstVideoEncoder *encoder)
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
 
     GST_DEBUG_OBJECT(hailoencoder, "hailoencoder finish callback");
-    auto output = hailoencoder->encoder->stop();
-    GstBuffer *eos_buffer = gst_hailo_encoder_get_output_buffer(hailoencoder, output);
-    gst_buffer_add_hailo_buffer_meta(eos_buffer, output.buffer, output.size);
+    auto output_expected = hailoencoder->encoder->stop();
+    if (!output_expected.has_value())
+    {
+        GST_ERROR_OBJECT(hailoencoder, "Could not stop hailoencoder");
+        return GST_FLOW_ERROR;
+    }
+    GstBuffer *eos_buffer = gst_hailo_encoder_get_output_buffer(hailoencoder, output_expected.value());
+    gst_buffer_add_hailo_buffer_meta(eos_buffer, output_expected.value().buffer, output_expected.value().size);
 
     eos_buffer->pts = eos_buffer->dts = GPOINTER_TO_UINT(g_queue_peek_tail(hailoencoder->dts_queue));
 
@@ -535,6 +565,7 @@ static GstFlowReturn
 gst_hailo_encoder_encode_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *input_frame)
 {
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
+    GstBuffer *null_buffer;
     HailoMediaLibraryBufferPtr hailo_buffer_ptr = hailo_buffer_from_gst_buffer(input_frame->input_buffer, hailoencoder->input_state->caps);
     if (!hailo_buffer_ptr)
     {
@@ -543,23 +574,32 @@ gst_hailo_encoder_encode_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *inp
     }
 
     GST_DEBUG_OBJECT(encoder, "Encode frame - calling handle_frame");
-    auto outputs = hailoencoder->encoder->handle_frame(hailo_buffer_ptr);
-    hailo_buffer_ptr->decrease_ref_count();
+    auto outputs = hailoencoder->encoder->handle_frame(hailo_buffer_ptr, input_frame->system_frame_number);
 
-    GST_DEBUG_OBJECT(hailoencoder, "Handle frame done got %d outputs", (int)outputs.size());
     for (EncoderOutputBuffer &output : outputs)
     {
-       auto oldest_frame = gst_video_encoder_get_oldest_frame(encoder);
-       if(oldest_frame == nullptr)
+        auto current_frame = gst_video_encoder_get_frame(encoder, output.frame_number);
+        if (current_frame == nullptr)
         {
             GST_ERROR_OBJECT(hailoencoder, "Failed to get oldest frame");
             return GST_FLOW_ERROR;
         }
 
-        oldest_frame->output_buffer = gst_hailo_encoder_get_output_buffer(hailoencoder, output);
-        g_queue_pop_head(hailoencoder->dts_queue);
-        gst_buffer_add_hailo_buffer_meta(oldest_frame->output_buffer, output.buffer, output.size);
-        if (gst_video_encoder_finish_frame(encoder, oldest_frame) != GST_FLOW_OK)
+        if (output.size == 0)
+        {
+            GST_INFO_OBJECT(hailoencoder, "Send null buffer");
+            null_buffer = gst_buffer_new();
+            gst_buffer_set_size(null_buffer, 0);
+            current_frame->output_buffer = null_buffer;
+        }
+        else
+        {
+            current_frame->output_buffer = gst_hailo_encoder_get_output_buffer(hailoencoder, output);
+        }
+
+        current_frame->dts = GPOINTER_TO_UINT(g_queue_pop_head(hailoencoder->dts_queue));
+        gst_buffer_add_hailo_buffer_meta(current_frame->output_buffer, output.buffer, output.size);
+        if (gst_video_encoder_finish_frame(encoder, current_frame) != GST_FLOW_OK)
         {
             GST_WARNING_OBJECT(hailoencoder, "Failed to finish frame");
             return GST_FLOW_OK;
@@ -613,7 +653,7 @@ gst_hailo_encoder_handle_frame(GstVideoEncoder *encoder,
             return ret;
     }
 
-    if(input_frame != frame)
+    if (input_frame != frame)
     {
         // Encode the current frame (if it is not the same as the oldest frame)
         ret = gst_hailo_encoder_encode_frame(encoder, frame);
@@ -622,13 +662,13 @@ gst_hailo_encoder_handle_frame(GstVideoEncoder *encoder,
     }
 
     // Unref both frames if needed
-    if(input_frame != nullptr)
+    if (input_frame != nullptr)
     {
         gst_video_codec_frame_unref(input_frame);
         input_frame = nullptr;
     }
 
-    if(frame != nullptr)
+    if (frame != nullptr)
     {
         gst_video_codec_frame_unref(frame);
         frame = nullptr;

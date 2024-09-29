@@ -46,6 +46,7 @@ struct _GstHailoEncoder
     std::string config;
     std::string config_path;
     std::shared_ptr<encoder_config_t> encoder_config;
+    std::shared_ptr<encoder_config_t> encoder_user_config;
     gboolean stream_restart;
     GQueue *dts_queue;
     gboolean enforce_caps;

@@ -79,9 +79,15 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> DateTi
 
 std::shared_ptr<osd::Overlay> DateTimeOverlayImpl::get_metadata()
 {
-    return std::make_shared<osd::DateTimeOverlay>(m_id, m_x, m_y, m_datetime_format, m_text_color, m_background_color,
-                                                  m_font_path, m_font_size, m_line_thickness, m_z_index, m_angle, m_rotation_policy,
-                                                  m_shadow_color, m_shadow_offset_x, m_shadow_offset_y);
+    auto text_size = m_foreground_text->get_text_size();
+    return std::make_shared<osd::DateTimeOverlay>(m_id, m_x, m_y, m_datetime_format,
+                                                  m_text_color, m_background_color,
+                                                  m_font_path, m_font_size, m_line_thickness, m_z_index,
+                                                  m_angle, m_rotation_policy,
+                                                  m_shadow_color, m_shadow_offset_x, m_shadow_offset_y,
+                                                  m_font_weight, m_outline_size, m_outline_color,
+                                                  m_horizontal_alignment, m_vertical_alignment,
+                                                  text_size.width, text_size.height);
 }
 
 std::string DateTimeOverlayImpl::select_chars_for_timestamp(std::string datetime_format = DEFAULT_DATETIME_STRING)
