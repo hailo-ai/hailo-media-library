@@ -53,6 +53,7 @@ private:
     std::string m_name;
     InputParams m_input_params;
     std::vector<AppWrapperCallback> m_callbacks;
+    MediaLibraryBufferPoolPtr m_buffer_pool;
     GstAppSrc *m_appsrc;
     GstCaps *m_appsrc_caps;
     GMainLoop *m_main_loop;
@@ -117,11 +118,13 @@ private:
             static_cast<MediaLibraryEncoder::Impl *>(user_data);
         return encoder->on_bus_call(bus, msg);
     }
-    void update_fps(gdouble fps) {
+    void update_fps(gdouble fps)
+    {
         m_current_fps = static_cast<float>(fps);
     }
 
 private:
+    media_library_return init_buffer_pool();
     void set_gst_callbacks();
     GstFlowReturn add_buffer_internal(GstBuffer *buffer);
     std::string create_pipeline_string(nlohmann::json osd_json_config);

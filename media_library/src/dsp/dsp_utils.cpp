@@ -383,7 +383,6 @@ namespace dsp_utils
         return perform_crop_and_resize(&input_dsp_buffer_data.properties, &output_dsp_buffer_data.properties, args, dsp_interpolation_type, letterbox_properties);
     }
 
-
     /**
      * Perform multiple crops and resizes on the DSP
      * This function calls the DSP library to perform crops and resizes on a given
@@ -413,7 +412,39 @@ namespace dsp_utils
         return dsp_multi_crop_and_resize_privacy_mask(device, multi_crop_resize_params, privacy_mask_params);
     }
 
-    dsp_status 
+    /**
+     * @brief Performs a telescopic multi-resize operation using DSP.
+     *
+     * This function takes in parameters for multi-crop and resize operations and
+     * performs the telescopic multi-resize using the DSP (Digital Signal Processor).
+     *
+     * @param multi_crop_resize_params A pointer to a structure containing the parameters
+     *                                 for the multi-crop and resize operations.
+     * @return dsp_status The status of the DSP operation.
+     */
+    dsp_status
+    perform_dsp_telescopic_multi_resize(dsp_multi_crop_resize_params_t *multi_crop_resize_params)
+    {
+        return dsp_telescopic_multi_crop_and_resize(device, multi_crop_resize_params);
+    }
+
+    /**
+     * @brief Perform a telescopic multi-resize operation with privacy masking.
+     *
+     * This function performs a telescopic multi-resize operation on the given
+     * multi-crop resize parameters and applies a privacy mask if provided.
+     *
+     * @param multi_crop_resize_params Pointer to the parameters for multi-crop resize.
+     * @param privacy_mask_params Pointer to the parameters for the privacy mask.
+     * @return dsp_status Status of the DSP operation.
+     */
+    dsp_status
+    perform_dsp_telescopic_multi_resize(dsp_multi_crop_resize_params_t *multi_crop_resize_params, dsp_privacy_mask_t *privacy_mask_params)
+    {
+        return dsp_telescopic_multi_crop_and_resize_privacy_mask(device, multi_crop_resize_params, privacy_mask_params);
+    }
+
+    dsp_status
     perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
                        dsp_image_properties_t *output_image_properties,
                        dsp_dewarp_mesh_t *mesh,
@@ -446,11 +477,11 @@ namespace dsp_utils
         return dsp_rot_dis_dewarp(device, &dewarp_params);
     }
 
-    dsp_status 
+    dsp_status
     perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
-                                  dsp_image_properties_t *output_image_properties,
-                                  dsp_dewarp_mesh_t *mesh,
-                                  dsp_interpolation_type_t interpolation)
+                       dsp_image_properties_t *output_image_properties,
+                       dsp_dewarp_mesh_t *mesh,
+                       dsp_interpolation_type_t interpolation)
     {
         return dsp_dewarp(device, input_image_properties, output_image_properties,
                           mesh, interpolation);
@@ -517,7 +548,7 @@ namespace dsp_utils
                                       size_t overlays_count)
     {
         hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
-        return dsp_blend(device, &input_dsp_buffer_data.properties  , overlay, overlays_count);
+        return dsp_blend(device, &input_dsp_buffer_data.properties, overlay, overlays_count);
     }
 
     /**
@@ -548,13 +579,13 @@ namespace dsp_utils
     }
 
     /**
-        * Convert hailo_buffer_data_t to dsp_image_properties_t
-        * Allocates memory - caller is responsible for freeing it with free_image_property_planes
-        *
-        * @param[in] buffer_data pointer to the hailo buffer data
-        * @param[out] out_dsp_buffer_props pointer to the dsp output image properties
-        * @return dsp_status
-    */
+     * Convert hailo_buffer_data_t to dsp_image_properties_t
+     * Allocates memory - caller is responsible for freeing it with free_image_property_planes
+     *
+     * @param[in] buffer_data pointer to the hailo buffer data
+     * @param[out] out_dsp_buffer_props pointer to the dsp output image properties
+     * @return dsp_status
+     */
     dsp_status hailo_buffer_data_to_dsp_image_props(hailo_buffer_data_t *buffer_data, dsp_image_properties_t *out_dsp_buffer_props)
     {
         hailo_dsp_buffer_data_t dsp_buffer_data = buffer_data->As<hailo_dsp_buffer_data_t>();

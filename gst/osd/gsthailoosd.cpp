@@ -21,6 +21,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include "gsthailoosd.hpp"
+#include "common/gstmedialibcommon.hpp"
 #include "buffer_utils/buffer_utils.hpp"
 #include <fstream>
 #include <gst/gst.h>
@@ -131,19 +132,11 @@ void gst_hailoosd_set_property(GObject *object, guint property_id,
     switch (property_id)
     {
     case PROP_CONFIG_FILE_PATH:
-        if (hailoosd->config_path)
-        {
-            g_free(hailoosd->config_path);
-        }
-        hailoosd->config_path = g_value_dup_string(value);
+        G_VALUE_REPLACE_STRING(hailoosd->config_path, value);
         break;
     case PROP_CONFIG_STR:
     {
-        if (hailoosd->config_str)
-        {
-            g_free(hailoosd->config_str);
-        }
-        hailoosd->config_str = g_value_dup_string(value);
+        G_VALUE_REPLACE_STRING(hailoosd->config_str, value);
         if (hailoosd->initialized)
         {
             hailoosd->blender->configure(std::string(hailoosd->config_str));

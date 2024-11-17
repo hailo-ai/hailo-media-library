@@ -58,8 +58,6 @@ struct _GstHailoEncodeBin
 
     gboolean m_elements_linked;
     GstElement *m_osd;
-    GstElement *m_queue_videorate;
-    GstElement *m_videorate;
     GstElement *m_queue_encoder;
     GstElement *m_encoder;
     guint queue_size;

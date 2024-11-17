@@ -28,6 +28,12 @@
 #include <string>
 #include <sstream>
 
+#define G_VALUE_REPLACE_STRING(dst, src) \
+    {                                    \
+        g_free(dst);                     \
+        dst = g_value_dup_string(src);   \
+    }
+
 namespace gstmedialibcommon
 {
     inline std::string read_json_string_from_file(const gchar *file_path)

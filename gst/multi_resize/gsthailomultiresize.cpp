@@ -661,7 +661,7 @@ static void gst_hailo_multi_resize_set_property(GObject *object, guint property_
     // Handle property assignments here
     case PROP_CONFIG_FILE_PATH:
     {
-        self->config_file_path = g_value_dup_string(value);
+        G_VALUE_REPLACE_STRING(self->config_file_path, value);
         GST_DEBUG_OBJECT(self, "config_file_path: %s", self->config_file_path);
         std::string config_string = gstmedialibcommon::read_json_string_from_file(self->config_file_path);
 
@@ -679,7 +679,7 @@ static void gst_hailo_multi_resize_set_property(GObject *object, guint property_
     }
     case PROP_CONFIG_STRING:
     {
-        self->config_string = g_value_dup_string(value);
+        G_VALUE_REPLACE_STRING(self->config_string, value);
         std::string config_string = std::string(self->config_string);
         gstmedialibcommon::strip_string_syntax(config_string);
 

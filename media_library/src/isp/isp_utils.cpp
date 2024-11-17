@@ -38,8 +38,10 @@
 #define MEDIA_SERVER_STITCH_MODE_ISP_PIPELINE 0
 #define SENSOR_ENTRY_HDR_ENABLE_ENTRY "hdr_enable"
 #define SENSOR_ENTRY_MODE_ENTRY "mode"
-#define SENSOR_ENTRY_HDR_4K_MODE 3
-#define SENSOR_ENTRY_HDR_FHD_MODE 2
+#define SENSOR_ENTRY_HDR_4K_MODE_DOL2 4
+#define SENSOR_ENTRY_HDR_4K_MODE_DOL3 3
+#define SENSOR_ENTRY_HDR_FHD_MODE_DOL2 5
+#define SENSOR_ENTRY_HDR_FHD_MODE_DOL3 2
 #define SENSOR_ENTRY_SDR_4K_MODE 0
 #define SENSOR_ENTRY_SDR_FHD_MODE 1
 
@@ -151,7 +153,49 @@ namespace isp_utils
         return std::regex_replace(file_content, std::regex(regex_pattern_find), replaced_find);
     }
 
-    void edit_sensor_entry(const std::string &path, bool hdr_enable, bool is_4k)
+    inline int get_sensor_mode(bool hdr_enable, bool is_4k, hdr_dol_t dol)
+    {
+        int mode;
+
+        if (!hdr_enable)
+        {
+            mode = is_4k ? SENSOR_ENTRY_SDR_4K_MODE : SENSOR_ENTRY_SDR_FHD_MODE;
+        }
+        else
+        {
+            if (dol == HDR_DOL_2)
+            {
+                mode = is_4k ? SENSOR_ENTRY_HDR_4K_MODE_DOL2 : SENSOR_ENTRY_HDR_FHD_MODE_DOL2;
+            }
+            else
+            {
+                mode = is_4k ? SENSOR_ENTRY_HDR_4K_MODE_DOL3 : SENSOR_ENTRY_HDR_FHD_MODE_DOL3;
+            }
+        }
+
+        return mode;
+    }
+
+     /**
+     * @brief Updates sensor configuration entries to reflect HDR and resolution settings.
+     * 
+     * This function opens and modifies a sensor configuration file at the specified path. 
+     * Based on HDR and resolution settings, it updates the sensor mode and HDR enable flag
+     * values in the file.
+     *
+     * @param path Path to the sensor configuration file.
+     * @param hdr_enable Boolean indicating whether HDR should be enabled.
+     * @param is_4k Boolean indicating if the sensor is set to 4K resolution.
+     * 
+     * @details
+     * - Retrieves the sensor mode based on HDR and resolution settings.
+     * - Uses regex to replace the `mode` value with the computed mode.
+     * - Sets `hdr_enable` to 1 or 0, based on the `hdr_enable` parameter.
+     * - If HDR is enabled, it ensures that mode-specific XML file settings are updated
+     *   to correspond with the new mode.
+     * - Logs warnings if the file or specific entries cannot be located.
+     */
+    void edit_sensor_entry(const std::string &path, bool hdr_enable, bool is_4k, hdr_dol_t dol = HDR_DOL_2)
     {
         std::ifstream if_entry(path.c_str());
         if (!if_entry.is_open())
@@ -164,7 +208,8 @@ namespace isp_utils
         if_entry.close();
 
         // Replace Sensor Mode
-        auto mode = is_4k ? (hdr_enable ? SENSOR_ENTRY_HDR_4K_MODE : SENSOR_ENTRY_SDR_4K_MODE) : (hdr_enable ? SENSOR_ENTRY_HDR_FHD_MODE : SENSOR_ENTRY_SDR_FHD_MODE);
+        int mode = get_sensor_mode(hdr_enable, is_4k, dol);
+
         file_content = replace_by_regex(file_content, MODE_REGEX, REGEX_INTEGER, std::to_string(mode));
 
         // Replace HDR Enable
@@ -181,7 +226,7 @@ namespace isp_utils
             else
             {
                 std::string mode_sdr_xml_str = mode_sdr_xml_match[2].str(); // the xml name is in the 2nd regex group
-                file_content = replace_by_regex(file_content, MODE_XML_REGEX(is_4k ? SENSOR_ENTRY_HDR_4K_MODE : SENSOR_ENTRY_HDR_FHD_MODE), REGEX_XML_FILENAME, mode_sdr_xml_str);
+                file_content = replace_by_regex(file_content, MODE_XML_REGEX(mode), REGEX_XML_FILENAME, mode_sdr_xml_str);
             }
         }
 
@@ -195,11 +240,11 @@ namespace isp_utils
         of_entry.close();
     }
 
-    void setup_hdr(bool is_4k)
+    void setup_hdr(bool is_4k, hdr_dol_t dol)
     {
         LOGGER__DEBUG("Setting up HDR configuration");
         edit_media_server_cfg(m_isp_config_files_path + std::string("/") + std::string(_MEDIA_SERVER_CONFIG), true);
-        edit_sensor_entry(m_isp_config_files_path + std::string("/") + std::string(ISP_SENSOR0_ENTRY_CONFIG), true, is_4k);
+        edit_sensor_entry(m_isp_config_files_path + std::string("/") + std::string(ISP_SENSOR0_ENTRY_CONFIG), true, is_4k, dol);
         if (auto imx678_path = find_subdevice_path("imx678"); !imx678_path.empty())
         {
             isp_utils::ctrl::v4l2Control v4l2_ctrl(imx678_path);

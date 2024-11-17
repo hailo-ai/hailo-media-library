@@ -44,6 +44,21 @@ MediaLibraryEncoder::Impl::create(std::string json_config, std::string name)
     return encoder;
 }
 
+media_library_return MediaLibraryEncoder::Impl::init_buffer_pool()
+{
+    std::string name = "jpeg_encoder";
+    uint frame_width = m_input_params.width;
+    uint frame_height = m_input_params.height;
+    m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(frame_width, frame_height, HAILO_FORMAT_GRAY8, 5, HAILO_MEMORY_TYPE_DMABUF, name);
+    if (m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Failed to initialize buffer pool");
+        return media_library_return::MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+    }
+    LOGGER__INFO("Buffer pool initialized successfully with frame size {}x{}", frame_width, frame_height);
+    return media_library_return::MEDIA_LIBRARY_SUCCESS;
+}
+
 MediaLibraryEncoder::Impl::Impl(std::string json_config,
                                 media_library_return &status,
                                 std::string name)
@@ -72,7 +87,9 @@ MediaLibraryEncoder::Impl::Impl(std::string json_config,
     this->set_gst_callbacks();
     m_appsrc_state = APPSRC_STATE_UNINITIALIZED;
     m_current_fps = 0;
-
+    m_buffer_pool = NULL;
+    if (m_encoder_type == EncoderType::Jpeg)
+        init_buffer_pool();
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -164,9 +181,12 @@ std::string MediaLibraryEncoder::Impl::create_pipeline_string(
     auto json_osd_encoder_config = encode_osd_json_config.dump();
 
     std::ostringstream caps2;
-    if (m_encoder_type == EncoderType::Hailo) {
+    if (m_encoder_type == EncoderType::Hailo)
+    {
         caps2 << "video/x-h264,framerate=" << m_input_params.framerate << "/1";
-    } else {
+    }
+    else
+    {
         caps2 << "image/jpeg,framerate=" << m_input_params.framerate << "/1";
     }
 
@@ -221,8 +241,9 @@ static void on_queue_overrun(GstElement *queue, gpointer user_data)
     gchar *queue_name = gst_element_get_name(queue);
     if (strcmp(queue_name, ENCODER_QUEUE_NAME) == 0)
     {
-         // print every 10th time
-        if (encoder_count++ != 10) {
+        // print every 10th time
+        if (encoder_count++ != 10)
+        {
             g_free(queue_name);
             return;
         }
@@ -244,9 +265,9 @@ void MediaLibraryEncoder::Impl::set_gst_callbacks()
     GstAppSinkCallbacks appsink_callbacks = {};
 
     GstElement *fpssink =
-    gst_bin_get_by_name(GST_BIN(m_pipeline), "fpsdisplaysink");
-        g_signal_connect(fpssink, "fps-measurements", G_CALLBACK(fps_measurement),
-                         this);
+        gst_bin_get_by_name(GST_BIN(m_pipeline), "fpsdisplaysink");
+    g_signal_connect(fpssink, "fps-measurements", G_CALLBACK(fps_measurement),
+                     this);
     GstElement *appsink = gst_bin_get_by_name(GST_BIN(m_pipeline), "encoder_sink");
     appsink_callbacks.new_sample = this->new_sample;
 
@@ -280,7 +301,7 @@ gboolean MediaLibraryEncoder::Impl::on_bus_call(GstBus *bus, GstMessage *msg)
     {
     case GST_MESSAGE_EOS:
     {
-        //TODO: EOS never received
+        // TODO: EOS never received
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
         g_main_loop_quit(m_main_loop);
         m_main_loop_thread->join();
@@ -306,7 +327,7 @@ gboolean MediaLibraryEncoder::Impl::on_bus_call(GstBus *bus, GstMessage *msg)
     return TRUE;
 }
 
-media_library_return 
+media_library_return
 MediaLibraryEncoder::Impl::force_keyframe()
 {
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
@@ -415,19 +436,28 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
         if (gst_buffer_is_writable(buffer))
             gst_buffer_remove_meta(buffer, &buffer_meta->meta);
         break;
-
-    } 
+    }
     case EncoderType::Jpeg:
     {
-        buffer_ptr = hailo_buffer_from_jpeg_gst_buffer(buffer);
-        buffer_ptr->pts = GST_BUFFER_PTS(buffer);
-        if (!buffer_ptr)
+        HailoMediaLibraryBufferPtr hailo_buffer = std::make_shared<hailo_media_library_buffer>();
+        if (m_buffer_pool->acquire_buffer(hailo_buffer) != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__ERROR("Failed to acquire buffer");
+            return GST_FLOW_ERROR;
+        }
+        hailo_buffer->sync_start();
+        size_t input_size;
+        hailo_buffer_from_jpeg_gst_buffer(buffer, hailo_buffer, &input_size);
+        hailo_buffer->sync_end();
+
+        if (!hailo_buffer)
         {
             GST_ERROR("Failed to get hailo buffer ptr from jpeg");
             gst_sample_unref(sample);
             return GST_FLOW_ERROR;
         }
-        used_size = buffer_ptr->get_plane_size(0);
+        used_size = input_size;
+        buffer_ptr = hailo_buffer;
         break;
     }
     default:
@@ -502,28 +532,10 @@ media_library_return MediaLibraryEncoder::Impl::configure(encoder_config_t &conf
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryEncoder::set_force_videorate(bool force)
-{
-    return m_impl->set_force_videorate(force);
-}
-
-media_library_return MediaLibraryEncoder::Impl::set_force_videorate(bool force)
-{
-    GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
-    if (encoder_bin == nullptr)
-    {
-        std::cout << "Got null encoder bin element in get_config" << std::endl;
-        return MEDIA_LIBRARY_ERROR;
-    }
-
-    g_object_set(encoder_bin, "force-videorate", force, NULL);
-    gst_object_unref(encoder_bin);
-    return MEDIA_LIBRARY_SUCCESS;
-}
-
 encoder_config_t MediaLibraryEncoder::Impl::get_config()
 {
-    if (m_encoder_type == EncoderType::Jpeg) {
+    if (m_encoder_type == EncoderType::Jpeg)
+    {
         // Getting actual config from jpeg encoder is not supported
         return jpeg_encoder_config_t{};
     }

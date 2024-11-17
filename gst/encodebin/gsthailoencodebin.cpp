@@ -66,7 +66,6 @@ typedef enum
     PROP_BLENDER,
     PROP_QUEUE_SIZE,
     PROP_ENFORCE_CAPS,
-    PROP_FORCE_VIDEORATE,
     PROP_USER_CONFIG,
 } hailoencodebin_prop_t;
 
@@ -146,11 +145,6 @@ gst_hailoencodebin_class_init(GstHailoEncodeBinClass *klass)
                                                          "Enforce caps on the input/output pad of the bin",
                                                          TRUE,
                                                          (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
-    g_object_class_install_property(gobject_class, PROP_FORCE_VIDEORATE,
-                                    g_param_spec_boolean("force-videorate", "Force videorate",
-                                                         "Force videorate to not be only drop-only",
-                                                         FALSE,
-                                                         (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 }
 
 static void
@@ -170,27 +164,7 @@ gst_hailoencodebin_init(GstHailoEncodeBin *hailoencodebin)
         GST_ELEMENT_ERROR(hailoencodebin, RESOURCE, FAILED, ("Failed creating hailoosd element in bin!"), (NULL));
     }
 
-    // queue between osd and videorate
-    hailoencodebin->m_queue_videorate = gst_element_factory_make("queue", NULL);
-    if (nullptr == hailoencodebin->m_queue_videorate)
-    {
-        GST_ELEMENT_ERROR(hailoencodebin, RESOURCE, FAILED, ("Failed creating queue element in bin!"), (NULL));
-    }
-    // Passing 0 disables the features here
-    g_object_set(hailoencodebin->m_queue_videorate, "max-size-time", (guint64)0, NULL);
-    g_object_set(hailoencodebin->m_queue_videorate, "max-size-bytes", (guint)0, NULL);
-    g_object_set(hailoencodebin->m_queue_videorate, "max-size-buffers", (guint)hailoencodebin->queue_size, NULL);
-
-    // Prepare internal elements
-    // osd
-    hailoencodebin->m_videorate = gst_element_factory_make("videorate", NULL);
-    if (nullptr == hailoencodebin->m_videorate)
-    {
-        GST_ELEMENT_ERROR(hailoencodebin, RESOURCE, FAILED, ("Failed creating videorate element in bin!"), (NULL));
-    }
-    g_object_set(hailoencodebin->m_videorate, "drop-only", TRUE, NULL);
-
-    // queue between osd and videorate
+    // queue between osd and encoder
     hailoencodebin->m_queue_encoder = gst_element_factory_make("queue", NULL);
     if (nullptr == hailoencodebin->m_queue_encoder)
     {
@@ -204,8 +178,6 @@ gst_hailoencodebin_init(GstHailoEncodeBin *hailoencodebin)
     // Add elements and pads in the bin
     gst_bin_add_many(GST_BIN(hailoencodebin),
                      hailoencodebin->m_osd,
-                     hailoencodebin->m_queue_videorate,
-                     hailoencodebin->m_videorate,
                      hailoencodebin->m_queue_encoder,
                      NULL);
     gst_hailoencodebin_init_ghost_sink(hailoencodebin);
@@ -222,7 +194,7 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id,
     // Handle property assignments here
     case PROP_CONFIG_FILE_PATH:
     {
-        hailoencodebin->config_file_path = g_value_dup_string(value);
+        G_VALUE_REPLACE_STRING(hailoencodebin->config_file_path, value);
         GST_DEBUG_OBJECT(hailoencodebin, "config_file_path: %s", hailoencodebin->config_file_path);
 
         // set params for sub elements here
@@ -306,14 +278,7 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id,
     case PROP_QUEUE_SIZE:
     {
         hailoencodebin->queue_size = g_value_get_uint(value);
-        g_object_set(hailoencodebin->m_queue_videorate, "max-size-buffers", hailoencodebin->queue_size, NULL);
         g_object_set(hailoencodebin->m_queue_encoder, "max-size-buffers", hailoencodebin->queue_size, NULL);
-        break;
-    }
-    case PROP_FORCE_VIDEORATE:
-    {
-        gboolean force = g_value_get_boolean(value);
-        g_object_set(hailoencodebin->m_videorate, "drop-only", !force, NULL);
         break;
     }
     default:
@@ -393,13 +358,6 @@ void gst_hailoencodebin_get_property(GObject *object, guint property_id,
         gboolean enforce;
         g_object_get(hailoencodebin->m_encoder, "enforce-caps", &enforce, NULL);
         g_value_set_boolean(value, enforce);
-        break;
-    }
-    case PROP_FORCE_VIDEORATE:
-    {
-        gboolean force;
-        g_object_get(hailoencodebin->m_videorate, "drop-only", &force, NULL);
-        g_value_set_boolean(value, !force);
         break;
     }
     default:
@@ -542,8 +500,6 @@ gst_hailoencodebin_link_elements(GstElement *element)
 
     // Link the elements
     gboolean link_status = gst_element_link_many(self->m_osd,
-                                                 self->m_queue_videorate,
-                                                 self->m_videorate,
                                                  self->m_queue_encoder,
                                                  self->m_encoder,
                                                  NULL);

@@ -39,7 +39,6 @@ GST_DEBUG_CATEGORY_STATIC(gst_hailofrontendbinsrc_debug_category);
 #define HDR_IMAGING_RESOLUTION(frontendbinsrc) INPUT_VIDEO_IS_4K(frontendbinsrc) ? HDR::InputResolution::RES_4K : HDR::InputResolution::RES_FHD
 #define HDR_IS_3DOL(frontendbinsrc) frontendbinsrc->m_hdr_config.dol == HDR_DOL_3
 #define HDR_IMAGING_DOL(frontendbinsrc) HDR_IS_3DOL(frontendbinsrc) ? HDR::DOL::HDR_DOL_3 : HDR::DOL::HDR_DOL_2
-#define HDR_HEF_PATH(frontendbinsrc) INPUT_VIDEO_IS_4K(frontendbinsrc) ? (HDR_IS_3DOL(frontendbinsrc) ? "/usr/bin/hdr_4k_3_exposures.hef" : "/usr/bin/hdr_4k_2_exposures.hef") : (HDR_IS_3DOL(frontendbinsrc) ? "/usr/bin/hdr_fhd_3_exposures.hef" : "/usr/bin/hdr_fhd_2_exposures.hef")
 
 static void gst_hailofrontendbinsrc_set_property(GObject *object,
                                                  guint property_id, const GValue *value, GParamSpec *pspec);
@@ -56,6 +55,7 @@ static void gst_hailofrontendbinsrc_reset(GstHailoFrontendBinSrc *self);
 static gboolean gst_hailofrontendbinsrc_denoise_enabled_changed(GstHailoFrontendBinSrc *self, bool enabled);
 static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, frontend_config_t &config, std::string config_string = "");
 static media_library_return gst_hailofrontendbinsrc_load_config(GstHailoFrontendBinSrc *self, std::string config_string, frontend_config_t *out_config);
+static std::string get_hdr_hef_path(GstHailoFrontendBinSrc *self);
 
 enum
 {
@@ -234,6 +234,7 @@ static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, fro
     }
     isp_utils::set_auto_configure(config.isp_config.auto_configuration);
     isp_utils::set_isp_config_files_path(config.isp_config.isp_config_files_path);
+
     if (self->m_input_config != config.input_config)
     {
         // update capsfilter with input_config
@@ -316,7 +317,7 @@ void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id,
     {
     case PROP_CONFIG_FILE_PATH:
     {
-        self->config_file_path = g_strdup(g_value_get_string(value));
+        G_VALUE_REPLACE_STRING(self->config_file_path, value);
         GST_DEBUG_OBJECT(self, "config_file_path: %s", self->config_file_path);
         self->config_string = gstmedialibcommon::read_json_string_from_file(self->config_file_path);
 
@@ -425,6 +426,14 @@ void gst_hailofrontendbinsrc_get_property(GObject *object, guint property_id,
     }
 }
 
+static std::string get_hdr_hef_path(GstHailoFrontendBinSrc *self)
+{
+    std::string resolution = INPUT_VIDEO_IS_4K(self) ? "4k" : "fhd";
+    std::string dol = HDR_IS_3DOL(self) ? "3" : "2";
+
+    return "/usr/bin/hdr_" + resolution + "_" + dol + "_exposures.hef";
+}
+
 static GstStateChangeReturn
 gst_hailofrontendbinsrc_change_state(GstElement *element, GstStateChange transition)
 {
@@ -463,7 +472,7 @@ gst_hailofrontendbinsrc_change_state(GstElement *element, GstStateChange transit
         if (self->m_hdr_config.enabled)
         {
             GST_DEBUG_OBJECT(self, "Setting HDR configuration");
-            isp_utils::setup_hdr(INPUT_VIDEO_IS_4K(self));
+            isp_utils::setup_hdr(INPUT_VIDEO_IS_4K(self), self->m_hdr_config.dol);
             isp_utils::set_hdr_configuration(INPUT_VIDEO_IS_4K(self));
         }
         else
@@ -498,7 +507,7 @@ gst_hailofrontendbinsrc_change_state(GstElement *element, GstStateChange transit
         {
             GST_DEBUG_OBJECT(self, "Initializing HDR");
             self->m_hdr_stitcher = std::make_unique<HailortAsyncStitching>();
-            bool res_stitch = self->m_hdr_stitcher->init(HDR_HEF_PATH(self), self->m_hailort_config.device_id, 1, 1000, HDR_IMAGING_DOL(self));
+            bool res_stitch = self->m_hdr_stitcher->init(get_hdr_hef_path(self), self->m_hailort_config.device_id, 1, 1000, HDR_IMAGING_DOL(self));
             if (res_stitch != 0) // 0 = success
             {
                 GST_ERROR_OBJECT(self, "Failed to initialize HDR stitching");

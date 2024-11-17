@@ -23,6 +23,7 @@
 
 #include "gsthailofrontend.hpp"
 #include "multi_resize/gsthailomultiresize.hpp"
+#include "common/gstmedialibcommon.hpp"
 #include "media_library/privacy_mask.hpp"
 #include <gst/gst.h>
 #include <gst/video/video.h>
@@ -199,7 +200,7 @@ void gst_hailofrontend_set_property(GObject *object, guint property_id,
     // Handle property assignments here
     case PROP_CONFIG_FILE_PATH:
     {
-        hailofrontend->config_file_path = g_value_dup_string(value);
+        G_VALUE_REPLACE_STRING(hailofrontend->config_file_path, value);
         GST_DEBUG_OBJECT(hailofrontend, "config_file_path: %s", hailofrontend->config_file_path);
 
         // set params for sub elements here

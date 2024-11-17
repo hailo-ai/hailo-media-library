@@ -30,6 +30,8 @@
 #include <iostream>
 #include <filesystem>
 
+#include "media_library_types.hpp"
+
 #define V4L2_DEVICE_NAME "/dev/video0"
 #define TRIPLE_A_CONFIG_PATH "/usr/bin/3aconfig.json"
 #define SONY_CONFIG_PATH "/usr/bin/sony_imx678.xml"
@@ -85,7 +87,7 @@ namespace isp_utils
     void set_backlight_configuration();
     void set_hdr_configuration(bool is_4k);
     std::string find_subdevice_path(const std::string &subdevice_name);
-    void setup_hdr(bool is_4k);
+    void setup_hdr(bool is_4k, hdr_dol_t dol);
     void setup_sdr();
     void set_hdr_ratios(float ls_ratio, float vs_ratio);
 } // namespace isp_utils

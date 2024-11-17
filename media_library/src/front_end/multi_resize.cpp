@@ -117,6 +117,7 @@ private:
     media_library_return configure_internal(multi_resize_config_t &mresize_config);
     void stamp_time_and_log_fps(timespec &start_handle, timespec &end_handle);
     void increase_frame_counter();
+    tl::expected<dsp_roi_t, media_library_return> get_input_roi();
 };
 
 //------------------------ MediaLibraryMultiResize ------------------------
@@ -346,7 +347,7 @@ media_library_return MediaLibraryMultiResize::Impl::configure(multi_resize_confi
     {
         m_timestamps.push_back({0, 0});
     }
-    
+
     m_configured = true;
 
     return MEDIA_LIBRARY_SUCCESS;
@@ -456,7 +457,7 @@ bool MediaLibraryMultiResize::Impl::should_push_frame_logic(uint32_t output_fram
     }
 
     float expected_frame_latency = 1000 / output_framerate;
-    float latency_since_last_frame = (isp_timestamp_ns - m_timestamps[output_index].last_timestamp) / pow(10,6);
+    float latency_since_last_frame = (isp_timestamp_ns - m_timestamps[output_index].last_timestamp) / pow(10, 6);
 
     if (m_timestamps[output_index].last_timestamp == 0)
     {
@@ -526,72 +527,66 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(Hailo
     return MEDIA_LIBRARY_SUCCESS;
 };
 
-/**
- * @brief Perform multi resize on the DSP
- *
- * @param[in] input_frame - pointer to the input frame
- * @param[out] output_frames - vector of output frames
+/* The telescopic multi-resize function in the DSP requires that the resolutions on each dsp_crop_resize_params_t
+ * will be in descending order (for both width and height).
+ * This function splits the output resolutions into groups of resolutions that can be resized together.
  */
-media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(HailoMediaLibraryBufferPtr input_buffer, std::vector<HailoMediaLibraryBufferPtr> &output_frames)
+static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::vector<hailo_dsp_buffer_data_t> &outputs)
 {
-    struct timespec start_resize, end_resize;
-    size_t output_frames_size = output_frames.size();
-    size_t num_of_output_resolutions = m_multi_resize_config.output_video_config.resolutions.size();
-    if (num_of_output_resolutions != output_frames_size)
+    std::vector<dsp_crop_resize_params_t> params;
+
+    // Sort output resolutions (by width) from largest to smallest
+    std::sort(outputs.begin(), outputs.end(), [](const hailo_dsp_buffer_data_t &a, const hailo_dsp_buffer_data_t &b)
+              { return a.properties.width >= b.properties.width; });
+
+    for (auto &output : outputs)
     {
-        LOGGER__ERROR("Number of output resolutions ({}) does not match number of output frames ({})", num_of_output_resolutions, output_frames_size);
-        return MEDIA_LIBRARY_ERROR;
-    }
 
-    dsp_crop_resize_params_t crop_resize_params = {};
-    hailo_dsp_buffer_data_t dsp_buffer_data = input_buffer->buffer_data->As<hailo_dsp_buffer_data_t>();
-    dsp_multi_crop_resize_params_t multi_crop_resize_params = {
-        .src = &dsp_buffer_data.properties,
-        .crop_resize_params = &crop_resize_params,
-        .crop_resize_params_count = 1,
-        .interpolation = m_multi_resize_config.output_video_config.interpolation_type,
-    };
-
-    std::vector<hailo_dsp_buffer_data_t> output_dsp_buffers;
-    output_dsp_buffers.reserve(num_of_output_resolutions);
-
-    uint num_bufs_to_resize = 0;
-    for (size_t i = 0; i < num_of_output_resolutions; i++)
-    {
-        // TODO: Handle cases where its nullptr
-        if (output_frames[i]->buffer_data == nullptr)
+        // Try to find a suitable crop_resize_param for the current output
+        bool found = false;
+        for (auto &crop_resize_param : params)
         {
-            LOGGER__DEBUG("Skipping resize for output frame {} to match target framerate ({})", i, m_multi_resize_config.output_video_config.resolutions[i].framerate);
-            continue;
+
+            // Find the first empty slot (the first slot can be skipped since it's always initialized)
+            size_t i = 1;
+            while (i < DSP_MULTI_RESIZE_OUTPUTS_COUNT && crop_resize_param.dst[i] != nullptr)
+            {
+                i++;
+            }
+
+            // If no empty slot is found, continue to the next crop_resize_param
+            if (i == DSP_MULTI_RESIZE_OUTPUTS_COUNT)
+            {
+                continue;
+            }
+
+            // Check if the current buffer can be added based on the width and height of the previous buffer
+            // (a previous buffer exists since crop_resize_param is never added with an empty dst)
+            if (crop_resize_param.dst[i - 1]->width >= output.properties.width &&
+                crop_resize_param.dst[i - 1]->height >= output.properties.height)
+            {
+                crop_resize_param.dst[i] = &output.properties;
+                found = true;
+                break;
+            }
+
+            // the current buffer can't be added to the current crop_resize_param, continue to the next one
         }
 
-        hailo_buffer_data_t *output_frame = output_frames[i]->buffer_data.get();
-        output_dsp_buffers.emplace_back(std::move(output_frame->As<hailo_dsp_buffer_data_t>()));
-        output_resolution_t &output_res = m_multi_resize_config.output_video_config.resolutions[i];
-
-        if (output_res != *output_frame)
+        // If no suitable crop_resize_param was found, create a new one
+        if (!found)
         {
-            LOGGER__ERROR("Invalid output frame width {} output frame height {}", output_frame->width, output_frame->height);
-            return MEDIA_LIBRARY_ERROR;
+            dsp_crop_resize_params_t new_param = {};
+            new_param.dst[0] = &output.properties;
+            params.push_back(new_param);
         }
-
-        crop_resize_params.dst[num_bufs_to_resize] = &output_dsp_buffers[num_bufs_to_resize].properties;
-        LOGGER__DEBUG("Multi resize output frame ({}) - y_ptr = {}, uv_ptr = {}. dims: width = {}, output frame height = {}, y plane fd = {}", i, fmt::ptr(output_frame->planes[0].userptr), fmt::ptr(output_frame->planes[1].userptr), output_frame->width, output_frame->height, output_frame->planes[0].fd);
-        num_bufs_to_resize++;
     }
 
-    if (num_bufs_to_resize == 0)
-    {
-        LOGGER__DEBUG("No need to perform multi resize");
-        return MEDIA_LIBRARY_SUCCESS;
-    }
+    return params;
+}
 
-    //Filter out the rest of the buffers if something has not cleaned up properly
-    for (size_t i = num_bufs_to_resize; i < DSP_MULTI_RESIZE_OUTPUTS_COUNT; i++)
-    {
-        crop_resize_params.dst[i] = nullptr;
-    }
-
+tl::expected<dsp_roi_t, media_library_return> MediaLibraryMultiResize::Impl::get_input_roi()
+{
     uint start_x = 0;
     uint start_y = 0;
     uint end_x = m_multi_resize_config.input_video_config.dimensions.destination_width;
@@ -622,15 +617,95 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(HailoMe
             if (end_x > m_multi_resize_config.input_video_config.dimensions.destination_width)
             {
                 LOGGER__ERROR("Invalid digital zoom ROI. X ({}) and width ({}) coordinates exceed input frame width ({})", start_x, digital_zoom_roi.width, m_multi_resize_config.input_video_config.dimensions.destination_width);
-                return MEDIA_LIBRARY_ERROR;
+                return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
             }
 
             if (end_y > m_multi_resize_config.input_video_config.dimensions.destination_height)
             {
                 LOGGER__ERROR("Invalid digital zoom ROI. Y ({}) and height ({}) coordinates exceed input frame height ({})", start_y, digital_zoom_roi.height, m_multi_resize_config.input_video_config.dimensions.destination_height);
-                return MEDIA_LIBRARY_ERROR;
+                return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
             }
         }
+    }
+
+    return dsp_roi_t{
+        .start_x = start_x,
+        .start_y = start_y,
+        .end_x = end_x,
+        .end_y = end_y,
+    };
+}
+
+/**
+ * @brief Perform multi resize on the DSP
+ *
+ * @param[in] input_frame - pointer to the input frame
+ * @param[out] output_frames - vector of output frames
+ */
+media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(HailoMediaLibraryBufferPtr input_buffer, std::vector<HailoMediaLibraryBufferPtr> &output_frames)
+{
+    struct timespec start_resize, end_resize;
+    size_t output_frames_size = output_frames.size();
+    size_t num_of_output_resolutions = m_multi_resize_config.output_video_config.resolutions.size();
+    if (num_of_output_resolutions != output_frames_size)
+    {
+        LOGGER__ERROR("Number of output resolutions ({}) does not match number of output frames ({})", num_of_output_resolutions, output_frames_size);
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    hailo_dsp_buffer_data_t dsp_buffer_data = input_buffer->buffer_data->As<hailo_dsp_buffer_data_t>();
+
+    std::vector<hailo_dsp_buffer_data_t> output_dsp_buffers;
+    output_dsp_buffers.reserve(num_of_output_resolutions);
+
+    uint num_bufs_to_resize = 0;
+    for (size_t i = 0; i < num_of_output_resolutions; i++)
+    {
+        // TODO: Handle cases where its nullptr
+        if (output_frames[i]->buffer_data == nullptr)
+        {
+            LOGGER__DEBUG("Skipping resize for output frame {} to match target framerate ({})", i, m_multi_resize_config.output_video_config.resolutions[i].framerate);
+            continue;
+        }
+
+        hailo_buffer_data_t *output_frame = output_frames[i]->buffer_data.get();
+        output_dsp_buffers.emplace_back(std::move(output_frame->As<hailo_dsp_buffer_data_t>()));
+        output_resolution_t &output_res = m_multi_resize_config.output_video_config.resolutions[i];
+
+        if (output_res != *output_frame)
+        {
+            LOGGER__ERROR("Invalid output frame width {} output frame height {}", output_frame->width, output_frame->height);
+            return MEDIA_LIBRARY_ERROR;
+        }
+
+        LOGGER__DEBUG("Multi resize output frame ({}) - y_ptr = {}, uv_ptr = {}. dims: width = {}, output frame height = {}, y plane fd = {}", i, fmt::ptr(output_frame->planes[0].userptr), fmt::ptr(output_frame->planes[1].userptr), output_frame->width, output_frame->height, output_frame->planes[0].fd);
+        num_bufs_to_resize++;
+    }
+
+    if (num_bufs_to_resize == 0)
+    {
+        LOGGER__DEBUG("No need to perform multi resize");
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    auto crop_resize_params = split_to_crop_resize_params(output_dsp_buffers);
+
+    dsp_multi_crop_resize_params_t multi_crop_resize_params = {
+        .src = &dsp_buffer_data.properties,
+        .crop_resize_params = crop_resize_params.data(),
+        .crop_resize_params_count = crop_resize_params.size(),
+        .interpolation = m_multi_resize_config.output_video_config.interpolation_type,
+    };
+
+    auto input_roi = get_input_roi();
+    if (!input_roi.has_value())
+    {
+        input_roi.error();
+    }
+    // Apply the input ROI to all crop_resize_params
+    for (auto &p : crop_resize_params)
+    {
+        p.crop = &input_roi.value();
     }
 
     // Blend privacy mask
@@ -648,15 +723,9 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(HailoMe
     dsp_status ret = DSP_SUCCESS;
     if (privacy_mask_data->rois_count == 0)
     {
-        LOGGER__DEBUG("Performing multi resize on the DSP with digital zoom ROI: start_x {} start_y {} end_x {} end_y {}", start_x, start_y, end_x, end_y);
-        dsp_roi_t crop = {
-            .start_x = start_x,
-            .start_y = start_y,
-            .end_x = end_x,
-            .end_y = end_y
-        };
-        crop_resize_params.crop = &crop;
-        ret = dsp_utils::perform_dsp_multi_resize(&multi_crop_resize_params);
+        LOGGER__DEBUG("Performing multi resize on the DSP with digital zoom ROI: start_x {} start_y {} end_x {} end_y {}",
+                      input_roi->start_x, input_roi->start_y, input_roi->end_x, input_roi->end_y);
+        ret = dsp_utils::perform_dsp_telescopic_multi_resize(&multi_crop_resize_params);
     }
     else
     {
@@ -679,15 +748,9 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(HailoMe
                 .end_y = privacy_mask_data->rois[i].y + privacy_mask_data->rois[i].height};
         }
 
-        LOGGER__DEBUG("Performing multi resize on the DSP with digital zoom ROI: start_x {} start_y {} end_x {} end_y {} and {} privacy masks", start_x, start_y, end_x, end_y, privacy_mask_data->rois_count);
-        dsp_roi_t crop = {
-            .start_x = start_x,
-            .start_y = start_y,
-            .end_x = end_x,
-            .end_y = end_y
-        };
-        crop_resize_params.crop = &crop;
-        ret = dsp_utils::perform_dsp_multi_resize(&multi_crop_resize_params, &dsp_privacy_mask);
+        LOGGER__DEBUG("Performing multi resize on the DSP with digital zoom ROI: start_x {} start_y {} end_x {} end_y {} and {} privacy masks",
+                      input_roi->start_x, input_roi->start_y, input_roi->end_x, input_roi->end_y, privacy_mask_data->rois_count);
+        ret = dsp_utils::perform_dsp_telescopic_multi_resize(&multi_crop_resize_params, &dsp_privacy_mask);
     }
 
     clock_gettime(CLOCK_MONOTONIC, &end_resize);

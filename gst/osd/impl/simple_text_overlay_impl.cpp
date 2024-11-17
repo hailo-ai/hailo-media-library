@@ -355,7 +355,7 @@ media_library_return SimpleTextOverlayImpl::put_text(cv::Mat dst, cv::Point org)
                 return MEDIA_LIBRARY_FREETYPE_ERROR;
             }
 
-            ret = FT_Glyph_To_Bitmap(ft_glyph.get(), FT_RENDER_MODE_MONO, 0, true);
+            ret = FT_Glyph_To_Bitmap(ft_glyph.get(), FT_RENDER_MODE_NORMAL, 0, true);
             if (ret)
             {
                 LOGGER__ERROR("Error: FT_Glyph_To_Bitmap() failed with {}", ret);
@@ -367,7 +367,7 @@ media_library_return SimpleTextOverlayImpl::put_text(cv::Mat dst, cv::Point org)
         }
 
         // Render glyph (inside the outline, if needed)
-        ret = FT_Render_Glyph(m_ft_face->glyph, FT_RENDER_MODE_MONO);
+        ret = FT_Render_Glyph(m_ft_face->glyph, FT_RENDER_MODE_NORMAL);
         if (ret)
         {
             LOGGER__ERROR("Error: FT_Render_Glyph() failed with {}", ret);
@@ -407,36 +407,20 @@ void SimpleTextOverlayImpl::put_glyph(cv::Mat dst, FT_Bitmap *bmp, cv::Point gly
 
         for (int col = 0; col < bmp->pitch; col++)
         {
-            int cl = bmp->buffer[row * bmp->pitch + col];
-            if (cl == 0)
+            int pixel_value = bmp->buffer[row * bmp->pitch + col];
+            if (pixel_value == 0)
             {
                 continue;
             }
-            for (int bit = 7; bit >= 0; bit--)
-            {
-                // skip pixels outside left edge
-                if (glyph_position.x + col * 8 + (7 - bit) < 0)
-                {
-                    continue;
-                }
 
-                // finish if we've passed right edge
-                if (glyph_position.x + col * 8 + (7 - bit) >= dst.cols)
-                {
-                    break;
-                }
+            float alpha = pixel_value / 255.0f;
+            cv::Vec4b *ptr = dst.ptr<cv::Vec4b>(glyph_position.y + row, glyph_position.x + col);
 
-                if (((cl >> bit) & 0x01) == 1)
-                {
-                    cv::Vec4b *ptr = dst.ptr<cv::Vec4b>(glyph_position.y + row, glyph_position.x + col * 8 + (7 - bit));
-
-                    // color is rgba, OpenCV matrix is bgra
-                    (*ptr)[0] = color[2];
-                    (*ptr)[1] = color[1];
-                    (*ptr)[2] = color[0];
-                    (*ptr)[3] = color[3];
-                }
-            }
+            /* Color is RGBA, OpenCV matrix is BGRA */
+            (*ptr)[0] = (uint8_t)(color[2] * alpha + (*ptr)[0] * (1.0f - alpha));  // Blue
+            (*ptr)[1] = (uint8_t)(color[1] * alpha + (*ptr)[1] * (1.0f - alpha));  // Green
+            (*ptr)[2] = (uint8_t)(color[0] * alpha + (*ptr)[2] * (1.0f - alpha));  // Red
+            (*ptr)[3] = (uint8_t)(color[3] * alpha + (*ptr)[3] * (1.0f - alpha));  // Alpha
         }
     }
 }

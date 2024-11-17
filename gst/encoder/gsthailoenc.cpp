@@ -1187,7 +1187,7 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
         if (enc_params->encOut.streamSize == 0)
         {
             ret = GST_FLOW_OK;
-            if(!hailoenc->enc_params.hrd && !hailoenc->enc_params.pictureSkip)
+            if (!hailoenc->enc_params.hrd && !hailoenc->enc_params.pictureSkip)
             {
                 GST_WARNING_OBJECT(hailoenc, "Encoder didn't return any output for frame %d", enc_params->picture_cnt);
             }
@@ -1414,6 +1414,7 @@ gst_hailoenc_start(GstVideoEncoder *encoder)
         return FALSE;
     }
     pEncIn->timeIncrement = 0;
+    pEncIn->vui_timing_info_enable = 1;
     pEncIn->busOutBuf = enc_params->outbufMem.busAddress;
     pEncIn->outBufSize = enc_params->outbufMem.size;
     pEncIn->pOutBuf = enc_params->outbufMem.virtualAddress;
@@ -1525,7 +1526,8 @@ gst_hailoenc_handle_frame(GstVideoEncoder *encoder,
     clock_gettime(CLOCK_MONOTONIC, &start_handle);
     GST_DEBUG_OBJECT(hailoenc, "Received frame number %u", frame->system_frame_number);
 
-    if (enc_params->picture_enc_cnt == 0) {
+    if (enc_params->picture_enc_cnt == 0)
+    {
         // Set high-priority to encoder thread in order to achieve expected performance.
         // This will change the priority of exactly one thread for each encoder instance.
         int nice_value = -20;

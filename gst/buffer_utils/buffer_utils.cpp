@@ -30,7 +30,7 @@
 #include <stdio.h>
 #include <string.h>
 
-std::pair<void*, int> get_mapped_dmabuf_from_gst_memory(GstMemory *memory, size_t size, uint plane_index)
+std::pair<void *, int> get_mapped_dmabuf_from_gst_memory(GstMemory *memory, size_t size, uint plane_index)
 {
     int fd = -1;
     void *data;
@@ -46,7 +46,7 @@ std::pair<void*, int> get_mapped_dmabuf_from_gst_memory(GstMemory *memory, size_
     return std::make_pair(data, fd);
 }
 
-std::pair<void*, int> get_mapped_dmabuf_from_video_frame(GstVideoFrame *video_frame, int plane_index, size_t size)
+std::pair<void *, int> get_mapped_dmabuf_from_video_frame(GstVideoFrame *video_frame, int plane_index, size_t size)
 {
     int fd = -1;
 
@@ -114,41 +114,19 @@ HailoMediaLibraryBufferPtr hailo_buffer_from_gst_buffer(GstBuffer *buffer, GstCa
  * @param[in] buffer GstBuffer to create HailoMediaLibraryBufferPtr from.
  * @return HailoMediaLibraryBufferPtr created from GstBuffer.
  */
-HailoMediaLibraryBufferPtr hailo_buffer_from_jpeg_gst_buffer(GstBuffer *buffer)
+HailoMediaLibraryBufferPtr hailo_buffer_from_jpeg_gst_buffer(GstBuffer *buffer, HailoMediaLibraryBufferPtr hailo_buffer, size_t *input_size)
 {
-    HailoMediaLibraryBufferPtr hailo_buffer = std::make_shared<hailo_media_library_buffer>();
-
     // JPEG encoder results are non-planar, so we treat the whole image as 1 plane
     GstMemory *memory = gst_buffer_peek_memory(buffer, 0);
     GstMapInfo memory_map_info;
     gst_memory_map(memory, &memory_map_info, GST_MAP_READ);
 
     void *data = memory_map_info.data;
-    size_t input_size = memory_map_info.size;
-
-    hailo_data_plane_t plane;
-    if (DmaMemoryAllocator::get_instance().get_fd(data, plane.fd) == MEDIA_LIBRARY_SUCCESS)
-    {
-        plane.userptr = data;
-    }
-    else
-    {
-        auto dmabuf_res = get_mapped_dmabuf_from_gst_memory(memory, input_size, 0);
-        plane.userptr = dmabuf_res.first;
-        plane.fd = dmabuf_res.second;
-    }
-
-    plane.bytesperline = 0;
-    plane.bytesused = input_size;
-    
-    // Fill in hailo_buffer_data_t values
-    HailoBufferDataPtr hailo_buffer_data = std::make_shared<hailo_buffer_data_t>(
-        (size_t)0, (size_t)0, (size_t)1, HAILO_FORMAT_GRAY8, HAILO_MEMORY_TYPE_DMABUF, std::vector<hailo_data_plane_t>{std::move(plane)});
-
+    *input_size = memory_map_info.size;
+    memcpy(hailo_buffer->get_plane_ptr(0), data, *input_size);
     gst_memory_unmap(memory, &memory_map_info);
 
     hailo_buffer->pts = GST_BUFFER_PTS(buffer);
-    hailo_buffer->create(nullptr, hailo_buffer_data);
     return hailo_buffer;
 }
 
@@ -347,12 +325,12 @@ bool dma_buffer_sync_end(GstBuffer *buffer)
     return ret;
 }
 
-void* get_mapped_dmabuf_userptr(int fd, int plane_index, size_t size)
+void *get_mapped_dmabuf_userptr(int fd, int plane_index, size_t size)
 {
     void *user_ptr;
     if (DmaMemoryAllocator::get_instance().map_external_dma_buffer(size, fd, &user_ptr) != MEDIA_LIBRARY_SUCCESS)
     {
-        return  nullptr;
+        return nullptr;
     }
 
     return user_ptr;
@@ -407,7 +385,7 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
     {
         // RGB is non-planar, since all channels are interleaved, we treat the whole image as 1 plane
         hailo_data_plane_t plane;
-        if(create_hailo_data_plane_from_video_frame(video_frame, 0, plane) != MEDIA_LIBRARY_SUCCESS)
+        if (create_hailo_data_plane_from_video_frame(video_frame, 0, plane) != MEDIA_LIBRARY_SUCCESS)
             return false;
 
         // Fill in buffer_data_ values
@@ -419,7 +397,7 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
     {
         // ARGB is non-planar, since all channels are interleaved, we treat the whole image as 1 plane
         hailo_data_plane_t plane;
-        if(create_hailo_data_plane_from_video_frame(video_frame, 0, plane) != MEDIA_LIBRARY_SUCCESS)
+        if (create_hailo_data_plane_from_video_frame(video_frame, 0, plane) != MEDIA_LIBRARY_SUCCESS)
             return false;
 
         // Fill in buffer_data_ values
@@ -438,7 +416,7 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
         // NV12 is semi-planar, where the Y channel is a seprate plane from the UV channels
 
         hailo_data_plane_t y_plane_data;
-        if(create_hailo_data_plane_from_video_frame(video_frame, 0, y_plane_data) != MEDIA_LIBRARY_SUCCESS)
+        if (create_hailo_data_plane_from_video_frame(video_frame, 0, y_plane_data) != MEDIA_LIBRARY_SUCCESS)
         {
             GST_CAT_ERROR(GST_CAT_DEFAULT, "Failed to create plane data for y channel for NV12 frame");
             return false;
@@ -449,7 +427,7 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
         size_t uv_channel_size = uv_channel_stride * image_height / 2;
 
         hailo_data_plane_t uv_plane_data;
-        if(create_hailo_data_plane_from_video_frame(video_frame, 1, uv_plane_data, uv_channel_size, uv_channel_stride) != MEDIA_LIBRARY_SUCCESS)
+        if (create_hailo_data_plane_from_video_frame(video_frame, 1, uv_plane_data, uv_channel_size, uv_channel_stride) != MEDIA_LIBRARY_SUCCESS)
         {
             GST_CAT_ERROR(GST_CAT_DEFAULT, "Failed to create plane data for uv channel for NV12 frame");
             return false;
@@ -466,7 +444,7 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
     case GST_VIDEO_FORMAT_GRAY8:
     {
         hailo_data_plane_t plane_data;
-        if(create_hailo_data_plane_from_video_frame(video_frame, 0, plane_data) != MEDIA_LIBRARY_SUCCESS)
+        if (create_hailo_data_plane_from_video_frame(video_frame, 0, plane_data) != MEDIA_LIBRARY_SUCCESS)
         {
             GST_CAT_ERROR(GST_CAT_DEFAULT, "Failed to create plane data for GRAY8 frame");
             return false;
@@ -491,7 +469,7 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
                 channel_size /= 2;
 
             hailo_data_plane_t plane_data;
-            if(create_hailo_data_plane_from_video_frame(video_frame, i, plane_data, channel_size, channel_stride) != MEDIA_LIBRARY_SUCCESS)
+            if (create_hailo_data_plane_from_video_frame(video_frame, i, plane_data, channel_size, channel_stride) != MEDIA_LIBRARY_SUCCESS)
             {
                 GST_CAT_ERROR(GST_CAT_DEFAULT, "Failed to create plane data for a420 channel");
                 return false;
@@ -502,7 +480,7 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
         // Fill in buffer_data_ values
         buffer_data = std::make_shared<hailo_buffer_data_t>(
             image_width, image_height, n_planes, HAILO_FORMAT_A420, HAILO_MEMORY_TYPE_DMABUF, a420_planes);
-            
+
         break;
     }
     default:
@@ -514,8 +492,7 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
     return true;
 }
 
-        
-        /**
+/**
  * Creates and populates a dsp_image_properties_t
  * struct with data of a given GstVideoFrame
  *
@@ -575,9 +552,9 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
         size_t input_line_stride = GST_VIDEO_FRAME_PLANE_STRIDE(video_frame, 0);
         size_t input_size = GST_VIDEO_FRAME_SIZE(video_frame);
 
-         auto mapped_dma_res = get_mapped_dmabuf_from_video_frame(video_frame, 0, input_size);
-         void *data = mapped_dma_res.first;
-         int fd = mapped_dma_res.second;
+        auto mapped_dma_res = get_mapped_dmabuf_from_video_frame(video_frame, 0, input_size);
+        void *data = mapped_dma_res.first;
+        int fd = mapped_dma_res.second;
 
         dsp_memory_type_t memory_type = DSP_MEMORY_TYPE_USERPTR;
         // Allocate memory for the plane
@@ -772,7 +749,7 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
             dsp_image_props.memory = DSP_MEMORY_TYPE_DMABUF;
         }
 
-     break;
+        break;
     }
     default:
     {

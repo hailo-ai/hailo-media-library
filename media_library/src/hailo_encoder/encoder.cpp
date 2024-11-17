@@ -190,6 +190,7 @@ media_library_return Encoder::Impl::init()
 
     // Update timescale to be framerate denom (must happen after init_encoder_config)
     m_enc_in.timeIncrement = 0;
+    m_enc_in.vui_timing_info_enable = 1;
 
     m_bitrate_monitor.enabled = true;
     if (m_vc_cfg.frameRateDenom == 0)
