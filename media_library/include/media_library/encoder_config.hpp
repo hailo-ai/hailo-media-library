@@ -43,6 +43,7 @@ class EncoderConfig
     encoder_config_t m_user_config;
     struct input_config_t m_input_config;
     struct output_config_t m_output_config;
+
   public:
     EncoderConfig(const std::string &config_path);
     const nlohmann::json &get_doc() const;

@@ -33,7 +33,7 @@
 
 #define MIN_MONITOR_FRAMES (10)
 #define MAX_MONITOR_FRAMES (120)
-#define VCENC_MAX_BITRATE (100000*1000)  /* Level 6 main tier limit */
+#define VCENC_MAX_BITRATE (100000 * 1000) /* Level 6 main tier limit */
 #define VCENC_MIN_BITRATE (10000)
 
 inline void strip_string_syntax(std::string &pipeline_input)
@@ -45,8 +45,7 @@ inline void strip_string_syntax(std::string &pipeline_input)
     }
 }
 
-EncoderConfig::EncoderConfig(const std::string &json_string)
-    : m_json_string(json_string)
+EncoderConfig::EncoderConfig(const std::string &json_string) : m_json_string(json_string)
 {
     if (configure(json_string) != MEDIA_LIBRARY_SUCCESS)
     {
@@ -59,10 +58,10 @@ media_library_return EncoderConfig::configure(const std::string &json_string)
     std::string strapped_json = json_string;
     strip_string_syntax(strapped_json);
 
-    m_config_manager =
-        std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_ENCODER);
+    m_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_ENCODER);
 
-    media_library_return config_ret = m_config_manager->config_string_to_struct<encoder_config_t>(strapped_json, m_config);
+    media_library_return config_ret =
+        m_config_manager->config_string_to_struct<encoder_config_t>(strapped_json, m_config);
     if (config_ret != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("encoder's JSON config conversion failed: {}", strapped_json);
@@ -138,11 +137,16 @@ jpeg_encoder_config_t EncoderConfig::get_jpeg_config()
     return std::get<jpeg_encoder_config_t>(m_config);
 }
 
-const nlohmann::json &EncoderConfig::get_doc() const { return m_doc; }
-
-bool Encoder::Impl::gop_config_update_required(const hailo_encoder_config_t &old_config, const hailo_encoder_config_t &new_config)
+const nlohmann::json &EncoderConfig::get_doc() const
 {
-    if (new_config.gop.gop_size != old_config.gop.gop_size || new_config.gop.b_frame_qp_delta != old_config.gop.b_frame_qp_delta)
+    return m_doc;
+}
+
+bool Encoder::Impl::gop_config_update_required(const hailo_encoder_config_t &old_config,
+                                               const hailo_encoder_config_t &new_config)
+{
+    if (new_config.gop.gop_size != old_config.gop.gop_size ||
+        new_config.gop.b_frame_qp_delta != old_config.gop.b_frame_qp_delta)
     {
         return true;
     }
@@ -150,8 +154,8 @@ bool Encoder::Impl::gop_config_update_required(const hailo_encoder_config_t &old
     return false;
 }
 
-bool Encoder::Impl::hard_restart_required(const hailo_encoder_config_t &old_config, const hailo_encoder_config_t &new_config,
-                                          bool gop_update_required)
+bool Encoder::Impl::hard_restart_required(const hailo_encoder_config_t &old_config,
+                                          const hailo_encoder_config_t &new_config, bool gop_update_required)
 {
     // Output stream configs requires hard restart
     if ((new_config.output_stream.codec != old_config.output_stream.codec) ||
@@ -197,7 +201,8 @@ VCEncProfile Encoder::Impl::get_profile(bool codecH264)
 
     if (profile == "auto")
     {
-        auto resolution = m_config->get_hailo_config().input_stream.width * m_config->get_hailo_config().input_stream.height;
+        auto resolution =
+            m_config->get_hailo_config().input_stream.width * m_config->get_hailo_config().input_stream.height;
         auto bitrate = m_config->get_hailo_config().rate_control.bitrate.target_bitrate;
 
         if ((resolution <= 1280 * 720) && (bitrate <= 5000000))
@@ -231,16 +236,18 @@ VCEncPictureType Encoder::Impl::get_input_format(std::string format)
 
 media_library_return Encoder::Impl::validate_bitrate_limitations(rate_control_config_t rate_control_config)
 {
-    if(rate_control_config.picture_rc || rate_control_config.picture_skip || rate_control_config.hrd)
+    if (rate_control_config.picture_rc || rate_control_config.picture_skip || rate_control_config.hrd)
     {
-        if(rate_control_config.bitrate.target_bitrate > VCENC_MAX_BITRATE)
+        if (rate_control_config.bitrate.target_bitrate > VCENC_MAX_BITRATE)
         {
-            LOGGER__ERROR("Requested bitrate ({}) is higher than the maximum supported bitrate ({})", rate_control_config.bitrate.target_bitrate, VCENC_MAX_BITRATE);
+            LOGGER__ERROR("Requested bitrate ({}) is higher than the maximum supported bitrate ({})",
+                          rate_control_config.bitrate.target_bitrate, VCENC_MAX_BITRATE);
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
-        if(rate_control_config.bitrate.target_bitrate < VCENC_MIN_BITRATE)
+        if (rate_control_config.bitrate.target_bitrate < VCENC_MIN_BITRATE)
         {
-            LOGGER__ERROR("Requested bitrate ({}) is lower than the minimum supported bitrate ({})", rate_control_config.bitrate.target_bitrate, VCENC_MIN_BITRATE);
+            LOGGER__ERROR("Requested bitrate ({}) is lower than the minimum supported bitrate ({})",
+                          rate_control_config.bitrate.target_bitrate, VCENC_MIN_BITRATE);
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
     }
@@ -248,19 +255,20 @@ media_library_return Encoder::Impl::validate_bitrate_limitations(rate_control_co
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return Encoder::Impl::validate_level_limitations(std::string level, bool codecH264, u32 width, u32 height, u32 framerate, u32 framerate_denom)
+media_library_return Encoder::Impl::validate_level_limitations(std::string level, bool codecH264, u32 width, u32 height,
+                                                               u32 framerate, u32 framerate_denom)
 {
     if (codecH264)
         return MEDIA_LIBRARY_SUCCESS;
 
     auto find_level = h265_level.find(level);
-    if(find_level == h265_level.end())
+    if (find_level == h265_level.end())
     {
         LOGGER__ERROR("Requested level ({}) does not exist in the supported HEVC levels", level);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
-    //get the index of the level in the map
+    // get the index of the level in the map
     auto level_index = std::distance(h265_level.begin(), find_level);
     u32 max_fs;
     if (VCEncGetMaxFS((u32)level_index, &max_fs) != VCENC_OK)
@@ -271,7 +279,9 @@ media_library_return Encoder::Impl::validate_level_limitations(std::string level
 
     if ((u32)(width * height) > max_fs)
     {
-        LOGGER__ERROR("Requested HEVC level {} is not supported for requested resolution {}x{}. Please refer to to the limitations on the hailo_encoder documentation", level, width, height);
+        LOGGER__ERROR("Requested HEVC level {} is not supported for requested resolution {}x{}. Please refer to to the "
+                      "limitations on the hailo_encoder documentation",
+                      level, width, height);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -285,18 +295,22 @@ media_library_return Encoder::Impl::validate_level_limitations(std::string level
     u32 sample_rate = (framerate * width * height) / framerate_denom;
     if (sample_rate > max_sbps)
     {
-        LOGGER__ERROR("Requested HEVC level {} is not supported for requested resolution {}x{} and framerate {}. Please refer to to the limitations on the hailo_encoder documentation", level, width, height, framerate);
+        LOGGER__ERROR("Requested HEVC level {} is not supported for requested resolution {}x{} and framerate {}. "
+                      "Please refer to to the limitations on the hailo_encoder documentation",
+                      level, width, height, framerate);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return Encoder::Impl::get_level(std::string level, bool codecH264, u32 width, u32 height, u32 framerate, u32 framerate_denom, VCEncLevel &vc_level_out)
+media_library_return Encoder::Impl::get_level(std::string level, bool codecH264, u32 width, u32 height, u32 framerate,
+                                              u32 framerate_denom, VCEncLevel &vc_level_out)
 {
     if (level == "auto")
     {
-        auto resolution = m_config->get_hailo_config().input_stream.width * m_config->get_hailo_config().input_stream.height;
+        auto resolution =
+            m_config->get_hailo_config().input_stream.width * m_config->get_hailo_config().input_stream.height;
         auto bitrate = m_config->get_hailo_config().rate_control.bitrate.target_bitrate;
         const auto &auto_level_map = codecH264 ? h264_auto_level_map : h265_auto_level_map;
 
@@ -318,7 +332,8 @@ media_library_return Encoder::Impl::get_level(std::string level, bool codecH264,
         }
     }
 
-    if(validate_level_limitations(level, codecH264, width, height, framerate, framerate_denom) != MEDIA_LIBRARY_SUCCESS)
+    if (validate_level_limitations(level, codecH264, width, height, framerate, framerate_denom) !=
+        MEDIA_LIBRARY_SUCCESS)
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
 
     if (codecH264)
@@ -392,8 +407,7 @@ void Encoder::Impl::create_gop_config()
     int32_t bframe_qp_delta = gop_config_json.b_frame_qp_delta;
     int32_t gop_size = gop_config_json.gop_size;
     memset(&m_enc_in.gopConfig, 0, sizeof(VCEncGopConfig));
-    m_gop_cfg = std::make_unique<gopConfig>(&(m_enc_in.gopConfig), gop_size,
-                                            bframe_qp_delta, codec);
+    m_gop_cfg = std::make_unique<gopConfig>(&(m_enc_in.gopConfig), gop_size, bframe_qp_delta, codec);
 }
 
 media_library_return Encoder::Impl::init_gop_config()
@@ -403,7 +417,8 @@ media_library_return Encoder::Impl::init_gop_config()
 
     memset(&m_enc_in.gopConfig, 0, sizeof(VCEncGopConfig));
     memset(&m_enc_in.gopConfig.pGopPicCfg, 0, sizeof(VCEncGopPicConfig));
-    media_library_return ret = m_gop_cfg->init_config(&(m_enc_in.gopConfig), gop_config.gop_size, gop_config.b_frame_qp_delta, codec);
+    media_library_return ret =
+        m_gop_cfg->init_config(&(m_enc_in.gopConfig), gop_config.gop_size, gop_config.b_frame_qp_delta, codec);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to init gop config");
@@ -464,9 +479,7 @@ media_library_return Encoder::Impl::init_rate_control_config()
     if (monitor_frames != 0)
         m_vc_rate_cfg.monitorFrames = monitor_frames;
     else
-        m_vc_rate_cfg.monitorFrames =
-            (m_vc_cfg.frameRateNum + m_vc_cfg.frameRateDenom - 1) /
-            m_vc_cfg.frameRateDenom;
+        m_vc_rate_cfg.monitorFrames = (m_vc_cfg.frameRateNum + m_vc_cfg.frameRateDenom - 1) / m_vc_cfg.frameRateDenom;
 
     if (m_vc_rate_cfg.monitorFrames > MAX_MONITOR_FRAMES)
         m_vc_rate_cfg.monitorFrames = MAX_MONITOR_FRAMES;
@@ -488,8 +501,7 @@ media_library_return Encoder::Impl::init_rate_control_config()
 
     if (rate_control.gop_length.value() == 0)
     {
-        m_vc_rate_cfg.gopLen =
-            (m_vc_cfg.frameRateNum + m_vc_cfg.frameRateDenom - 1) / m_vc_cfg.frameRateDenom;
+        m_vc_rate_cfg.gopLen = (m_vc_cfg.frameRateNum + m_vc_cfg.frameRateDenom - 1) / m_vc_cfg.frameRateDenom;
     }
     else
     {
@@ -598,8 +610,7 @@ media_library_return Encoder::Impl::init_preprocessing_config()
     }
     auto input_stream = m_config->get_hailo_config().input_stream;
 
-    m_vc_pre_proc_cfg.inputType =
-        get_input_format(std::string(input_stream.format));
+    m_vc_pre_proc_cfg.inputType = get_input_format(std::string(input_stream.format));
     // No Rotation
     m_vc_pre_proc_cfg.rotation = (VCEncPictureRotation)0;
 
@@ -686,7 +697,8 @@ media_library_return Encoder::Impl::init_encoder_config()
     }
 
     m_vc_cfg.profile = get_profile(m_vc_cfg.codecH264);
-    if(get_level(output_stream.level.value(), m_vc_cfg.codecH264, m_vc_cfg.width, m_vc_cfg.height, m_vc_cfg.frameRateNum, m_vc_cfg.frameRateDenom, m_vc_cfg.level) != MEDIA_LIBRARY_SUCCESS)
+    if (get_level(output_stream.level.value(), m_vc_cfg.codecH264, m_vc_cfg.width, m_vc_cfg.height,
+                  m_vc_cfg.frameRateNum, m_vc_cfg.frameRateDenom, m_vc_cfg.level) != MEDIA_LIBRARY_SUCCESS)
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
 
     m_vc_cfg.bitDepthLuma = 8;
@@ -710,8 +722,7 @@ media_library_return Encoder::Impl::init_encoder_config()
                 maxTemporalId = cfg->temporalId;
         }
     }
-    m_vc_cfg.refFrameAmount = maxRefPics + m_vc_cfg.interlacedFrame +
-                              (m_enc_in.gopConfig.ltrInterval > 0);
+    m_vc_cfg.refFrameAmount = maxRefPics + m_vc_cfg.interlacedFrame + (m_enc_in.gopConfig.ltrInterval > 0);
     m_vc_cfg.maxTLayers = maxTemporalId + 1;
     // TODO: Change compressor from json
     m_vc_cfg.compressor = 3;
@@ -746,8 +757,8 @@ media_library_return Encoder::Impl::init_monitors_config()
 
     if (monitors_control.bitrate_monitor.output_result_to_file)
     {
-        m_bitrate_monitor.output_file = std::ofstream(monitors_control.bitrate_monitor.result_output_path,
-                                                      std::ios::out | std::ios::trunc);
+        m_bitrate_monitor.output_file =
+            std::ofstream(monitors_control.bitrate_monitor.result_output_path, std::ios::out | std::ios::trunc);
         if (m_bitrate_monitor.output_file.bad())
         {
             LOGGER__ERROR("Encoder - Failed to open bitrate output file");
@@ -757,8 +768,8 @@ media_library_return Encoder::Impl::init_monitors_config()
 
     if (monitors_control.cycle_monitor.output_result_to_file)
     {
-        m_cycle_monitor.output_file = std::ofstream(monitors_control.cycle_monitor.result_output_path,
-                                                    std::ios::out | std::ios::trunc);
+        m_cycle_monitor.output_file =
+            std::ofstream(monitors_control.cycle_monitor.result_output_path, std::ios::out | std::ios::trunc);
         if (m_cycle_monitor.output_file.bad())
         {
             LOGGER__ERROR("Encoder - Failed to open cycle output file");

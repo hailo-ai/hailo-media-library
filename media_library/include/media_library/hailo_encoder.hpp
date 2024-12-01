@@ -45,8 +45,7 @@ int AllocRes(EncoderParams *enc_params);
 void FreeRes(EncoderParams *enc_params);
 u32 SetupInputBuffer(EncoderParams *enc_params, VCEncIn *pEncIn);
 void UpdateEncoderGOP(EncoderParams *enc_params, VCEncInst encoder);
-VCEncRet EncodeFrame(EncoderParams *enc_params, VCEncInst encoder,
-                     VCEncSliceReadyCallBackFunc sliceReadyCbFunc,
+VCEncRet EncodeFrame(EncoderParams *enc_params, VCEncInst encoder, VCEncSliceReadyCallBackFunc sliceReadyCbFunc,
                      void *pAppData);
 void ForceKeyframe(EncoderParams *enc_params, VCEncInst encoder);
 

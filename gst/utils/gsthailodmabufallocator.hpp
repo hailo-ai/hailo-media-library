@@ -28,8 +28,10 @@
 G_BEGIN_DECLS
 
 #define GST_TYPE_HAILO_DMABUF_ALLOCATOR (gst_hailo_dmabuf_allocator_get_type())
-#define GST_HAILO_DMABUF_ALLOCATOR(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), GST_TYPE_HAILO_DMABUF_ALLOCATOR, GstHailoDmabufAllocator))
-#define GST_HAILO_DMABUF_ALLOCATOR_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST((klass), GST_TYPE_HAILO_DMABUF_ALLOCATOR, GstHailoDmabufAllocator))
+#define GST_HAILO_DMABUF_ALLOCATOR(obj)                                                                                \
+    (G_TYPE_CHECK_INSTANCE_CAST((obj), GST_TYPE_HAILO_DMABUF_ALLOCATOR, GstHailoDmabufAllocator))
+#define GST_HAILO_DMABUF_ALLOCATOR_CLASS(klass)                                                                        \
+    (G_TYPE_CHECK_CLASS_CAST((klass), GST_TYPE_HAILO_DMABUF_ALLOCATOR, GstHailoDmabufAllocator))
 #define GST_IS_HAILO_DMABUF_ALLOCATOR(obj) (G_TYPE_CHECK_INSTANCE_TYPE((obj), GST_TYPE_HAILO_DMABUF_ALLOCATOR))
 #define GST_IS_HAILO_DMABUF_ALLOCATOR_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILO_DMABUF_ALLOCATOR))
 
@@ -37,7 +39,7 @@ G_BEGIN_DECLS
 
 class GstHailoDmaHeapControl
 {
-public:
+  public:
     static bool dma_heap_fd_open;
     static int dma_heap_fd;
     static uint ref_count;
@@ -70,7 +72,6 @@ struct GstHailoDmabufAllocatorClass
 {
     GstDmaBufAllocatorClass parent;
 };
-
 
 GType gst_hailo_dmabuf_allocator_get_type(void);
 

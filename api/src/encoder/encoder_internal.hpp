@@ -49,7 +49,7 @@ enum appsrc_state
 };
 class MediaLibraryEncoder::Impl final
 {
-private:
+  private:
     std::string m_name;
     InputParams m_input_params;
     std::vector<AppWrapperCallback> m_callbacks;
@@ -65,13 +65,14 @@ private:
     EncoderType m_encoder_type;
     float m_current_fps;
 
-public:
-    static tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>, media_library_return> create(std::string json_config, std::string name);
+  public:
+    static tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>, media_library_return> create(
+        std::string json_config, std::string name);
 
     ~Impl();
     Impl(std::string json_config, media_library_return &status, std::string name);
 
-public:
+  public:
     media_library_return subscribe(AppWrapperCallback callback);
     media_library_return start();
     media_library_return stop();
@@ -90,32 +91,26 @@ public:
      * Below are public functions that are not part of the public API
      * but are public for GStreamer callbacks.
      */
-public:
-    void on_fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate,
-                            gdouble avgfps);
+  public:
+    void on_fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps);
     GstFlowReturn on_new_sample(GstAppSink *appsink);
     gboolean on_bus_call(GstBus *bus, GstMessage *msg);
 
-private:
-    static void fps_measurement(GstElement *fpssink, gdouble fps,
-                                gdouble droprate, gdouble avgfps,
-                                gpointer user_data)
+  private:
+    static void fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps, gpointer user_data)
     {
-        MediaLibraryEncoder::Impl *encoder =
-            static_cast<MediaLibraryEncoder::Impl *>(user_data);
+        MediaLibraryEncoder::Impl *encoder = static_cast<MediaLibraryEncoder::Impl *>(user_data);
         encoder->on_fps_measurement(fpssink, fps, droprate, avgfps);
         encoder->update_fps(fps);
     }
     static GstFlowReturn new_sample(GstAppSink *appsink, gpointer user_data)
     {
-        MediaLibraryEncoder::Impl *encoder =
-            static_cast<MediaLibraryEncoder::Impl *>(user_data);
+        MediaLibraryEncoder::Impl *encoder = static_cast<MediaLibraryEncoder::Impl *>(user_data);
         return encoder->on_new_sample(appsink);
     }
     static gboolean bus_call(GstBus *bus, GstMessage *msg, gpointer user_data)
     {
-        MediaLibraryEncoder::Impl *encoder =
-            static_cast<MediaLibraryEncoder::Impl *>(user_data);
+        MediaLibraryEncoder::Impl *encoder = static_cast<MediaLibraryEncoder::Impl *>(user_data);
         return encoder->on_bus_call(bus, msg);
     }
     void update_fps(gdouble fps)
@@ -123,7 +118,7 @@ private:
         m_current_fps = static_cast<float>(fps);
     }
 
-private:
+  private:
     media_library_return init_buffer_pool();
     void set_gst_callbacks();
     GstFlowReturn add_buffer_internal(GstBuffer *buffer);

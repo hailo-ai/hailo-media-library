@@ -34,10 +34,8 @@ void SetDefaultParameters(EncoderParams *enc_params, bool codecH264)
 
     enc_params->codecH264 = codecH264;
     enc_params->inputFormat = DEFAULT_INPUT_FORMAT;
-    enc_params->profile =
-        enc_params->codecH264 ? DEFAULT_H264_PROFILE : DEFAULT_HEVC_PROFILE;
-    enc_params->level =
-        enc_params->codecH264 ? DEFAULT_H264_LEVEL : DEFAULT_HEVC_LEVEL;
+    enc_params->profile = enc_params->codecH264 ? DEFAULT_H264_PROFILE : DEFAULT_HEVC_PROFILE;
+    enc_params->level = enc_params->codecH264 ? DEFAULT_H264_LEVEL : DEFAULT_HEVC_LEVEL;
     enc_params->streamType = VCENC_BYTE_STREAM;
     enc_params->gopSize = DEFAULT_GOP_SIZE;
     enc_params->gopLength = DEFAULT_GOP_LENGTH;
@@ -91,16 +89,23 @@ VCEncLevel GetAutoLevel(EncoderParams *enc_params, bool codecH264)
     const std::map<int32_t, std::map<uint32_t, VCEncLevel>> H264_AUTO_LEVEL_MAP = {
         {720 * 480, {{UINT32_MAX, VCENC_H264_LEVEL_3}}},
         {1280 * 720, {{UINT32_MAX, VCENC_H264_LEVEL_3_1}}},
-        {1920 * 1080, {{2000000, VCENC_H264_LEVEL_3_1}, {4000000, VCENC_H264_LEVEL_3_2}, {8000000, VCENC_H264_LEVEL_4}, {UINT32_MAX, VCENC_H264_LEVEL_4_1}}},
-        {2560 * 1440, {{4000000, VCENC_H264_LEVEL_4}, {8000000, VCENC_H264_LEVEL_4_1}, {UINT32_MAX, VCENC_H264_LEVEL_4_2}}},
-        {3840 * 2160, {{8000000, VCENC_H264_LEVEL_4_2}, {16000000, VCENC_H264_LEVEL_5}, {UINT32_MAX, VCENC_H264_LEVEL_5_1}}},
+        {1920 * 1080,
+         {{2000000, VCENC_H264_LEVEL_3_1},
+          {4000000, VCENC_H264_LEVEL_3_2},
+          {8000000, VCENC_H264_LEVEL_4},
+          {UINT32_MAX, VCENC_H264_LEVEL_4_1}}},
+        {2560 * 1440,
+         {{4000000, VCENC_H264_LEVEL_4}, {8000000, VCENC_H264_LEVEL_4_1}, {UINT32_MAX, VCENC_H264_LEVEL_4_2}}},
+        {3840 * 2160,
+         {{8000000, VCENC_H264_LEVEL_4_2}, {16000000, VCENC_H264_LEVEL_5}, {UINT32_MAX, VCENC_H264_LEVEL_5_1}}},
         {INT32_MAX, {{25000000, VCENC_H264_LEVEL_5_1}, {UINT32_MAX, VCENC_H264_LEVEL_5_2}}}};
 
     const std::map<int32_t, std::map<uint32_t, VCEncLevel>> H265_AUTO_LEVEL_MAP = {
         {720 * 480, {{UINT32_MAX, VCENC_HEVC_LEVEL_3}}},
         {960 * 540, {{2000000, VCENC_HEVC_LEVEL_3}, {UINT32_MAX, VCENC_HEVC_LEVEL_3_1}}},
         {1280 * 720, {{UINT32_MAX, VCENC_HEVC_LEVEL_3_1}}},
-        {1920 * 1080, {{2000000, VCENC_HEVC_LEVEL_3_1}, {8000000, VCENC_HEVC_LEVEL_4}, {UINT32_MAX, VCENC_HEVC_LEVEL_4_1}}},
+        {1920 * 1080,
+         {{2000000, VCENC_HEVC_LEVEL_3_1}, {8000000, VCENC_HEVC_LEVEL_4}, {UINT32_MAX, VCENC_HEVC_LEVEL_4_1}}},
         {2048 * 1080, {{4000000, VCENC_HEVC_LEVEL_4}, {UINT32_MAX, VCENC_HEVC_LEVEL_4_1}}},
         {2560 * 1440, {{4000000, VCENC_HEVC_LEVEL_5}, {UINT32_MAX, VCENC_HEVC_LEVEL_5_1}}},
         {3840 * 2160, {{16000000, VCENC_HEVC_LEVEL_5}, {UINT32_MAX, VCENC_HEVC_LEVEL_5_1}}},
@@ -183,8 +188,7 @@ int InitEncoderConfig(EncoderParams *enc_params, VCEncInst *pEnc)
         cfg.level = (VCEncLevel)enc_params->level;
     }
 
-    if (cfg.profile == VCENC_HEVC_MAIN_10_PROFILE ||
-        cfg.profile == VCENC_H264_HIGH_10_PROFILE)
+    if (cfg.profile == VCENC_HEVC_MAIN_10_PROFILE || cfg.profile == VCENC_H264_HIGH_10_PROFILE)
     {
         cfg.bitDepthLuma = 10;
         cfg.bitDepthChroma = 10;
@@ -215,8 +219,7 @@ int InitEncoderConfig(EncoderParams *enc_params, VCEncInst *pEnc)
                 maxTemporalId = cfg->temporalId;
         }
     }
-    cfg.refFrameAmount = maxRefPics + cfg.interlacedFrame +
-                         (enc_params->encIn.gopConfig.ltrInterval > 0);
+    cfg.refFrameAmount = maxRefPics + cfg.interlacedFrame + (enc_params->encIn.gopConfig.ltrInterval > 0);
     cfg.maxTLayers = maxTemporalId + 1;
     cfg.compressor = enc_params->compressor;
     cfg.enableOutputCuInfo = 0;
@@ -238,16 +241,14 @@ static void UpdateROIArea(EncoderParams *enc_params, VCEncCodingCtrl codingCfg)
     if (enc_params->roiArea1)
     {
         codingCfg.roi1Area.enable = 1;
-        sscanf(enc_params->roiArea1, "%u:%u:%u:%u:%d", &codingCfg.roi1Area.left,
-               &codingCfg.roi1Area.top, &codingCfg.roi1Area.right,
-               &codingCfg.roi1Area.bottom, &codingCfg.roi1DeltaQp);
+        sscanf(enc_params->roiArea1, "%u:%u:%u:%u:%d", &codingCfg.roi1Area.left, &codingCfg.roi1Area.top,
+               &codingCfg.roi1Area.right, &codingCfg.roi1Area.bottom, &codingCfg.roi1DeltaQp);
     }
     if (enc_params->roiArea2)
     {
         codingCfg.roi2Area.enable = 1;
-        sscanf(enc_params->roiArea2, "%u:%u:%u:%u:%d", &codingCfg.roi2Area.left,
-               &codingCfg.roi2Area.top, &codingCfg.roi2Area.right,
-               &codingCfg.roi2Area.bottom, &codingCfg.roi2DeltaQp);
+        sscanf(enc_params->roiArea2, "%u:%u:%u:%u:%d", &codingCfg.roi2Area.left, &codingCfg.roi2Area.top,
+               &codingCfg.roi2Area.right, &codingCfg.roi2Area.bottom, &codingCfg.roi2DeltaQp);
     }
 }
 
@@ -315,14 +316,11 @@ int InitEncoderCodingConfig(EncoderParams *enc_params, VCEncInst *pEnc)
     codingCfg.pcm_loop_filter_disabled_flag = 0;
 
     codingCfg.intraArea.enable = 0;
-    codingCfg.intraArea.top = codingCfg.intraArea.left =
-        codingCfg.intraArea.bottom = codingCfg.intraArea.right = -1;
+    codingCfg.intraArea.top = codingCfg.intraArea.left = codingCfg.intraArea.bottom = codingCfg.intraArea.right = -1;
     codingCfg.ipcm1Area.enable = 0;
-    codingCfg.ipcm1Area.top = codingCfg.ipcm1Area.left =
-        codingCfg.ipcm1Area.bottom = codingCfg.ipcm1Area.right = -1;
+    codingCfg.ipcm1Area.top = codingCfg.ipcm1Area.left = codingCfg.ipcm1Area.bottom = codingCfg.ipcm1Area.right = -1;
     codingCfg.ipcm2Area.enable = 0;
-    codingCfg.ipcm2Area.top = codingCfg.ipcm2Area.left =
-        codingCfg.ipcm2Area.bottom = codingCfg.ipcm2Area.right = -1;
+    codingCfg.ipcm2Area.top = codingCfg.ipcm2Area.left = codingCfg.ipcm2Area.bottom = codingCfg.ipcm2Area.right = -1;
 
     codingCfg.ipcmMapEnable = 0;
     codingCfg.pcm_enabled_flag = 0;
@@ -393,8 +391,7 @@ int InitEncoderRateConfig(EncoderParams *enc_params, VCEncInst *pEnc)
         rcCfg.monitorFrames = enc_params->monitorFrames;
     else
         rcCfg.monitorFrames =
-            (enc_params->frameRateNumer + enc_params->frameRateDenom - 1) /
-            enc_params->frameRateDenom;
+            (enc_params->frameRateNumer + enc_params->frameRateDenom - 1) / enc_params->frameRateDenom;
 
     if (rcCfg.monitorFrames > MAX_MONITOR_FRAMES)
         rcCfg.monitorFrames = MAX_MONITOR_FRAMES;
@@ -604,8 +601,7 @@ int AllocRes(EncoderParams *enc_params)
     /* Limited amount of memory on some test environment */
     outbufSize = ((u32)enc_params->outBufSizeMax * 1024 * 1024);
 
-    ret = EWLMallocLinear((const void *)enc_params->ewl, outbufSize,
-                          0, &enc_params->outbufMem);
+    ret = EWLMallocLinear((const void *)enc_params->ewl, outbufSize, 0, &enc_params->outbufMem);
     if (ret != EWL_OK)
     {
         enc_params->outbufMem.virtualAddress = NULL;
@@ -636,23 +632,20 @@ void FreeRes(EncoderParams *enc_params)
     }
 }
 
-VCEncRet EncodeFrame(EncoderParams *enc_params, VCEncInst encoder,
-                     VCEncSliceReadyCallBackFunc sliceReadyCbFunc,
+VCEncRet EncodeFrame(EncoderParams *enc_params, VCEncInst encoder, VCEncSliceReadyCallBackFunc sliceReadyCbFunc,
                      void *pAppData)
 {
     VCEncIn *pEncIn = &(enc_params->encIn);
     VCEncOut *pEncOut = &(enc_params->encOut);
 
-    pEncIn->codingType =
-        (pEncIn->poc == 0) ? VCENC_INTRA_FRAME : enc_params->nextCodingType;
+    pEncIn->codingType = (pEncIn->poc == 0) ? VCENC_INTRA_FRAME : enc_params->nextCodingType;
     if (pEncIn->codingType == VCENC_INTRA_FRAME)
     {
         pEncIn->poc = 0;
         enc_params->last_idr_picture_cnt = enc_params->picture_cnt;
     }
 
-    return VCEncStrmEncode(encoder, pEncIn, pEncOut, sliceReadyCbFunc,
-                           pAppData);
+    return VCEncStrmEncode(encoder, pEncIn, pEncOut, sliceReadyCbFunc, pAppData);
 }
 
 void ForceKeyframe(EncoderParams *enc_params, VCEncInst encoder)

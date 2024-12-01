@@ -7,14 +7,15 @@
 
 G_DEFINE_TYPE(GstHailoDmaBufferPool, gst_hailo_dma_buffer_pool, GST_TYPE_BUFFER_POOL)
 
-static GstFlowReturn gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool, GstBuffer **output_buffer_ptr, GstBufferPoolAcquireParams *params);
+static GstFlowReturn gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool, GstBuffer **output_buffer_ptr,
+                                                            GstBufferPoolAcquireParams *params);
 static void gst_hailo_dma_buffer_pool_free_buffer(GstBufferPool *pool, GstBuffer *buffer);
 static void gst_hailo_dma_buffer_pool_dispose(GObject *object);
 
-#define ALIGNMENT 4095 // The alignment in @params is given as a bitmask so that @align + 1 equals the amount of bytes to align to.
+#define ALIGNMENT                                                                                                      \
+    4095 // The alignment in @params is given as a bitmask so that @align + 1 equals the amount of bytes to align to.
 
-static void
-gst_hailo_dma_buffer_pool_class_init(GstHailoDmaBufferPoolClass *klass)
+static void gst_hailo_dma_buffer_pool_class_init(GstHailoDmaBufferPoolClass *klass)
 {
     GObjectClass *const object_class = G_OBJECT_CLASS(klass);
     GstBufferPoolClass *const pool_class = GST_BUFFER_POOL_CLASS(klass);
@@ -26,8 +27,7 @@ gst_hailo_dma_buffer_pool_class_init(GstHailoDmaBufferPoolClass *klass)
     object_class->dispose = GST_DEBUG_FUNCPTR(gst_hailo_dma_buffer_pool_dispose);
 }
 
-static void
-gst_hailo_dma_buffer_pool_dispose(GObject *object)
+static void gst_hailo_dma_buffer_pool_dispose(GObject *object)
 {
     G_OBJECT_CLASS(gst_hailo_dma_buffer_pool_parent_class)->dispose(object);
     GstHailoDmaBufferPool *pool = GST_HAILO_DMA_BUFFER_POOL(object);
@@ -41,8 +41,7 @@ gst_hailo_dma_buffer_pool_dispose(GObject *object)
     }
 }
 
-static void
-gst_hailo_dma_buffer_pool_init(GstHailoDmaBufferPool *pool)
+static void gst_hailo_dma_buffer_pool_init(GstHailoDmaBufferPool *pool)
 {
     GST_INFO_OBJECT(pool, "New Hailo dma-buf buffer pool");
     gchar *name = g_strdup("hailo_allocator");
@@ -51,8 +50,7 @@ gst_hailo_dma_buffer_pool_init(GstHailoDmaBufferPool *pool)
     g_free(name);
 }
 
-GstBufferPool *
-gst_hailo_dma_buffer_pool_new(guint padding)
+GstBufferPool *gst_hailo_dma_buffer_pool_new(guint padding)
 {
     GstHailoDmaBufferPool *pool = GST_HAILO_DMA_BUFFER_POOL(g_object_new(GST_TYPE_HAILO_DMA_BUFFER_POOL, NULL));
     pool->padding = padding;
@@ -60,8 +58,8 @@ gst_hailo_dma_buffer_pool_new(guint padding)
     return GST_BUFFER_POOL_CAST(pool);
 }
 
-static GstFlowReturn
-gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool, GstBuffer **output_buffer_ptr, GstBufferPoolAcquireParams *params)
+static GstFlowReturn gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool, GstBuffer **output_buffer_ptr,
+                                                            GstBufferPoolAcquireParams *params)
 {
     GstHailoDmaBufferPool *hailo_dmabuf_pool = GST_HAILO_DMA_BUFFER_POOL(pool);
     guint buffer_size = 0;
@@ -87,18 +85,21 @@ gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool, GstBuffer **output_b
     GstVideoFormat format = image_info->finfo->format;
     switch (format)
     {
-    case GST_VIDEO_FORMAT_RGB:
-    {
+    case GST_VIDEO_FORMAT_RGB: {
         // Validate the size of the buffer
         if (buffer_size == 0)
         {
             GST_ERROR_OBJECT(hailo_dmabuf_pool, "Invalid buffer size");
             return GST_FLOW_ERROR;
         }
-        GST_INFO_OBJECT(hailo_dmabuf_pool, "Allocating buffer of size %d with padding %d", buffer_size, hailo_dmabuf_pool->padding);
+        GST_INFO_OBJECT(hailo_dmabuf_pool, "Allocating buffer of size %d with padding %d", buffer_size,
+                        hailo_dmabuf_pool->padding);
 
-        GstAllocationParams alloc_params = {(GstMemoryFlags)(GST_MEMORY_FLAG_ZERO_PREFIXED | GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS), ALIGNMENT, 0, hailo_dmabuf_pool->padding, 0};
-        *output_buffer_ptr = gst_buffer_new_allocate((GstAllocator *)hailo_dmabuf_pool->memory_allocator, (size_t)buffer_size, &alloc_params);
+        GstAllocationParams alloc_params = {
+            (GstMemoryFlags)(GST_MEMORY_FLAG_ZERO_PREFIXED | GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS), ALIGNMENT, 0,
+            hailo_dmabuf_pool->padding, 0};
+        *output_buffer_ptr = gst_buffer_new_allocate((GstAllocator *)hailo_dmabuf_pool->memory_allocator,
+                                                     (size_t)buffer_size, &alloc_params);
 
         if (!*output_buffer_ptr)
         {
@@ -108,10 +109,11 @@ gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool, GstBuffer **output_b
         break;
     }
 
-    case GST_VIDEO_FORMAT_NV12:
-    {
+    case GST_VIDEO_FORMAT_NV12: {
         *output_buffer_ptr = gst_buffer_new();
-        GstAllocationParams alloc_params = {(GstMemoryFlags)(GST_MEMORY_FLAG_ZERO_PREFIXED | GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS), ALIGNMENT, 0, hailo_dmabuf_pool->padding, 0};
+        GstAllocationParams alloc_params = {
+            (GstMemoryFlags)(GST_MEMORY_FLAG_ZERO_PREFIXED | GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS), ALIGNMENT, 0,
+            hailo_dmabuf_pool->padding, 0};
 
         for (int i = 0; i < 2; i++)
         {
@@ -119,10 +121,13 @@ gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool, GstBuffer **output_b
             size_t channel_size = image_info->stride[i] * image_info->height;
             if (i == 1)
                 channel_size /= 2;
-            GST_DEBUG_OBJECT(hailo_dmabuf_pool, "Allocating plane %d buffer of size %ld with padding %d", i, channel_size, hailo_dmabuf_pool->padding);
+            GST_DEBUG_OBJECT(hailo_dmabuf_pool, "Allocating plane %d buffer of size %ld with padding %d", i,
+                             channel_size, hailo_dmabuf_pool->padding);
 
-            GstMemory *mem = gst_allocator_alloc((GstAllocator *)hailo_dmabuf_pool->memory_allocator, channel_size, &alloc_params);
-            GST_DEBUG_OBJECT(hailo_dmabuf_pool, "Successfully allocated plane %d buffer of size %ld at address %p", i, channel_size, mem);
+            GstMemory *mem =
+                gst_allocator_alloc((GstAllocator *)hailo_dmabuf_pool->memory_allocator, channel_size, &alloc_params);
+            GST_DEBUG_OBJECT(hailo_dmabuf_pool, "Successfully allocated plane %d buffer of size %ld at address %p", i,
+                             channel_size, mem);
             gst_buffer_insert_memory(*output_buffer_ptr, -1, mem); // Insert the memory into the buffer at the end
         }
 
@@ -130,8 +135,7 @@ gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool, GstBuffer **output_b
         break;
     }
 
-    default:
-    {
+    default: {
         GST_ERROR_OBJECT(hailo_dmabuf_pool, "unsupported image format %s", image_info->finfo->name);
         return GST_FLOW_ERROR;
     }
@@ -140,8 +144,7 @@ gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool, GstBuffer **output_b
     return GST_FLOW_OK;
 }
 
-static void
-gst_hailo_dma_buffer_pool_free_buffer(GstBufferPool *pool, GstBuffer *buffer)
+static void gst_hailo_dma_buffer_pool_free_buffer(GstBufferPool *pool, GstBuffer *buffer)
 {
     GstHailoDmaBufferPool *hailo_dmabuf_pool = GST_HAILO_DMA_BUFFER_POOL(pool);
     GST_DEBUG_OBJECT(hailo_dmabuf_pool, "Freeing buffer %p with padding %d", buffer, hailo_dmabuf_pool->padding);

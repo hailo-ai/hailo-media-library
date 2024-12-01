@@ -38,16 +38,13 @@
 G_BEGIN_DECLS
 
 // Define HailoMultiResize type
-#define GST_TYPE_HAILO_MULTI_RESIZE \
-  (gst_hailo_multi_resize_get_type())
-#define GST_HAILO_MULTI_RESIZE(obj) \
-  (G_TYPE_CHECK_INSTANCE_CAST((obj), GST_TYPE_HAILO_MULTI_RESIZE, GstHailoMultiResize))
-#define GST_HAILO_MULTI_RESIZE_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_CAST((klass), GST_TYPE_HAILO_MULTI_RESIZE, GstHailoMultiResizeClass))
-#define GST_IS_HAILO_MULTI_RESIZE(obj) \
-  (G_TYPE_CHECK_INSTANCE_TYPE((obj), GST_TYPE_HAILO_MULTI_RESIZE))
-#define GST_IS_HAILO_MULTI_RESIZE_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILO_MULTI_RESIZE))
+#define GST_TYPE_HAILO_MULTI_RESIZE (gst_hailo_multi_resize_get_type())
+#define GST_HAILO_MULTI_RESIZE(obj)                                                                                    \
+    (G_TYPE_CHECK_INSTANCE_CAST((obj), GST_TYPE_HAILO_MULTI_RESIZE, GstHailoMultiResize))
+#define GST_HAILO_MULTI_RESIZE_CLASS(klass)                                                                            \
+    (G_TYPE_CHECK_CLASS_CAST((klass), GST_TYPE_HAILO_MULTI_RESIZE, GstHailoMultiResizeClass))
+#define GST_IS_HAILO_MULTI_RESIZE(obj) (G_TYPE_CHECK_INSTANCE_TYPE((obj), GST_TYPE_HAILO_MULTI_RESIZE))
+#define GST_IS_HAILO_MULTI_RESIZE_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILO_MULTI_RESIZE))
 #define GST_HAILO_MULTI_RESIZE_CAST(obj) ((GstHailoMultiResize *)(obj))
 
 typedef struct _GstHailoMultiResize GstHailoMultiResize;
@@ -55,20 +52,20 @@ typedef struct _GstHailoMultiResizeClass GstHailoMultiResizeClass;
 
 struct _GstHailoMultiResize
 {
-  GstElement element;
+    GstElement element;
 
-  GstPad *sinkpad;
-  std::shared_ptr<std::vector<GstPad *>> srcpads;
-  gchar *config_file_path;
-  gchar *config_string;
+    GstPad *sinkpad;
+    std::shared_ptr<std::vector<GstPad *>> srcpads;
+    gchar *config_file_path;
+    gchar *config_string;
 
-  std::shared_ptr<multi_resize_config_t> multi_resize_config;
-  std::shared_ptr<MediaLibraryMultiResize> medialib_multi_resize;
+    std::shared_ptr<multi_resize_config_t> multi_resize_config;
+    std::shared_ptr<MediaLibraryMultiResize> medialib_multi_resize;
 };
 
 struct _GstHailoMultiResizeClass
 {
-  GstElementClass parent_class;
+    GstElementClass parent_class;
 };
 
 G_GNUC_INTERNAL GType gst_hailo_multi_resize_get_type(void);

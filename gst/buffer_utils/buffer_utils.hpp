@@ -36,7 +36,8 @@ G_BEGIN_DECLS
 
 HailoMediaLibraryBufferPtr hailo_buffer_from_gst_buffer(GstBuffer *buffer, GstCaps *caps);
 GstVideoMeta *add_video_meta_to_buffer(GstBuffer *buffer, GstVideoInfo *video_info);
-HailoMediaLibraryBufferPtr hailo_buffer_from_jpeg_gst_buffer(GstBuffer *buffer, HailoMediaLibraryBufferPtr hailo_buffer, size_t *input_size);
+HailoMediaLibraryBufferPtr hailo_buffer_from_jpeg_gst_buffer(GstBuffer *buffer, HailoMediaLibraryBufferPtr hailo_buffer,
+                                                             size_t *input_size);
 GstBuffer *gst_buffer_from_hailo_buffer(HailoMediaLibraryBufferPtr hailo_buffer, GstCaps *caps);
 bool create_hailo_buffer_from_video_frame(GstVideoFrame *video_frame, HailoMediaLibraryBufferPtr hailo_buffer);
 bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_properties_t &dsp_image_props);

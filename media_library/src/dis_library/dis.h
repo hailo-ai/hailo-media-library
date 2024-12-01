@@ -55,7 +55,7 @@
 /// stabilizing and dewarping grids on the output.
 class DIS
 {
-public:
+  public:
     // DIS Configuration parameters
     dis_config_t cfg;
     /// Whether the class is initialized properly.
@@ -63,7 +63,7 @@ public:
     /// Input camera model
     FishEye in_cam;
 
-private:
+  private:
     // Dewarp Configurations
     camera_type_t m_camera_type = CAMERA_TYPE_FISHEYE;
     float m_camera_fov_factor = 1;
@@ -103,9 +103,9 @@ private:
 
     /// black corners as angles: positive means stabilized frame view area exceeds the input frame view area.
     /// Negative values tell how much more shake could cause black corners in this frame.
-    std::array<float, 4> crn;      // angles, rad  //L,T,R,B
-    std::array<float, 4> diag_crn; // diagonal angles, rad  //TL,TR,BR,BL
-    std::array<float, 2> crn_theta;      // angles, rad  //L,T,R,B
+    std::array<float, 4> crn;       // angles, rad  //L,T,R,B
+    std::array<float, 4> diag_crn;  // diagonal angles, rad  //TL,TR,BR,BL
+    std::array<float, 2> crn_theta; // angles, rad  //L,T,R,B
     /// Available room for stabilization (angles).
     /// If the stabilizing rotation is 0 (don't rotate, just crop), then crn = -room4stab.
     std::array<float, 4> room4stab;      // angles, rad  //L,T,R,B
@@ -120,8 +120,8 @@ private:
     /// stabilized frame counter
     int frame_cnt = 0;
 
-public:
-    DIS(){};
+  public:
+    DIS() {};
 
     /// @brief initialize DIS class. parse_config() and init_in_cam() must be called first!
     /// @param out_width output image width
@@ -151,7 +151,8 @@ public:
     /// @param panning panning per frame
     /// @param flip_mirror_rot as applied on the output image
     /// @param grid output grid
-    RetCodes generate_grid(vec2 fmv, int32_t panning, FlipMirrorRot flip_mirror_rot, std::shared_ptr<angular_dis_params_t> angular_dis_params, DewarpT &grid);
+    RetCodes generate_grid(vec2 fmv, int32_t panning, FlipMirrorRot flip_mirror_rot,
+                           std::shared_ptr<angular_dis_params_t> angular_dis_params, DewarpT &grid);
 
     /// @brief Calculates grid for dewarping the input frame only.
     /// @param flip_mirror_rot as applied on the output image
@@ -164,10 +165,8 @@ public:
     /// @param curr_orientation the orientation matrix of the current frame
     /// @param smooth_orientaion the orientation matrix calculated by the smoothing algorithm
     /// @param grid output grid
-    RetCodes generate_eis_grid(FlipMirrorRot flip_mirror_rot,
-                               const cv::Mat& curr_orientation,
-                               const cv::Mat& smooth_orientaion,
-                               DewarpT &grid);
+    RetCodes generate_eis_grid(FlipMirrorRot flip_mirror_rot, const cv::Mat &curr_orientation,
+                               const cv::Mat &smooth_orientaion, DewarpT &grid);
 
     /// @brief Calculates the grid for stabilization of the current frame,
     /// using camera motion smoothing algorithms.
@@ -175,10 +174,9 @@ public:
     /// @param rolling_shutter_rotations buffer of rotaions during the last 2 frames
     /// @param grid output grid
     RetCodes generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
-                                                const std::vector<cv::Mat> &rolling_shutter_rotations,
-                                                DewarpT &grid);
+                                               const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT &grid);
 
-private:
+  private:
     /// @brief Generates grid, which only resizes the input image into the output one. Used for debug.
     void gen_resize_grid(DewarpT &grid);
 

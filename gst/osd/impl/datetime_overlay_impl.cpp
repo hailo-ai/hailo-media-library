@@ -30,7 +30,8 @@ DateTimeOverlayImpl::DateTimeOverlayImpl(const osd::DateTimeOverlay &overlay, me
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
-tl::expected<DateTimeOverlayImplPtr, media_library_return> DateTimeOverlayImpl::create(const osd::DateTimeOverlay &overlay)
+tl::expected<DateTimeOverlayImplPtr, media_library_return> DateTimeOverlayImpl::create(
+    const osd::DateTimeOverlay &overlay)
 {
     media_library_return status = MEDIA_LIBRARY_UNINITIALIZED;
     auto osd_overlay = std::make_shared<DateTimeOverlayImpl>(overlay, status);
@@ -41,14 +42,14 @@ tl::expected<DateTimeOverlayImplPtr, media_library_return> DateTimeOverlayImpl::
     return osd_overlay;
 }
 
-std::shared_future<tl::expected<DateTimeOverlayImplPtr, media_library_return>> DateTimeOverlayImpl::create_async(const osd::DateTimeOverlay &overlay)
+std::shared_future<tl::expected<DateTimeOverlayImplPtr, media_library_return>> DateTimeOverlayImpl::create_async(
+    const osd::DateTimeOverlay &overlay)
 {
-    return std::async(std::launch::async, [overlay]()
-                      { return create(overlay); })
-        .share();
+    return std::async(std::launch::async, [overlay]() { return create(overlay); }).share();
 }
 
-tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> DateTimeOverlayImpl::create_dsp_overlays(int frame_width, int frame_height)
+tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> DateTimeOverlayImpl::create_dsp_overlays(
+    int frame_width, int frame_height)
 {
     if (frame_width == 0 || frame_height == 0)
     {
@@ -80,14 +81,11 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> DateTi
 std::shared_ptr<osd::Overlay> DateTimeOverlayImpl::get_metadata()
 {
     auto text_size = m_foreground_text->get_text_size();
-    return std::make_shared<osd::DateTimeOverlay>(m_id, m_x, m_y, m_datetime_format,
-                                                  m_text_color, m_background_color,
-                                                  m_font_path, m_font_size, m_line_thickness, m_z_index,
-                                                  m_angle, m_rotation_policy,
-                                                  m_shadow_color, m_shadow_offset_x, m_shadow_offset_y,
-                                                  m_font_weight, m_outline_size, m_outline_color,
-                                                  m_horizontal_alignment, m_vertical_alignment,
-                                                  text_size.width, text_size.height);
+    return std::make_shared<osd::DateTimeOverlay>(
+        m_id, m_x, m_y, m_datetime_format, m_text_color, m_background_color, m_font_path, m_font_size, m_line_thickness,
+        m_z_index, m_angle, m_rotation_policy, m_shadow_color, m_shadow_offset_x, m_shadow_offset_y, m_font_weight,
+        m_outline_size, m_outline_color, m_horizontal_alignment, m_vertical_alignment, text_size.width,
+        text_size.height);
 }
 
 std::string DateTimeOverlayImpl::select_chars_for_timestamp(std::string datetime_format = DEFAULT_DATETIME_STRING)

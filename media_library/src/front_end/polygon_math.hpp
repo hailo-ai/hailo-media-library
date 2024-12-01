@@ -33,34 +33,39 @@
 
 /**
  * @brief Fills a privacy mask data structure with polygons.
- * 
+ *
  * The target is to represent the binary image as a vector of bytes (packaged_array),
  * Where each pixel represents 4 pixels in the original image,
  * and each byte in memory (uint8) contains 8 pixels
  * Then it is copied into void* bitmask, this way it can be send to the HailoDSP later.
- * 
+ *
  * We use the OpenCV fillPoly functionality to fill the bitmask using Scanline Fill Algorithm.
- * 
+ *
  * @param polygons Vector of polygons to fill.
  * @param frame_width The width of the frame.
  * @param frame_height The height of the frame.
  * @param color The color of the polygons (RGB).
  * @param privacy_mask_data The privacy mask data structure to fill.
  */
-media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mask_types::PolygonPtr> &polygons, const uint &frame_width, const uint &frame_height, const privacy_mask_types::rgb_color_t &color, privacy_mask_types::PrivacyMaskDataPtr privacy_mask_data);
+media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mask_types::PolygonPtr> &polygons,
+                                                         const uint &frame_width, const uint &frame_height,
+                                                         const privacy_mask_types::rgb_color_t &color,
+                                                         privacy_mask_types::PrivacyMaskDataPtr privacy_mask_data);
 
 /**
  * @brief Rotates a vector of polygons.
- * 
+ *
  * @param polygons Vector of polygons to rotate.
  * @param rotation_angle The rotation angle.
-*/
-media_library_return rotate_polygons(std::vector<privacy_mask_types::PolygonPtr> &polygons, double rotation_angle, uint frame_width, uint frame_height);
+ */
+media_library_return rotate_polygons(std::vector<privacy_mask_types::PolygonPtr> &polygons, double rotation_angle,
+                                     uint frame_width, uint frame_height);
 
 /**
  * @brief Rotates a polygon.
- * 
+ *
  * @param polygon The polygon to rotate.
  * @param rotation_angle The rotation angle.
-*/
-media_library_return rotate_polygon(privacy_mask_types::PolygonPtr polygon, double rotation_angle, uint frame_width, uint frame_height);
+ */
+media_library_return rotate_polygon(privacy_mask_types::PolygonPtr polygon, double rotation_angle, uint frame_width,
+                                    uint frame_height);

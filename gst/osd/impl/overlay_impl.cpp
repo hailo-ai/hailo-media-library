@@ -26,8 +26,10 @@
 #include "media_library/media_library_logger.hpp"
 #include "media_library/threadpool.hpp"
 
-// NOTE: this function may cause a memory leak (inside opencv) if called from the gstreamer thread. always call this function from a ThreadPool thread.
-inline cv::Mat rotate_mat(cv::Mat mat, uint angle, osd::rotation_alignment_policy_t alignment_policy, cv::Point *center_drift)
+// NOTE: this function may cause a memory leak (inside opencv) if called from the gstreamer thread. always call this
+// function from a ThreadPool thread.
+inline cv::Mat rotate_mat(cv::Mat mat, uint angle, osd::rotation_alignment_policy_t alignment_policy,
+                          cv::Point *center_drift)
 {
     *center_drift = cv::Point(0, 0);
     if (angle == 0)
@@ -77,19 +79,14 @@ OverlayImpl::OverlayImpl(std::string id, float x, float y, float width, float he
 GstVideoFrame OverlayImpl::gst_video_frame_from_mat_bgra(cv::Mat mat)
 {
     // Create caps at BGRA format and required size
-    GstCaps *caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "BGRA",
-                                        "width", G_TYPE_INT, mat.cols,
-                                        "height", G_TYPE_INT, mat.rows,
-                                        NULL);
+    GstCaps *caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "BGRA", "width", G_TYPE_INT, mat.cols,
+                                        "height", G_TYPE_INT, mat.rows, NULL);
     // Create GstVideoInfo meta from those caps
     GstVideoInfo *image_info = gst_video_info_new();
     gst_video_info_from_caps(image_info, caps);
     // Create a GstBuffer from the cv::mat, allowing for contiguous memory
-    GstBuffer *buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY,
-                                                    mat.data,
-                                                    mat.total() * mat.elemSize(),
-                                                    0, mat.total() * mat.elemSize(),
-                                                    NULL, NULL);
+    GstBuffer *buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, mat.data, mat.total() * mat.elemSize(), 0,
+                                                    mat.total() * mat.elemSize(), NULL, NULL);
     // Create and map a GstVideoFrame from the GstVideoInfo and GstBuffer
     GstVideoFrame frame;
     gst_video_frame_map(&frame, image_info, buffer, GST_MAP_READ);
@@ -98,14 +95,13 @@ GstVideoFrame OverlayImpl::gst_video_frame_from_mat_bgra(cv::Mat mat)
     return frame;
 }
 
-media_library_return OverlayImpl::create_gst_video_frame(uint width, uint height, std::string format, GstVideoFrame *frame)
+media_library_return OverlayImpl::create_gst_video_frame(uint width, uint height, std::string format,
+                                                         GstVideoFrame *frame)
 {
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
     // Create caps at format and required size
-    GstCaps *caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, format.c_str(),
-                                        "width", G_TYPE_INT, width,
-                                        "height", G_TYPE_INT, height,
-                                        NULL);
+    GstCaps *caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, format.c_str(), "width", G_TYPE_INT,
+                                        width, "height", G_TYPE_INT, height, NULL);
 
     void *buffer_ptr = NULL;
 
@@ -123,10 +119,7 @@ media_library_return OverlayImpl::create_gst_video_frame(uint width, uint height
     }
 
     // Create a GstBuffer from the cv::mat, allowing for contiguous memory
-    GstBuffer *buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY,
-                                                    buffer_ptr,
-                                                    buffer_size,
-                                                    0, buffer_size,
+    GstBuffer *buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, buffer_ptr, buffer_size, 0, buffer_size,
                                                     buffer_ptr, GDestroyNotify(dsp_utils::release_hailo_dsp_buffer));
 
     // Create and map a GstVideoFrame from the GstVideoInfo and GstBuffer
@@ -153,14 +146,29 @@ media_library_return OverlayImpl::end_sync_buffer(GstVideoFrame *video_frame)
     return ret;
 }
 
-media_library_return OverlayImpl::create_dma_a420_video_frame(uint width, uint height, GstVideoFrame *frame)
+media_library_return OverlayImpl::start_sync_buffer(GstVideoFrame *video_frame)
+{
+    media_library_return ret = MEDIA_LIBRARY_SUCCESS;
+    for (int i = 0; i < (int)GST_VIDEO_FRAME_N_PLANES(video_frame); i++)
+    {
+        void *buffer_ptr = (void *)GST_VIDEO_FRAME_PLANE_DATA(video_frame, i);
+        media_library_return status = DmaMemoryAllocator::get_instance().dmabuf_sync_start(buffer_ptr);
+        if (status != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__ERROR("Error: dmabuf_sync_start - failed to sync buffer for plane ", i);
+            return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
+        }
+    }
+    return ret;
+}
+
+media_library_return OverlayImpl::create_dma_video_frame(uint width, uint height, std::string format,
+                                                         GstVideoFrame *frame)
 {
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
     // Create caps at format and required size
-    GstCaps *caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "A420",
-                                        "width", G_TYPE_INT, width,
-                                        "height", G_TYPE_INT, height,
-                                        NULL);
+    GstCaps *caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, format.c_str(), "width", G_TYPE_INT,
+                                        width, "height", G_TYPE_INT, height, NULL);
 
     // Create GstVideoInfo meta from those caps
     GstVideoInfo *image_info = gst_video_info_new();
@@ -168,15 +176,31 @@ media_library_return OverlayImpl::create_dma_a420_video_frame(uint width, uint h
 
     // Create a GstBuffer from the dma buffers, allowing for contiguous memory
     GstBuffer *buffer = gst_buffer_new();
-    // Create 4 dma buffers for each of the 4 planes of an A420 image
-    for (int i = 0; i < 4; i++)
+    size_t channel_stride = 0;
+    size_t channel_size = 0;
+    int num_planes = GST_VIDEO_INFO_N_PLANES(image_info);
+
+    // Create dma buffers for each of the planes
+    for (int i = 0; i < num_planes; i++)
     {
         void *buffer_ptr = NULL;
-        // Calculate plane sizes
-        size_t channel_stride = image_info->stride[i];
-        size_t channel_size = channel_stride * height;
-        if (i == 1 || i == 2)
-            channel_size /= 2;
+        channel_stride = image_info->stride[i];
+        if (GST_VIDEO_INFO_FORMAT(image_info) == GST_VIDEO_FORMAT_A420)
+        {
+            channel_size = channel_stride * height;
+            // Calculate plane sizes
+            if (i == 1 || i == 2)
+                channel_size /= 2;
+        }
+        else if (GST_VIDEO_INFO_FORMAT(image_info) == GST_VIDEO_FORMAT_ARGB)
+        {
+            channel_size = image_info->size;
+        }
+        else
+        {
+            LOGGER__ERROR("Error: create_dma_video_frame - invalid format ", GST_VIDEO_INFO_FORMAT(image_info));
+            return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
+        }
 
         // Create the dma buffer
         media_library_return status = DmaMemoryAllocator::get_instance().allocate_dma_buffer(channel_size, &buffer_ptr);
@@ -186,26 +210,18 @@ media_library_return OverlayImpl::create_dma_a420_video_frame(uint width, uint h
             LOGGER__ERROR("Error: create_hailo_dsp_buffer - failed to create buffer for plane ", i);
             return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
         }
-        DmaMemoryAllocator::get_instance().dmabuf_sync_start(buffer_ptr); // start sync so that we can write to it
 
         // Wrap the dma buffer as continuous GstMemory, add the plane to the GstBuffer
-        GstMemory *mem = gst_memory_new_wrapped(GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS,
-                                                buffer_ptr,
-                                                channel_size,
-                                                0, channel_size,
-                                                buffer_ptr, GDestroyNotify(destroy_dma_buffer));
+        GstMemory *mem = gst_memory_new_wrapped(GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS, buffer_ptr, channel_size, 0,
+                                                channel_size, buffer_ptr, GDestroyNotify(destroy_dma_buffer));
         gst_buffer_insert_memory(buffer, -1, mem);
     }
 
-    // Add GstVideoMeta so that mapping the buffer (ie: gst_video_frame_map) does not change the buffer layout (GstMemory per plane)
-    (void)gst_buffer_add_video_meta_full(buffer,
-                                         GST_VIDEO_FRAME_FLAG_NONE,
-                                         GST_VIDEO_INFO_FORMAT(image_info),
-                                         GST_VIDEO_INFO_WIDTH(image_info),
-                                         GST_VIDEO_INFO_HEIGHT(image_info),
-                                         GST_VIDEO_INFO_N_PLANES(image_info),
-                                         image_info->offset,
-                                         image_info->stride);
+    // Add GstVideoMeta so that mapping the buffer (ie: gst_video_frame_map) does not change the buffer layout
+    // (GstMemory per plane)
+    (void)gst_buffer_add_video_meta_full(buffer, GST_VIDEO_FRAME_FLAG_NONE, GST_VIDEO_INFO_FORMAT(image_info),
+                                         GST_VIDEO_INFO_WIDTH(image_info), GST_VIDEO_INFO_HEIGHT(image_info),
+                                         GST_VIDEO_INFO_N_PLANES(image_info), image_info->offset, image_info->stride);
 
     // Create and map a GstVideoFrame from the GstVideoInfo and GstBuffer
     gst_video_frame_map(frame, image_info, buffer, GST_MAP_WRITE);
@@ -215,7 +231,8 @@ media_library_return OverlayImpl::create_dma_a420_video_frame(uint width, uint h
     return ret;
 }
 
-media_library_return OverlayImpl::convert_2_dma_video_frame(GstVideoFrame *src_frame, GstVideoFrame *dest_frame, GstVideoFormat dest_format)
+media_library_return OverlayImpl::convert_2_dma_video_frame(GstVideoFrame *src_frame, GstVideoFrame *dest_frame,
+                                                            GstVideoFormat dest_format)
 {
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
 
@@ -226,14 +243,16 @@ media_library_return OverlayImpl::convert_2_dma_video_frame(GstVideoFrame *src_f
     GstVideoConverter *converter = gst_video_converter_new(&src_frame->info, dest_info, NULL);
 
     // Create a DMA capable buffer for the A420 format
-    media_library_return a420_dma_status = create_dma_a420_video_frame(src_frame->info.width, src_frame->info.height, dest_frame);
+    media_library_return a420_dma_status =
+        create_dma_video_frame(src_frame->info.width, src_frame->info.height, "A420", dest_frame);
     if (a420_dma_status != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Error: create_dma_a420_video_frame - failed to create buffer");
+        LOGGER__ERROR("Error: create_dma_video_frame - failed to create buffer (A420 format)");
         ret = MEDIA_LIBRARY_DSP_OPERATION_ERROR;
     }
     else
     {
+        start_sync_buffer(dest_frame); // start sync so that we can write to it
         // Make the conversion
         gst_video_converter_frame(converter, src_frame, dest_frame);
         end_sync_buffer(dest_frame); // end sync so that DMA is written
@@ -245,10 +264,10 @@ media_library_return OverlayImpl::convert_2_dma_video_frame(GstVideoFrame *src_f
     return ret;
 }
 
-tl::expected<std::tuple<int, int>, media_library_return>
-OverlayImpl::calc_xy_offsets(std::string id, float x_norm, float y_norm, size_t overlay_width, size_t overlay_height,
-                             int image_width, int image_height, int x_drift, int y_drift,
-                             osd::HorizontalAlignment horizontal_alignment, osd::VerticalAlignment vertical_alignment)
+tl::expected<std::tuple<int, int>, media_library_return> OverlayImpl::calc_xy_offsets(
+    std::string id, float x_norm, float y_norm, size_t overlay_width, size_t overlay_height, int image_width,
+    int image_height, int x_drift, int y_drift, osd::HorizontalAlignment horizontal_alignment,
+    osd::VerticalAlignment vertical_alignment)
 {
     if (x_norm < 0 || x_norm > 1 || y_norm < 0 || y_norm > 1)
     {
@@ -316,7 +335,8 @@ void OverlayImpl::set_priority_iterator(std::set<OverlayImplPtr>::iterator prior
     m_priority_iterator = priority_iterator;
 }
 
-tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> OverlayImpl::create_dsp_overlays(int frame_width, int frame_height)
+tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> OverlayImpl::create_dsp_overlays(
+    int frame_width, int frame_height)
 {
     if (frame_width == 0 || frame_height == 0)
     {
@@ -340,9 +360,10 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
     cv::Point center_drift{0, 0};
     if (m_angle != 0)
     {
-        mat = ThreadPool::GetInstance()->invoke([this, &center_drift]()
-                                                { return rotate_mat(m_image_mat, m_angle, m_rotation_policy, &center_drift); });
-        LOGGER__DEBUG("Rotated OSD by {} degrees, center drifted by {} pixels, around {}", m_angle, center_drift, m_rotation_policy);
+        mat = ThreadPool::GetInstance()->invoke(
+            [this, &center_drift]() { return rotate_mat(m_image_mat, m_angle, m_rotation_policy, &center_drift); });
+        LOGGER__DEBUG("Rotated OSD by {} degrees, center drifted by {} pixels, around {}", m_angle, center_drift,
+                      m_rotation_policy);
     }
 
     GstVideoFrame gst_bgra_image = gst_video_frame_from_mat_bgra(mat);
@@ -359,19 +380,20 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
     dsp_image_properties_t dsp_image;
     create_dsp_buffer_from_video_frame(&dest_frame, dsp_image);
     m_video_frames.push_back(dest_frame);
-    auto offsets_expected = calc_xy_offsets(m_id, m_x, m_y, dsp_image.width, dsp_image.height, frame_width, frame_height, center_drift.x, center_drift.y, m_horizontal_alignment, m_vertical_alignment);
+    auto offsets_expected =
+        calc_xy_offsets(m_id, m_x, m_y, dsp_image.width, dsp_image.height, frame_width, frame_height, center_drift.x,
+                        center_drift.y, m_horizontal_alignment, m_vertical_alignment);
     if (!offsets_expected.has_value())
     {
         return tl::make_unexpected(offsets_expected.error());
     }
 
     auto [x_offset, y_offset] = offsets_expected.value();
-    dsp_overlay_properties_t dsp_overlay =
-        {
-            .overlay = dsp_image,
-            .x_offset = x_offset,
-            .y_offset = y_offset,
-        };
+    dsp_overlay_properties_t dsp_overlay = {
+        .overlay = dsp_image,
+        .x_offset = x_offset,
+        .y_offset = y_offset,
+    };
 
     m_dsp_overlays.push_back(dsp_overlay);
 

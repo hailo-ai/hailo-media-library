@@ -46,14 +46,14 @@ using MediaLibraryMultiResizePtr = std::shared_ptr<MediaLibraryMultiResize>;
 
 class MediaLibraryMultiResize
 {
-protected:
+  protected:
     class Impl;
     std::shared_ptr<Impl> m_impl;
 
-public:
+  public:
     class callbacks_t
     {
-    public:
+      public:
         std::function<void(std::vector<output_resolution_t> &)> on_output_resolutions_change = nullptr;
     };
 
@@ -76,7 +76,8 @@ public:
      * An expected object that holds either a shared pointer
      * to an MediaLibraryMultiResize object, or a error code.
      */
-    static tl::expected<std::shared_ptr<MediaLibraryMultiResize>, media_library_return> create(std::string config_string);
+    static tl::expected<std::shared_ptr<MediaLibraryMultiResize>, media_library_return> create(
+        std::string config_string);
 
     /**
      * @brief Constructor for the multi-resize module
@@ -117,7 +118,8 @@ public:
      *
      * @return media_library_return - status of the multi-resize operation
      */
-    media_library_return handle_frame(HailoMediaLibraryBufferPtr input_frame, std::vector<HailoMediaLibraryBufferPtr> &output_frames);
+    media_library_return handle_frame(HailoMediaLibraryBufferPtr input_frame,
+                                      std::vector<HailoMediaLibraryBufferPtr> &output_frames);
 
     /**
      * @brief get the multi-resize configurations object
@@ -145,9 +147,9 @@ public:
 
     /**
      * @brief get the privacy mask blender object
-     * 
+     *
      * @return PrivacyMaskBlenderPtr - privacy mask blender object
-    */
+     */
     PrivacyMaskBlenderPtr get_privacy_mask_blender();
 
     /**
@@ -157,6 +159,14 @@ public:
      * @return The status of the operation.
      */
     media_library_return set_output_rotation(const rotation_angle_t &rotation);
+
+    /**
+     * @brief Sets the denoise status for the media library.
+     *
+     * @param status The status to be set.
+     * @return The status of the operation.
+     */
+    media_library_return set_denoise_status(bool status);
 };
 
 /** @} */ // end of multi_resize_type_definitions

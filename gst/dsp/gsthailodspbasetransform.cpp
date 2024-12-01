@@ -12,25 +12,25 @@ enum
     PROP_POOL_SIZE,
 };
 
-#define _debug_init \
-    GST_DEBUG_CATEGORY_INIT(gst_hailo_dsp_base_transform_debug, "hailodspbasetransform", 0, "Hailo DSP base transform element");
+#define _debug_init                                                                                                    \
+    GST_DEBUG_CATEGORY_INIT(gst_hailo_dsp_base_transform_debug, "hailodspbasetransform", 0,                            \
+                            "Hailo DSP base transform element");
 
 #define gst_hailo_dsp_base_transform_parent_class parent_class
-G_DEFINE_ABSTRACT_TYPE_WITH_CODE(GstHailoDspBaseTransform, gst_hailo_dsp_base_transform, GST_TYPE_BASE_TRANSFORM, _debug_init);
+G_DEFINE_ABSTRACT_TYPE_WITH_CODE(GstHailoDspBaseTransform, gst_hailo_dsp_base_transform, GST_TYPE_BASE_TRANSFORM,
+                                 _debug_init);
 
-static gboolean
-gst_hailo_dsp_base_transform_propose_allocation(GstBaseTransform *trans,
-                                                GstQuery *decide_query, GstQuery *query);
-static void gst_hailo_dsp_base_transform_set_property(GObject *object,
-                                                      guint property_id, const GValue *value, GParamSpec *pspec);
-static void gst_hailo_dsp_base_transform_get_property(GObject *object,
-                                                      guint property_id, GValue *value, GParamSpec *pspec);
+static gboolean gst_hailo_dsp_base_transform_propose_allocation(GstBaseTransform *trans, GstQuery *decide_query,
+                                                                GstQuery *query);
+static void gst_hailo_dsp_base_transform_set_property(GObject *object, guint property_id, const GValue *value,
+                                                      GParamSpec *pspec);
+static void gst_hailo_dsp_base_transform_get_property(GObject *object, guint property_id, GValue *value,
+                                                      GParamSpec *pspec);
 static gboolean gst_hailo_dsp_base_transform_decide_allocation(GstBaseTransform *trans, GstQuery *query);
-static GstFlowReturn gst_hailo_dsp_base_prepare_output_buffer(GstBaseTransform *trans,
-                                                              GstBuffer *inbuf, GstBuffer **outbuf);
+static GstFlowReturn gst_hailo_dsp_base_prepare_output_buffer(GstBaseTransform *trans, GstBuffer *inbuf,
+                                                              GstBuffer **outbuf);
 
-static void
-gst_hailo_dsp_base_transform_class_init(GstHailoDspBaseTransformClass *klass)
+static void gst_hailo_dsp_base_transform_class_init(GstHailoDspBaseTransformClass *klass)
 {
     GObjectClass *const object_class = G_OBJECT_CLASS(klass);
     GstBaseTransformClass *const base_transform_class = GST_BASE_TRANSFORM_CLASS(klass);
@@ -42,21 +42,17 @@ gst_hailo_dsp_base_transform_class_init(GstHailoDspBaseTransformClass *klass)
     base_transform_class->decide_allocation = GST_DEBUG_FUNCPTR(gst_hailo_dsp_base_transform_decide_allocation);
     base_transform_class->prepare_output_buffer = GST_DEBUG_FUNCPTR(gst_hailo_dsp_base_prepare_output_buffer);
 
-    gst_element_class_set_static_metadata(GST_ELEMENT_CLASS(klass),
-                                          "Hailo DSP base transform",
-                                          "Hailo/Tools",
-                                          "Base class for Hailo15 DSP transformations",
-                                          "hailo.ai <contact@hailo.ai>");
+    gst_element_class_set_static_metadata(GST_ELEMENT_CLASS(klass), "Hailo DSP base transform", "Hailo/Tools",
+                                          "Base class for Hailo15 DSP transformations", "hailo.ai <contact@hailo.ai>");
 
-    g_object_class_install_property(object_class, PROP_POOL_SIZE,
-                                    g_param_spec_uint("pool-size", "Pool Size",
-                                                      "Size of the pool of buffers to use for cropping. Default 10",
-                                                      1, G_MAXINT, 10,
-                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
+    g_object_class_install_property(
+        object_class, PROP_POOL_SIZE,
+        g_param_spec_uint("pool-size", "Pool Size", "Size of the pool of buffers to use for cropping. Default 10", 1,
+                          G_MAXINT, 10,
+                          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
 }
 
-static void
-gst_hailo_dsp_base_transform_init(GstHailoDspBaseTransform *self)
+static void gst_hailo_dsp_base_transform_init(GstHailoDspBaseTransform *self)
 {
     self->bufferpool_max_size = 10;
     self->bufferpool_min_size = 1;
@@ -64,9 +60,8 @@ gst_hailo_dsp_base_transform_init(GstHailoDspBaseTransform *self)
     self->bufferpool_padding = 0;
 }
 
-static gboolean
-gst_hailo_dsp_base_transform_propose_allocation(GstBaseTransform *trans,
-                                                GstQuery *decide_query, GstQuery *query)
+static gboolean gst_hailo_dsp_base_transform_propose_allocation(GstBaseTransform *trans, GstQuery *decide_query,
+                                                                GstQuery *query)
 {
     gboolean ret;
 
@@ -75,9 +70,8 @@ gst_hailo_dsp_base_transform_propose_allocation(GstBaseTransform *trans,
     return ret;
 }
 
-static GstFlowReturn
-gst_hailo_dsp_base_prepare_output_buffer(GstBaseTransform *trans,
-                                         GstBuffer *inbuf, GstBuffer **outbuf)
+static GstFlowReturn gst_hailo_dsp_base_prepare_output_buffer(GstBaseTransform *trans, GstBuffer *inbuf,
+                                                              GstBuffer **outbuf)
 {
     GstFlowReturn ret = GST_FLOW_OK;
     GstBaseTransformClass *base_transform_class;
@@ -101,7 +95,8 @@ gst_hailo_dsp_base_prepare_output_buffer(GstBaseTransform *trans,
 
     if (!buffer_pool)
     {
-        GST_ERROR_OBJECT(hailo_dsp_transform, "DSP buffer allocation requested form pool - but buffer pool is not initialized");
+        GST_ERROR_OBJECT(hailo_dsp_transform,
+                         "DSP buffer allocation requested form pool - but buffer pool is not initialized");
         return GST_FLOW_ERROR;
     }
 
@@ -132,24 +127,22 @@ gst_hailo_dsp_base_prepare_output_buffer(GstBaseTransform *trans,
     {
         if (!base_transform_class->copy_metadata(trans, inbuf, *outbuf))
         {
-            GST_ELEMENT_WARNING(trans, STREAM, NOT_IMPLEMENTED,
-                                ("could not copy metadata"), (NULL));
+            GST_ELEMENT_WARNING(trans, STREAM, NOT_IMPLEMENTED, ("could not copy metadata"), (NULL));
         }
     }
 
     return ret;
 }
 
-static gboolean
-gst_hailo_dsp_base_transform_decide_allocation(GstBaseTransform *trans,
-                                               GstQuery *query)
+static gboolean gst_hailo_dsp_base_transform_decide_allocation(GstBaseTransform *trans, GstQuery *query)
 {
     GstHailoDspBaseTransform *self = GST_HAILO_DSP_BASE_TRANSFORM(trans);
     GstElement *element = GST_ELEMENT_CAST(self);
 
     GST_DEBUG_OBJECT(self, "Performing decide allocation");
 
-    GstBufferPool *pool = gst_create_hailo_dsp_bufferpool_from_allocation_query(element, query, self->bufferpool_min_size, self->bufferpool_max_size, self->bufferpool_padding);
+    GstBufferPool *pool = gst_create_hailo_dsp_bufferpool_from_allocation_query(
+        element, query, self->bufferpool_min_size, self->bufferpool_max_size, self->bufferpool_padding);
     GST_DEBUG_OBJECT(self, "Created hailo buffer pool %p", pool);
     if (pool == NULL)
     {
@@ -173,8 +166,8 @@ gst_hailo_dsp_base_transform_decide_allocation(GstBaseTransform *trans,
     return TRUE;
 }
 
-static void
-gst_hailo_dsp_base_transform_set_property(GObject *object, guint property_id, const GValue *value, GParamSpec *pspec)
+static void gst_hailo_dsp_base_transform_set_property(GObject *object, guint property_id, const GValue *value,
+                                                      GParamSpec *pspec)
 {
     GstHailoDspBaseTransform *self = GST_HAILO_DSP_BASE_TRANSFORM(object);
 
@@ -189,8 +182,8 @@ gst_hailo_dsp_base_transform_set_property(GObject *object, guint property_id, co
     }
 }
 
-static void
-gst_hailo_dsp_base_transform_get_property(GObject *object, guint property_id, GValue *value, GParamSpec *pspec)
+static void gst_hailo_dsp_base_transform_get_property(GObject *object, guint property_id, GValue *value,
+                                                      GParamSpec *pspec)
 {
     GstHailoDspBaseTransform *self = GST_HAILO_DSP_BASE_TRANSFORM(object);
 

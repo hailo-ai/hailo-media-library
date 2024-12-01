@@ -34,10 +34,8 @@ GST_DEBUG_CATEGORY_STATIC(gst_hailoosd_debug_category);
 #define GST_CAT_DEFAULT gst_hailoosd_debug_category
 #define gst_hailoosd_parent_class parent_class
 
-static void gst_hailoosd_set_property(GObject *object,
-                                      guint property_id, const GValue *value, GParamSpec *pspec);
-static void gst_hailoosd_get_property(GObject *object,
-                                      guint property_id, GValue *value, GParamSpec *pspec);
+static void gst_hailoosd_set_property(GObject *object, guint property_id, const GValue *value, GParamSpec *pspec);
+static void gst_hailoosd_get_property(GObject *object, guint property_id, GValue *value, GParamSpec *pspec);
 static void gst_hailoosd_dispose(GObject *object);
 static void gst_hailoosd_finalize(GObject *object);
 
@@ -45,8 +43,7 @@ static gboolean gst_hailoosd_start(GstBaseTransform *trans);
 static gboolean gst_hailoosd_stop(GstBaseTransform *trans);
 static gboolean gst_hailoosd_set_caps(GstBaseTransform *trans, GstCaps *incaps, GstCaps *outcaps);
 static gboolean gst_hailoosd_propose_allocation(GstBaseTransform *trans, GstQuery *decide_query, GstQuery *query);
-static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans,
-                                               GstBuffer *buffer);
+static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans, GstBuffer *buffer);
 static void gst_hailoosd_before_transform(GstBaseTransform *trans, GstBuffer *buffer);
 
 enum
@@ -62,12 +59,10 @@ G_DEFINE_TYPE_WITH_CODE(GstHailoOsd, gst_hailoosd, GST_TYPE_BASE_TRANSFORM,
                         GST_DEBUG_CATEGORY_INIT(gst_hailoosd_debug_category, "hailoosd", 0,
                                                 "debug category for hailoosd element"));
 
-static void
-gst_hailoosd_class_init(GstHailoOsdClass *klass)
+static void gst_hailoosd_class_init(GstHailoOsdClass *klass)
 {
     GObjectClass *gobject_class = G_OBJECT_CLASS(klass);
-    GstBaseTransformClass *base_transform_class =
-        GST_BASE_TRANSFORM_CLASS(klass);
+    GstBaseTransformClass *base_transform_class = GST_BASE_TRANSFORM_CLASS(klass);
 
     gst_element_class_add_pad_template(GST_ELEMENT_CLASS(klass),
                                        gst_pad_template_new("src", GST_PAD_SRC, GST_PAD_ALWAYS,
@@ -76,30 +71,28 @@ gst_hailoosd_class_init(GstHailoOsdClass *klass)
                                        gst_pad_template_new("sink", GST_PAD_SINK, GST_PAD_ALWAYS,
                                                             gst_caps_from_string(GST_VIDEO_CAPS_MAKE("{ NV12 }"))));
 
-    gst_element_class_set_static_metadata(GST_ELEMENT_CLASS(klass),
-                                          "hailoosd - on-screen-display element",
-                                          "Hailo/Tools",
-                                          "Draws on-screen-display telemetry on frame.",
+    gst_element_class_set_static_metadata(GST_ELEMENT_CLASS(klass), "hailoosd - on-screen-display element",
+                                          "Hailo/Tools", "Draws on-screen-display telemetry on frame.",
                                           "hailo.ai <contact@hailo.ai>");
 
     gobject_class->set_property = gst_hailoosd_set_property;
     gobject_class->get_property = gst_hailoosd_get_property;
-    g_object_class_install_property(gobject_class, PROP_CONFIG_FILE_PATH,
-                                    g_param_spec_string("config-file-path", NULL,
-                                                        "Json config file path", "",
-                                                        (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
-    g_object_class_install_property(gobject_class, PROP_CONFIG_STR,
-                                    g_param_spec_string("config-string", NULL,
-                                                        "Json config string", "",
-                                                        (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
-    g_object_class_install_property(gobject_class, PROP_WAIT_FOR_WRITABLE_BUFFER,
-                                    g_param_spec_boolean("wait-for-writable-buffer", "wait-for-writable-buffer",
-                                                         "Enables the element thread to wait until incoming buffer is writable", FALSE,
-                                                         (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
+    g_object_class_install_property(
+        gobject_class, PROP_CONFIG_FILE_PATH,
+        g_param_spec_string("config-file-path", NULL, "Json config file path", "",
+                            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
+    g_object_class_install_property(
+        gobject_class, PROP_CONFIG_STR,
+        g_param_spec_string("config-string", NULL, "Json config string", "",
+                            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
+    g_object_class_install_property(
+        gobject_class, PROP_WAIT_FOR_WRITABLE_BUFFER,
+        g_param_spec_boolean("wait-for-writable-buffer", "wait-for-writable-buffer",
+                             "Enables the element thread to wait until incoming buffer is writable", FALSE,
+                             (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
 
     g_object_class_install_property(gobject_class, PROP_BLENDER,
-                                    g_param_spec_pointer("blender", "Blender object",
-                                                         "Pointer to blender object",
+                                    g_param_spec_pointer("blender", "Blender object", "Pointer to blender object",
                                                          (GParamFlags)(G_PARAM_READABLE)));
 
     gobject_class->dispose = gst_hailoosd_dispose;
@@ -112,8 +105,7 @@ gst_hailoosd_class_init(GstHailoOsdClass *klass)
     base_transform_class->before_transform = GST_DEBUG_FUNCPTR(gst_hailoosd_before_transform);
 }
 
-static void
-gst_hailoosd_init(GstHailoOsd *hailoosd)
+static void gst_hailoosd_init(GstHailoOsd *hailoosd)
 {
     hailoosd->blender = nullptr;
     hailoosd->config_path = g_strdup("");
@@ -122,8 +114,7 @@ gst_hailoosd_init(GstHailoOsd *hailoosd)
     hailoosd->initialized = false;
 }
 
-void gst_hailoosd_set_property(GObject *object, guint property_id,
-                               const GValue *value, GParamSpec *pspec)
+void gst_hailoosd_set_property(GObject *object, guint property_id, const GValue *value, GParamSpec *pspec)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(object);
 
@@ -134,8 +125,7 @@ void gst_hailoosd_set_property(GObject *object, guint property_id,
     case PROP_CONFIG_FILE_PATH:
         G_VALUE_REPLACE_STRING(hailoosd->config_path, value);
         break;
-    case PROP_CONFIG_STR:
-    {
+    case PROP_CONFIG_STR: {
         G_VALUE_REPLACE_STRING(hailoosd->config_str, value);
         if (hailoosd->initialized)
         {
@@ -152,8 +142,7 @@ void gst_hailoosd_set_property(GObject *object, guint property_id,
     }
 }
 
-void gst_hailoosd_get_property(GObject *object, guint property_id,
-                               GValue *value, GParamSpec *pspec)
+void gst_hailoosd_get_property(GObject *object, guint property_id, GValue *value, GParamSpec *pspec)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(object);
 
@@ -235,7 +224,8 @@ static gboolean gst_hailoosd_start(GstBaseTransform *trans)
         {
             clean_config = clean_config.substr(1, config_str.size() - 2);
         }
-        tl::expected<std::shared_ptr<osd::Blender>, media_library_return> blender_expected = osd::Blender::create(config_str);
+        tl::expected<std::shared_ptr<osd::Blender>, media_library_return> blender_expected =
+            osd::Blender::create(config_str);
 
         if (!blender_expected.has_value())
         {
@@ -259,7 +249,8 @@ static gboolean gst_hailoosd_start(GstBaseTransform *trans)
             buffer << config_file.rdbuf();
             config_file.close();
         }
-        tl::expected<std::shared_ptr<osd::Blender>, media_library_return> blender_expected = osd::Blender::create(buffer.str());
+        tl::expected<std::shared_ptr<osd::Blender>, media_library_return> blender_expected =
+            osd::Blender::create(buffer.str());
         if (!blender_expected.has_value())
         {
             GST_ERROR_OBJECT(hailoosd, "Failed to create OSD from config file");
@@ -290,8 +281,7 @@ static gboolean gst_hailoosd_start(GstBaseTransform *trans)
     return TRUE;
 }
 
-static gboolean
-gst_hailoosd_stop(GstBaseTransform *trans)
+static gboolean gst_hailoosd_stop(GstBaseTransform *trans)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
 
@@ -300,10 +290,10 @@ gst_hailoosd_stop(GstBaseTransform *trans)
     return TRUE;
 }
 
-static void
-gst_hailoosd_wait_for_writable_buffer(GstHailoOsd *hailoosd, GstBuffer *buffer)
+static void gst_hailoosd_wait_for_writable_buffer(GstHailoOsd *hailoosd, GstBuffer *buffer)
 {
-    GST_DEBUG_OBJECT(hailoosd, "Buffer (offset: %ld) is not writable, refcount: %d. waiting... ", GST_BUFFER_OFFSET(buffer), GST_OBJECT_REFCOUNT(buffer));
+    GST_DEBUG_OBJECT(hailoosd, "Buffer (offset: %ld) is not writable, refcount: %d. waiting... ",
+                     GST_BUFFER_OFFSET(buffer), GST_OBJECT_REFCOUNT(buffer));
     while (gst_buffer_is_writable(buffer) == FALSE)
     {
         // Wait for buffer to be writable
@@ -311,8 +301,7 @@ gst_hailoosd_wait_for_writable_buffer(GstHailoOsd *hailoosd, GstBuffer *buffer)
     }
 }
 
-static void
-gst_hailoosd_before_transform(GstBaseTransform *trans, GstBuffer *buffer)
+static void gst_hailoosd_before_transform(GstBaseTransform *trans, GstBuffer *buffer)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
 
@@ -324,16 +313,17 @@ gst_hailoosd_before_transform(GstBaseTransform *trans, GstBuffer *buffer)
         }
         else
         {
-            GST_ERROR_OBJECT(hailoosd, "Buffer (offset: %ld) is not writable!, buffer refcount is %d. Aborting...", GST_BUFFER_OFFSET(buffer), GST_OBJECT_REFCOUNT(buffer));
-            throw std::runtime_error("HailoOSD -> Buffer is not writable! please validate that that the pipline is sharing the buffer properly, or use wait-for-writable-buffer parameter");
+            GST_ERROR_OBJECT(hailoosd, "Buffer (offset: %ld) is not writable!, buffer refcount is %d. Aborting...",
+                             GST_BUFFER_OFFSET(buffer), GST_OBJECT_REFCOUNT(buffer));
+            throw std::runtime_error("HailoOSD -> Buffer is not writable! please validate that that the pipline is "
+                                     "sharing the buffer properly, or use wait-for-writable-buffer parameter");
         }
     }
 
     GST_DEBUG_OBJECT(hailoosd, "Buffer is writable, refcount: %d, continuing...", GST_OBJECT_REFCOUNT(buffer));
 }
 
-static gboolean
-gst_hailoosd_set_caps(GstBaseTransform *trans, GstCaps *incaps, GstCaps *outcaps)
+static gboolean gst_hailoosd_set_caps(GstBaseTransform *trans, GstCaps *incaps, GstCaps *outcaps)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
 
@@ -341,21 +331,21 @@ gst_hailoosd_set_caps(GstBaseTransform *trans, GstCaps *incaps, GstCaps *outcaps
     GstVideoInfo *full_image_info = gst_video_info_new();
     gst_video_info_from_caps(full_image_info, incaps);
 
-    media_library_return ret = hailoosd->blender->set_frame_size(GST_VIDEO_INFO_WIDTH(full_image_info), GST_VIDEO_INFO_HEIGHT(full_image_info));
+    media_library_return ret = hailoosd->blender->set_frame_size(GST_VIDEO_INFO_WIDTH(full_image_info),
+                                                                 GST_VIDEO_INFO_HEIGHT(full_image_info));
 
     gst_video_info_free(full_image_info);
 
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-        GST_DEBUG_OBJECT(hailoosd, "Failed to init OSD with frame size %dX%d", GST_VIDEO_INFO_WIDTH(full_image_info), GST_VIDEO_INFO_HEIGHT(full_image_info));
+        GST_DEBUG_OBJECT(hailoosd, "Failed to init OSD with frame size %dX%d", GST_VIDEO_INFO_WIDTH(full_image_info),
+                         GST_VIDEO_INFO_HEIGHT(full_image_info));
         return FALSE;
     }
     return TRUE;
 }
 
-static gboolean
-gst_hailoosd_propose_allocation(GstBaseTransform *trans,
-                                GstQuery *decide_query, GstQuery *query)
+static gboolean gst_hailoosd_propose_allocation(GstBaseTransform *trans, GstQuery *decide_query, GstQuery *query)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
     GST_DEBUG_OBJECT(hailoosd, "hailoosd propose allocation callback");
@@ -365,8 +355,7 @@ gst_hailoosd_propose_allocation(GstBaseTransform *trans,
     return ret;
 }
 
-static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans,
-                                               GstBuffer *buffer)
+static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans, GstBuffer *buffer)
 {
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);

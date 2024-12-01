@@ -10,7 +10,7 @@
 
 class HailortAsyncDenoise
 {
-private:
+  private:
     std::function<void(HailoMediaLibraryBufferPtr output_buffer)> m_on_infer_finish;
     std::string m_group_id;
     int m_scheduler_threshold;
@@ -23,8 +23,9 @@ private:
     hailort::ConfiguredInferModel m_configured_infer_model;
     hailort::ConfiguredInferModel::Bindings m_bindings;
 
-public:
-    HailortAsyncDenoise(std::function<void(HailoMediaLibraryBufferPtr output_buffer)> on_infer_finish) : m_on_infer_finish(on_infer_finish)
+  public:
+    HailortAsyncDenoise(std::function<void(HailoMediaLibraryBufferPtr output_buffer)> on_infer_finish)
+        : m_on_infer_finish(on_infer_finish)
     {
         m_last_infer_job = nullptr;
     }
@@ -33,7 +34,7 @@ public:
     {
         // Wait for last infer to finish
         if (m_last_infer_job)
-{
+        {
             auto status = m_last_infer_job->wait(std::chrono::milliseconds(1000));
             if (HAILO_SUCCESS != status)
             {
@@ -42,7 +43,8 @@ public:
         }
     }
 
-    int init(feedback_network_config_t network_config, std::string group_id, int scheduler_threshold, int scheduler_timeout_in_ms, int batch_size)
+    int init(feedback_network_config_t network_config, std::string group_id, int scheduler_threshold,
+             int scheduler_timeout_in_ms, int batch_size)
     {
         m_group_id = group_id;
         m_scheduler_threshold = scheduler_threshold;
@@ -75,14 +77,12 @@ public:
         m_infer_model->input(m_network_config.uv_channel)->set_format_order(HAILO_FORMAT_ORDER_NHWC);
         m_infer_model->input(m_network_config.feedback_y_channel)->set_format_order(HAILO_FORMAT_ORDER_NHCW);
         m_infer_model->input(m_network_config.feedback_uv_channel)->set_format_order(HAILO_FORMAT_ORDER_NHWC);
-        // output order
-        // m_infer_model->output(m_network_config.output_y_channel)->set_format_order(HAILO_FORMAT_ORDER_NHCW);
-        // m_infer_model->output(m_network_config.output_uv_channel)->set_format_order(HAILO_FORMAT_ORDER_FCR);
 
         auto configured_infer_model_exp = m_infer_model->configure();
         if (!configured_infer_model_exp)
         {
-            std::cerr << "Failed to create configured infer model, status = " << configured_infer_model_exp.status() << std::endl;
+            std::cerr << "Failed to create configured infer model, status = " << configured_infer_model_exp.status()
+                      << std::endl;
             return configured_infer_model_exp.status();
         }
         m_configured_infer_model = configured_infer_model_exp.release();
@@ -100,7 +100,8 @@ public:
         return SUCCESS;
     }
 
-    int process(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr loopback_input_buffer, HailoMediaLibraryBufferPtr output_buffer)
+    int process(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr loopback_input_buffer,
+                HailoMediaLibraryBufferPtr output_buffer)
     {
         if (set_input_buffers(input_buffer, loopback_input_buffer) != SUCCESS)
         {
@@ -120,10 +121,10 @@ public:
         return SUCCESS;
     }
 
-
     bool map_buffer_to_hailort(int fd, size_t size)
     {
-        auto status = m_vdevice->dma_map_dmabuf(fd, size, hailo_dma_buffer_direction_t::HAILO_DMA_BUFFER_DIRECTION_BOTH);
+        auto status =
+            m_vdevice->dma_map_dmabuf(fd, size, hailo_dma_buffer_direction_t::HAILO_DMA_BUFFER_DIRECTION_BOTH);
         if (HAILO_SUCCESS != status)
         {
             LOGGER__ERROR("Failed to map buffer to hailort, status = {}", status);
@@ -135,7 +136,8 @@ public:
 
     bool unmap_buffer_to_hailort(int fd, size_t size)
     {
-        auto status = m_vdevice->dma_unmap_dmabuf(fd, size, hailo_dma_buffer_direction_t::HAILO_DMA_BUFFER_DIRECTION_BOTH);
+        auto status =
+            m_vdevice->dma_unmap_dmabuf(fd, size, hailo_dma_buffer_direction_t::HAILO_DMA_BUFFER_DIRECTION_BOTH);
         if (HAILO_SUCCESS != status)
         {
             LOGGER__ERROR("Failed to unmap buffer to hailort, status = {}", status);
@@ -145,8 +147,7 @@ public:
         return true;
     }
 
-
-private:
+  private:
     int set_input_buffer(void *buffer_p, std::string tensor_name)
     {
         auto input_frame_size = m_infer_model->input(tensor_name)->get_frame_size();
@@ -173,15 +174,14 @@ private:
 
         return SUCCESS;
     }
-    
 
     int set_input_buffers(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr loopback_buffer)
     {
         int fd;
         fd = input_buffer->get_plane_fd(0);
-        if(fd < 0)
+        if (fd < 0)
         {
-            std::cerr << "Failed to get file descriptor of input buffer plane 0"<< std::endl;
+            std::cerr << "Failed to get file descriptor of input buffer plane 0" << std::endl;
             return ERROR;
         }
         if (set_input_buffer(fd, m_network_config.y_channel) != SUCCESS)
@@ -190,7 +190,7 @@ private:
         }
 
         fd = input_buffer->get_plane_fd(1);
-        if(fd < 0)
+        if (fd < 0)
         {
             std::cerr << "Failed to get file descriptor of input buffer plane 1" << fd << std::endl;
             return ERROR;
@@ -201,7 +201,7 @@ private:
         }
 
         fd = loopback_buffer->get_plane_fd(0);
-        if(fd < 0)
+        if (fd < 0)
         {
             std::cerr << "Failed to get file descriptor of loopback buffer plane 0" << fd << std::endl;
             return ERROR;
@@ -211,7 +211,7 @@ private:
             return ERROR;
         }
         fd = loopback_buffer->get_plane_fd(1);
-        if(fd < 0)
+        if (fd < 0)
         {
             std::cerr << "Failed to get file descriptor of loopback buffer plane 1" << fd << std::endl;
             return ERROR;
@@ -255,7 +255,7 @@ private:
     {
         int fd;
         fd = output_buffer->get_plane_fd(0);
-        if(fd < 0)
+        if (fd < 0)
         {
             std::cerr << "Failed to get file descriptor of output buffer plane 0" << fd << std::endl;
             return ERROR;
@@ -265,7 +265,7 @@ private:
             return ERROR;
         }
         fd = output_buffer->get_plane_fd(1);
-        if(fd < 0)
+        if (fd < 0)
         {
             std::cerr << "Failed to get file descriptor of output buffer plane 1" << fd << std::endl;
             return ERROR;
@@ -288,16 +288,19 @@ private:
             return status;
         }
 
-        auto job = m_configured_infer_model.run_async(m_bindings, [output_buffer, this](const hailort::AsyncInferCompletionInfo &completion_info)
-                                                      {
-            if (completion_info.status != HAILO_SUCCESS) {
-                std::cerr << "[Denoise] Failed to run async infer, status = " << completion_info.status << std::endl;
-                return ERROR;
-            }
+        auto job = m_configured_infer_model.run_async(
+            m_bindings, [output_buffer, this](const hailort::AsyncInferCompletionInfo &completion_info) {
+                if (completion_info.status != HAILO_SUCCESS)
+                {
+                    std::cerr << "[Denoise] Failed to run async infer, status = " << completion_info.status
+                              << std::endl;
+                    return ERROR;
+                }
 
-            m_on_infer_finish(output_buffer);
+                m_on_infer_finish(output_buffer);
 
-            return SUCCESS; });
+                return SUCCESS;
+            });
 
         if (!job)
         {

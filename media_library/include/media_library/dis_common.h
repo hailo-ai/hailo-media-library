@@ -42,7 +42,7 @@
  * - CAMERA_TYPE_FISHEYE: Fisheye camera type
  * - CAMERA_TYPE_INPUT_DISTORTIONS: Same as input distortions camera type
  * - CAMERA_TYPE_MAX: Maximum enum value to maintain ABI Integrity
- * 
+ *
  * When cropped from center, output image will be a croppped and scaled version of the inpout one.
  * If the required output FOV is > 130deg, avoid using pin-hole type - looks bad
  */
@@ -144,14 +144,12 @@ struct dis_config_t
     /**
      * The frame motion vector (MV) is calculated by a HW on each frame and fed into the DIS library.
      * Sometimes this MV is very wrong (gross error) - e.g. when the frame brightness changes rapidly,
-     * or when the scene changes rapidly (e.g. put a finger on the lens, or frame MV is suddenly very high - e.g. hit the camera).
-     * Such a gross error affects the stabilization at and after the moment of this error.
-     * So, detect gross errors and replace the erroneous MV with the MV of the previous frame.
-     * The detection works like this:
-     * On each frame, calculate the runtime average of MV and its standard deviation (STD).
-     * "1/running_average_coefficient" is roughly the number of frames being averaged.
-     * If abs(current_MV - mean_MV) > STD_MULTIPLIER * STD, then this sample is a gross error-discard it.
-     * (0..1], typically "1 / number-of-frames-to-average". 1 to disable.
+     * or when the scene changes rapidly (e.g. put a finger on the lens, or frame MV is suddenly very high - e.g. hit
+     * the camera). Such a gross error affects the stabilization at and after the moment of this error. So, detect gross
+     * errors and replace the erroneous MV with the MV of the previous frame. The detection works like this: On each
+     * frame, calculate the runtime average of MV and its standard deviation (STD). "1/running_average_coefficient" is
+     * roughly the number of frames being averaged. If abs(current_MV - mean_MV) > STD_MULTIPLIER * STD, then this
+     * sample is a gross error-discard it. (0..1], typically "1 / number-of-frames-to-average". 1 to disable.
      */
     float running_average_coefficient;
 
@@ -163,8 +161,8 @@ struct dis_config_t
     /**
      * If the shake is too strong, some frames may be impossible to stabilize without black corners appearing.
      * Normally, the stabilized position (and output video) jumps in such cases, violating the stabilization,
-     * but avoiding black corners. If desired, The black corners could be left in order to maintain smooth output - set to 1.
-     * true: enable, false: disable (smooth stab with black corners)
+     * but avoiding black corners. If desired, The black corners could be left in order to maintain smooth output - set
+     * to 1. true: enable, false: disable (smooth stab with black corners)
      */
     bool black_corners_correction_enabled;
 
@@ -172,8 +170,8 @@ struct dis_config_t
      * Filter strength is decreased if the stabilizing rotation is bigger than
      * "BLKCRN_TO_K_THR * room-for-stabilization". The lower this coefficient is, the less chance for limitations,
      * but the more often the stabilization will be weakened without a real need for this.
-     * Also, if a panning starts, and k adaptation is disabled (STAB_K_INC_BLKCRN = 0 or BLKCRN_TO_K_THR is much more than 1),
-     * the filter will follow the panning with too large delay and limitations will appear on each frame.
+     * Also, if a panning starts, and k adaptation is disabled (STAB_K_INC_BLKCRN = 0 or BLKCRN_TO_K_THR is much more
+     * than 1), the filter will follow the panning with too large delay and limitations will appear on each frame.
      * Hence, the stabilized video will follow the input one, repeating its shakes along the panning, shifted
      * (looks like delayed) by the room for stabilization.
      * If BLKCRN_TO_K_THR is between 0 and 1 this panning delay is (1 - BLKCRN_TO_K_THR) * room_for_stabilization.
@@ -183,12 +181,11 @@ struct dis_config_t
 
     /**
      * For low light conditions, the stabilizer causes some noise in the output video.
-     * To avoid this, the stabilizer can be disabled when the average luminance of the frame is below a certain threshold.
-     * The threshold is set in the range [0, 255].
-     * If the average luminance of the frame is below the threshold, the stabilizer is disabled.
-     * If the average luminance of the frame is above the threshold, the stabilizer is enabled.
-     * If the threshold is set to 0, the stabilizer is always enabled.
-     * If the threshold is set to 255, the stabilizer is always disabled.
+     * To avoid this, the stabilizer can be disabled when the average luminance of the frame is below a certain
+     * threshold. The threshold is set in the range [0, 255]. If the average luminance of the frame is below the
+     * threshold, the stabilizer is disabled. If the average luminance of the frame is above the threshold, the
+     * stabilizer is enabled. If the threshold is set to 0, the stabilizer is always enabled. If the threshold is set to
+     * 255, the stabilizer is always disabled.
      */
     uint8_t average_luminance_threshold;
 

@@ -1,15 +1,13 @@
 #include "gsthailodspbufferpoolutils.hpp"
 #include "dsp/gsthailodspbufferpool.hpp"
 
-gboolean
-gst_is_hailo_dsp_pool_type(GstBufferPool *pool)
+gboolean gst_is_hailo_dsp_pool_type(GstBufferPool *pool)
 {
     return GST_IS_HAILO_DSP_BUFFER_POOL(pool);
 }
 
-gboolean
-gst_hailo_dsp_configure_pool(GstDebugCategory *category, GstBufferPool *pool,
-                         GstCaps *caps, gsize size, guint min_buffers, guint max_buffers)
+gboolean gst_hailo_dsp_configure_pool(GstDebugCategory *category, GstBufferPool *pool, GstCaps *caps, gsize size,
+                                      guint min_buffers, guint max_buffers)
 {
     GstStructure *config = NULL;
 
@@ -27,8 +25,7 @@ gst_hailo_dsp_configure_pool(GstDebugCategory *category, GstBufferPool *pool,
         return FALSE;
     }
 
-    if (!gst_buffer_pool_config_validate_params(config, caps, size, min_buffers,
-                                                max_buffers))
+    if (!gst_buffer_pool_config_validate_params(config, caps, size, min_buffers, max_buffers))
     {
         GST_ERROR_OBJECT(pool, "Pool configuration validation failed");
         gst_object_unref(pool);
@@ -38,9 +35,8 @@ gst_hailo_dsp_configure_pool(GstDebugCategory *category, GstBufferPool *pool,
     return TRUE;
 }
 
-GstBufferPool *
-gst_hailo_dsp_create_new_pool(GstDebugCategory *category, GstQuery *query, guint min_buffers,
-                       guint max_buffers, gsize size, guint padding)
+GstBufferPool *gst_hailo_dsp_create_new_pool(GstDebugCategory *category, GstQuery *query, guint min_buffers,
+                                             guint max_buffers, gsize size, guint padding)
 {
     GstCaps *caps = NULL;
 
@@ -63,14 +59,16 @@ gst_hailo_dsp_create_new_pool(GstDebugCategory *category, GstQuery *query, guint
     }
 
     gst_caps_unref(caps);
-    GST_DEBUG_OBJECT(pool, "Dsp Bufferpool created with buffer size: %ld min buffers: %d max buffers: %d and padding: %d",
+    GST_DEBUG_OBJECT(pool,
+                     "Dsp Bufferpool created with buffer size: %ld min buffers: %d max buffers: %d and padding: %d",
                      size, min_buffers, max_buffers, padding);
 
     return pool;
 }
 
-GstBufferPool * 
-gst_create_hailo_dsp_bufferpool_from_allocation_query(GstElement *element, GstQuery *query, guint bufferpool_min_size, guint bufferpool_max_size, guint padding)
+GstBufferPool *gst_create_hailo_dsp_bufferpool_from_allocation_query(GstElement *element, GstQuery *query,
+                                                                     guint bufferpool_min_size,
+                                                                     guint bufferpool_max_size, guint padding)
 {
     GstCaps *caps;
     GstAllocator *allocator = NULL;
@@ -100,10 +98,12 @@ gst_create_hailo_dsp_bufferpool_from_allocation_query(GstElement *element, GstQu
 
     guint buffer_size = video_info->size;
 
-    GST_INFO_OBJECT(element, "Bufferpool creation from alloc query - Creating new pool with buffer size: %d", buffer_size);
+    GST_INFO_OBJECT(element, "Bufferpool creation from alloc query - Creating new pool with buffer size: %d",
+                    buffer_size);
 
     gst_video_info_free(video_info);
-    GstBufferPool *pool = gst_hailo_dsp_create_new_pool(GST_CAT_DEFAULT, query, bufferpool_min_size, bufferpool_max_size, buffer_size, padding);
+    GstBufferPool *pool = gst_hailo_dsp_create_new_pool(GST_CAT_DEFAULT, query, bufferpool_min_size,
+                                                        bufferpool_max_size, buffer_size, padding);
 
     if (pool == NULL)
     {

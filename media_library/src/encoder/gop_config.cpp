@@ -40,20 +40,16 @@ char *RpsDefault_GOPSize_2[] = {
 };
 
 char *RpsDefault_GOPSize_3[] = {
-    (char
-         *)"Frame1:  P    3   0        0.5     0      1        -3         1   ",
-    (char
-         *)"Frame2:  B    1   0        0.5     0      2        -1 2       1 1 ",
-    (char
-         *)"Frame3:  B    2   0        0.68    0      2        -1 1       1 1 ",
+    (char *)"Frame1:  P    3   0        0.5     0      1        -3         1   ",
+    (char *)"Frame2:  B    1   0        0.5     0      2        -1 2       1 1 ",
+    (char *)"Frame3:  B    2   0        0.68    0      2        -1 1       1 1 ",
     NULL,
 };
 
 char *RpsDefault_GOPSize_4[] = {
     (char *)"Frame1:  P    4   0        0.5      0     1       -4         1 ",
     (char *)"Frame2:  B    2   0        0.3536   0     2       -2 2       1 1",
-    (char
-         *)"Frame3:  B    1   0        0.5      0     3       -1 1 3     1 1 0",
+    (char *)"Frame3:  B    1   0        0.5      0     3       -1 1 3     1 1 0",
     (char *)"Frame4:  B    3   0        0.5      0     2       -1 1       1 1 ",
     NULL,
 };
@@ -61,8 +57,7 @@ char *RpsDefault_GOPSize_4[] = {
 char *RpsDefault_GOPSize_5[] = {
     (char *)"Frame1:  P    5   0        0.442    0     1       -5         1 ",
     (char *)"Frame2:  B    2   0        0.3536   0     2       -2 3       1 1",
-    (char
-         *)"Frame3:  B    1   0        0.68     0     3       -1 1 4     1 1 0",
+    (char *)"Frame3:  B    1   0        0.68     0     3       -1 1 4     1 1 0",
     (char *)"Frame4:  B    3   0        0.3536   0     2       -1 2       1 1 ",
     (char *)"Frame5:  B    4   0        0.68     0     2       -1 1       1 1 ",
     NULL,
@@ -71,10 +66,8 @@ char *RpsDefault_GOPSize_5[] = {
 char *RpsDefault_GOPSize_6[] = {
     (char *)"Frame1:  P    6   0        0.442    0     1       -6         1 ",
     (char *)"Frame2:  B    3   0        0.3536   0     2       -3 3       1 1",
-    (char
-         *)"Frame3:  B    1   0        0.3536   0     3       -1 2 5     1 1 0",
-    (char
-         *)"Frame4:  B    2   0        0.68     0     3       -1 1 4     1 1 0",
+    (char *)"Frame3:  B    1   0        0.3536   0     3       -1 2 5     1 1 0",
+    (char *)"Frame4:  B    2   0        0.68     0     3       -1 1 4     1 1 0",
     (char *)"Frame5:  B    4   0        0.3536   0     2       -1 2       1 1 ",
     (char *)"Frame6:  B    5   0        0.68     0     2       -1 1       1 1 ",
     NULL,
@@ -83,13 +76,10 @@ char *RpsDefault_GOPSize_6[] = {
 char *RpsDefault_GOPSize_7[] = {
     (char *)"Frame1:  P    7   0        0.442    0     1       -7         1 ",
     (char *)"Frame2:  B    3   0        0.3536   0     2       -3 4       1 1",
-    (char
-         *)"Frame3:  B    1   0        0.3536   0     3       -1 2 6     1 1 0",
-    (char
-         *)"Frame4:  B    2   0        0.68     0     3       -1 1 5     1 1 0",
+    (char *)"Frame3:  B    1   0        0.3536   0     3       -1 2 6     1 1 0",
+    (char *)"Frame4:  B    2   0        0.68     0     3       -1 1 5     1 1 0",
     (char *)"Frame5:  B    5   0        0.3536   0     2       -2 2       1 1 ",
-    (char
-         *)"Frame6:  B    4   0        0.68     0     3       -1 1 3     1 1 0",
+    (char *)"Frame6:  B    4   0        0.68     0     3       -1 1 3     1 1 0",
     (char *)"Frame7:  B    6   0        0.68     0     2       -1 1       1 1 ",
     NULL,
 };
@@ -101,18 +91,15 @@ char *RpsDefault_GOPSize_8[] = {
             "0 ",
     (char *)"Frame4:  B    1   0        0.68     0  4           -1 1 3 7  1 1 "
             "0 0",
-    (char
-         *)"Frame5:  B    3   0        0.68     0  3           -1 1 5    1 1 0",
+    (char *)"Frame5:  B    3   0        0.68     0  3           -1 1 5    1 1 0",
     (char *)"Frame6:  B    6   0        0.3536   0  2           -2 2      1 1",
-    (char
-         *)"Frame7:  B    5   0        0.68     0  3           -1 1 3    1 1 0",
+    (char *)"Frame7:  B    5   0        0.68     0  3           -1 1 3    1 1 0",
     (char *)"Frame8:  B    7   0        0.68     0  2           -1 1      1 1",
     NULL,
 };
 
 char *RpsDefault_Interlace_GOPSize_1[] = {
-    (char
-         *)"Frame1:  P    1   0        0.8       0   2           -1 -2     0 1",
+    (char *)"Frame1:  P    1   0        0.8       0   2           -1 -2     0 1",
     NULL,
 };
 
@@ -164,8 +151,7 @@ static char *nextToken(char *str)
     }
     return p;
 }
-static int ParseGopConfigString(char *line, VCEncGopConfig *gopCfg,
-                                int frame_idx, int gopSize)
+static int ParseGopConfigString(char *line, VCEncGopConfig *gopCfg, int frame_idx, int gopSize)
 {
     if (!line)
         return -1;
@@ -227,8 +213,7 @@ static int ParseGopConfigString(char *line, VCEncGopConfig *gopCfg,
     sscanf(line, "%d", &num_ref_pics);
     if (num_ref_pics < 0 || num_ref_pics > VCENC_MAX_REF_FRAMES)
     {
-        printf("GOP Config: Error, num_ref_pic can not be more than %d \n",
-               VCENC_MAX_REF_FRAMES);
+        printf("GOP Config: Error, num_ref_pic can not be more than %d \n", VCENC_MAX_REF_FRAMES);
         return -1;
     }
     cfg->numRefPics = num_ref_pics;
@@ -265,8 +250,7 @@ static int ParseGopConfigString(char *line, VCEncGopConfig *gopCfg,
     return 0;
 }
 
-static int HEVCParseGopConfigFile(int gopSize, char *fname,
-                                  VCEncGopConfig *gopCfg)
+static int HEVCParseGopConfigFile(int gopSize, char *fname, VCEncGopConfig *gopCfg)
 {
 #define MAX_LINE_LENGTH 1024
     int frame_idx = 0, line_idx = 0;
@@ -316,23 +300,20 @@ static int HEVCParseGopConfigFile(int gopSize, char *fname,
             *s = '\0';
 
         line = strstr(line, "longTermRefPicRate=");
-        if (line &&
-            sscanf(line, "longTermRefPicRate=%d", &gopCfg->ltrInterval) == 1)
+        if (line && sscanf(line, "longTermRefPicRate=%d", &gopCfg->ltrInterval) == 1)
             break;
     }
 
     fclose(fIn);
     if (frame_idx != gopSize)
     {
-        printf("GOP Config: Error, Parsing File %s Failed at Line %d\n", fname,
-               line_idx);
+        printf("GOP Config: Error, Parsing File %s Failed at Line %d\n", fname, line_idx);
         return -1;
     }
     return 0;
 }
 
-static int HEVCReadGopConfig(char *fname, char **config, VCEncGopConfig *gopCfg,
-                             int gopSize, u8 *gopCfgOffset)
+static int HEVCReadGopConfig(char *fname, char **config, VCEncGopConfig *gopCfg, int gopSize, u8 *gopCfgOffset)
 {
     int ret = -1;
 
@@ -358,13 +339,12 @@ static int HEVCReadGopConfig(char *fname, char **config, VCEncGopConfig *gopCfg,
     return ret;
 }
 
-int VCEncInitGopConfigs(int gopSize, char *gopCfgName, VCEncGopConfig *gopCfg,
-                        u8 *gopCfgOffset, int bFrameQpDelta, bool codecH264)
+int VCEncInitGopConfigs(int gopSize, char *gopCfgName, VCEncGopConfig *gopCfg, u8 *gopCfgOffset, int bFrameQpDelta,
+                        bool codecH264)
 {
     int i, pre_load_num;
     char *fname = gopCfgName;
-    char **default_configs[8] = {codecH264 ? RpsDefault_H264_GOPSize_1
-                                           : RpsDefault_GOPSize_1,
+    char **default_configs[8] = {codecH264 ? RpsDefault_H264_GOPSize_1 : RpsDefault_GOPSize_1,
                                  RpsDefault_GOPSize_2,
                                  RpsDefault_GOPSize_3,
                                  RpsDefault_GOPSize_4,
@@ -394,34 +374,29 @@ int VCEncInitGopConfigs(int gopSize, char *gopCfgName, VCEncGopConfig *gopCfg,
     gopCfg->ltrInterval = 0;
     for (i = 1; i <= pre_load_num; i++)
     {
-        if (HEVCReadGopConfig(gopSize == i ? fname : NULL,
-                              default_configs[i - 1], gopCfg, i, gopCfgOffset))
+        if (HEVCReadGopConfig(gopSize == i ? fname : NULL, default_configs[i - 1], gopCfg, i, gopCfgOffset))
             return -1;
     }
 
     if (gopSize == 0)
     {
         // gop6
-        if (HEVCReadGopConfig(NULL, default_configs[5], gopCfg, 6,
-                              gopCfgOffset))
+        if (HEVCReadGopConfig(NULL, default_configs[5], gopCfg, 6, gopCfgOffset))
             return -1;
         // gop8
-        if (HEVCReadGopConfig(NULL, default_configs[7], gopCfg, 8,
-                              gopCfgOffset))
+        if (HEVCReadGopConfig(NULL, default_configs[7], gopCfg, 8, gopCfgOffset))
             return -1;
     }
     else if (gopSize > 4)
     {
         // gopSize
-        if (HEVCReadGopConfig(fname, default_configs[gopSize - 1], gopCfg,
-                              gopSize, gopCfgOffset))
+        if (HEVCReadGopConfig(fname, default_configs[gopSize - 1], gopCfg, gopSize, gopCfgOffset))
             return -1;
     }
 
     if (gopCfg->ltrInterval > 0)
     {
-        for (i = 0; i < (gopSize == 0 ? gopCfg->size : gopCfgOffset[gopSize]);
-             i++)
+        for (i = 0; i < (gopSize == 0 ? gopCfg->size : gopCfgOffset[gopSize]); i++)
         {
             // when use long-term, change P to B in default configs (used for
             // last gop)
@@ -445,9 +420,8 @@ int VCEncInitGopConfigs(int gopSize, char *gopCfgName, VCEncGopConfig *gopCfg,
     return 0;
 }
 
-VCEncPictureCodingType find_next_pic_internal(VCEncIn *encIn,
-                                              EncoderParams *enc_params,
-                                              i32 nextGopSize, u8 *gopCfgOffset)
+VCEncPictureCodingType find_next_pic_internal(VCEncIn *encIn, EncoderParams *enc_params, i32 nextGopSize,
+                                              u8 *gopCfgOffset)
 {
     VCEncPictureCodingType nextCodingType;
     int idx, offset, cur_poc, delta_poc_to_next;
@@ -494,11 +468,8 @@ VCEncPictureCodingType find_next_pic_internal(VCEncIn *encIn,
 
             // cut by an IDR
             if ((enc_params->intra_pic_rate) &&
-                ((gop_end_pic - enc_params->last_idr_picture_cnt) >=
-                 (int)enc_params->intra_pic_rate))
-                gop_shorten =
-                    1 + ((gop_end_pic - enc_params->last_idr_picture_cnt) -
-                         enc_params->intra_pic_rate);
+                ((gop_end_pic - enc_params->last_idr_picture_cnt) >= (int)enc_params->intra_pic_rate))
+                gop_shorten = 1 + ((gop_end_pic - enc_params->last_idr_picture_cnt) - enc_params->intra_pic_rate);
 
             if (gop_shorten >= next_gop_size)
             {
@@ -522,10 +493,8 @@ VCEncPictureCodingType find_next_pic_internal(VCEncIn *encIn,
 
         encIn->poc += enc_params->picture_cnt - picture_cnt_tmp;
         // next coding type
-        bool forceIntra =
-            enc_params->intra_pic_rate &&
-            ((enc_params->picture_cnt - enc_params->last_idr_picture_cnt) >=
-             (int)enc_params->intra_pic_rate);
+        bool forceIntra = enc_params->intra_pic_rate && ((enc_params->picture_cnt - enc_params->last_idr_picture_cnt) >=
+                                                         (int)enc_params->intra_pic_rate);
         if (forceIntra)
             nextCodingType = VCENC_INTRA_FRAME;
         else
@@ -545,8 +514,7 @@ VCEncPictureCodingType find_next_pic_internal(VCEncIn *encIn,
         if (gopPicIdx == 0)
             next_poc -= encIn->gopSize;
         gopCfg->id_next = gopPicIdx + gopCfgOffset[encIn->gopSize];
-        gopCfg->delta_poc_to_next =
-            gopCfg->pGopPicCfg[gopCfg->id_next].poc - next_poc;
+        gopCfg->delta_poc_to_next = gopCfg->pGopPicCfg[gopCfg->id_next].poc - next_poc;
     }
 
     return nextCodingType;
@@ -554,7 +522,5 @@ VCEncPictureCodingType find_next_pic_internal(VCEncIn *encIn,
 
 VCEncPictureCodingType find_next_pic(EncoderParams *enc_params)
 {
-    return find_next_pic_internal(&(enc_params->encIn), enc_params,
-                                  enc_params->nextGopSize,
-                                  enc_params->gopCfgOffset);
+    return find_next_pic_internal(&(enc_params->encIn), enc_params, enc_params->nextGopSize, enc_params->gopCfgOffset);
 }

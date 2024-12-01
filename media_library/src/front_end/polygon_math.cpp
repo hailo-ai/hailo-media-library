@@ -37,7 +37,9 @@ enum
 
 struct PolyEdge
 {
-    PolyEdge() : y0(0), y1(0), x(0), dx(0), next(0) {}
+    PolyEdge() : y0(0), y1(0), x(0), dx(0), next(0)
+    {
+    }
 
     int y0, y1;
     int x, dx;
@@ -48,8 +50,7 @@ struct CmpEdges
 {
     bool operator()(const PolyEdge &e1, const PolyEdge &e2)
     {
-        return e1.y0 - e2.y0 ? e1.y0 < e2.y0 : e1.x - e2.x ? e1.x < e2.x
-                                                           : e1.dx < e2.dx;
+        return e1.y0 - e2.y0 ? e1.y0 < e2.y0 : e1.x - e2.x ? e1.x < e2.x : e1.dx < e2.dx;
     }
 };
 
@@ -108,8 +109,8 @@ static void fill_packaged_array_with_line(uint width, uint y, uint x1, uint x2, 
     packaged_array[(packaged_array_offset + num_of_bytes + 1)] |= byte_mask;
 }
 
-static void
-fill_edge_collection(Mat &img, std::vector<PolyEdge> &edges, const void *color, uint stride, std::vector<uint8_t> &packaged_array)
+static void fill_edge_collection(Mat &img, std::vector<PolyEdge> &edges, const void *color, uint stride,
+                                 std::vector<uint8_t> &packaged_array)
 {
     PolyEdge tmp;
     int i, y, total = (int)edges.size();
@@ -255,7 +256,8 @@ fill_edge_collection(Mat &img, std::vector<PolyEdge> &edges, const void *color, 
     }
 }
 
-static std::vector<Point> convert_vertices_to_points(const std::vector<privacy_mask_types::vertex> &vertices, roi_t &roi, const uint &frame_width, const uint &frame_height)
+static std::vector<Point> convert_vertices_to_points(const std::vector<privacy_mask_types::vertex> &vertices,
+                                                     roi_t &roi, const uint &frame_width, const uint &frame_height)
 {
     int min_x = INT_MAX;
     int min_y = INT_MAX;
@@ -293,9 +295,8 @@ static std::vector<Point> convert_vertices_to_points(const std::vector<privacy_m
     return points;
 }
 
-static void
-collect_poly_edges(Mat &img, const Point2l *v, int count, std::vector<PolyEdge> &edges,
-                   const void *color, int line_type, int shift, Point offset)
+static void collect_poly_edges(Mat &img, const Point2l *v, int count, std::vector<PolyEdge> &edges, const void *color,
+                               int line_type, int shift, Point offset)
 {
     int i, delta = offset.y + ((1 << shift) >> 1);
     Point2l pt0 = v[count - 1], pt1;
@@ -354,8 +355,7 @@ void scalar_to_raw_data(const Scalar &s, void *_buf, int type, int unroll_to)
     CV_Assert(cn <= 4);
     switch (depth)
     {
-    case CV_8U:
-    {
+    case CV_8U: {
         uchar *buf = (uchar *)_buf;
         for (i = 0; i < cn; i++)
             buf[i] = saturate_cast<uchar>(s.val[i]);
@@ -368,9 +368,8 @@ void scalar_to_raw_data(const Scalar &s, void *_buf, int type, int unroll_to)
     }
 }
 
-void fill_poly_internal(InputOutputArray _img, const Point **pts, const int *npts, int ncontours,
-                        const Scalar &color, int line_type,
-                        int shift, Point offset, uint stride, std::vector<uint8_t> &packaged_array)
+void fill_poly_internal(InputOutputArray _img, const Point **pts, const int *npts, int ncontours, const Scalar &color,
+                        int line_type, int shift, Point offset, uint stride, std::vector<uint8_t> &packaged_array)
 {
 
     Mat img = _img.getMat();
@@ -399,12 +398,12 @@ void fill_poly_internal(InputOutputArray _img, const Point **pts, const int *npt
     fill_edge_collection(img, edges, buf, stride, packaged_array);
 }
 
-media_library_return fill_poly_packaged_array(InputOutputArray img, InputArrayOfArrays pts,
-                                              const Scalar &color, int lineType, int shift, uint stride, std::vector<uint8_t> &packaged_array)
+media_library_return fill_poly_packaged_array(InputOutputArray img, InputArrayOfArrays pts, const Scalar &color,
+                                              int lineType, int shift, uint stride,
+                                              std::vector<uint8_t> &packaged_array)
 {
 
-    bool manyContours = pts.kind() == _InputArray::STD_VECTOR_VECTOR ||
-                        pts.kind() == _InputArray::STD_VECTOR_MAT;
+    bool manyContours = pts.kind() == _InputArray::STD_VECTOR_VECTOR || pts.kind() == _InputArray::STD_VECTOR_MAT;
     int i, ncontours = manyContours ? (int)pts.total() : 1;
     if (ncontours == 0)
         return media_library_return::MEDIA_LIBRARY_SUCCESS;
@@ -420,7 +419,8 @@ media_library_return fill_poly_packaged_array(InputOutputArray img, InputArrayOf
         ptsptr[i] = p.ptr<Point>();
         npts[i] = p.rows * p.cols * p.channels() / 2;
     }
-    fill_poly_internal(img, (const Point **)ptsptr, npts, (int)ncontours, color, lineType, shift, Point(), stride, packaged_array);
+    fill_poly_internal(img, (const Point **)ptsptr, npts, (int)ncontours, color, lineType, shift, Point(), stride,
+                       packaged_array);
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -433,7 +433,8 @@ privacy_mask_types::yuv_color_t rgb_to_yuv(const privacy_mask_types::rgb_color_t
     return yuv_color;
 }
 
-media_library_return rotate_polygon(privacy_mask_types::PolygonPtr polygon, double rotation_angle, uint frame_width, uint frame_height)
+media_library_return rotate_polygon(privacy_mask_types::PolygonPtr polygon, double rotation_angle, uint frame_width,
+                                    uint frame_height)
 {
     double xm = static_cast<double>(frame_width) / 2;
     double ym = static_cast<double>(frame_height) / 2;
@@ -453,18 +454,23 @@ media_library_return rotate_polygon(privacy_mask_types::PolygonPtr polygon, doub
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return rotate_polygons(std::vector<privacy_mask_types::PolygonPtr> &polygons, double rotation_angle, uint frame_width, uint frame_height)
+media_library_return rotate_polygons(std::vector<privacy_mask_types::PolygonPtr> &polygons, double rotation_angle,
+                                     uint frame_width, uint frame_height)
 {
     for (auto &polygon : polygons)
     {
-        if (rotate_polygon(polygon, rotation_angle, frame_width, frame_height) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        if (rotate_polygon(polygon, rotation_angle, frame_width, frame_height) !=
+            media_library_return::MEDIA_LIBRARY_SUCCESS)
             return media_library_return::MEDIA_LIBRARY_ERROR;
     }
 
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mask_types::PolygonPtr> &polygons, const uint &frame_width, const uint &frame_height, const privacy_mask_types::rgb_color_t &color, privacy_mask_types::PrivacyMaskDataPtr privacy_mask_data)
+media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mask_types::PolygonPtr> &polygons,
+                                                         const uint &frame_width, const uint &frame_height,
+                                                         const privacy_mask_types::rgb_color_t &color,
+                                                         privacy_mask_types::PrivacyMaskDataPtr privacy_mask_data)
 {
     struct timespec start_fill_polly, end_fill_polly;
     clock_gettime(CLOCK_MONOTONIC, &start_fill_polly);
@@ -484,7 +490,8 @@ media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mas
     int mask_width_with_stride = bytes_per_line * 8;
 
     // To represent a bit per pixel structure - set packaged array size to /8 and add one if it is not a multiple of 8
-    uint packaged_array_size = (mask_width_with_stride * mask_height) / 8 + ((mask_width_with_stride * mask_height) % 8 == 0 ? 0 : 1);
+    uint packaged_array_size =
+        (mask_width_with_stride * mask_height) / 8 + ((mask_width_with_stride * mask_height) % 8 == 0 ? 0 : 1);
     std::vector<uint8_t> packaged_array(packaged_array_size, 0);
 
     // Set the rois count and YUV color in the privacy mask data
@@ -502,7 +509,8 @@ media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mas
         }
 
         privacy_mask_data->rois[i] = roi;
-        if (fill_poly_packaged_array(mask, pts, white, 8, 0, mask_width_with_stride, packaged_array) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        if (fill_poly_packaged_array(mask, pts, white, 8, 0, mask_width_with_stride, packaged_array) !=
+            media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR("Failed to fill polygon");
             return media_library_return::MEDIA_LIBRARY_ERROR;

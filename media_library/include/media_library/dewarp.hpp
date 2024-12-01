@@ -45,14 +45,14 @@ using MediaLibraryDewarpPtr = std::shared_ptr<MediaLibraryDewarp>;
 
 class MediaLibraryDewarp
 {
-protected:
+  protected:
     class Impl;
     std::shared_ptr<Impl> m_impl;
 
-public:
+  public:
     class callbacks_t
     {
-    public:
+      public:
         std::function<void(output_resolution_t &)> on_output_resolution_change = nullptr;
         std::function<void(rotation_angle_t &)> on_rotation_change = nullptr;
     };
@@ -141,7 +141,8 @@ public:
      * @param[in] format - the new format of the input video
      * @return media_library_return - status of the configuration operation
      */
-    media_library_return set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate, HailoFormat format);
+    media_library_return set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate,
+                                                HailoFormat format);
 
     /**
      * @brief Observes the media library by registering the provided callbacks.

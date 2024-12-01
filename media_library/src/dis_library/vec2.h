@@ -29,15 +29,17 @@
 #define _DIS_VEC2_H_
 
 #include <cmath>
-template <typename ValT>
-struct Vec2T
+template <typename ValT> struct Vec2T
 {
     ValT x, y;
 
-    Vec2T(){};
-    Vec2T(ValT x_, ValT y_) : x(x_), y(y_){};
+    Vec2T() {};
+    Vec2T(ValT x_, ValT y_) : x(x_), y(y_) {};
 
-    Vec2T operator-() const { return Vec2T(-x, -y); }
+    Vec2T operator-() const
+    {
+        return Vec2T(-x, -y);
+    }
     // Operations with vectors
     Vec2T &operator+=(const Vec2T &r)
     {
@@ -51,9 +53,18 @@ struct Vec2T
         y -= r.y;
         return *this;
     }
-    Vec2T operator+(const Vec2T &r) const { return Vec2T(x + r.x, y + r.y); }
-    Vec2T operator-(const Vec2T &r) const { return Vec2T(x - r.x, y - r.y); }
-    Vec2T product(const Vec2T &r) const { return Vec2T(x * r.x, y * r.y); }
+    Vec2T operator+(const Vec2T &r) const
+    {
+        return Vec2T(x + r.x, y + r.y);
+    }
+    Vec2T operator-(const Vec2T &r) const
+    {
+        return Vec2T(x - r.x, y - r.y);
+    }
+    Vec2T product(const Vec2T &r) const
+    {
+        return Vec2T(x * r.x, y * r.y);
+    }
     // Operations with scalar
     Vec2T &operator*=(ValT r)
     {
@@ -61,14 +72,20 @@ struct Vec2T
         y *= r;
         return *this;
     }
-    Vec2T operator*(ValT r) const { return Vec2T(x * r, y * r); }
+    Vec2T operator*(ValT r) const
+    {
+        return Vec2T(x * r, y * r);
+    }
     Vec2T &operator+=(ValT r)
     {
         x += r;
         y += r;
         return *this;
     }
-    Vec2T operator+(ValT r) const { return Vec2T(x + r, y + r); }
+    Vec2T operator+(ValT r) const
+    {
+        return Vec2T(x + r, y + r);
+    }
     Vec2T &operator/=(ValT r)
     {
         ValT inv_r = 1 / r;
@@ -82,15 +99,39 @@ struct Vec2T
         return Vec2T(x * inv_r, y * inv_r);
     }
     // comparison operators
-    bool operator==(Vec2T const &v) const { return x == v.x && y == v.y; }
+    bool operator==(Vec2T const &v) const
+    {
+        return x == v.x && y == v.y;
+    }
     // geometrical operations
-    ValT dot(const Vec2T &r) const { return x * r.x + y * r.y; }
-    ValT cross(const Vec2T &r) const { return x * r.y - y * r.x; }
-    ValT len() const { return std::sqrt(x * x + y * y); }
-    ValT len2() const { return x * x + y * y; }
-    ValT inv_len() const { return 1.f / std::sqrt(len2()); }
-    void normalize() { (*this) *= inv_len(); }
-    Vec2T lenalized() const { return (*this) * inv_len(); }
+    ValT dot(const Vec2T &r) const
+    {
+        return x * r.x + y * r.y;
+    }
+    ValT cross(const Vec2T &r) const
+    {
+        return x * r.y - y * r.x;
+    }
+    ValT len() const
+    {
+        return std::sqrt(x * x + y * y);
+    }
+    ValT len2() const
+    {
+        return x * x + y * y;
+    }
+    ValT inv_len() const
+    {
+        return 1.f / std::sqrt(len2());
+    }
+    void normalize()
+    {
+        (*this) *= inv_len();
+    }
+    Vec2T lenalized() const
+    {
+        return (*this) * inv_len();
+    }
 };
 
 #endif // _DIS_VEC2_H_

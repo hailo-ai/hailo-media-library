@@ -78,18 +78,18 @@
 */
 namespace isp_utils
 {
-    extern bool m_auto_configure;
-    void set_auto_configure(bool auto_configure);
-    void set_isp_config_files_path(std::string &path);
-    void override_file(const std::string &src, const std::string &dst);
-    void set_default_configuration();
-    void set_denoise_configuration();
-    void set_backlight_configuration();
-    void set_hdr_configuration(bool is_4k);
-    std::string find_subdevice_path(const std::string &subdevice_name);
-    void setup_hdr(bool is_4k, hdr_dol_t dol);
-    void setup_sdr();
-    void set_hdr_ratios(float ls_ratio, float vs_ratio);
+extern bool m_auto_configure;
+void set_auto_configure(bool auto_configure);
+void set_isp_config_files_path(std::string &path);
+void override_file(const std::string &src, const std::string &dst);
+void set_default_configuration();
+void set_denoise_configuration();
+void set_backlight_configuration();
+void set_hdr_configuration(bool is_4k);
+std::string find_subdevice_path(const std::string &subdevice_name);
+void setup_hdr(bool is_4k, hdr_dol_t dol);
+void setup_sdr();
+void set_hdr_ratios(float ls_ratio, float vs_ratio);
 } // namespace isp_utils
 
 /** @} */ // end of isp_utils_definitions

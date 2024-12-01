@@ -16,9 +16,11 @@
     * https://github.com/opencv/opencv/issues/23912
     * https://forum.opencv.org/t/memory-leak-detected-by-valgrind-in-cv-resize/3509/2
 
-    The memory leak occurs when using parallel functions (like cv::resize) in a multi-threaded environment. If the parent thread is terminated, the resources are not properly released until the entire process is terminated.
+    The memory leak occurs when using parallel functions (like cv::resize) in a multi-threaded environment. If the
+   parent thread is terminated, the resources are not properly released until the entire process is terminated.
 
-    Our workaround is to create a wrapper that handles calls to OpenCV functions from a single thread. This single thread is part of a static instance, and therefore, we keep it alive as long as the process is alive.
+    Our workaround is to create a wrapper that handles calls to OpenCV functions from a single thread. This single
+   thread is part of a static instance, and therefore, we keep it alive as long as the process is alive.
 */
 
 #ifndef MEDIALIB_THREADPOOL_DEFAULT_SIZE
@@ -27,7 +29,7 @@
 
 class ThreadPool
 {
-public:
+  public:
     ThreadPool();
     ThreadPool(size_t);
     ~ThreadPool();
@@ -37,7 +39,7 @@ public:
     auto invoke(F &&f, Args &&...args) -> std::result_of<F(Args...)>::type; // sync call
     static std::shared_ptr<ThreadPool> GetInstance();
 
-private:
+  private:
     std::vector<std::thread> workers;
     std::queue<std::function<void()>> tasks;
 
@@ -52,13 +54,12 @@ private:
 // enqueue a task that will be executed by a worker thread
 // the return value is a future that will be set once the task is completed
 template <class F, class... Args>
-auto ThreadPool::enqueue(F &&f, Args &&...args)
-    -> std::future<typename std::result_of<F(Args...)>::type>
+auto ThreadPool::enqueue(F &&f, Args &&...args) -> std::future<typename std::result_of<F(Args...)>::type>
 {
     using return_type = typename std::result_of<F(Args...)>::type;
 
-    auto task = std::make_shared<std::packaged_task<return_type()>>(
-        std::bind(std::forward<F>(f), std::forward<Args>(args)...));
+    auto task =
+        std::make_shared<std::packaged_task<return_type()>>(std::bind(std::forward<F>(f), std::forward<Args>(args)...));
 
     std::future<return_type> res = task->get_future();
     {
@@ -68,8 +69,7 @@ auto ThreadPool::enqueue(F &&f, Args &&...args)
         if (stop)
             throw std::runtime_error("enqueue on stopped ThreadPool");
 
-        tasks.emplace([task]()
-                      { (*task)(); });
+        tasks.emplace([task]() { (*task)(); });
     }
     condition.notify_one();
     return res;
@@ -78,9 +78,7 @@ auto ThreadPool::enqueue(F &&f, Args &&...args)
 // enqueue a task that will be executed by a worker thread
 // the function will block until the execution is complete
 // the return value is the result of the function
-template <class F, class... Args>
-auto ThreadPool::invoke(F &&f, Args &&...args)
-    -> std::result_of<F(Args...)>::type
+template <class F, class... Args> auto ThreadPool::invoke(F &&f, Args &&...args) -> std::result_of<F(Args...)>::type
 {
     return enqueue(std::forward<F>(f), std::forward<Args>(args)...).get();
 }

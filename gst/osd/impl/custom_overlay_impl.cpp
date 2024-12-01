@@ -44,14 +44,34 @@ tl::expected<CustomOverlayImplPtr, media_library_return> CustomOverlayImpl::crea
     return osd_overlay;
 }
 
-std::shared_future<tl::expected<CustomOverlayImplPtr, media_library_return>> CustomOverlayImpl::create_async(const osd::CustomOverlay &overlay)
+std::shared_future<tl::expected<CustomOverlayImplPtr, media_library_return>> CustomOverlayImpl::create_async(
+    const osd::CustomOverlay &overlay)
 {
-    return std::async(std::launch::async, [overlay]()
-                      { return create(overlay); })
-        .share();
+    return std::async(std::launch::async, [overlay]() { return create(overlay); }).share();
 }
 
-tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> CustomOverlayImpl::create_dsp_overlays(int frame_width, int frame_height)
+tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> CustomOverlayImpl::get_dsp_overlays()
+{
+    if (!get_enabled())
+    {
+        LOGGER__ERROR("overlay not ready to blend");
+        return tl::make_unexpected(MEDIA_LIBRARY_UNINITIALIZED);
+    }
+
+    if (m_medialib_buffer == nullptr)
+    {
+        LOGGER__ERROR("Error: buffer is uninitialized");
+        return tl::make_unexpected(MEDIA_LIBRARY_UNINITIALIZED);
+    }
+
+    m_dsp_buffer_data = m_medialib_buffer->buffer_data->As<hailo_dsp_buffer_data_t>();
+    m_dsp_overlays[0].overlay = m_dsp_buffer_data.properties;
+    void *overlay_ptr = &m_dsp_overlays[0].overlay;
+    return m_dsp_overlays;
+}
+
+tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> CustomOverlayImpl::create_dsp_overlays(
+    int frame_width, int frame_height)
 {
     if (frame_width == 0 || frame_height == 0)
     {
@@ -80,30 +100,43 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Custom
         LOGGER__ERROR("Error: invalid format {}", m_format);
         return tl::make_unexpected(MEDIA_LIBRARY_INVALID_ARGUMENT);
     }
-    status = create_gst_video_frame(m_width * frame_width, m_height * frame_height, format, &dest_frame);
+
+    status = create_dma_video_frame(m_width * frame_width, m_height * frame_height, format, &dest_frame);
 
     if (status != MEDIA_LIBRARY_SUCCESS)
     {
         return tl::make_unexpected(status);
     }
 
-    dsp_image_properties_t dsp_image;
-    create_dsp_buffer_from_video_frame(&dest_frame, dsp_image);
+    if (m_medialib_buffer != nullptr)
+    {
+        LOGGER__ERROR("Error: m_medialib_buffer is not nullptr");
+        m_medialib_buffer.reset();
+    }
+
+    m_medialib_buffer = std::make_shared<hailo_media_library_buffer>();
+    if (!create_hailo_buffer_from_video_frame(&dest_frame, m_medialib_buffer))
+    {
+        LOGGER__ERROR("Error: failed to create hailo buffer from video frame");
+        return tl::make_unexpected(MEDIA_LIBRARY_INVALID_ARGUMENT);
+    }
+
     m_video_frames.push_back(dest_frame);
-    auto offsets_expected = calc_xy_offsets(m_id, m_x, m_y, dsp_image.width, dsp_image.height, frame_width,
-                                            frame_height, 0, 0, m_horizontal_alignment, m_vertical_alignment);
+    auto offsets_expected =
+        calc_xy_offsets(m_id, m_x, m_y, m_medialib_buffer->buffer_data->width, m_medialib_buffer->buffer_data->height,
+                        frame_width, frame_height, 0, 0, m_horizontal_alignment, m_vertical_alignment);
     if (!offsets_expected.has_value())
     {
         return tl::make_unexpected(offsets_expected.error());
     }
 
+    m_dsp_buffer_data = m_medialib_buffer->buffer_data->As<hailo_dsp_buffer_data_t>();
     auto [x_offset, y_offset] = offsets_expected.value();
-    dsp_overlay_properties_t dsp_overlay =
-        {
-            .overlay = dsp_image,
-            .x_offset = x_offset,
-            .y_offset = y_offset,
-        };
+    dsp_overlay_properties_t dsp_overlay = {
+        .overlay = m_dsp_buffer_data.properties,
+        .x_offset = x_offset,
+        .y_offset = y_offset,
+    };
 
     m_dsp_overlays.push_back(dsp_overlay);
 
@@ -112,8 +145,7 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Custom
 
 std::shared_ptr<osd::Overlay> CustomOverlayImpl::get_metadata()
 {
-    DspImagePropertiesPtr dsp_image = std::make_shared<dsp_image_properties_t>(m_dsp_overlays[0].overlay);
     return std::make_shared<osd::CustomOverlay>(m_id, m_x, m_y, m_z_index, m_angle, m_rotation_policy,
                                                 m_horizontal_alignment, m_vertical_alignment, m_width, m_height,
-                                                m_format, dsp_image);
+                                                m_format, m_medialib_buffer);
 }

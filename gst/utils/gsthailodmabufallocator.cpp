@@ -25,23 +25,24 @@
 #include <iostream>
 #define DEVPATH "/dev/dma_heap/hailo_media_buf,cma"
 
-G_DEFINE_TYPE (GstHailoDmabufAllocator, gst_hailo_dmabuf_allocator, GST_TYPE_DMABUF_ALLOCATOR);
-
+G_DEFINE_TYPE(GstHailoDmabufAllocator, gst_hailo_dmabuf_allocator, GST_TYPE_DMABUF_ALLOCATOR);
 
 bool GstHailoDmaHeapControl::dma_heap_fd_open = false;
 int GstHailoDmaHeapControl::dma_heap_fd = -1;
 uint GstHailoDmaHeapControl::ref_count = 0;
 std::mutex GstHailoDmaHeapControl::mutex;
 
+static GstMemory *gst_hailo_dmabuf_allocator_alloc(GstAllocator *allocator, gsize size,
+                                                   GstAllocationParams * /*params*/)
+{
 
-
-static GstMemory *gst_hailo_dmabuf_allocator_alloc(GstAllocator* allocator, gsize size, GstAllocationParams* /*params*/) {
-    
     GstHailoDmabufAllocator *hailo_allocator = GST_HAILO_DMABUF_ALLOCATOR(allocator);
 
-    if (!GstHailoDmaHeapControl::dma_heap_fd_open) {
+    if (!GstHailoDmaHeapControl::dma_heap_fd_open)
+    {
         GstHailoDmaHeapControl::dma_heap_fd = open(DEVPATH, O_RDWR | O_CLOEXEC);
-        if (GstHailoDmaHeapControl::dma_heap_fd < 0) {
+        if (GstHailoDmaHeapControl::dma_heap_fd < 0)
+        {
             GST_INFO_OBJECT(allocator, "open fd failed!\n");
             return nullptr;
         }
@@ -57,18 +58,21 @@ static GstMemory *gst_hailo_dmabuf_allocator_alloc(GstAllocator* allocator, gsiz
     };
 
     int ret = ioctl(GstHailoDmaHeapControl::dma_heap_fd, DMA_HEAP_IOCTL_ALLOC, &heap_data);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         GST_INFO_OBJECT(allocator, "ioctl DMA_HEAP_IOCTL_ALLOC failed! ret = %d\n", ret);
         return nullptr;
     }
 
-    if (GST_IS_DMABUF_ALLOCATOR(hailo_allocator) == false) {
+    if (GST_IS_DMABUF_ALLOCATOR(hailo_allocator) == false)
+    {
         GST_INFO_OBJECT(allocator, "hailo_allocator is not dmabuf!\n");
         return nullptr;
     }
 
     GstMemory *memory = gst_dmabuf_allocator_alloc(allocator, heap_data.fd, size);
-    if (nullptr == memory) {
+    if (nullptr == memory)
+    {
         GST_INFO_OBJECT(allocator, "gst_dmabuf_allocator_alloc failed!\n");
         return nullptr;
     }
@@ -76,23 +80,25 @@ static GstMemory *gst_hailo_dmabuf_allocator_alloc(GstAllocator* allocator, gsiz
     return memory;
 }
 
-static void gst_hailo_dmabuf_allocator_free(GstAllocator* allocator, GstMemory *mem) {
+static void gst_hailo_dmabuf_allocator_free(GstAllocator *allocator, GstMemory *mem)
+{
     int fd = gst_dmabuf_memory_get_fd(mem);
-    if (fd < 0) {
+    if (fd < 0)
+    {
         GST_INFO_OBJECT(allocator, "get fd from memory failed!\n");
         return;
     }
     close(fd);
-    
 }
 
-static void gst_hailo_dmabuf_allocator_class_init(GstHailoDmabufAllocatorClass* klass) {
-    GstAllocatorClass* allocator_class = GST_ALLOCATOR_CLASS(klass);
+static void gst_hailo_dmabuf_allocator_class_init(GstHailoDmabufAllocatorClass *klass)
+{
+    GstAllocatorClass *allocator_class = GST_ALLOCATOR_CLASS(klass);
 
     allocator_class->alloc = gst_hailo_dmabuf_allocator_alloc;
     allocator_class->free = gst_hailo_dmabuf_allocator_free;
 }
 
-static void gst_hailo_dmabuf_allocator_init(GstHailoDmabufAllocator* allocator) 
+static void gst_hailo_dmabuf_allocator_init(GstHailoDmabufAllocator *allocator)
 {
 }

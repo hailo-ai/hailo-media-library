@@ -38,10 +38,8 @@ GST_DEBUG_CATEGORY_STATIC(gst_hailodefog_debug_category);
 #define ROTATION_EVENT_NAME "HAILO_ROTATION_EVENT"
 #define ROTATION_EVENT_PROP_NAME "rotation"
 
-static void gst_hailodefog_set_property(GObject *object,
-                                          guint property_id, const GValue *value, GParamSpec *pspec);
-static void gst_hailodefog_get_property(GObject *object,
-                                          guint property_id, GValue *value, GParamSpec *pspec);
+static void gst_hailodefog_set_property(GObject *object, guint property_id, const GValue *value, GParamSpec *pspec);
+static void gst_hailodefog_get_property(GObject *object, guint property_id, GValue *value, GParamSpec *pspec);
 static GstStateChangeReturn gst_hailodefog_change_state(GstElement *element, GstStateChange transition);
 static void gst_hailodefog_init_ghost_sink(GstHailoDefog *hailodefog);
 static void gst_hailodefog_init_ghost_src(GstHailoDefog *hailodefog);
@@ -49,8 +47,9 @@ static GstPadProbeReturn gst_hailodefog_sink_probe(GstPad *pad, GstPadProbeInfo 
 static GstPadProbeReturn gst_hailodefog_src_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDefog *hailodefog);
 static gboolean gst_hailodefog_create(GstHailoDefog *self);
 static gboolean gst_hailodefog_configure_hailonet(GstHailoDefog *self);
-static void gst_hailodefog_payload_tensor_meta(GstBuffer *buffer, GstBuffer *payload, std::string layer_name, hailo_format_order_t format_order);
-static std::map<std::string, GstBuffer*> gst_hailodefog_get_tensor_meta_from_buffer(GstBuffer *buffer);
+static void gst_hailodefog_payload_tensor_meta(GstBuffer *buffer, GstBuffer *payload, std::string layer_name,
+                                               hailo_format_order_t format_order);
+static std::map<std::string, GstBuffer *> gst_hailodefog_get_tensor_meta_from_buffer(GstBuffer *buffer);
 static gboolean gst_hailodefog_remove_tensors(GstBuffer *buffer);
 static gboolean gst_hailodefog_sink_event(GstPad *pad, GstObject *parent, GstEvent *event);
 static gboolean gst_hailodefog_erase_tensors(GstBuffer *buffer);
@@ -62,54 +61,47 @@ enum
     PROP_CONFIG_STRING,
 };
 
-static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE("sink",
-                                                                    GST_PAD_SINK,
-                                                                    GST_PAD_ALWAYS,
-                                                                    GST_STATIC_CAPS_ANY);
+static GstStaticPadTemplate sink_template =
+    GST_STATIC_PAD_TEMPLATE("sink", GST_PAD_SINK, GST_PAD_ALWAYS, GST_STATIC_CAPS_ANY);
 
-static GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE("src",
-                                                                   GST_PAD_SRC,
-                                                                   GST_PAD_ALWAYS,
-                                                                   GST_STATIC_CAPS_ANY);
+static GstStaticPadTemplate src_template =
+    GST_STATIC_PAD_TEMPLATE("src", GST_PAD_SRC, GST_PAD_ALWAYS, GST_STATIC_CAPS_ANY);
 
 G_DEFINE_TYPE_WITH_CODE(GstHailoDefog, gst_hailodefog, GST_TYPE_BIN,
                         GST_DEBUG_CATEGORY_INIT(gst_hailodefog_debug_category, "hailodefog", 0,
                                                 "debug category for hailodefog element"));
 
-static void
-gst_hailodefog_class_init(GstHailoDefogClass *klass)
+static void gst_hailodefog_class_init(GstHailoDefogClass *klass)
 {
     GObjectClass *gobject_class = G_OBJECT_CLASS(klass);
     GstElementClass *element_class = GST_ELEMENT_CLASS(klass);
-    
+
     gst_element_class_add_static_pad_template(element_class, &src_template);
     gst_element_class_add_static_pad_template(element_class, &sink_template);
 
-    gst_element_class_set_static_metadata(element_class,
-                                          "de-fogging enhancement", "Hailo/Media-Library", "Dehazing element for de-fogging enhancement.",
+    gst_element_class_set_static_metadata(element_class, "de-fogging enhancement", "Hailo/Media-Library",
+                                          "Dehazing element for de-fogging enhancement.",
                                           "hailo.ai <contact@hailo.ai>");
 
     gobject_class->set_property = gst_hailodefog_set_property;
     gobject_class->get_property = gst_hailodefog_get_property;
 
-    g_object_class_install_property(gobject_class, PROP_CONFIG_FILE_PATH,
-                                  g_param_spec_string("config-file-path", "Config file path",
-                                                      "JSON config file path to load",
-                                                      "",
-                                                      (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_CONFIG_FILE_PATH,
+        g_param_spec_string("config-file-path", "Config file path", "JSON config file path to load", "",
+                            (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+                                          GST_PARAM_MUTABLE_PLAYING)));
 
-    g_object_class_install_property(gobject_class, PROP_CONFIG_STRING,
-                                  g_param_spec_string("config-string", "Config string",
-                                                      "JSON config string to load",
-                                                      "",
-                                                      (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_CONFIG_STRING,
+        g_param_spec_string("config-string", "Config string", "JSON config string to load", "",
+                            (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+                                          GST_PARAM_MUTABLE_PLAYING)));
 
     element_class->change_state = GST_DEBUG_FUNCPTR(gst_hailodefog_change_state);
-
 }
 
-static void
-gst_hailodefog_init(GstHailoDefog *hailodefog)
+static void gst_hailodefog_init(GstHailoDefog *hailodefog)
 {
     // Default values
     hailodefog->config_file_path = NULL;
@@ -129,8 +121,7 @@ gst_hailodefog_init(GstHailoDefog *hailodefog)
     gst_hailodefog_init_ghost_src(hailodefog);
 }
 
-void gst_hailodefog_set_property(GObject *object, guint property_id,
-                                   const GValue *value, GParamSpec *pspec)
+void gst_hailodefog_set_property(GObject *object, guint property_id, const GValue *value, GParamSpec *pspec)
 {
     GstHailoDefog *hailodefog = GST_HAILO_DEFOG(object);
 
@@ -139,8 +130,7 @@ void gst_hailodefog_set_property(GObject *object, guint property_id,
     switch (property_id)
     {
     // Handle property assignments here
-    case PROP_CONFIG_FILE_PATH:
-    {
+    case PROP_CONFIG_FILE_PATH: {
         hailodefog->config_file_path = g_value_dup_string(value);
         GST_DEBUG_OBJECT(hailodefog, "config_file_path: %s", hailodefog->config_file_path);
         hailodefog->config_string = gstmedialibcommon::read_json_string_from_file(hailodefog->config_file_path);
@@ -159,8 +149,7 @@ void gst_hailodefog_set_property(GObject *object, guint property_id,
         hailodefog->m_configured = TRUE;
         break;
     }
-    case PROP_CONFIG_STRING:
-    {
+    case PROP_CONFIG_STRING: {
         hailodefog->config_string = std::string(g_value_get_string(value));
         gstmedialibcommon::strip_string_syntax(hailodefog->config_string);
 
@@ -184,8 +173,7 @@ void gst_hailodefog_set_property(GObject *object, guint property_id,
     }
 }
 
-void gst_hailodefog_get_property(GObject *object, guint property_id,
-                                   GValue *value, GParamSpec *pspec)
+void gst_hailodefog_get_property(GObject *object, guint property_id, GValue *value, GParamSpec *pspec)
 {
     GstHailoDefog *hailodefog = GST_HAILO_DEFOG(object);
 
@@ -194,13 +182,11 @@ void gst_hailodefog_get_property(GObject *object, guint property_id,
     switch (property_id)
     {
     // Handle property retrievals here
-    case PROP_CONFIG_FILE_PATH:
-    {
+    case PROP_CONFIG_FILE_PATH: {
         g_value_set_string(value, hailodefog->config_file_path);
         break;
     }
-    case PROP_CONFIG_STRING:
-    {
+    case PROP_CONFIG_STRING: {
         g_value_set_string(value, hailodefog->config_string.c_str());
         break;
     }
@@ -210,24 +196,22 @@ void gst_hailodefog_get_property(GObject *object, guint property_id,
     }
 }
 
-static gboolean
-gst_hailodefog_create(GstHailoDefog *self)
+static gboolean gst_hailodefog_create(GstHailoDefog *self)
 {
-  tl::expected<MediaLibraryDefogPtr, media_library_return> defog = MediaLibraryDefog::create(self->config_string);
-  if (defog.has_value())
-  {
-    self->medialib_defog = defog.value();
-  }
-  else
-  {
-    GST_ERROR_OBJECT(self, "Defog configuration error: %d", defog.error());
-    throw std::runtime_error("Defog failed to configure, check config file.");
-  }
-  return TRUE;
+    tl::expected<MediaLibraryDefogPtr, media_library_return> defog = MediaLibraryDefog::create(self->config_string);
+    if (defog.has_value())
+    {
+        self->medialib_defog = defog.value();
+    }
+    else
+    {
+        GST_ERROR_OBJECT(self, "Defog configuration error: %d", defog.error());
+        throw std::runtime_error("Defog failed to configure, check config file.");
+    }
+    return TRUE;
 }
 
-static gboolean
-gst_hailodefog_configure_hailonet(GstHailoDefog *self)
+static gboolean gst_hailodefog_configure_hailonet(GstHailoDefog *self)
 {
     // get the hailort configurations from medialib_defog, and set m_hailonet properties using the found config
     hailort_t hailort_configs = self->medialib_defog->get_hailort_configs();
@@ -249,14 +233,15 @@ gst_hailodefog_configure_hailonet(GstHailoDefog *self)
         // Rotation is not supported, disable defog
         g_object_set(self->m_hailonet, "pass-through", true, NULL);
         return TRUE;
-    } else {
+    }
+    else
+    {
         g_object_set(self->m_hailonet, "pass-through", !defog_configs.enabled, NULL);
     }
     return TRUE;
 }
 
-static void 
-gst_hailodefog_init_ghost_sink(GstHailoDefog *hailodefog)
+static void gst_hailodefog_init_ghost_sink(GstHailoDefog *hailodefog)
 {
     // Get the connecting pad
     GstPad *pad = gst_element_get_static_pad(hailodefog->m_hailonet, "sink");
@@ -268,7 +253,8 @@ gst_hailodefog_init_ghost_sink(GstHailoDefog *hailodefog)
     gst_element_add_pad(GST_ELEMENT(hailodefog), hailodefog->sinkpad);
 
     // Add a probe for internal logic
-    gst_pad_add_probe(hailodefog->sinkpad, static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM | GST_PAD_PROBE_TYPE_BUFFER),
+    gst_pad_add_probe(hailodefog->sinkpad,
+                      static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM | GST_PAD_PROBE_TYPE_BUFFER),
                       (GstPadProbeCallback)gst_hailodefog_sink_probe, hailodefog, NULL);
 
     // Add event handling
@@ -279,8 +265,7 @@ gst_hailodefog_init_ghost_sink(GstHailoDefog *hailodefog)
     gst_object_unref(pad);
 }
 
-static void
-gst_hailodefog_init_ghost_src(GstHailoDefog *hailodefog)
+static void gst_hailodefog_init_ghost_src(GstHailoDefog *hailodefog)
 {
     // Get the connecting pad
     GstPad *pad = gst_element_get_static_pad(hailodefog->m_hailonet, "src");
@@ -292,7 +277,8 @@ gst_hailodefog_init_ghost_src(GstHailoDefog *hailodefog)
     gst_element_add_pad(GST_ELEMENT(hailodefog), hailodefog->srcpad);
 
     // Add a probe for internal logic
-    gst_pad_add_probe(hailodefog->srcpad, static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM | GST_PAD_PROBE_TYPE_BUFFER),
+    gst_pad_add_probe(hailodefog->srcpad,
+                      static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM | GST_PAD_PROBE_TYPE_BUFFER),
                       (GstPadProbeCallback)gst_hailodefog_src_probe, hailodefog, NULL);
 
     // Cleanup
@@ -308,8 +294,7 @@ static gboolean gst_hailodefog_sink_event(GstPad *pad, GstObject *parent, GstEve
 
     switch (GST_EVENT_TYPE(event))
     {
-    case GST_EVENT_CUSTOM_DOWNSTREAM:
-    {
+    case GST_EVENT_CUSTOM_DOWNSTREAM: {
         GST_DEBUG_OBJECT(self, "Received custom event from sinkpad");
 
         const GstStructure *structure = gst_event_get_structure(event);
@@ -336,7 +321,9 @@ static gboolean gst_hailodefog_sink_event(GstPad *pad, GstObject *parent, GstEve
                 GST_DEBUG_OBJECT(self, "Rotating to unsupported angle (%d), defog will be disabled", rotation);
                 self->m_rotated = TRUE;
                 gst_hailodefog_configure_hailonet(self);
-            } else {
+            }
+            else
+            {
                 self->m_rotated = FALSE;
                 gst_hailodefog_configure_hailonet(self);
             }
@@ -354,8 +341,7 @@ static gboolean gst_hailodefog_sink_event(GstPad *pad, GstObject *parent, GstEve
         }
         break;
     }
-    default:
-    {
+    default: {
         /* just call the default handler */
         ret = gst_pad_event_default(pad, parent, event);
         break;
@@ -364,18 +350,17 @@ static gboolean gst_hailodefog_sink_event(GstPad *pad, GstObject *parent, GstEve
     return ret;
 }
 
-static GstStateChangeReturn
-gst_hailodefog_change_state(GstElement *element, GstStateChange transition)
+static GstStateChangeReturn gst_hailodefog_change_state(GstElement *element, GstStateChange transition)
 {
     GstStateChangeReturn ret = GST_ELEMENT_CLASS(gst_hailodefog_parent_class)->change_state(element, transition);
-    if (GST_STATE_CHANGE_FAILURE == ret) {
+    if (GST_STATE_CHANGE_FAILURE == ret)
+    {
         return ret;
     }
     return ret;
 }
 
-static gboolean
-gst_hailodefog_erase_tensors(GstBuffer *buffer)
+static gboolean gst_hailodefog_erase_tensors(GstBuffer *buffer)
 {
     gpointer state = NULL;
     GstMeta *meta;
@@ -402,8 +387,7 @@ gst_hailodefog_erase_tensors(GstBuffer *buffer)
     return true;
 }
 
-static gboolean
-gst_hailodefog_remove_tensors(GstBuffer *buffer)
+static gboolean gst_hailodefog_remove_tensors(GstBuffer *buffer)
 {
     gpointer state = NULL;
     GstMeta *meta;
@@ -429,8 +413,8 @@ gst_hailodefog_remove_tensors(GstBuffer *buffer)
     return true;
 }
 
-static void
-gst_hailodefog_payload_tensor_meta(GstBuffer *buffer, GstBuffer *payload, std::string layer_name, hailo_format_order_t format_order)
+static void gst_hailodefog_payload_tensor_meta(GstBuffer *buffer, GstBuffer *payload, std::string layer_name,
+                                               hailo_format_order_t format_order)
 {
     GstHailoTensorMeta *meta = GST_TENSOR_META_ADD(payload);
     if (meta == nullptr)
@@ -443,10 +427,9 @@ gst_hailodefog_payload_tensor_meta(GstBuffer *buffer, GstBuffer *payload, std::s
     gst_buffer_add_parent_buffer_meta(buffer, payload);
 }
 
-static std::map<std::string, GstBuffer*>
-gst_hailodefog_get_tensor_meta_from_buffer(GstBuffer *buffer)
+static std::map<std::string, GstBuffer *> gst_hailodefog_get_tensor_meta_from_buffer(GstBuffer *buffer)
 {
-    std::map<std::string, GstBuffer*> meta_vector;
+    std::map<std::string, GstBuffer *> meta_vector;
 
     gpointer state = NULL;
     GstMeta *meta;
@@ -467,7 +450,10 @@ gst_hailodefog_get_tensor_meta_from_buffer(GstBuffer *buffer)
             gst_buffer_unmap(pmeta->buffer, &info);
             continue;
         }
-        const hailo_vstream_info_t vstream_info = reinterpret_cast<GstHailoTensorMeta *>(gst_buffer_get_meta(pmeta->buffer, g_type_from_name(TENSOR_META_API_NAME)))->info;
+        const hailo_vstream_info_t vstream_info =
+            reinterpret_cast<GstHailoTensorMeta *>(
+                gst_buffer_get_meta(pmeta->buffer, g_type_from_name(TENSOR_META_API_NAME)))
+                ->info;
         meta_vector[vstream_info.name] = pmeta->buffer;
         gst_buffer_unmap(pmeta->buffer, &info);
     }
@@ -475,11 +461,11 @@ gst_hailodefog_get_tensor_meta_from_buffer(GstBuffer *buffer)
     return meta_vector;
 }
 
-static GstPadProbeReturn
-gst_hailodefog_sink_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDefog *hailodefog)
+static GstPadProbeReturn gst_hailodefog_sink_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDefog *hailodefog)
 {
     // Handle incoming data
-    if (!(info->type & GST_PAD_PROBE_TYPE_BUFFER)) {
+    if (!(info->type & GST_PAD_PROBE_TYPE_BUFFER))
+    {
         // probe recieved something other than a buffer, pass it immediately
         return GST_PAD_PROBE_PASS;
     }
@@ -514,21 +500,23 @@ gst_hailodefog_sink_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDefog *hai
     gst_video_frame_unmap(&frame);
 
     // Y
-    GstBuffer *y_buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, y_channel, y_channel_size, 0, y_channel_size, NULL, NULL);
+    GstBuffer *y_buffer =
+        gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, y_channel, y_channel_size, 0, y_channel_size, NULL, NULL);
     gst_hailodefog_payload_tensor_meta(buffer, y_buffer, net_configs.y_channel, HAILO_FORMAT_ORDER_NHCW);
 
     // UV
-    GstBuffer *uv_buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, uv_channel, uv_channel_size, 0, uv_channel_size, NULL, NULL);
+    GstBuffer *uv_buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, uv_channel, uv_channel_size, 0,
+                                                       uv_channel_size, NULL, NULL);
     gst_hailodefog_payload_tensor_meta(buffer, uv_buffer, net_configs.uv_channel, HAILO_FORMAT_ORDER_NHWC);
 
     return GST_PAD_PROBE_PASS;
 }
 
-static GstPadProbeReturn
-gst_hailodefog_src_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDefog *hailodefog)
+static GstPadProbeReturn gst_hailodefog_src_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDefog *hailodefog)
 {
     // Handle outgoing data
-    if (!(info->type & GST_PAD_PROBE_TYPE_BUFFER)) {
+    if (!(info->type & GST_PAD_PROBE_TYPE_BUFFER))
+    {
         // probe recieved something other than a buffer, pass it immediately
         return GST_PAD_PROBE_PASS;
     }
@@ -555,7 +543,7 @@ gst_hailodefog_src_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDefog *hail
     network_config_t net_configs = hailodefog->medialib_defog->get_defog_configs().network_config;
 
     // Retrieve the tensor data from the incoming buffer
-    std::map<std::string, GstBuffer*> output_tensors = gst_hailodefog_get_tensor_meta_from_buffer(buffer);
+    std::map<std::string, GstBuffer *> output_tensors = gst_hailodefog_get_tensor_meta_from_buffer(buffer);
     // Y
     GstBuffer *y_tensor_buffer = output_tensors[net_configs.output_y_channel];
     // UV
@@ -565,8 +553,8 @@ gst_hailodefog_src_probe(GstPad *pad, GstPadProbeInfo *info, GstHailoDefog *hail
     {
         GST_INFO_OBJECT(hailodefog, "We are in closing/flushing stage, drop frame.");
         return GST_PAD_PROBE_DROP;
-    } 
-    
+    }
+
     // Get the planes to replace in the incoming buffer
     GstVideoFrame frame;
     GstVideoInfo video_info;

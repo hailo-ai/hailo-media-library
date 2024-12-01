@@ -45,28 +45,28 @@ typedef struct _GstHailoEncClass GstHailoEncClass;
 
 struct _GstHailoEnc
 {
-  GstVideoEncoder parent;
-  GstVideoCodecState *input_state;
-  GstBuffer *header_buffer;
-  VCEncApiVersion apiVer;
-  VCEncBuild encBuild;
-  VCEncGopPicConfig gopPicCfg[MAX_GOP_PIC_CONFIG_NUM];
-  EncoderParams enc_params;
-  VCEncInst encoder_instance;
-  gboolean stream_restart;
-  gboolean hard_restart;
-  gboolean update_config;
-  gboolean update_gop_size;
-  GQueue *dts_queue;
-  struct timespec last_timestamp;
-  gboolean adapt_framerate;
-  guint8 framerate_counter;
-  float framerate_tolerance;
+    GstVideoEncoder parent;
+    GstVideoCodecState *input_state;
+    GstBuffer *header_buffer;
+    VCEncApiVersion apiVer;
+    VCEncBuild encBuild;
+    VCEncGopPicConfig gopPicCfg[MAX_GOP_PIC_CONFIG_NUM];
+    EncoderParams enc_params;
+    VCEncInst encoder_instance;
+    gboolean stream_restart;
+    gboolean hard_restart;
+    gboolean update_config;
+    gboolean update_gop_size;
+    GQueue *dts_queue;
+    struct timespec last_timestamp;
+    gboolean adapt_framerate;
+    guint8 framerate_counter;
+    float framerate_tolerance;
 };
 
 struct _GstHailoEncClass
 {
-  GstVideoEncoderClass parent_class;
+    GstVideoEncoderClass parent_class;
 };
 
 G_GNUC_INTERNAL GType gst_hailoenc_get_type(void);

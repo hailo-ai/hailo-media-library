@@ -28,52 +28,46 @@
 #include "media_library_logger.hpp"
 #include "encoder_config.hpp"
 
-#define MEDIALIB_JSON_SERIALIZE_ENUM(ENUM_TYPE, ...)                                    \
-    template <typename BasicJsonType>                                                   \
-    inline void to_json(BasicJsonType &j, const ENUM_TYPE &e)                           \
-    {                                                                                   \
-        static_assert(std::is_enum<ENUM_TYPE>::value,                                   \
-                      #ENUM_TYPE " must be an enum!");                                  \
-        static const std::pair<ENUM_TYPE, BasicJsonType> m[] = __VA_ARGS__;             \
-        auto it = std::find_if(                                                         \
-            std::begin(m), std::end(m),                                                 \
-            [e](const std::pair<ENUM_TYPE, BasicJsonType> &ej_pair) -> bool {           \
-                return ej_pair.first == e;                                              \
-            });                                                                         \
-        if (it == std::end(m))                                                          \
-        {                                                                               \
-            LOGGER__ERROR("Unknown enum value received for " #ENUM_TYPE);               \
-            throw std::invalid_argument("Unknown enum value received for " #ENUM_TYPE); \
-        }                                                                               \
-        j = it->second;                                                                 \
-    }                                                                                   \
-    template <typename BasicJsonType>                                                   \
-    inline void from_json(const BasicJsonType &j, ENUM_TYPE &e)                         \
-    {                                                                                   \
-        static_assert(std::is_enum<ENUM_TYPE>::value,                                   \
-                      #ENUM_TYPE " must be an enum!");                                  \
-        static const std::pair<ENUM_TYPE, BasicJsonType> m[] = __VA_ARGS__;             \
-        auto it = std::find_if(                                                         \
-            std::begin(m), std::end(m),                                                 \
-            [&j](const std::pair<ENUM_TYPE, BasicJsonType> &ej_pair) -> bool {          \
-                return ej_pair.second == j;                                             \
-            });                                                                         \
-        if (it == std::end(m))                                                          \
-        {                                                                               \
-            LOGGER__ERROR("Unknown enum value received for " #ENUM_TYPE);               \
-            throw std::invalid_argument("Unknown enum value received for " #ENUM_TYPE); \
-        }                                                                               \
-        e = it->first;                                                                  \
+#define MEDIALIB_JSON_SERIALIZE_ENUM(ENUM_TYPE, ...)                                                                   \
+    template <typename BasicJsonType> inline void to_json(BasicJsonType &j, const ENUM_TYPE &e)                        \
+    {                                                                                                                  \
+        static_assert(std::is_enum<ENUM_TYPE>::value, #ENUM_TYPE " must be an enum!");                                 \
+        static const std::pair<ENUM_TYPE, BasicJsonType> m[] = __VA_ARGS__;                                            \
+        auto it =                                                                                                      \
+            std::find_if(std::begin(m), std::end(m), [e](const std::pair<ENUM_TYPE, BasicJsonType> &ej_pair) -> bool { \
+                return ej_pair.first == e;                                                                             \
+            });                                                                                                        \
+        if (it == std::end(m))                                                                                         \
+        {                                                                                                              \
+            LOGGER__ERROR("Unknown enum value received for " #ENUM_TYPE);                                              \
+            throw std::invalid_argument("Unknown enum value received for " #ENUM_TYPE);                                \
+        }                                                                                                              \
+        j = it->second;                                                                                                \
+    }                                                                                                                  \
+    template <typename BasicJsonType> inline void from_json(const BasicJsonType &j, ENUM_TYPE &e)                      \
+    {                                                                                                                  \
+        static_assert(std::is_enum<ENUM_TYPE>::value, #ENUM_TYPE " must be an enum!");                                 \
+        static const std::pair<ENUM_TYPE, BasicJsonType> m[] = __VA_ARGS__;                                            \
+        auto it = std::find_if(                                                                                        \
+            std::begin(m), std::end(m),                                                                                \
+            [&j](const std::pair<ENUM_TYPE, BasicJsonType> &ej_pair) -> bool { return ej_pair.second == j; });         \
+        if (it == std::end(m))                                                                                         \
+        {                                                                                                              \
+            LOGGER__ERROR("Unknown enum value received for " #ENUM_TYPE);                                              \
+            throw std::invalid_argument("Unknown enum value received for " #ENUM_TYPE);                                \
+        }                                                                                                              \
+        e = it->first;                                                                                                 \
     }
 
 //------------------------ enums ------------------------
 
-MEDIALIB_JSON_SERIALIZE_ENUM(dsp_interpolation_type_t, {
-                                                           {INTERPOLATION_TYPE_NEAREST_NEIGHBOR, "INTERPOLATION_TYPE_NEAREST_NEIGHBOR"},
-                                                           {INTERPOLATION_TYPE_BILINEAR, "INTERPOLATION_TYPE_BILINEAR"},
-                                                           {INTERPOLATION_TYPE_AREA, "INTERPOLATION_TYPE_AREA"},
-                                                           {INTERPOLATION_TYPE_BICUBIC, "INTERPOLATION_TYPE_BICUBIC"},
-                                                       })
+MEDIALIB_JSON_SERIALIZE_ENUM(dsp_interpolation_type_t,
+                             {
+                                 {INTERPOLATION_TYPE_NEAREST_NEIGHBOR, "INTERPOLATION_TYPE_NEAREST_NEIGHBOR"},
+                                 {INTERPOLATION_TYPE_BILINEAR, "INTERPOLATION_TYPE_BILINEAR"},
+                                 {INTERPOLATION_TYPE_AREA, "INTERPOLATION_TYPE_AREA"},
+                                 {INTERPOLATION_TYPE_BICUBIC, "INTERPOLATION_TYPE_BICUBIC"},
+                             })
 
 MEDIALIB_JSON_SERIALIZE_ENUM(flip_direction_t, {
                                                    {FLIP_DIRECTION_NONE, "FLIP_DIRECTION_NONE"},
@@ -83,11 +77,11 @@ MEDIALIB_JSON_SERIALIZE_ENUM(flip_direction_t, {
                                                })
 
 MEDIALIB_JSON_SERIALIZE_ENUM(HailoFormat, {
-                                                     {HAILO_FORMAT_GRAY8, "IMAGE_FORMAT_GRAY8"},
-                                                     {HAILO_FORMAT_RGB, "IMAGE_FORMAT_RGB"},
-                                                     {HAILO_FORMAT_NV12, "IMAGE_FORMAT_NV12"},
-                                                     {HAILO_FORMAT_A420, "IMAGE_FORMAT_A420"},
-                                                 })
+                                              {HAILO_FORMAT_GRAY8, "IMAGE_FORMAT_GRAY8"},
+                                              {HAILO_FORMAT_RGB, "IMAGE_FORMAT_RGB"},
+                                              {HAILO_FORMAT_NV12, "IMAGE_FORMAT_NV12"},
+                                              {HAILO_FORMAT_A420, "IMAGE_FORMAT_A420"},
+                                          })
 
 MEDIALIB_JSON_SERIALIZE_ENUM(rotation_angle_t, {
                                                    {ROTATION_ANGLE_0, "ROTATION_ANGLE_0"},
@@ -102,10 +96,11 @@ MEDIALIB_JSON_SERIALIZE_ENUM(camera_type_t, {
                                                 {CAMERA_TYPE_INPUT_DISTORTIONS, "CAMERA_TYPE_INPUT_DISTORTIONS"},
                                             })
 
-MEDIALIB_JSON_SERIALIZE_ENUM(digital_zoom_mode_t, {
-                                                      {DIGITAL_ZOOM_MODE_ROI, "DIGITAL_ZOOM_MODE_ROI"},
-                                                      {DIGITAL_ZOOM_MODE_MAGNIFICATION, "DIGITAL_ZOOM_MODE_MAGNIFICATION"},
-                                                  })
+MEDIALIB_JSON_SERIALIZE_ENUM(digital_zoom_mode_t,
+                             {
+                                 {DIGITAL_ZOOM_MODE_ROI, "DIGITAL_ZOOM_MODE_ROI"},
+                                 {DIGITAL_ZOOM_MODE_MAGNIFICATION, "DIGITAL_ZOOM_MODE_MAGNIFICATION"},
+                             })
 
 MEDIALIB_JSON_SERIALIZE_ENUM(denoise_method_t, {
                                                    {DENOISE_METHOD_VD1, "HIGH_QUALITY"},
@@ -128,7 +123,8 @@ MEDIALIB_JSON_SERIALIZE_ENUM(rc_mode_t, {
 MEDIALIB_JSON_SERIALIZE_ENUM(deblocking_filter_type_t, {
                                                            {DEBLOCKING_FILTER_ENABLED, "DEBLOCKING_FILTER_ENABLED"},
                                                            {DEBLOCKING_FILTER_DISABLED, "DEBLOCKING_FILTER_DISABLED"},
-                                                           {DEBLOCKING_FILTER_DISABLED_ON_SLICE_EDGES, "DEBLOCKING_FILTER_DISABLED_ON_SLICE_EDGES"},
+                                                           {DEBLOCKING_FILTER_DISABLED_ON_SLICE_EDGES,
+                                                            "DEBLOCKING_FILTER_DISABLED_ON_SLICE_EDGES"},
                                                        })
 
 MEDIALIB_JSON_SERIALIZE_ENUM(hdr_resolution_t, {
@@ -140,6 +136,14 @@ MEDIALIB_JSON_SERIALIZE_ENUM(hdr_dol_t, {
                                             {HDR_DOL_2, 2},
                                             {HDR_DOL_3, 3},
                                         })
+
+MEDIALIB_JSON_SERIALIZE_ENUM(motion_detection_sensitivity_levels_t, {
+                                                                        {LOWEST, "LOWEST"},
+                                                                        {LOW, "LOW"},
+                                                                        {MEDIUM, "MEDIUM"},
+                                                                        {HIGH, "HIGH"},
+                                                                        {HIGHEST, "HIGHEST"},
+                                                                    })
 
 //------------------------ roi_t ------------------------
 
@@ -259,8 +263,7 @@ void from_json(const nlohmann::json &j, input_config_t &in_conf)
 
 void to_json(nlohmann::json &j, const output_config_t &out_conf)
 {
-    j = nlohmann::json{
-        {"codec", out_conf.codec}};
+    j = nlohmann::json{{"codec", out_conf.codec}};
 
     if (out_conf.profile != std::nullopt)
     {
@@ -321,12 +324,8 @@ void from_json(const nlohmann::json &j, deblocking_filter_t &df_conf)
 void to_json(nlohmann::json &j, const coding_roi_area_t &roi_conf)
 {
     j = nlohmann::json{
-        {"enable", roi_conf.enable},
-        {"top", roi_conf.top},
-        {"left", roi_conf.left},
-        {"bottom", roi_conf.bottom},
-        {"right", roi_conf.right},
-        {"qp_delta", roi_conf.qp_delta},
+        {"enable", roi_conf.enable}, {"top", roi_conf.top},     {"left", roi_conf.left},
+        {"bottom", roi_conf.bottom}, {"right", roi_conf.right}, {"qp_delta", roi_conf.qp_delta},
     };
 }
 
@@ -343,11 +342,8 @@ void from_json(const nlohmann::json &j, coding_roi_area_t &roi_conf)
 void to_json(nlohmann::json &j, const coding_roi_t &intra_conf)
 {
     j = nlohmann::json{
-        {"enable", intra_conf.enable},
-        {"top", intra_conf.top},
-        {"left", intra_conf.left},
-        {"bottom", intra_conf.bottom},
-        {"right", intra_conf.right},
+        {"enable", intra_conf.enable}, {"top", intra_conf.top},     {"left", intra_conf.left},
+        {"bottom", intra_conf.bottom}, {"right", intra_conf.right},
     };
 }
 
@@ -363,12 +359,9 @@ void from_json(const nlohmann::json &j, coding_roi_t &intra_conf)
 void to_json(nlohmann::json &j, const coding_control_config_t &cc_conf)
 {
     j = nlohmann::json{
-        {"sei_messages", cc_conf.sei_messages},
-        {"deblocking_filter", cc_conf.deblocking_filter},
-        {"intra_area", cc_conf.intra_area},
-        {"ipcm_area1", cc_conf.ipcm_area1},
-        {"ipcm_area2", cc_conf.ipcm_area2},
-        {"roi_area1", cc_conf.roi_area1},
+        {"sei_messages", cc_conf.sei_messages}, {"deblocking_filter", cc_conf.deblocking_filter},
+        {"intra_area", cc_conf.intra_area},     {"ipcm_area1", cc_conf.ipcm_area1},
+        {"ipcm_area2", cc_conf.ipcm_area2},     {"roi_area1", cc_conf.roi_area1},
         {"roi_area2", cc_conf.roi_area2},
     };
 }
@@ -487,12 +480,9 @@ void from_json(const nlohmann::json &j, quantization_config_t &q_conf)
 void to_json(nlohmann::json &j, const rate_control_config_t &rc_conf)
 {
     j = nlohmann::json{
-        {"rc_mode", rc_conf.rc_mode},
-        {"picture_rc", rc_conf.picture_rc},
-        {"picture_skip", rc_conf.picture_skip},
-        {"intra_pic_rate", rc_conf.intra_pic_rate},
-        {"bitrate", rc_conf.bitrate},
-        {"quantization", rc_conf.quantization},
+        {"rc_mode", rc_conf.rc_mode},           {"picture_rc", rc_conf.picture_rc},
+        {"picture_skip", rc_conf.picture_skip}, {"intra_pic_rate", rc_conf.intra_pic_rate},
+        {"bitrate", rc_conf.bitrate},           {"quantization", rc_conf.quantization},
     };
 
     if (rc_conf.ctb_rc != std::nullopt)
@@ -626,18 +616,16 @@ void from_json(const nlohmann::json &j, encoder_monitors_config_t &monitors_conf
 
 void to_json(nlohmann::json &j, const hailo_encoder_config_t &enc_conf)
 {
-    j = nlohmann::json{
-        {"encoding",
-         {"input_stream", enc_conf.input_stream},
-         {
-             "hailo_encoder",
-             {"config",
-              {"output_stream", enc_conf.output_stream}},
-             {"gop_config", enc_conf.gop},
-             {"coding_cotnrol", enc_conf.coding_control},
-             {"rate_control", enc_conf.rate_control},
-             {"monitors_control", enc_conf.monitors_control},
-         }}};
+    j = nlohmann::json{{"encoding",
+                        {"input_stream", enc_conf.input_stream},
+                        {
+                            "hailo_encoder",
+                            {"config", {"output_stream", enc_conf.output_stream}},
+                            {"gop_config", enc_conf.gop},
+                            {"coding_cotnrol", enc_conf.coding_control},
+                            {"rate_control", enc_conf.rate_control},
+                            {"monitors_control", enc_conf.monitors_control},
+                        }}};
 }
 
 void from_json(const nlohmann::json &j, hailo_encoder_config_t &enc_conf)
@@ -652,12 +640,9 @@ void from_json(const nlohmann::json &j, hailo_encoder_config_t &enc_conf)
 
 void to_json(nlohmann::json &j, const jpeg_encoder_config_t &enc_conf)
 {
-    j = nlohmann::json{
-        {"encoding",
-         {"input_stream", enc_conf.input_stream},
-         {"jpeg_encoder",
-          {"n_threads", enc_conf.n_threads},
-          {"quality", enc_conf.quality}}}};
+    j = nlohmann::json{{"encoding",
+                        {"input_stream", enc_conf.input_stream},
+                        {"jpeg_encoder", {"n_threads", enc_conf.n_threads}, {"quality", enc_conf.quality}}}};
 }
 
 void from_json(const nlohmann::json &j, jpeg_encoder_config_t &enc_conf)
@@ -707,10 +692,9 @@ void from_json(const nlohmann::json &j, dis_config_t &dis)
 
 void to_json(nlohmann::json &j, const optical_zoom_config_t &oz_conf)
 {
-    j = nlohmann::json{
-        {"enabled", oz_conf.enabled},
-        {"magnification", oz_conf.magnification},
-        {"max_dewarping_magnification", oz_conf.max_dewarping_magnification}};
+    j = nlohmann::json{{"enabled", oz_conf.enabled},
+                       {"magnification", oz_conf.magnification},
+                       {"max_dewarping_magnification", oz_conf.max_dewarping_magnification}};
 }
 
 void from_json(const nlohmann::json &j, optical_zoom_config_t &oz_conf)
@@ -818,10 +802,11 @@ void from_json(const nlohmann::json &j, output_video_config_t &out_conf)
 void to_json(nlohmann::json &j, const input_video_config_t &in_conf)
 {
     j = nlohmann::json{
-        {"input_video", {
-                            {"source", in_conf.video_device},
-                            {"resolution", in_conf.resolution},
-                        }},
+        {"input_video",
+         {
+             {"source", in_conf.video_device},
+             {"resolution", in_conf.resolution},
+         }},
     };
 }
 
@@ -830,6 +815,28 @@ void from_json(const nlohmann::json &j, input_video_config_t &in_conf)
     const auto &j2 = j.at("input_video");
     j2.at("resolution").get_to(in_conf.resolution);
     j2.at("source").get_to(in_conf.video_device);
+}
+
+//------------------------ motion_detection_config_t ------------------------
+
+void to_json(nlohmann::json &j, const motion_detection_config_t &md_conf)
+{
+    j = nlohmann::json{
+        {"enabled", md_conf.enabled},
+        {"resolution", md_conf.resolution},
+        {"roi", md_conf.roi},
+        {"sensitivity_level", md_conf.sensitivity_level},
+        {"threshold", md_conf.threshold},
+    };
+}
+
+void from_json(const nlohmann::json &j, motion_detection_config_t &md_conf)
+{
+    j.at("enabled").get_to(md_conf.enabled);
+    j.at("resolution").get_to(md_conf.resolution);
+    j.at("roi").get_to(md_conf.roi);
+    j.at("sensitivity_level").get_to(md_conf.sensitivity_level);
+    j.at("threshold").get_to(md_conf.threshold);
 }
 
 //------------------------ multi_resize_config_t ------------------------
@@ -842,6 +849,7 @@ void to_json(nlohmann::json &j, const multi_resize_config_t &mresize_conf)
         {"output_video", mresize_conf.output_video_config},
         {"digital_zoom", mresize_conf.digital_zoom_config},
         {"rotation", mresize_conf.rotation_config},
+        {"motion_detection", mresize_conf.motion_detection_config},
     };
 }
 
@@ -852,6 +860,7 @@ void from_json(const nlohmann::json &j, multi_resize_config_t &mresize_conf)
     j.at("output_video").get_to(mresize_conf.output_video_config);
     j.at("digital_zoom").get_to(mresize_conf.digital_zoom_config);
     j.at("rotation").get_to(mresize_conf.rotation_config);
+    j.at("motion_detection").get_to(mresize_conf.motion_detection_config);
 }
 
 //------------------------ eis_config_t ------------------------
@@ -859,6 +868,7 @@ void to_json(nlohmann::json &j, const eis_config_t &eis_conf)
 {
     j = nlohmann::json{
         {"enabled", eis_conf.enabled},
+        {"stabilize", eis_conf.stabilize},
         {"eis_config_path", eis_conf.eis_config_path},
         {"window_size", eis_conf.window_size},
         {"rotational_smoothing_coefficient", eis_conf.rotational_smoothing_coefficient},
@@ -871,6 +881,7 @@ void to_json(nlohmann::json &j, const eis_config_t &eis_conf)
 void from_json(const nlohmann::json &j, eis_config_t &eis_conf)
 {
     j.at("enabled").get_to(eis_conf.enabled);
+    j.at("stabilize").get_to(eis_conf.stabilize);
     j.at("eis_config_path").get_to(eis_conf.eis_config_path);
     j.at("window_size").get_to(eis_conf.window_size);
     j.at("rotational_smoothing_coefficient").get_to(eis_conf.rotational_smoothing_coefficient);
@@ -908,7 +919,7 @@ void to_json(nlohmann::json &j, const ldc_config_t &ldc_conf)
         {"dewarp", ldc_conf.dewarp_config},
         {"dis", ldc_conf.dis_config},
         {"eis", ldc_conf.eis_config},
-        {"gyro", ldc_conf.gyro_config},     
+        {"gyro", ldc_conf.gyro_config},
         {"optical_zoom", ldc_conf.optical_zoom_config},
         {"rotation", ldc_conf.rotation_config},
         {"flip", ldc_conf.flip_config},
@@ -933,10 +944,11 @@ void from_json(const nlohmann::json &j, ldc_config_t &ldc_conf)
 void to_json(nlohmann::json &j, const isp_t &isp_conf)
 {
     j = nlohmann::json{
-        {"isp", {
-                {"auto-configuration", isp_conf.auto_configuration},
-                {"isp_config_files_path", isp_conf.isp_config_files_path},
-            }},
+        {"isp",
+         {
+             {"auto-configuration", isp_conf.auto_configuration},
+             {"isp_config_files_path", isp_conf.isp_config_files_path},
+         }},
     };
 }
 
@@ -952,9 +964,10 @@ void from_json(const nlohmann::json &j, isp_t &isp_conf)
 void to_json(nlohmann::json &j, const hailort_t &hrt_conf)
 {
     j = nlohmann::json{
-        {"hailort", {
-                        {"device-id", hrt_conf.device_id},
-                    }},
+        {"hailort",
+         {
+             {"device-id", hrt_conf.device_id},
+         }},
     };
 }
 
@@ -1017,13 +1030,14 @@ void from_json(const nlohmann::json &j, network_config_t &net_conf)
 void to_json(nlohmann::json &j, const denoise_config_t &d_conf)
 {
     j = nlohmann::json{
-        {"denoise", {
-                        {"enabled", d_conf.enabled},
-                        {"sensor", d_conf.sensor},
-                        {"method", d_conf.denoising_quality},
-                        {"loopback-count", d_conf.loopback_count},
-                        {"network", d_conf.network_config},
-                    }},
+        {"denoise",
+         {
+             {"enabled", d_conf.enabled},
+             {"sensor", d_conf.sensor},
+             {"method", d_conf.denoising_quality},
+             {"loopback-count", d_conf.loopback_count},
+             {"network", d_conf.network_config},
+         }},
     };
 }
 
@@ -1042,10 +1056,11 @@ void from_json(const nlohmann::json &j, denoise_config_t &d_conf)
 void to_json(nlohmann::json &j, const defog_config_t &d_conf)
 {
     j = nlohmann::json{
-        {"defog", {
-                      {"enabled", d_conf.enabled},
-                      {"network", d_conf.network_config},
-                  }},
+        {"defog",
+         {
+             {"enabled", d_conf.enabled},
+             {"network", d_conf.network_config},
+         }},
     };
 }
 
@@ -1061,12 +1076,13 @@ void from_json(const nlohmann::json &j, defog_config_t &d_conf)
 void to_json(nlohmann::json &j, const vsm_config_t &vsm_conf)
 {
     j = nlohmann::json{
-        {"vsm", {
-                    {"vsm_h_size", vsm_conf.vsm_h_size},
-                    {"vsm_h_offset", vsm_conf.vsm_h_offset},
-                    {"vsm_v_size", vsm_conf.vsm_v_size},
-                    {"vsm_v_offset", vsm_conf.vsm_v_offset},
-                }},
+        {"vsm",
+         {
+             {"vsm_h_size", vsm_conf.vsm_h_size},
+             {"vsm_h_offset", vsm_conf.vsm_h_offset},
+             {"vsm_v_size", vsm_conf.vsm_v_size},
+             {"vsm_v_offset", vsm_conf.vsm_v_offset},
+         }},
     };
 }
 
@@ -1084,12 +1100,13 @@ void from_json(const nlohmann::json &j, vsm_config_t &vsm_conf)
 void to_json(nlohmann::json &j, const hdr_config_t &hdr_conf)
 {
     j = nlohmann::json{
-        {"hdr", {
-                    {"enabled", hdr_conf.enabled},
-                    {"dol", hdr_conf.dol},
-                    {"lsRatio", hdr_conf.ls_ratio},
-                    {"vsRatio", hdr_conf.vs_ratio},
-                }},
+        {"hdr",
+         {
+             {"enabled", hdr_conf.enabled},
+             {"dol", hdr_conf.dol},
+             {"lsRatio", hdr_conf.ls_ratio},
+             {"vsRatio", hdr_conf.vs_ratio},
+         }},
     };
 }
 

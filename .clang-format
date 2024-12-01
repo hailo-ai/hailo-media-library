@@ -1,0 +1,4 @@
+BasedOnStyle: Microsoft
+IndentWidth: 4
+SortIncludes: Never
+InsertNewlineAtEOF: true

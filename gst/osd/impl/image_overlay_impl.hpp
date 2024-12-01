@@ -30,16 +30,18 @@ using ImageOverlayImplPtr = std::shared_ptr<ImageOverlayImpl>;
 
 class ImageOverlayImpl : public OverlayImpl
 {
-public:
+  public:
     static tl::expected<ImageOverlayImplPtr, media_library_return> create(const osd::ImageOverlay &overlay);
-    static std::shared_future<tl::expected<ImageOverlayImplPtr, media_library_return>> create_async(const osd::ImageOverlay &overlay);
+    static std::shared_future<tl::expected<ImageOverlayImplPtr, media_library_return>> create_async(
+        const osd::ImageOverlay &overlay);
     ImageOverlayImpl(const osd::ImageOverlay &overlay, media_library_return &status);
     virtual ~ImageOverlayImpl() = default;
 
-    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(int frame_width, int frame_height);
+    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(
+        int frame_width, int frame_height);
 
     virtual std::shared_ptr<osd::Overlay> get_metadata();
 
-protected:
+  protected:
     std::string m_path;
 };

@@ -33,15 +33,17 @@ class TextOverlayImpl;
 using TextOverlayImplPtr = std::shared_ptr<TextOverlayImpl>;
 class TextOverlayImpl : public OverlayImpl
 {
-public:
+  public:
     static tl::expected<TextOverlayImplPtr, media_library_return> create(const osd::TextOverlay &overlay);
-    static std::shared_future<tl::expected<TextOverlayImplPtr, media_library_return>> create_async(const osd::TextOverlay &overlay);
+    static std::shared_future<tl::expected<TextOverlayImplPtr, media_library_return>> create_async(
+        const osd::TextOverlay &overlay);
     TextOverlayImpl(const osd::TextOverlay &overlay, media_library_return &status);
     TextOverlayImpl(const osd::BaseTextOverlay &overlay, media_library_return &status);
     virtual ~TextOverlayImpl() = default;
 
     virtual std::shared_ptr<osd::Overlay> get_metadata();
-    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(int frame_width, int frame_height);
+    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(
+        int frame_width, int frame_height);
     virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> get_dsp_overlays();
 
     virtual bool get_enabled();
@@ -49,7 +51,7 @@ public:
 
     void change_text(const std::string &label);
 
-protected:
+  protected:
     SimpleTextOverlayImplPtr m_foreground_text;
     SimpleTextOverlayImplPtr m_shadow_text;
     BackgroundTextOverlayImplPtr m_background;

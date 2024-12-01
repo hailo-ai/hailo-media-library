@@ -31,8 +31,7 @@ constexpr bool string_not_printf_format(char const *str)
 
     while (str[i] != '\0')
     {
-        if (str[i] == '%' && ((str[i + 1] >= 'a' && str[i + 1] <= 'z') ||
-                              (str[i + 1] >= 'A' && str[i + 1] <= 'Z')))
+        if (str[i] == '%' && ((str[i + 1] >= 'a' && str[i + 1] <= 'z') || (str[i + 1] >= 'A' && str[i + 1] <= 'Z')))
         {
             return false;
         }
@@ -43,16 +42,14 @@ constexpr bool string_not_printf_format(char const *str)
 }
 
 #define EXPAND(x) x
-#define ASSERT_NOT_PRINTF_FORMAT(fmt, ...) \
-    static_assert(                         \
-        string_not_printf_format(fmt),     \
-        "Error - Log string is in printf format and not in fmtlib format!")
+#define ASSERT_NOT_PRINTF_FORMAT(fmt, ...)                                                                             \
+    static_assert(string_not_printf_format(fmt), "Error - Log string is in printf format and not in fmtlib format!")
 
-#define LOGGER_TO_SPDLOG(level, ...)                   \
-    do                                                 \
-    {                                                  \
-        EXPAND(ASSERT_NOT_PRINTF_FORMAT(__VA_ARGS__)); \
-        level(__VA_ARGS__);                            \
+#define LOGGER_TO_SPDLOG(level, ...)                                                                                   \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        EXPAND(ASSERT_NOT_PRINTF_FORMAT(__VA_ARGS__));                                                                 \
+        level(__VA_ARGS__);                                                                                            \
     } while (0) // NOLINT: clang complains about this code never executing
 
 #define LOGGER__TRACE(...) LOGGER_TO_SPDLOG(SPDLOG_TRACE, __VA_ARGS__)

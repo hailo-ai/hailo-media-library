@@ -37,9 +37,9 @@
 
 class MediaLibraryDefog::Impl final
 {
-public:
-    static tl::expected<std::shared_ptr<MediaLibraryDefog::Impl>, media_library_return>
-    create(std::string config_string);
+  public:
+    static tl::expected<std::shared_ptr<MediaLibraryDefog::Impl>, media_library_return> create(
+        std::string config_string);
     // Constructor
     Impl(media_library_return &status, std::string config_string);
     // Destructor
@@ -64,7 +64,7 @@ public:
     // get the enabled config status
     bool is_enabled();
 
-private:
+  private:
     // configured flag - to determine if first configuration was done
     bool m_configured;
     // configuration manager
@@ -75,11 +75,13 @@ private:
     hailort_t m_hailort_configs;
     media_library_return reconfigure();
     media_library_return validate_configurations(defog_config_t &defog_configs, hailort_t &hailort_configs);
-    media_library_return decode_config_json_string(defog_config_t &defog_configs,  hailort_t &hailort_configs, std::string config_string);
+    media_library_return decode_config_json_string(defog_config_t &defog_configs, hailort_t &hailort_configs,
+                                                   std::string config_string);
 };
 
 //------------------------ MediaLibraryDefog ------------------------
-tl::expected<std::shared_ptr<MediaLibraryDefog>, media_library_return> MediaLibraryDefog::create(std::string config_string)
+tl::expected<std::shared_ptr<MediaLibraryDefog>, media_library_return> MediaLibraryDefog::create(
+    std::string config_string)
 {
     auto impl_expected = Impl::create(config_string);
     if (impl_expected.has_value())
@@ -88,7 +90,9 @@ tl::expected<std::shared_ptr<MediaLibraryDefog>, media_library_return> MediaLibr
         return tl::make_unexpected(impl_expected.error());
 }
 
-MediaLibraryDefog::MediaLibraryDefog(std::shared_ptr<MediaLibraryDefog::Impl> impl) : m_impl(impl) {}
+MediaLibraryDefog::MediaLibraryDefog(std::shared_ptr<MediaLibraryDefog::Impl> impl) : m_impl(impl)
+{
+}
 
 MediaLibraryDefog::~MediaLibraryDefog() = default;
 
@@ -119,7 +123,8 @@ bool MediaLibraryDefog::is_enabled()
 
 //------------------------ MediaLibraryDefog::Impl ------------------------
 
-tl::expected<std::shared_ptr<MediaLibraryDefog::Impl>, media_library_return> MediaLibraryDefog::Impl::create(std::string config_string)
+tl::expected<std::shared_ptr<MediaLibraryDefog::Impl>, media_library_return> MediaLibraryDefog::Impl::create(
+    std::string config_string)
 {
     media_library_return status = MEDIA_LIBRARY_UNINITIALIZED;
     std::shared_ptr<MediaLibraryDefog::Impl> defog = std::make_shared<MediaLibraryDefog::Impl>(status, config_string);
@@ -149,15 +154,19 @@ MediaLibraryDefog::Impl::~Impl()
 {
 }
 
-media_library_return MediaLibraryDefog::Impl::decode_config_json_string(defog_config_t &defog_configs, hailort_t &hailort_configs, std::string config_string)
+media_library_return MediaLibraryDefog::Impl::decode_config_json_string(defog_config_t &defog_configs,
+                                                                        hailort_t &hailort_configs,
+                                                                        std::string config_string)
 {
-    media_library_return hailort_status = m_hailort_config_manager->config_string_to_struct<hailort_t>(config_string, hailort_configs);
+    media_library_return hailort_status =
+        m_hailort_config_manager->config_string_to_struct<hailort_t>(config_string, hailort_configs);
     if (hailort_status != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to decode Hailort config from json string: {}", config_string);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-    media_library_return defog_status = m_defog_config_manager->config_string_to_struct<defog_config_t>(config_string, defog_configs);
+    media_library_return defog_status =
+        m_defog_config_manager->config_string_to_struct<defog_config_t>(config_string, defog_configs);
     if (defog_status != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to decode defog config from json string: {}", config_string);
@@ -179,7 +188,8 @@ media_library_return MediaLibraryDefog::Impl::configure(std::string config_strin
     return configure(defog_configs, hailort_configs);
 }
 
-media_library_return MediaLibraryDefog::Impl::validate_configurations(defog_config_t &defog_configs, hailort_t &hailort_configs)
+media_library_return MediaLibraryDefog::Impl::validate_configurations(defog_config_t &defog_configs,
+                                                                      hailort_t &hailort_configs)
 {
     // TODO: add validation
     return MEDIA_LIBRARY_SUCCESS;

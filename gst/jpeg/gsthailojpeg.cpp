@@ -55,25 +55,21 @@ enum
     PROP_USER_CONFIG,
 };
 
-#define _do_init \
-    GST_DEBUG_CATEGORY_INIT(gst_hailojpegenc_debug_category, "hailojpegenc", 0, "hailojpegenc element");
+#define _do_init GST_DEBUG_CATEGORY_INIT(gst_hailojpegenc_debug_category, "hailojpegenc", 0, "hailojpegenc element");
 #define gst_hailo_encoder_parent_class parent_class
 G_DEFINE_TYPE_WITH_CODE(GstHailoJpegEnc, gst_hailojpegenc, GST_TYPE_BIN, _do_init);
 
-GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE("src",
-                                                            GST_PAD_SRC,
-                                                            GST_PAD_ALWAYS,
+GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE("src", GST_PAD_SRC, GST_PAD_ALWAYS,
                                                             GST_STATIC_CAPS("image/jpeg, "
                                                                             "width = (int) [ 1, 65535 ], "
                                                                             "height = (int) [ 1, 65535 ], "
                                                                             "framerate = (fraction) [ 0/1, MAX ], "
                                                                             "sof-marker = (int) { 0, 1, 2, 4, 9 }"));
 
-GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE("sink",
-                                                             GST_PAD_SINK,
-                                                             GST_PAD_ALWAYS,
-                                                             GST_STATIC_CAPS(GST_VIDEO_CAPS_MAKE("{ I420, YV12, YUY2, UYVY, Y41B, Y42B, YVYU, Y444, NV21, "
-                                                                                                 "NV12, RGB, BGR, RGBx, xRGB, BGRx, xBGR, GRAY8 }")));
+GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE(
+    "sink", GST_PAD_SINK, GST_PAD_ALWAYS,
+    GST_STATIC_CAPS(GST_VIDEO_CAPS_MAKE("{ I420, YV12, YUY2, UYVY, Y41B, Y42B, YVYU, Y444, NV21, "
+                                        "NV12, RGB, BGR, RGBx, xRGB, BGRx, xBGR, GRAY8 }")));
 
 static void gst_hailojpegenc_class_init(GstHailoJpegEncClass *klass)
 {
@@ -83,39 +79,42 @@ static void gst_hailojpegenc_class_init(GstHailoJpegEncClass *klass)
     gobject_class->get_property = gst_hailojpegenc_get_property;
     gobject_class->dispose = GST_DEBUG_FUNCPTR(gst_hailojpegenc_dispose);
 
-    g_object_class_install_property(gobject_class, PROP_CONFIG_STRING,
-                                    g_param_spec_string("config-string", "Json config", "Json config as string",
-                                                        NULL, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_CONFIG_STRING,
+        g_param_spec_string("config-string", "Json config", "Json config as string", NULL,
+                            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 
-    g_object_class_install_property(gobject_class, PROP_CONFIG_PATH,
-                                    g_param_spec_string("config-file-path", "Json config path", "Json config as file path",
-                                                        NULL, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_CONFIG_PATH,
+        g_param_spec_string("config-file-path", "Json config path", "Json config as file path", NULL,
+                            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 
-    g_object_class_install_property(gobject_class,
-                                    PROP_MIN_FORCE_KEY_UNIT_INTERVAL,
-                                    g_param_spec_uint64("min-force-key-unit-interval",
-                                                        "Minimum Force Keyunit Interval",
-                                                        "Minimum interval between force-keyunit requests in nanoseconds", 0,
-                                                        G_MAXUINT64, DEFAULT_MIN_FORCE_KEY_UNIT_INTERVAL,
-                                                        (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+    g_object_class_install_property(
+        gobject_class, PROP_MIN_FORCE_KEY_UNIT_INTERVAL,
+        g_param_spec_uint64("min-force-key-unit-interval", "Minimum Force Keyunit Interval",
+                            "Minimum interval between force-keyunit requests in nanoseconds", 0, G_MAXUINT64,
+                            DEFAULT_MIN_FORCE_KEY_UNIT_INTERVAL,
+                            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
 
     g_object_class_install_property(gobject_class, PROP_IDCT_METHOD,
-                                    g_param_spec_enum("idct-method", "IDCT Method",
-                                                      "The IDCT algorithm to use", GST_TYPE_IDCT_METHOD,
-                                                      JPEG_DEFAULT_IDCT_METHOD,
+                                    g_param_spec_enum("idct-method", "IDCT Method", "The IDCT algorithm to use",
+                                                      GST_TYPE_IDCT_METHOD, JPEG_DEFAULT_IDCT_METHOD,
                                                       (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
 
-    g_object_class_install_property(gobject_class, PROP_CONFIG,
-                                    g_param_spec_pointer("config", "Encoder config", "Encoder config as encoder_config_t",
-                                                         (GParamFlags)(G_PARAM_READABLE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_CONFIG,
+        g_param_spec_pointer("config", "Encoder config", "Encoder config as encoder_config_t",
+                             (GParamFlags)(G_PARAM_READABLE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 
-    g_object_class_install_property(gobject_class, PROP_USER_CONFIG,
-                                    g_param_spec_pointer("user-config", "Encoder user config", "Encoder user config, used for setting the encoder configuration",
-                                                         (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_USER_CONFIG,
+        g_param_spec_pointer("user-config", "Encoder user config",
+                             "Encoder user config, used for setting the encoder configuration",
+                             (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 }
 
 void handle_new_config(GstHailoJpegEnc *hailojpegenc, std::optional<jpeg_encoder_config_t> old_encoder_config,
-    jpeg_encoder_config_t new_encoder_config)
+                       jpeg_encoder_config_t new_encoder_config)
 {
     if ((!old_encoder_config))
     {
@@ -158,7 +157,8 @@ void init_config_from_string(GstHailoJpegEnc *hailojpegenc)
     else
     {
         old_encoder_config = std::get<jpeg_encoder_config_t>(*hailojpegenc->encoder_user_config);
-        if (hailojpegenc->encoder_config->configure(hailojpegenc->config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        if (hailojpegenc->encoder_config->configure(hailojpegenc->config) !=
+            media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
             GST_ERROR_OBJECT(hailojpegenc, "Failed to configure encoder");
         }
@@ -168,8 +168,7 @@ void init_config_from_string(GstHailoJpegEnc *hailojpegenc)
     handle_new_config(hailojpegenc, old_encoder_config, new_encoder_config);
 }
 
-static void gst_hailojpegenc_set_property(GObject *object, guint prop_id,
-                                          const GValue *value, GParamSpec *pspec)
+static void gst_hailojpegenc_set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
 {
     GstHailoJpegEnc *hailojpegenc = GST_HAILOJPEGENC(object);
     GST_DEBUG_OBJECT(hailojpegenc, "set_property");
@@ -182,15 +181,13 @@ static void gst_hailojpegenc_set_property(GObject *object, guint prop_id,
 
     switch (prop_id)
     {
-    case PROP_CONFIG_STRING:
-    {
+    case PROP_CONFIG_STRING: {
         hailojpegenc->config = std::string(g_value_get_string(value));
         init_config_from_string(hailojpegenc);
 
         break;
     }
-    case PROP_CONFIG_PATH:
-    {
+    case PROP_CONFIG_PATH: {
         // Why do we need two lines instead of one? Good question!
         // For some odd reason, its not working when we use g_value_get_string directly
         std::string encoder_config_path = std::string(g_value_get_string(value));
@@ -205,8 +202,7 @@ static void gst_hailojpegenc_set_property(GObject *object, guint prop_id,
 
         break;
     }
-    case PROP_USER_CONFIG:
-    {
+    case PROP_USER_CONFIG: {
         encoder_config_t *encoder_config = static_cast<encoder_config_t *>(g_value_get_pointer(value));
 
         auto old_encoder_config = std::get<jpeg_encoder_config_t>(*hailojpegenc->encoder_user_config);
@@ -224,17 +220,16 @@ static void gst_hailojpegenc_set_property(GObject *object, guint prop_id,
 
         break;
     }
-    case PROP_MIN_FORCE_KEY_UNIT_INTERVAL:
-    {
+    case PROP_MIN_FORCE_KEY_UNIT_INTERVAL: {
         hailojpegenc->jpegenc_min_force_key_unit_interval = g_value_get_uint64(value);
         for (auto jpegenc : hailojpegenc->m_jpegencs)
         {
-            g_object_set(jpegenc, "min-force-key-unit-interval", hailojpegenc->jpegenc_min_force_key_unit_interval, NULL);
+            g_object_set(jpegenc, "min-force-key-unit-interval", hailojpegenc->jpegenc_min_force_key_unit_interval,
+                         NULL);
         }
         break;
     }
-    case PROP_IDCT_METHOD:
-    {
+    case PROP_IDCT_METHOD: {
         hailojpegenc->jpeg_idct_method = g_value_get_enum(value);
         for (auto jpegenc : hailojpegenc->m_jpegencs)
         {
@@ -258,32 +253,28 @@ static void gst_hailojpegenc_get_property(GObject *object, guint property_id, GV
 
     switch (property_id)
     {
-    case PROP_CONFIG_STRING:
-    {
+    case PROP_CONFIG_STRING: {
         g_value_set_string(value, hailojpegenc->config.c_str());
         break;
     }
-    case PROP_CONFIG_PATH:
-    {
+    case PROP_CONFIG_PATH: {
         g_value_set_string(value, hailojpegenc->config_path.c_str());
         break;
     }
-    case PROP_MIN_FORCE_KEY_UNIT_INTERVAL:
-    {
+    case PROP_MIN_FORCE_KEY_UNIT_INTERVAL: {
         g_value_set_uint64(value, hailojpegenc->jpegenc_min_force_key_unit_interval);
         break;
     }
-    case PROP_IDCT_METHOD:
-    {
+    case PROP_IDCT_METHOD: {
         g_value_set_enum(value, hailojpegenc->jpeg_idct_method);
         break;
     }
     case PROP_CONFIG:
-    case PROP_USER_CONFIG:
-    {
+    case PROP_USER_CONFIG: {
         if (hailojpegenc->encoder_config)
         {
-            hailojpegenc->encoder_user_config = std::make_shared<encoder_config_t>(hailojpegenc->encoder_config->get_user_config());
+            hailojpegenc->encoder_user_config =
+                std::make_shared<encoder_config_t>(hailojpegenc->encoder_config->get_user_config());
             g_value_set_pointer(value, hailojpegenc->encoder_user_config.get());
         }
         else
@@ -333,7 +324,8 @@ bool link_elements(GstHailoJpegEnc *hailojpegenc)
 {
     for (uint i = 0; i < hailojpegenc->num_of_threads; i++)
     {
-        if (!gst_element_link_many(hailojpegenc->m_roundrobin, hailojpegenc->m_queues[i], hailojpegenc->m_jpegencs[i], hailojpegenc->m_hailoroundrobin, NULL))
+        if (!gst_element_link_many(hailojpegenc->m_roundrobin, hailojpegenc->m_queues[i], hailojpegenc->m_jpegencs[i],
+                                   hailojpegenc->m_hailoroundrobin, NULL))
         {
             GST_ERROR_OBJECT(hailojpegenc, "Could not add link elements in bin");
             return false;
@@ -431,8 +423,7 @@ static void gst_hailojpegenc_init(GstHailoJpegEnc *hailojpegenc)
     init_ghost_src(hailojpegenc);
 }
 
-static void
-gst_hailojpegenc_dispose(GObject *object)
+static void gst_hailojpegenc_dispose(GObject *object)
 {
     G_OBJECT_CLASS(parent_class)->dispose(object);
 }

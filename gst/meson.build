@@ -92,7 +92,8 @@ plugin_sources = [
     'frontend/gsthailofrontend.cpp',
     'frontend/gsthailofrontendbinsrc.cpp',
     'encodebin/gsthailoencodebin.cpp',
-    'upload/gsthailoupload.cpp'
+    'upload/gsthailoupload.cpp',
+    'image_freeze/gsthailoimagefreeze.cpp'
 ]
 
 hailort_inc_dirs = include_directories(

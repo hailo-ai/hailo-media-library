@@ -76,55 +76,57 @@ struct hailo_data_plane_t
 
 struct hailo_buffer_data_t
 {
-    public:
-        /** Number of pixels in each row */
-        size_t width;
-        /** Number of pixels for each column */
-        size_t height;
-        /** Number of planes in the #planes array */
-        size_t planes_count;
-        /** Image format */
-        HailoFormat format;
-        /** Image planes memory type */
-        HailoMemoryType memory;
-        /** Array of planes */
-        std::vector<hailo_data_plane_t> planes;
-        hailo_buffer_data_t(size_t width, size_t height, size_t planes_count, HailoFormat format, HailoMemoryType memory, std::vector<hailo_data_plane_t> data_planes)
-            : width(width), height(height), planes_count(planes_count), format(format), memory(memory)
+  public:
+    /** Number of pixels in each row */
+    size_t width;
+    /** Number of pixels for each column */
+    size_t height;
+    /** Number of planes in the #planes array */
+    size_t planes_count;
+    /** Image format */
+    HailoFormat format;
+    /** Image planes memory type */
+    HailoMemoryType memory;
+    /** Array of planes */
+    std::vector<hailo_data_plane_t> planes;
+    hailo_buffer_data_t(size_t width, size_t height, size_t planes_count, HailoFormat format, HailoMemoryType memory,
+                        std::vector<hailo_data_plane_t> data_planes)
+        : width(width), height(height), planes_count(planes_count), format(format), memory(memory)
+    {
+        planes.reserve(planes_count);
+        for (uint32_t i = 0; i < planes_count; i++)
         {
-            planes.reserve(planes_count);
-            for (uint32_t i = 0; i < planes_count; i++)
-            {
-                planes.emplace_back(std::move(data_planes[i]));
-            }
-            data_planes.clear();
+            planes.emplace_back(std::move(data_planes[i]));
         }
-        // Move constructor
-        hailo_buffer_data_t(hailo_buffer_data_t &&other)
-            : width(std::move(other.width)), height(std::move(other.height)), planes_count(std::move(other.planes_count)), format(std::move(other.format)), memory(std::move(other.memory)), planes(std::move(other.planes))
+        data_planes.clear();
+    }
+    // Move constructor
+    hailo_buffer_data_t(hailo_buffer_data_t &&other)
+        : width(std::move(other.width)), height(std::move(other.height)), planes_count(std::move(other.planes_count)),
+          format(std::move(other.format)), memory(std::move(other.memory)), planes(std::move(other.planes))
+    {
+        other.planes.clear();
+    }
+    // Move assignment
+    hailo_buffer_data_t &operator=(hailo_buffer_data_t &&other) noexcept
+    {
+        if (this != &other)
         {
+            width = std::move(other.width);
+            height = std::move(other.height);
+            planes_count = std::move(other.planes_count);
+            format = std::move(other.format);
+            memory = std::move(other.memory);
+            planes = std::move(other.planes);
             other.planes.clear();
         }
-        // Move assignment
-        hailo_buffer_data_t &operator=(hailo_buffer_data_t &&other) noexcept
-        {
-            if (this != &other)
-            {
-                width = std::move(other.width);
-                height = std::move(other.height);
-                planes_count = std::move(other.planes_count);
-                format = std::move(other.format);
-                memory = std::move(other.memory);
-                planes = std::move(other.planes);
-                other.planes.clear();
-            }
-            return *this;
-        }
-        // Copy constructor - delete
-        hailo_buffer_data_t(const hailo_buffer_data_t &other) = delete;
-        // Copy assignment - delete
-        hailo_buffer_data_t &operator=(const hailo_buffer_data_t &other) = delete;
-        template <typename T> T As() const;
+        return *this;
+    }
+    // Copy constructor - delete
+    hailo_buffer_data_t(const hailo_buffer_data_t &other) = delete;
+    // Copy assignment - delete
+    hailo_buffer_data_t &operator=(const hailo_buffer_data_t &other) = delete;
+    template <typename T> T As() const;
 };
 
 // template <>

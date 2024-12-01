@@ -38,44 +38,47 @@
 #define MIN_FD_RANGE 1024
 
 class DmaMemoryAllocator
-{    
-    private:
-        uint fd_count;
-        int m_dma_heap_fd;
-        bool m_dma_heap_fd_open;
-        std::shared_ptr<std::mutex> m_allocator_mutex;
-        std::unordered_map<void *, dma_heap_allocation_data> m_allocated_buffers;
-        std::unordered_map<void *, dma_heap_allocation_data> m_external_buffers;
-        DmaMemoryAllocator();
-        ~DmaMemoryAllocator();
-        
-        media_library_return dmabuf_fd_open();
-        media_library_return dmabuf_fd_close();
-        media_library_return dmabuf_map(dma_heap_allocation_data &heap_data, void **mapped_memory);
-        media_library_return dmabuf_heap_alloc(dma_heap_allocation_data &heap_data, uint size, uint min_fd_range=MIN_FD_RANGE);
-        media_library_return dmabuf_sync(void *buffer, dma_buf_sync &sync);
-        media_library_return dmabuf_sync(int fd, dma_buf_sync &sync);
-    public:
-        static DmaMemoryAllocator& get_instance()
-        {
-            static DmaMemoryAllocator instance;
-            return instance;
-        }
+{
+  private:
+    uint fd_count;
+    int m_dma_heap_fd;
+    bool m_dma_heap_fd_open;
+    bool m_should_fd_dup;
+    std::shared_ptr<std::mutex> m_allocator_mutex;
+    std::unordered_map<void *, dma_heap_allocation_data> m_allocated_buffers;
+    std::unordered_map<void *, dma_heap_allocation_data> m_external_buffers;
+    DmaMemoryAllocator();
+    ~DmaMemoryAllocator();
 
-        DmaMemoryAllocator(DmaMemoryAllocator const&) = delete;
-        void operator=(DmaMemoryAllocator const&) = delete;
-        void free(void *buffer);
+    media_library_return dmabuf_fd_open();
+    media_library_return dmabuf_fd_close();
+    media_library_return dmabuf_map(dma_heap_allocation_data &heap_data, void **mapped_memory);
+    media_library_return dmabuf_heap_alloc(dma_heap_allocation_data &heap_data, uint size,
+                                           uint min_fd_range = MIN_FD_RANGE);
+    media_library_return dmabuf_sync(void *buffer, dma_buf_sync &sync);
+    media_library_return dmabuf_sync(int fd, dma_buf_sync &sync);
 
-        media_library_return allocate_dma_buffer(uint size, void **buffer);
-        media_library_return free_dma_buffer(void *buffer);
-        media_library_return map_external_dma_buffer(uint size, uint fd, void **buffer);
-        media_library_return unmap_external_dma_buffer(void *buffer);
-        media_library_return dmabuf_sync_start(void *buffer);
-        media_library_return dmabuf_sync_start(int fd);
-        media_library_return dmabuf_sync_end(void *buffer);
-        media_library_return dmabuf_sync_end(int fd);
-        media_library_return get_fd(void *buffer, int& fd, bool include_external = true);
-        media_library_return get_ptr(uint fd, void **buffer, bool include_external = true);
+  public:
+    static DmaMemoryAllocator &get_instance()
+    {
+        static DmaMemoryAllocator instance;
+        return instance;
+    }
+
+    DmaMemoryAllocator(DmaMemoryAllocator const &) = delete;
+    void operator=(DmaMemoryAllocator const &) = delete;
+    void free(void *buffer);
+
+    media_library_return allocate_dma_buffer(uint size, void **buffer);
+    media_library_return free_dma_buffer(void *buffer);
+    media_library_return map_external_dma_buffer(uint size, uint fd, void **buffer);
+    media_library_return unmap_external_dma_buffer(void *buffer);
+    media_library_return dmabuf_sync_start(void *buffer);
+    media_library_return dmabuf_sync_start(int fd);
+    media_library_return dmabuf_sync_end(void *buffer);
+    media_library_return dmabuf_sync_end(int fd);
+    media_library_return get_fd(void *buffer, int &fd, bool include_external = true);
+    media_library_return get_ptr(uint fd, void **buffer, bool include_external = true);
 };
 
 static inline media_library_return destroy_dma_buffer(void *buffer)

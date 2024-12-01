@@ -12,23 +12,23 @@
 #define CONFIG_JSON_FILE_PATH "/home/root/apps/media_lib/resources/vision_config.json"
 static uint expected_index = 0;
 
-static GstElement *create_v4l2_pipeline(std::string video_device, std::string format, guint width, guint height, guint num_buffers)
+static GstElement *create_v4l2_pipeline(std::string video_device, std::string format, guint width, guint height,
+                                        guint num_buffers)
 {
     GstElement *pipeline;
-    gchar *pipe_desc =
-        g_strdup_printf("v4l2src device=%s io-mode=mmap num-buffers=%d ! video/x-raw, format=%s, width=%d, height=%d  ! \
+    gchar *pipe_desc = g_strdup_printf(
+        "v4l2src device=%s io-mode=mmap num-buffers=%d ! video/x-raw, format=%s, width=%d, height=%d  ! \
                         queue max-size-buffers=5 name=queue ! \
                         hailovisionpreproc name=visionpreproc config-file-path=%s ! \
                         fakesink name=fakesink",
-                        video_device.c_str(), num_buffers, format.c_str(), width, height, CONFIG_JSON_FILE_PATH);
+        video_device.c_str(), num_buffers, format.c_str(), width, height, CONFIG_JSON_FILE_PATH);
 
     pipeline = gst_parse_launch(pipe_desc, NULL);
     g_free(pipe_desc);
     return pipeline;
 }
 
-static GstPadProbeReturn
-buffer_callback(GstObject *pad, GstPadProbeInfo *info, gpointer data)
+static GstPadProbeReturn buffer_callback(GstObject *pad, GstPadProbeInfo *info, gpointer data)
 {
     GstBuffer *buffer;
     struct hailo15_vsm vsm;
@@ -37,7 +37,8 @@ buffer_callback(GstObject *pad, GstPadProbeInfo *info, gpointer data)
 
     buffer = GST_PAD_PROBE_INFO_BUFFER(info);
     // Verify buffer contains VSM metadata
-    GstHailoV4l2Meta *meta = reinterpret_cast<GstHailoV4l2Meta *>(gst_buffer_get_meta(buffer, g_type_from_name(HAILO_V4L2_META_API_NAME)));
+    GstHailoV4l2Meta *meta =
+        reinterpret_cast<GstHailoV4l2Meta *>(gst_buffer_get_meta(buffer, g_type_from_name(HAILO_V4L2_META_API_NAME)));
     fail_unless(meta != NULL);
 
     vsm = meta->vsm;
@@ -50,8 +51,7 @@ buffer_callback(GstObject *pad, GstPadProbeInfo *info, gpointer data)
     return GST_PAD_PROBE_OK;
 }
 
-static void
-run_pipeline(GstElement *pipeline, guint timeout_in_seconds)
+static void run_pipeline(GstElement *pipeline, guint timeout_in_seconds)
 {
     GstElement *visionpreproc;
     GstPad *pad;
@@ -69,8 +69,7 @@ run_pipeline(GstElement *pipeline, guint timeout_in_seconds)
     pad = gst_element_get_static_pad(visionpreproc, "sink_0");
 
     probe =
-        gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER,
-                          (GstPadProbeCallback)buffer_callback, visionpreproc, NULL);
+        gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, (GstPadProbeCallback)buffer_callback, visionpreproc, NULL);
 
     state_ret = gst_element_set_state(pipeline, GST_STATE_PLAYING);
     fail_unless(state_ret != GST_STATE_CHANGE_FAILURE);
@@ -164,8 +163,7 @@ GST_END_TEST;
 
 // Suite definition to allow to run a group of test and allow for further control
 // Of what test to run
-static Suite *
-v4l2src_to_visionpreproc_suite(void)
+static Suite *v4l2src_to_visionpreproc_suite(void)
 {
     Suite *s = suite_create("v4l2_to_visionpreproc_pipeline");
     TCase *tc_chain = tcase_create("v4l2_vsm_metadata_test");

@@ -54,8 +54,7 @@ static inline float RADIANS(float deg)
 /// @param val value to be clamped
 /// @param min minimal possible value
 /// @param max maximal possible value
-template <typename val_t>
-static inline val_t clamp(val_t val, val_t min, val_t max)
+template <typename val_t> static inline val_t clamp(val_t val, val_t min, val_t max)
 {
     return std::min(std::max(val, min), max);
 }
@@ -74,34 +73,24 @@ typedef std::array<float, 9> mat3;
 
 static inline vec3 operator*(const mat3 &m, const vec3 &v)
 {
-    return vec3(m[0] * v.x + m[1] * v.y + m[2] * v.z,
-                m[3] * v.x + m[4] * v.y + m[5] * v.z,
+    return vec3(m[0] * v.x + m[1] * v.y + m[2] * v.z, m[3] * v.x + m[4] * v.y + m[5] * v.z,
                 m[6] * v.x + m[7] * v.y + m[8] * v.z);
 }
 static inline vec3 operator*(const mat3 &l, const mat3 &r)
 {
-    return vec3(l[0] * r[0] + l[1] * r[3] + l[2] * r[6],
-                l[3] * r[1] + l[4] * r[4] + l[5] * r[7],
+    return vec3(l[0] * r[0] + l[1] * r[3] + l[2] * r[6], l[3] * r[1] + l[4] * r[4] + l[5] * r[7],
                 l[6] * r[2] + l[7] * r[5] + l[8] * r[8]);
 }
 static inline mat3 transpose(const mat3 &m)
 {
     return mat3{
-        m[0],
-        m[3],
-        m[6],
-        m[1],
-        m[4],
-        m[7],
-        m[2],
-        m[5],
-        m[8],
+        m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8],
     };
 }
 static inline float det(const mat3 &m)
 {
-    return m[0] * m[4] * m[8] - m[0] * m[5] * m[7] + m[1] * m[5] * m[6] -
-           m[1] * m[3] * m[8] + m[2] * m[3] * m[7] - m[2] * m[4] * m[6];
+    return m[0] * m[4] * m[8] - m[0] * m[5] * m[7] + m[1] * m[5] * m[6] - m[1] * m[3] * m[8] + m[2] * m[3] * m[7] -
+           m[2] * m[4] * m[6];
 }
 
 static inline mat3 invert(const mat3 &m)
@@ -109,15 +98,9 @@ static inline mat3 invert(const mat3 &m)
     float D = det(m);
     float invD = 1.0f / D;
     return mat3{
-        (m[4] * m[8] - m[7] * m[5]) * invD,
-        (m[7] * m[2] - m[1] * m[8]) * invD,
-        (m[1] * m[5] - m[4] * m[2]) * invD,
-        (m[6] * m[5] - m[3] * m[8]) * invD,
-        (m[0] * m[8] - m[6] * m[2]) * invD,
-        (m[3] * m[2] - m[0] * m[5]) * invD,
-        (m[3] * m[7] - m[6] * m[4]) * invD,
-        (m[6] * m[1] - m[0] * m[7]) * invD,
-        (m[0] * m[4] - m[3] * m[1]) * invD,
+        (m[4] * m[8] - m[7] * m[5]) * invD, (m[7] * m[2] - m[1] * m[8]) * invD, (m[1] * m[5] - m[4] * m[2]) * invD,
+        (m[6] * m[5] - m[3] * m[8]) * invD, (m[0] * m[8] - m[6] * m[2]) * invD, (m[3] * m[2] - m[0] * m[5]) * invD,
+        (m[3] * m[7] - m[6] * m[4]) * invD, (m[6] * m[1] - m[0] * m[7]) * invD, (m[0] * m[4] - m[3] * m[1]) * invD,
     };
 }
 
@@ -139,7 +122,10 @@ static inline mat2 transpose(const mat2 &m)
 {
     return mat2{m[0], m[2], m[1], m[3]};
 }
-static inline float det(const mat2 &m) { return m[0] * m[3] - m[1] * m[2]; }
+static inline float det(const mat2 &m)
+{
+    return m[0] * m[3] - m[1] * m[2];
+}
 static inline mat2 invert(const mat2 &m)
 {
     float D = det(m);

@@ -37,16 +37,19 @@
 class OverlayImpl;
 using OverlayImplPtr = std::shared_ptr<OverlayImpl>;
 
-mat_dims internal_calculate_text_size(const std::string &label, const std::string &font_path, int font_size, int line_thickness);
+mat_dims internal_calculate_text_size(const std::string &label, const std::string &font_path, int font_size,
+                                      int line_thickness);
 
 class OverlayImpl
 {
-public:
-    OverlayImpl(std::string id, float x, float y, float width, float height, unsigned int z_index, unsigned int angle, osd::rotation_alignment_policy_t rotation_policy, bool enabled,
+  public:
+    OverlayImpl(std::string id, float x, float y, float width, float height, unsigned int z_index, unsigned int angle,
+                osd::rotation_alignment_policy_t rotation_policy, bool enabled,
                 osd::HorizontalAlignment horizontal_alignment, osd::VerticalAlignment vertical_alignment);
     virtual ~OverlayImpl();
 
-    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(int frame_width, int frame_height);
+    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(
+        int frame_width, int frame_height);
     virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> get_dsp_overlays();
 
     bool operator<(const OverlayImpl &other);
@@ -57,17 +60,26 @@ public:
     virtual std::shared_ptr<osd::Overlay> get_metadata() = 0;
     virtual bool get_enabled();
     virtual void set_enabled(bool enabled);
-    std::string get_id() { return m_id; }
+    std::string get_id()
+    {
+        return m_id;
+    }
 
-protected:
-    static tl::expected<std::tuple<int, int>, media_library_return> calc_xy_offsets(std::string id, float x_norm, float y_norm, size_t overlay_width, size_t overlay_height, int image_width, int image_height, int x_drift, int y_drift,
-                                                                                    osd::HorizontalAlignment horizontal_alignment, osd::VerticalAlignment vertical_alignment);
+  protected:
+    static tl::expected<std::tuple<int, int>, media_library_return> calc_xy_offsets(
+        std::string id, float x_norm, float y_norm, size_t overlay_width, size_t overlay_height, int image_width,
+        int image_height, int x_drift, int y_drift, osd::HorizontalAlignment horizontal_alignment,
+        osd::VerticalAlignment vertical_alignment);
     static GstVideoFrame gst_video_frame_from_mat_bgra(cv::Mat mat);
-    static media_library_return convert_2_dma_video_frame(GstVideoFrame *src_frame, GstVideoFrame *dest_frame, GstVideoFormat dest_format);
-    static media_library_return create_gst_video_frame(uint width, uint height, std::string format, GstVideoFrame *frame);
+    static media_library_return convert_2_dma_video_frame(GstVideoFrame *src_frame, GstVideoFrame *dest_frame,
+                                                          GstVideoFormat dest_format);
+    static media_library_return create_gst_video_frame(uint width, uint height, std::string format,
+                                                       GstVideoFrame *frame);
     void free_resources();
-    static media_library_return create_dma_a420_video_frame(uint width, uint height, GstVideoFrame *frame);
+    static media_library_return create_dma_video_frame(uint width, uint height, std::string format,
+                                                       GstVideoFrame *frame);
     static media_library_return end_sync_buffer(GstVideoFrame *frame);
+    static media_library_return start_sync_buffer(GstVideoFrame *frame);
 
     cv::Mat m_image_mat;
     std::vector<GstVideoFrame> m_video_frames;

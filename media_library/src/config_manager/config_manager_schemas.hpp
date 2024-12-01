@@ -26,7 +26,7 @@
 
 namespace config_schemas
 {
-    static nlohmann::json encoder_config_schema = R"(
+static nlohmann::json encoder_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for encoder configuration",
@@ -532,7 +532,7 @@ namespace config_schemas
     "additionalProperties": true
   })"_json;
 
-    static nlohmann::json osd_config_schema = R"(
+static nlohmann::json osd_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for on screen display configuration",
@@ -843,7 +843,7 @@ namespace config_schemas
   }
   )"_json;
 
-    static nlohmann::json multi_resize_config_schema = R"(
+static nlohmann::json multi_resize_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for multi-resize configuration",
@@ -940,16 +940,88 @@ namespace config_schemas
           "magnification",
           "roi"
         ]
+      },
+      "motion_detection": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "roi": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number"
+              },
+              "height": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "x",
+              "y",
+              "width",
+              "height"
+            ]
+          },
+          "resolution": {
+            "type": "object",
+            "properties": {
+              "width": {
+                "type": "number"
+              },
+              "height": {
+                "type": "number"
+              },
+              "framerate": {
+                "type": "number"
+              },
+              "pool_max_buffers": {
+                  "type": "number"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "width",
+              "height",
+              "framerate"
+            ]
+          },
+          "threshold": {
+            "type": "number", 
+            "minimum": 0,
+            "maximum": 1
+          },
+          "sensitivity_level": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "roi",
+          "resolution",
+          "threshold",
+          "sensitivity_level"
+        ]
       }
     },
     "required": [
       "output_video",
-      "digital_zoom"
+      "digital_zoom",
+      "motion_detection"
     ]
   }
   )"_json;
 
-    static nlohmann::json ldc_config_schema = R"(
+static nlohmann::json ldc_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for LDC configuration",
@@ -1111,6 +1183,9 @@ namespace config_schemas
           "enabled": {
             "type": "boolean"
           },
+          "stabilize": {
+            "type": "boolean"
+          },
           "eis_config_path": {
             "type": "string"
           },
@@ -1252,7 +1327,7 @@ namespace config_schemas
   }
   )"_json;
 
-    static nlohmann::json hailort_config_schema = R"(
+static nlohmann::json hailort_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for HailoRT configuration",
@@ -1277,7 +1352,7 @@ namespace config_schemas
   }
   )"_json;
 
-    static nlohmann::json isp_config_schema = R"(
+static nlohmann::json isp_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for ISP configuration",
@@ -1305,7 +1380,7 @@ namespace config_schemas
   }
   )"_json;
 
-    static nlohmann::json hdr_config_schema = R"(
+static nlohmann::json hdr_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for HDR configuration",
@@ -1342,7 +1417,7 @@ namespace config_schemas
   }
   )"_json;
 
-    static nlohmann::json denoise_config_schema = R"(
+static nlohmann::json denoise_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for denoise configuration",
@@ -1416,7 +1491,7 @@ namespace config_schemas
   }
   )"_json;
 
-    static nlohmann::json defog_config_schema = R"(
+static nlohmann::json defog_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for defog configuration",
@@ -1470,7 +1545,7 @@ namespace config_schemas
   }
   )"_json;
 
-    static nlohmann::json vsm_config_schema = R"(
+static nlohmann::json vsm_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for vsm media server configuration",
@@ -1520,7 +1595,7 @@ namespace config_schemas
   }
   )"_json;
 
-    static nlohmann::json input_video_config_schema = R"(
+static nlohmann::json input_video_config_schema = R"(
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Media Library schema for input resolution configuration",

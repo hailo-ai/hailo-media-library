@@ -31,13 +31,8 @@
 DisFileLog disFileLog;
 #endif // LOG_TO_FILE
 
-RetCodes dis_init(void **ctx,
-                  dis_config_t &cfg,
-                  dis_calibration_t calib,
-                  int32_t out_width, int32_t out_height,
-                  camera_type_t camera_type, float camera_fov_factor,
-                  bool is_eis_enabled,
-                  DewarpT *grid)
+RetCodes dis_init(void **ctx, dis_config_t &cfg, dis_calibration_t calib, int32_t out_width, int32_t out_height,
+                  camera_type_t camera_type, float camera_fov_factor, bool is_eis_enabled, DewarpT *grid)
 {
     if (grid == nullptr)
     {
@@ -98,12 +93,8 @@ RetCodes dis_deinit(void **ctx)
     return DIS_OK;
 }
 
-RetCodes dis_generate_grid(void *ctx,
-                           int in_width, int in_height,
-                           float motion_x, float motion_y,
-                           int32_t panning,
-                           FlipMirrorRot flip_mirror_rot,
-                           std::shared_ptr<angular_dis_params_t> angular_dis_params,
+RetCodes dis_generate_grid(void *ctx, int in_width, int in_height, float motion_x, float motion_y, int32_t panning,
+                           FlipMirrorRot flip_mirror_rot, std::shared_ptr<angular_dis_params_t> angular_dis_params,
                            DewarpT *grid)
 {
     if (ctx == nullptr)
@@ -120,16 +111,13 @@ RetCodes dis_generate_grid(void *ctx,
         return ERROR_INPUT_DATA;
     }
 
-    RetCodes ret = dis.generate_grid(vec2{motion_x, motion_y}, panning, flip_mirror_rot,
-                                     angular_dis_params, *grid); // output in grid->mesh_table[]
+    RetCodes ret = dis.generate_grid(vec2{motion_x, motion_y}, panning, flip_mirror_rot, angular_dis_params,
+                                     *grid); // output in grid->mesh_table[]
 
     return ret;
 }
 
-RetCodes dis_dewarp_only_grid(void *ctx,
-                              int in_width, int in_height,
-                              FlipMirrorRot flip_mirror_rot,
-                              DewarpT *grid)
+RetCodes dis_dewarp_only_grid(void *ctx, int in_width, int in_height, FlipMirrorRot flip_mirror_rot, DewarpT *grid)
 {
     if (ctx == nullptr)
         return ERROR_CTX; //*ctx alreay points to something
@@ -150,11 +138,8 @@ RetCodes dis_dewarp_only_grid(void *ctx,
     return DIS_OK;
 }
 
-RetCodes dis_generate_eis_grid(void *ctx,
-                                    FlipMirrorRot flip_mirror_rot,
-                                    cv::Mat &curr_orientation,
-                                    cv::Mat &smooth_orientation,
-                                    DewarpT *grid)
+RetCodes dis_generate_eis_grid(void *ctx, FlipMirrorRot flip_mirror_rot, cv::Mat &curr_orientation,
+                               cv::Mat &smooth_orientation, DewarpT *grid)
 {
     if (ctx == nullptr)
         return ERROR_CTX;
@@ -169,21 +154,18 @@ RetCodes dis_generate_eis_grid(void *ctx,
     return DIS_OK;
 }
 
-RetCodes dis_generate_eis_grid_rolling_shutter(void *ctx,
-                                                FlipMirrorRot flip_mirror_rot,
-                                                const std::vector<cv::Mat> &rolling_shutter_rotations,
-                                                DewarpT *grid)
+RetCodes dis_generate_eis_grid_rolling_shutter(void *ctx, FlipMirrorRot flip_mirror_rot,
+                                               const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT *grid)
 {
-        if (ctx == nullptr)
-            return ERROR_CTX;
-        if (grid == nullptr || grid->mesh_table == nullptr)
-            return ERROR_GRID;
-        DIS &dis = *reinterpret_cast<DIS *>(ctx);
-        if (!dis.initialized)
-            return ERROR_INIT;
+    if (ctx == nullptr)
+        return ERROR_CTX;
+    if (grid == nullptr || grid->mesh_table == nullptr)
+        return ERROR_GRID;
+    DIS &dis = *reinterpret_cast<DIS *>(ctx);
+    if (!dis.initialized)
+        return ERROR_INIT;
 
-        dis.generate_eis_grid_rolling_shutter(flip_mirror_rot, rolling_shutter_rotations, *grid);
+    dis.generate_eis_grid_rolling_shutter(flip_mirror_rot, rolling_shutter_rotations, *grid);
 
-        return DIS_OK;                                     
-    }
-
+    return DIS_OK;
+}

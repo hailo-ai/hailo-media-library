@@ -52,7 +52,7 @@ enum ConfigSchema
 
 class ConfigManager
 {
-public:
+  public:
     /**
      * @brief Constructor for the ConfigManager module
      *
@@ -92,8 +92,7 @@ public:
      * string)
      * @return media_library_return
      */
-    media_library_return
-    validate_configuration(const std::string &user_config_string);
+    media_library_return validate_configuration(const std::string &user_config_string);
 
     /**
      * @brief Validate a json string and populate a configuration struct
@@ -103,8 +102,7 @@ public:
      * @return media_library_return
      */
     template <typename TConf>
-    media_library_return
-    config_string_to_struct(const std::string &user_config_string, TConf &conf);
+    media_library_return config_string_to_struct(const std::string &user_config_string, TConf &conf);
 
     /**
      * @brief Retrieve an entry from an input JSON string
@@ -113,8 +111,7 @@ public:
      * @param[out] entry - the entry name to retrieve
      * @return tl::expected<std::string, media_library_return>
      */
-    static tl::expected<std::string, media_library_return>
-    parse_config(std::string config_string, std::string entry);
+    static tl::expected<std::string, media_library_return> parse_config(std::string config_string, std::string entry);
 
     /**
      * @brief Retrieve the encoder type from an input JSON configuration
@@ -124,7 +121,7 @@ public:
      */
     static EncoderType get_encoder_type(const nlohmann::json &config_json);
 
-private:
+  private:
     class ConfigManagerImpl; // internal implementation class
     std::unique_ptr<ConfigManagerImpl> m_config_manager_impl;
 };

@@ -26,8 +26,10 @@
 #include "media_library/media_library_logger.hpp"
 #include "media_library/threadpool.hpp"
 
-ImageOverlayImpl::ImageOverlayImpl(const osd::ImageOverlay &overlay, media_library_return &status) : OverlayImpl(overlay.id, overlay.x, overlay.y, overlay.width, overlay.height, overlay.z_index, overlay.angle, overlay.rotation_alignment_policy, false, overlay.horizontal_alignment, overlay.vertical_alignment),
-                                                                                                     m_path(overlay.image_path)
+ImageOverlayImpl::ImageOverlayImpl(const osd::ImageOverlay &overlay, media_library_return &status)
+    : OverlayImpl(overlay.id, overlay.x, overlay.y, overlay.width, overlay.height, overlay.z_index, overlay.angle,
+                  overlay.rotation_alignment_policy, false, overlay.horizontal_alignment, overlay.vertical_alignment),
+      m_path(overlay.image_path)
 {
     status = MEDIA_LIBRARY_SUCCESS;
 }
@@ -43,14 +45,14 @@ tl::expected<ImageOverlayImplPtr, media_library_return> ImageOverlayImpl::create
     return osd_overlay;
 }
 
-std::shared_future<tl::expected<ImageOverlayImplPtr, media_library_return>> ImageOverlayImpl::create_async(const osd::ImageOverlay &overlay)
+std::shared_future<tl::expected<ImageOverlayImplPtr, media_library_return>> ImageOverlayImpl::create_async(
+    const osd::ImageOverlay &overlay)
 {
-    return std::async(std::launch::async, [overlay]()
-                      { return create(overlay); })
-        .share();
+    return std::async(std::launch::async, [overlay]() { return create(overlay); }).share();
 }
 
-tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> ImageOverlayImpl::create_dsp_overlays(int frame_width, int frame_height)
+tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> ImageOverlayImpl::create_dsp_overlays(
+    int frame_width, int frame_height)
 {
     if (frame_width == 0 || frame_height == 0)
     {
@@ -78,11 +80,11 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> ImageO
     if (image_mat.channels() != 4)
     {
         LOGGER__INFO("READ IMAGE THAT WAS NOT 4 channels");
-        image_mat = ThreadPool::GetInstance()->invoke([image_mat]()
-                                                      { 
-                                        cv::Mat result_image;
-                                        cv::cvtColor(image_mat, result_image, cv::COLOR_BGR2BGRA);
-                                        return result_image; });
+        image_mat = ThreadPool::GetInstance()->invoke([image_mat]() {
+            cv::Mat result_image;
+            cv::cvtColor(image_mat, result_image, cv::COLOR_BGR2BGRA);
+            return result_image;
+        });
     }
 
     // calculate mat required size, and make sure width and height are even
@@ -92,17 +94,17 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> ImageO
     height += height % 2;
 
     // resize mat
-    m_image_mat = ThreadPool::GetInstance()->invoke([image_mat, width, height]()
-                                                    { 
-                                       
-                                        cv::Mat resized_image;
-                                        cv::resize(image_mat, resized_image, cv::Size(width, height), 0, 0, cv::INTER_AREA); 
-                                        return resized_image; });
+    m_image_mat = ThreadPool::GetInstance()->invoke([image_mat, width, height]() {
+        cv::Mat resized_image;
+        cv::resize(image_mat, resized_image, cv::Size(width, height), 0, 0, cv::INTER_AREA);
+        return resized_image;
+    });
     image_mat.release();
     return OverlayImpl::create_dsp_overlays(frame_width, frame_height);
 }
 
 std::shared_ptr<osd::Overlay> ImageOverlayImpl::get_metadata()
 {
-    return std::make_shared<osd::ImageOverlay>(m_id, m_x, m_y, m_width, m_height, m_path, m_z_index, m_angle, m_rotation_policy);
+    return std::make_shared<osd::ImageOverlay>(m_id, m_x, m_y, m_width, m_height, m_path, m_z_index, m_angle,
+                                               m_rotation_policy);
 }

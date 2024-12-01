@@ -30,6 +30,7 @@
 #include "media_library/privacy_mask.hpp"
 #include <climits>
 #include <functional>
+#include <unordered_map>
 #include <nlohmann/json.hpp>
 #include <tl/expected.hpp>
 
@@ -42,14 +43,15 @@ enum frontend_src_element_t
     FRONTEND_SRC_ELEMENT_MAX = INT_MAX
 };
 
-typedef std::string output_stream_id_t;
+using output_stream_id_t = std::string;
 
 struct frontend_output_stream_t
 {
     output_stream_id_t id;
     uint32_t width;
     uint32_t height;
-    uint32_t framerate;
+    uint32_t target_fps;
+    float current_fps;
 };
 
 /*!
@@ -82,11 +84,11 @@ using MediaLibraryFrontendPtr = std::shared_ptr<MediaLibraryFrontend>;
  */
 class MediaLibraryFrontend
 {
-private:
+  private:
     class Impl;
     std::shared_ptr<Impl> m_impl;
 
-public:
+  public:
     /**
      * @brief Constructor for the frontend module
      *
@@ -103,21 +105,22 @@ public:
      * An expected object that holds either a shared pointer
      *  to an MediaLibraryFrontend object, or a error code.
      */
-    static tl::expected<MediaLibraryFrontendPtr, media_library_return> create(frontend_src_element_t src_element, std::string json_config);
+    static tl::expected<MediaLibraryFrontendPtr, media_library_return> create(frontend_src_element_t src_element,
+                                                                              std::string json_config);
 
     /**
      * @brief get the configuration of the MediaLibraryFrontend module
-     * @return tl::expected<frontend_config_t, media_library_return> 
+     * @return tl::expected<frontend_config_t, media_library_return>
      */
     tl::expected<frontend_config_t, media_library_return> get_config();
 
     /**
      * @brief Set the config object for the MediaLibraryFrontend module
      * @param[in] config - [frontend_config_t] configuration object, obtained from the ``get_config`` function
-     * @return media_library_return 
+     * @return media_library_return
      */
     media_library_return set_config(frontend_config_t config);
-    
+
     /**
      * @brief Start the MediaLibraryFrontend module, the MediaLibraryFrontend
      * module will be ready to receive buffers.
@@ -190,13 +193,27 @@ public:
     tl::expected<std::vector<frontend_output_stream_t>, media_library_return> get_outputs_streams();
 
     /**
-     * @brief Get the current fps of the frontend output
-     * @return float - the current fps of the frontend output
+     * @brief Get the current fps of the frontend outputs by the output ids
+     * @return std::unordered_map<output_stream_id_t, float> - An unordered map of frontend output ids and their
+     * corresponding current fps
      */
-    float get_current_fps();
+    std::unordered_map<output_stream_id_t, float> get_output_streams_current_fps();
 
     /**
      * @brief Destructor for the frontend module
      */
     ~MediaLibraryFrontend() = default;
+
+    /**
+     * @brief Set the freeze state of the frontend
+     *
+     * This function sets the freeze state of the frontend. When the frontend is frozen, the output buffer's image will
+     * be constant and will not change. The first buffer received after the freeze state is set will be the buffer that
+     * will be pushed.
+     *
+     * @param freeze - the freeze state to set
+     * @return media_library_return - status of the set freeze operation
+     *
+     */
+    media_library_return set_freeze(bool freeze);
 };

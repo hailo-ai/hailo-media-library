@@ -7,9 +7,8 @@
 
 G_BEGIN_DECLS
 
-GstBufferPool *
-gst_hailo_dma_create_new_pool(GstDebugCategory *category, GstCaps* caps, guint min_buffers,
-                       guint max_buffers, gsize size, guint padding);
+GstBufferPool *gst_hailo_dma_create_new_pool(GstDebugCategory *category, GstCaps *caps, guint min_buffers,
+                                             guint max_buffers, gsize size, guint padding);
 /**
  * Adds a new hailo buffer pool to the query
  * @param[in] category: Category to use for debug messages
@@ -21,9 +20,8 @@ gst_hailo_dma_create_new_pool(GstDebugCategory *category, GstCaps* caps, guint m
  * @return GstBufferPool
  *
  */
-GstBufferPool *
-gst_hailo_dmabuf_create_new_pool(GstDebugCategory *category, GstQuery *query, guint min_buffers,
-                       guint max_buffers, gsize size);
+GstBufferPool *gst_hailo_dmabuf_create_new_pool(GstDebugCategory *category, GstQuery *query, guint min_buffers,
+                                                guint max_buffers, gsize size);
 
 /**
  * Configures a hailo buffer pool
@@ -37,9 +35,8 @@ gst_hailo_dmabuf_create_new_pool(GstDebugCategory *category, GstQuery *query, gu
  * @return boolean - pool was successfully configured
  *
  */
-gboolean
-gst_hailo_dmabuf_configure_pool(GstDebugCategory *category, GstBufferPool *pool,
-                         GstCaps *caps, gsize size, guint min_buffers, guint max_buffers);
+gboolean gst_hailo_dmabuf_configure_pool(GstDebugCategory *category, GstBufferPool *pool, GstCaps *caps, gsize size,
+                                         guint min_buffers, guint max_buffers);
 
 /**
  * Checks if the pool is a hailo pool
@@ -48,8 +45,7 @@ gst_hailo_dmabuf_configure_pool(GstDebugCategory *category, GstBufferPool *pool,
  * @return boolean - pool is a hailo pool
  *
  */
-gboolean
-gst_is_hailo_dmabuf_pool_type(GstBufferPool *pool);
+gboolean gst_is_hailo_dmabuf_pool_type(GstBufferPool *pool);
 
 /**
  * Creates a hailo bufferpool from an allocation query, configure it, activate, and add it to the query
@@ -59,8 +55,11 @@ gst_is_hailo_dmabuf_pool_type(GstBufferPool *pool);
  * @return GstBufferPool
  */
 GstBufferPool *
-// gst_create_hailo_dma_bufferpool_from_allocation_query(GstElement *element, GstQuery *query, guint bufferpool_min_size, guint bufferpool_max_size, guint padding);
-gst_create_hailo_dma_bufferpool_from_allocation_query(GstElement *element, GstQuery *query, guint bufferpool_min_size, guint bufferpool_max_size);
-GstBufferPool * gst_create_hailo_dma_bufferpool_from_caps(GstElement *element, GstCaps* caps, guint bufferpool_min_size, guint bufferpool_max_size);
+// gst_create_hailo_dma_bufferpool_from_allocation_query(GstElement *element, GstQuery *query, guint
+// bufferpool_min_size, guint bufferpool_max_size, guint padding);
+gst_create_hailo_dma_bufferpool_from_allocation_query(GstElement *element, GstQuery *query, guint bufferpool_min_size,
+                                                      guint bufferpool_max_size);
+GstBufferPool *gst_create_hailo_dma_bufferpool_from_caps(GstElement *element, GstCaps *caps, guint bufferpool_min_size,
+                                                         guint bufferpool_max_size);
 
 G_END_DECLS

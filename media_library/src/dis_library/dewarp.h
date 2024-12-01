@@ -85,8 +85,8 @@ extern "C"
     /// @param input Input YUV buffer pointer
     /// @param output Output YUV buffer pointer
     /// @param color_int_mode Color interpolation mode to use
-    void dewarp_process(DewarpT *dewarp, void *data_memory0, void *data_memory1,
-                        BufT *input, BufT *output, int color_int_mode);
+    void dewarp_process(DewarpT *dewarp, void *data_memory0, void *data_memory1, BufT *input, BufT *output,
+                        int color_int_mode);
 
     /// @param data_memory0 Temp DRAM0 memory pointer
     /// @param data_memory1 Temp DRAM1 memory pointer
@@ -97,12 +97,9 @@ extern "C"
     /// @param input Input YUV buffer pointer
     /// @param cropped Cropped YUV buffers pointer
     /// @param color_int_mode Color interpolation mode to use
-    void crop_and_resize_process(void *data_memory0, void *data_memory1,
-                                 int crop_width, int crop_height,
-                                 int crop_up_left_x, int crop_up_left_y,
-                                 BufT *input,
-                                 BufT *cropped[CROP_AND_RESIZE_OUTPUTS_COUNT],
-                                 int color_int_mode);
+    void crop_and_resize_process(void *data_memory0, void *data_memory1, int crop_width, int crop_height,
+                                 int crop_up_left_x, int crop_up_left_y, BufT *input,
+                                 BufT *cropped[CROP_AND_RESIZE_OUTPUTS_COUNT], int color_int_mode);
 
     /// dewarp_required_mem()
     ///

@@ -65,23 +65,25 @@ struct encoder_preset_t
 
 class EncoderConfigPresets
 {
-public:
+  public:
     static EncoderConfigPresets &get_instance()
     {
         static EncoderConfigPresets instance;
         return instance;
     }
 
-    tl::expected<encoder_preset_t, media_library_return> get_preset(preset_mode_t preset_mode, codec_t codec, uint32_t width,
-               uint32_t height, uint32_t bitrate, rc_mode_t rc_mode) const;
+    tl::expected<encoder_preset_t, media_library_return> get_preset(preset_mode_t preset_mode, codec_t codec,
+                                                                    uint32_t width, uint32_t height, uint32_t bitrate,
+                                                                    rc_mode_t rc_mode) const;
     media_library_return apply_preset(hailo_encoder_config_t &config) const;
 
-private:
+  private:
     EncoderConfigPresets();
     void load_presets();
-    void apply_bit_var_range(hailo_encoder_config_t &config, const encoder_preset_t &preset, uint32_t preset_bit_var_range) const;
+    void apply_bit_var_range(hailo_encoder_config_t &config, const encoder_preset_t &preset,
+                             uint32_t preset_bit_var_range) const;
     media_library_return apply_tolerance_moving_bitrate(hailo_encoder_config_t &config, const encoder_preset_t &preset,
-        uint32_t preset_tolerance_moving_bitrate) const;
+                                                        uint32_t preset_tolerance_moving_bitrate) const;
     media_library_return apply_padding(hailo_encoder_config_t &config, const encoder_preset_t &preset) const;
     void apply_hrd_cpb_size(hailo_encoder_config_t &config, const encoder_preset_t &preset) const;
     void apply_variation(hailo_encoder_config_t &config, const encoder_preset_t &preset) const;

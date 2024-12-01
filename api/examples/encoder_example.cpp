@@ -53,8 +53,7 @@ std::string read_string_from_file(const char *file_path)
         std::cout << "Trying Read config from file: " << file_path << std::endl;
         throw std::runtime_error("config path is not valid");
     }
-    std::string file_string((std::istreambuf_iterator<char>(file_to_read)),
-                            std::istreambuf_iterator<char>());
+    std::string file_string((std::istreambuf_iterator<char>(file_to_read)), std::istreambuf_iterator<char>());
     file_to_read.close();
     std::cout << "Read config from file: " << file_path << std::endl;
     return file_string;
@@ -93,10 +92,9 @@ void subscribe_elements(std::shared_ptr<MediaLibrary> media_lib)
         output_stream_id_t streamId = entry.first;
         MediaLibraryEncoderPtr encoder = entry.second;
         std::cout << "Subscribing to encoder for '" << streamId << "'" << std::endl;
-        media_lib->encoders[streamId]->subscribe(
-            [streamId, media_lib](HailoMediaLibraryBufferPtr buffer, size_t size) {
-                write_encoded_data(buffer, size, media_lib->output_files[streamId]);
-            });
+        media_lib->encoders[streamId]->subscribe([streamId, media_lib](HailoMediaLibraryBufferPtr buffer, size_t size) {
+            write_encoded_data(buffer, size, media_lib->output_files[streamId]);
+        });
     }
 }
 
@@ -108,12 +106,15 @@ int update_encoders_bitrate(std::map<output_stream_id_t, MediaLibraryEncoderPtr>
     for (const auto &entry : encoders)
     {
         encoder_config_t encoder_config = entry.second->get_user_config();
-        if (std::holds_alternative<jpeg_encoder_config_t>(encoder_config)) {
+        if (std::holds_alternative<jpeg_encoder_config_t>(encoder_config))
+        {
             continue;
         }
 
         hailo_encoder_config_t &hailo_encoder_config = std::get<hailo_encoder_config_t>(encoder_config);
-        std::cout << "Encoder " << enc_i << " current bitrate: " << hailo_encoder_config.rate_control.bitrate.target_bitrate << " Setting to "  << new_bitrate << std::endl;
+        std::cout << "Encoder " << enc_i
+                  << " current bitrate: " << hailo_encoder_config.rate_control.bitrate.target_bitrate << " Setting to "
+                  << new_bitrate << std::endl;
         hailo_encoder_config.rate_control.bitrate.target_bitrate = new_bitrate;
         if (entry.second->configure(encoder_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
@@ -219,14 +220,14 @@ int main(int argc, char *argv[])
 
         std::this_thread::sleep_for(std::chrono::seconds(2));
 
-        if(force_keyframe(media_lib->encoders) != 0)
+        if (force_keyframe(media_lib->encoders) != 0)
         {
             goto cleanup_exit;
         }
 
         std::this_thread::sleep_for(std::chrono::seconds(2));
 
-        if(update_encoders_bitrate(media_lib->encoders) != 0)
+        if (update_encoders_bitrate(media_lib->encoders) != 0)
         {
             goto cleanup_exit;
         }

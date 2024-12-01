@@ -41,18 +41,18 @@
 
 #define INT_TO_16_16(x) (static_cast<FT_Fixed>((x) << 16))
 
-SimpleTextOverlayImpl::SimpleTextOverlayImpl(const osd::BaseTextOverlay &overlay,
-                                             cv::Size2f extra_size,
-                                             cv::Point2f text_position,
-                                             media_library_return &status)
+SimpleTextOverlayImpl::SimpleTextOverlayImpl(const osd::BaseTextOverlay &overlay, cv::Size2f extra_size,
+                                             cv::Point2f text_position, media_library_return &status)
     : OverlayImpl(overlay.id, overlay.x, overlay.y, 0, 0, overlay.z_index, overlay.angle,
                   overlay.rotation_alignment_policy, true, overlay.horizontal_alignment, overlay.vertical_alignment),
-      m_label(""),
-      m_rgba_text_color{(double)overlay.text_color.red, (double)overlay.text_color.green, (double)overlay.text_color.blue, (double)overlay.text_color.alpha},
-      m_rgba_outline_color{(double)overlay.outline_color.red, (double)overlay.outline_color.green, (double)overlay.outline_color.blue, (double)overlay.outline_color.alpha},
-      m_font_path(overlay.font_path), m_font_size(overlay.font_size), m_outline_size(overlay.outline_size), m_font_weight(overlay.font_weight),
-      m_extra_size(extra_size), m_text_position(text_position), m_first_glyph_left_bearing(0),
-      m_hb_font(nullptr, hb_font_destroy), m_hb_buffer(nullptr, hb_buffer_destroy), m_ft_library(nullptr, FT_Done_FreeType), m_ft_face(nullptr, FT_Done_Face), m_ft_stroker(nullptr, FT_Stroker_Done)
+      m_label(""), m_rgba_text_color{(double)overlay.text_color.red, (double)overlay.text_color.green,
+                                     (double)overlay.text_color.blue, (double)overlay.text_color.alpha},
+      m_rgba_outline_color{(double)overlay.outline_color.red, (double)overlay.outline_color.green,
+                           (double)overlay.outline_color.blue, (double)overlay.outline_color.alpha},
+      m_font_path(overlay.font_path), m_font_size(overlay.font_size), m_outline_size(overlay.outline_size),
+      m_font_weight(overlay.font_weight), m_extra_size(extra_size), m_text_position(text_position),
+      m_first_glyph_left_bearing(0), m_hb_font(nullptr, hb_font_destroy), m_hb_buffer(nullptr, hb_buffer_destroy),
+      m_ft_library(nullptr, FT_Done_FreeType), m_ft_face(nullptr, FT_Done_Face), m_ft_stroker(nullptr, FT_Stroker_Done)
 {
     if (!cv::utils::fs::exists(m_font_path))
     {
@@ -107,14 +107,16 @@ SimpleTextOverlayImpl::SimpleTextOverlayImpl(const osd::BaseTextOverlay &overlay
             return;
         }
         m_ft_stroker.reset(stroker);
-        
-        FT_Stroker_Set(m_ft_stroker.get(), INT_TO_26_6(m_outline_size), FT_STROKER_LINECAP_ROUND, FT_STROKER_LINEJOIN_ROUND, 0);
+
+        FT_Stroker_Set(m_ft_stroker.get(), INT_TO_26_6(m_outline_size), FT_STROKER_LINECAP_ROUND,
+                       FT_STROKER_LINEJOIN_ROUND, 0);
     }
 
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
-tl::expected<SimpleTextOverlayImplPtr, media_library_return> SimpleTextOverlayImpl::create(const osd::BaseTextOverlay &overlay, cv::Size2f extra_size, cv::Point2f text_position)
+tl::expected<SimpleTextOverlayImplPtr, media_library_return> SimpleTextOverlayImpl::create(
+    const osd::BaseTextOverlay &overlay, cv::Size2f extra_size, cv::Point2f text_position)
 {
     media_library_return status = MEDIA_LIBRARY_UNINITIALIZED;
     auto osd_overlay = std::make_shared<SimpleTextOverlayImpl>(overlay, extra_size, text_position, status);
@@ -131,7 +133,8 @@ std::shared_ptr<osd::Overlay> SimpleTextOverlayImpl::get_metadata()
     return nullptr;
 }
 
-tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> SimpleTextOverlayImpl::create_dsp_overlays(int frame_width, int frame_height)
+tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> SimpleTextOverlayImpl::create_dsp_overlays(
+    int frame_width, int frame_height)
 {
     // If label is empty, display nothing
     if (m_label == "")
@@ -161,7 +164,8 @@ media_library_return SimpleTextOverlayImpl::create_text_m_mat(int frame_width, i
 
     /* Calculate text position by adjusting according to m_text_position */
     auto text_position_offset = cv::Point(m_text_position.x * frame_width, m_text_position.y * frame_height);
-    auto text_position = cv::Point(0, text_size.height - baseline - m_extra_size.height * frame_height) + text_position_offset;
+    auto text_position =
+        cv::Point(0, text_size.height - baseline - m_extra_size.height * frame_height) + text_position_offset;
 
     // init the matrix with transparent background (alpha channel = 0)
     m_image_mat = cv::Mat(text_size, CV_8UC4, cv::Scalar{-1, -1, -1, 0});
@@ -178,7 +182,8 @@ media_library_return SimpleTextOverlayImpl::create_text_m_mat(int frame_width, i
 }
 
 // this function was refactored from OpenCV's freetype.cpp: getTextSize()
-tl::expected<size_baseline, media_library_return> SimpleTextOverlayImpl::get_text_size_baseline(int frame_width, int frame_height)
+tl::expected<size_baseline, media_library_return> SimpleTextOverlayImpl::get_text_size_baseline(int frame_width,
+                                                                                                int frame_height)
 {
     FT_Error ret = FT_Set_Pixel_Sizes(m_ft_face.get(), m_font_size, m_font_size);
     if (ret)
@@ -225,7 +230,7 @@ tl::expected<size_baseline, media_library_return> SimpleTextOverlayImpl::get_tex
         {
             FT_GlyphSlot_Embolden(m_ft_face->glyph);
         }
-        
+
         if (i == 0)
         {
             m_first_glyph_left_bearing = m_ft_face->glyph->metrics.horiBearingX;
@@ -234,7 +239,7 @@ tl::expected<size_baseline, media_library_return> SimpleTextOverlayImpl::get_tex
         FT_Outline outline = m_ft_face->glyph->outline;
 
         // Flip ( in FreeType coordinates )
-        FT_Matrix mtx = { INT_TO_16_16(1), INT_TO_16_16(0), INT_TO_16_16(0), -INT_TO_16_16(1) };
+        FT_Matrix mtx = {INT_TO_16_16(1), INT_TO_16_16(0), INT_TO_16_16(0), -INT_TO_16_16(1)};
         FT_Outline_Transform(&outline, &mtx);
 
         // Move to current position ( in FreeType coordinates )
@@ -398,7 +403,7 @@ void SimpleTextOverlayImpl::put_glyph(cv::Mat dst, FT_Bitmap *bmp, cv::Point gly
         {
             continue;
         }
-        
+
         // finish if we've passed bottom edge
         if (glyph_position.y + row >= dst.rows)
         {
@@ -417,10 +422,10 @@ void SimpleTextOverlayImpl::put_glyph(cv::Mat dst, FT_Bitmap *bmp, cv::Point gly
             cv::Vec4b *ptr = dst.ptr<cv::Vec4b>(glyph_position.y + row, glyph_position.x + col);
 
             /* Color is RGBA, OpenCV matrix is BGRA */
-            (*ptr)[0] = (uint8_t)(color[2] * alpha + (*ptr)[0] * (1.0f - alpha));  // Blue
-            (*ptr)[1] = (uint8_t)(color[1] * alpha + (*ptr)[1] * (1.0f - alpha));  // Green
-            (*ptr)[2] = (uint8_t)(color[0] * alpha + (*ptr)[2] * (1.0f - alpha));  // Red
-            (*ptr)[3] = (uint8_t)(color[3] * alpha + (*ptr)[3] * (1.0f - alpha));  // Alpha
+            (*ptr)[0] = (uint8_t)(color[2] * alpha + (*ptr)[0] * (1.0f - alpha)); // Blue
+            (*ptr)[1] = (uint8_t)(color[1] * alpha + (*ptr)[1] * (1.0f - alpha)); // Green
+            (*ptr)[2] = (uint8_t)(color[0] * alpha + (*ptr)[2] * (1.0f - alpha)); // Red
+            (*ptr)[3] = (uint8_t)(color[3] * alpha + (*ptr)[3] * (1.0f - alpha)); // Alpha
         }
     }
 }

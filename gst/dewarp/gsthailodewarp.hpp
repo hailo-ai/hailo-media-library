@@ -38,16 +38,11 @@
 G_BEGIN_DECLS
 
 // Define HailoDewarp type
-#define GST_TYPE_HAILO_DEWARP \
-  (gst_hailo_dewarp_get_type())
-#define GST_HAILO_DEWARP(obj) \
-  (G_TYPE_CHECK_INSTANCE_CAST((obj), GST_TYPE_HAILO_DEWARP, GstHailoDewarp))
-#define GST_HAILO_DEWARP_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_CAST((klass), GST_TYPE_HAILO_DEWARP, GstHailoDewarpClass))
-#define GST_IS_HAILO_DEWARP(obj) \
-  (G_TYPE_CHECK_INSTANCE_TYPE((obj), GST_TYPE_HAILO_DEWARP))
-#define GST_IS_HAILO_DEWARP_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILO_DEWARP))
+#define GST_TYPE_HAILO_DEWARP (gst_hailo_dewarp_get_type())
+#define GST_HAILO_DEWARP(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), GST_TYPE_HAILO_DEWARP, GstHailoDewarp))
+#define GST_HAILO_DEWARP_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST((klass), GST_TYPE_HAILO_DEWARP, GstHailoDewarpClass))
+#define GST_IS_HAILO_DEWARP(obj) (G_TYPE_CHECK_INSTANCE_TYPE((obj), GST_TYPE_HAILO_DEWARP))
+#define GST_IS_HAILO_DEWARP_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILO_DEWARP))
 #define GST_HAILO_DEWARP_CAST(obj) ((GstHailoDewarp *)(obj))
 
 typedef struct _GstHailoDewarp GstHailoDewarp;
@@ -55,20 +50,20 @@ typedef struct _GstHailoDewarpClass GstHailoDewarpClass;
 
 struct _GstHailoDewarp
 {
-  GstElement element;
+    GstElement element;
 
-  GstPad *sinkpad;
-  GstPad *srcpad;
-  gchar *config_file_path;
-  gchar * config_string;
+    GstPad *sinkpad;
+    GstPad *srcpad;
+    gchar *config_file_path;
+    gchar *config_string;
 
-  std::shared_ptr<ldc_config_t> dewarp_config;
-  std::shared_ptr<MediaLibraryDewarp> medialib_dewarp;
+    std::shared_ptr<ldc_config_t> dewarp_config;
+    std::shared_ptr<MediaLibraryDewarp> medialib_dewarp;
 };
 
 struct _GstHailoDewarpClass
 {
-  GstElementClass parent_class;
+    GstElementClass parent_class;
 };
 
 G_GNUC_INTERNAL GType gst_hailo_dewarp_get_type(void);

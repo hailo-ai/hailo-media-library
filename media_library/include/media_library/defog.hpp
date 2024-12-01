@@ -43,73 +43,73 @@ using MediaLibraryDefogPtr = std::shared_ptr<MediaLibraryDefog>;
 
 class MediaLibraryDefog
 {
-protected:
-  class Impl;
-  std::shared_ptr<Impl> m_impl;
+  protected:
+    class Impl;
+    std::shared_ptr<Impl> m_impl;
 
-public:
-  /**
-   * @brief Create the defog module
-   *
-   * @param[in] config_string - json configuration string
-   * @return tl::expected<MediaLibraryDefogPtr, media_library_return> -
-   * An expected object that holds either a shared pointer
-   * to an MediaLibraryDefog object, or a error code.
-   */
-  static tl::expected<std::shared_ptr<MediaLibraryDefog>, media_library_return> create(std::string config_string);
+  public:
+    /**
+     * @brief Create the defog module
+     *
+     * @param[in] config_string - json configuration string
+     * @return tl::expected<MediaLibraryDefogPtr, media_library_return> -
+     * An expected object that holds either a shared pointer
+     * to an MediaLibraryDefog object, or a error code.
+     */
+    static tl::expected<std::shared_ptr<MediaLibraryDefog>, media_library_return> create(std::string config_string);
 
-  /**
-   * @brief Constructor for the defog module
-   *
-   * @param[in] impl - shared pointer to the implementation object
-   * @note This constructor is used internally by the create function.
-   */
-  MediaLibraryDefog(std::shared_ptr<MediaLibraryDefog::Impl> impl);
+    /**
+     * @brief Constructor for the defog module
+     *
+     * @param[in] impl - shared pointer to the implementation object
+     * @note This constructor is used internally by the create function.
+     */
+    MediaLibraryDefog(std::shared_ptr<MediaLibraryDefog::Impl> impl);
 
-  /**
-   * @brief Destructor for the defog module
-   */
-  ~MediaLibraryDefog();
+    /**
+     * @brief Destructor for the defog module
+     */
+    ~MediaLibraryDefog();
 
-  /**
-   * @brief Configure the defog module with new json string
-   *
-   * Read the json string and decode it to create the defog_config_t object
-   * @param[in] config_string - configuration json as string
-   * @return media_library_return - status of the configuration operation
-   */
-  media_library_return configure(std::string config_string);
+    /**
+     * @brief Configure the defog module with new json string
+     *
+     * Read the json string and decode it to create the defog_config_t object
+     * @param[in] config_string - configuration json as string
+     * @return media_library_return - status of the configuration operation
+     */
+    media_library_return configure(std::string config_string);
 
-  /**
-   * @brief Configure the defog module with defog_config_t object
-   *
-   * Update the defog_config_t object
-   * @param[in] defog_config_t - defog_config_t object
-   * @param[in] hailort_t - hailort_t object
-   * @return media_library_return - status of the configuration operation
-   */
-  media_library_return configure(defog_config_t &defog_configs, hailort_t &hailort_configs);
+    /**
+     * @brief Configure the defog module with defog_config_t object
+     *
+     * Update the defog_config_t object
+     * @param[in] defog_config_t - defog_config_t object
+     * @param[in] hailort_t - hailort_t object
+     * @return media_library_return - status of the configuration operation
+     */
+    media_library_return configure(defog_config_t &defog_configs, hailort_t &hailort_configs);
 
-  /**
-   * @brief get the defog configurations object
-   *
-   * @return defog_config_t - defog configurations
-   */
-  defog_config_t &get_defog_configs();
+    /**
+     * @brief get the defog configurations object
+     *
+     * @return defog_config_t - defog configurations
+     */
+    defog_config_t &get_defog_configs();
 
-  /**
-   * @brief get the hailort configurations object
-   *
-   * @return hailort_t - hailort configurations
-   */
-  hailort_t &get_hailort_configs();
+    /**
+     * @brief get the hailort configurations object
+     *
+     * @return hailort_t - hailort configurations
+     */
+    hailort_t &get_hailort_configs();
 
-  /**
-   * @brief check enabled flag
-   *
-   * @return bool - enabled config flag
-   */
-  bool is_enabled();
+    /**
+     * @brief check enabled flag
+     *
+     * @return bool - enabled config flag
+     */
+    bool is_enabled();
 };
 
 /** @} */ // end of defog_type_definitions

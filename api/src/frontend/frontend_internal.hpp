@@ -10,8 +10,9 @@
 
 class MediaLibraryFrontend::Impl final
 {
-public:
-    static tl::expected<std::shared_ptr<MediaLibraryFrontend::Impl>, media_library_return> create(frontend_src_element_t src_element, std::string json_config);
+  public:
+    static tl::expected<std::shared_ptr<MediaLibraryFrontend::Impl>, media_library_return> create(
+        frontend_src_element_t src_element, std::string json_config);
 
     ~Impl();
     Impl(frontend_src_element_t src_element, std::string json_config, media_library_return &status);
@@ -25,24 +26,19 @@ public:
     media_library_return configure(frontend_config_t config);
     tl::expected<GstElement *, media_library_return> get_frontend_element();
     tl::expected<frontend_config_t, media_library_return> get_config();
-
+    media_library_return set_freeze(bool freeze);
     void on_need_data(GstAppSrc *appsrc, guint size);
     void on_enough_data(GstAppSrc *appsrc);
     GstFlowReturn on_new_sample(output_stream_id_t id, GstAppSink *appsink);
     void on_fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps);
 
     PrivacyMaskBlenderPtr get_privacy_mask_blender();
-    float get_current_fps();
+    std::unordered_map<output_stream_id_t, float> get_output_streams_current_fps();
 
-private:
-    static void fps_measurement(GstElement *fpssink, gdouble fps,
-                                gdouble droprate, gdouble avgfps,
-                                gpointer user_data)
-    {
-        MediaLibraryFrontend::Impl *fe = static_cast<MediaLibraryFrontend::Impl *>(user_data);
-        fe->on_fps_measurement(fpssink, fps, droprate, avgfps);
-        fe->update_fps(fps);
-    }
+  private:
+    static void fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps,
+                                frontend_output_stream_t *output_stream);
+
     static void need_data(GstAppSrc *appsrc, guint size, gpointer user_data)
     {
         MediaLibraryFrontend::Impl *fe = static_cast<MediaLibraryFrontend::Impl *>(user_data);
@@ -61,12 +57,10 @@ private:
         g_free(name);
         return ret;
     }
-    void update_fps(gdouble fps) {
-        m_current_fps = static_cast<float>(fps);
-    }
 
-    void set_gst_callbacks();
+    bool set_gst_callbacks();
     std::string create_pipeline_string();
+    bool create_output_streams();
 
     frontend_src_element_t m_src_element;
     std::string m_config_str;
@@ -76,7 +70,6 @@ private:
     GstElement *m_pipeline;
     std::map<output_stream_id_t, std::vector<FrontendWrapperCallback>> m_callbacks;
     PrivacyMaskBlenderPtr m_privacy_blender;
-    float m_current_fps;
     GstAppSrc *m_appsrc;
     GstCaps *m_appsrc_caps;
     GMainLoop *m_main_loop;

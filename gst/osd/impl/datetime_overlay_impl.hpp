@@ -30,19 +30,21 @@ using DateTimeOverlayImplPtr = std::shared_ptr<DateTimeOverlayImpl>;
 
 class DateTimeOverlayImpl : public TextOverlayImpl
 {
-public:
+  public:
     static tl::expected<DateTimeOverlayImplPtr, media_library_return> create(const osd::DateTimeOverlay &overlay);
-    static std::shared_future<tl::expected<DateTimeOverlayImplPtr, media_library_return>> create_async(const osd::DateTimeOverlay &overlay);
+    static std::shared_future<tl::expected<DateTimeOverlayImplPtr, media_library_return>> create_async(
+        const osd::DateTimeOverlay &overlay);
     DateTimeOverlayImpl(const osd::DateTimeOverlay &overlay, media_library_return &status);
     virtual ~DateTimeOverlayImpl() = default;
 
     virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> get_dsp_overlays();
-    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(int frame_width, int frame_height);
+    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(
+        int frame_width, int frame_height);
     virtual std::shared_ptr<osd::Overlay> get_metadata();
 
     std::string select_chars_for_timestamp(std::string datetime_format);
 
-private:
+  private:
     int m_frame_width;
     int m_frame_height;
     std::string m_datetime_format;

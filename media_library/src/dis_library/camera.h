@@ -52,7 +52,10 @@ struct Camera
     std::array<float, 4> ltrb;
     std::array<float, 4> diag_ltrb;
 
-    void set_ltrb(std::array<float, 4> ltrb_) { ltrb = ltrb_; }
+    void set_ltrb(std::array<float, 4> ltrb_)
+    {
+        ltrb = ltrb_;
+    }
 
     /// @brief Projects 3D ray in camera coordinate system onto the camera
     /// sensor. Inverse of point2ray().
@@ -64,13 +67,13 @@ struct Camera
     /// @param pt point on camera sensor
     virtual vec3 point2ray(const vec2 &pt) const = 0;
 
-    virtual ~Camera(){};
+    virtual ~Camera() {};
 };
 
 /// PinHole Camera Model
 struct PinHole : Camera
 {
-    PinHole(){};
+    PinHole() {};
     PinHole(float flen_, vec2 oc_, ivec2 res_)
     {
         flen = flen_;
@@ -115,7 +118,10 @@ struct FishEye : Camera
     static constexpr float inv_theta_step = 1.f / theta_step;
     float theta2r[theta2r_size];
 
-    FishEye() { std::fill_n(theta2r, theta2r_size, 0.f); };
+    FishEye()
+    {
+        std::fill_n(theta2r, theta2r_size, 0.f);
+    };
     FishEye(vec2 oc_, ivec2 res_, float (&theta2r_)[theta2r_size])
     {
         init(oc_, res_, theta2r_);
@@ -149,11 +155,8 @@ struct FishEye : Camera
     /// @param radius radius
     float rad2theta(float radius) const
     {
-        int i = std::lower_bound(std::begin(theta2r), std::end(theta2r) - 2,
-                                 radius) -
-                std::begin(theta2r);
-        return theta_step * (float(i) + (radius - theta2r[i]) /
-                                            (theta2r[i + 1] - theta2r[i]));
+        int i = std::lower_bound(std::begin(theta2r), std::end(theta2r) - 2, radius) - std::begin(theta2r);
+        return theta_step * (float(i) + (radius - theta2r[i]) / (theta2r[i + 1] - theta2r[i]));
     }
     /// @brief Finds angle corresponding to a radius
     ///

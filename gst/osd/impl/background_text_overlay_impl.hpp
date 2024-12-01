@@ -32,18 +32,19 @@ using BackgroundTextOverlayImplPtr = std::shared_ptr<BackgroundTextOverlayImpl>;
 /* Helper overlay for background color */
 class BackgroundTextOverlayImpl final : public OverlayImpl
 {
-public:
+  public:
     BackgroundTextOverlayImpl(const osd::BaseTextOverlay &overlay, media_library_return &status);
     virtual ~BackgroundTextOverlayImpl() = default;
 
     virtual std::shared_ptr<osd::Overlay> get_metadata();
-    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(int frame_width, int frame_height);
+    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(
+        int frame_width, int frame_height);
     static tl::expected<BackgroundTextOverlayImplPtr, media_library_return> create(const osd::BaseTextOverlay &overlay);
 
     cv::Size get_size() const;
     void set_size(cv::Size size);
 
-private:
+  private:
     cv::Size m_size;
     osd::rgba_color_t m_color;
 };

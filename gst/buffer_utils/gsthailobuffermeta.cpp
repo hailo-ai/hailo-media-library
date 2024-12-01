@@ -53,12 +53,12 @@ const GstMetaInfo *gst_hailo_buffer_meta_get_info(void)
     {
         // Explanation of fields
         // https://gstreamer.freedesktop.org/documentation/design/meta.html#gstmeta1
-        const GstMetaInfo *meta = gst_meta_register(GST_HAILO_BUFFER_META_API_TYPE, /* api type */
-                                                    "GstHailoBufferMeta",           /* implementation type */
-                                                    sizeof(GstHailoBufferMeta),     /* size of the structure */
-                                                    gst_hailo_buffer_meta_init,
-                                                    (GstMetaFreeFunction)gst_hailo_buffer_meta_free,
-                                                    (GstMetaTransformFunction)nullptr);
+        const GstMetaInfo *meta =
+            gst_meta_register(GST_HAILO_BUFFER_META_API_TYPE, /* api type */
+                              "GstHailoBufferMeta",           /* implementation type */
+                              sizeof(GstHailoBufferMeta),     /* size of the structure */
+                              gst_hailo_buffer_meta_init, (GstMetaFreeFunction)gst_hailo_buffer_meta_free,
+                              (GstMetaTransformFunction) nullptr);
         g_once_init_leave(&gst_hailo_buffer_meta_info, meta);
     }
     return gst_hailo_buffer_meta_info;
@@ -98,14 +98,14 @@ GstHailoBufferMeta *gst_buffer_get_hailo_meta(GstBuffer *buffer)
     return meta;
 }
 /**
- * @brief Addes a new GstHailoBufferMeta to a given buffer, this meta is initialized with a given HailoMediaLibraryBufferPtr.
+ * @brief Addes a new GstHailoBufferMeta to a given buffer, this meta is initialized with a given
+ * HailoMediaLibraryBufferPtr.
  *
  * @param buffer Buffer to add the metadata on.
  * @param buffer_ptr HailoMediaLibraryBufferPtr to initialize the meta with
  * @return GstHailoBufferMeta* The meta structure that was added to the buffer.
  */
-GstHailoBufferMeta *gst_buffer_add_hailo_buffer_meta(GstBuffer *buffer,
-                                                     HailoMediaLibraryBufferPtr buffer_ptr,
+GstHailoBufferMeta *gst_buffer_add_hailo_buffer_meta(GstBuffer *buffer, HailoMediaLibraryBufferPtr buffer_ptr,
                                                      uint32_t used_size)
 {
     GstHailoBufferMeta *gst_hailo_buffer_meta = NULL;

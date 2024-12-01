@@ -38,7 +38,7 @@ struct EncoderOutputBuffer
 
 class Encoder
 {
-public:
+  public:
     Encoder(std::string json_string);
     ~Encoder();
     int get_gop_size();
@@ -55,7 +55,7 @@ public:
     media_library_return release();
     media_library_return dispose();
 
-private:
+  private:
     class Impl;
     std::unique_ptr<Impl> m_impl;
 };

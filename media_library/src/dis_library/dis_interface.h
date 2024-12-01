@@ -57,17 +57,12 @@ extern "C"
     /// @param out_width output size. Necessary to determine grid size (grid cell size is square and constant)
     /// @param out_height output size. Necessary to determine grid size (grid cell size is square and constant)
     /// @param camera_fov_factor field of view factor. Value between 0.1 and 1 determining how much smaller the output
-    /// FoV should be from the maximum possible. If DIS and EIS are disabled in the config (cfg param), camera_fov_factor is set
-    /// to 1 (keep max), as changing FoV without DIS or EIS is not supported.
+    /// FoV should be from the maximum possible. If DIS and EIS are disabled in the config (cfg param),
+    /// camera_fov_factor is set to 1 (keep max), as changing FoV without DIS or EIS is not supported.
     /// @param is_eis_enabled - is the EIS feature enabled.
     /// @param grid pointer to DewarpT (size of the grid vertexes to be allocated externally).
-    RetCodes dis_init(void **ctx,
-                      dis_config_t &cfg,
-                      dis_calibration_t calib,
-                      int32_t out_width, int32_t out_height,
-                      camera_type_t camera_type, float camera_fov_factor,
-                      bool is_eis_enabled,
-                      DewarpT *grid);
+    RetCodes dis_init(void **ctx, dis_config_t &cfg, dis_calibration_t calib, int32_t out_width, int32_t out_height,
+                      camera_type_t camera_type, float camera_fov_factor, bool is_eis_enabled, DewarpT *grid);
 
     /// @brief frees the internal memory for a given Dis instance and sets it to NULL.
     /// The caller still needs to deallocate the DewarpT structures.
@@ -85,14 +80,11 @@ extern "C"
     /// @param motion_y y component current-to-previous frame motion vector in pixels
     /// @param panning 0 or 1, shows whether the panning motor rotates the camera intentionally
     /// @param flip_mirror_rot as applied on the output image. Actually, the grid is reordered
-    /// Note!!!: when rotating to 90 or 270 deg, the output images passed to dewarp funcs must be with swapped width/height!
+    /// Note!!!: when rotating to 90 or 270 deg, the output images passed to dewarp funcs must be with swapped
+    /// width/height!
     /// @param grid output; grid.mesh_table must be allocated by the caller. This func fills it.
-    RetCodes dis_generate_grid(void *ctx,
-                               int in_width, int in_height,
-                               float motion_x, float motion_y,
-                               int32_t panning,
-                               FlipMirrorRot flip_mirror_rot,
-                               std::shared_ptr<angular_dis_params_t> angular_dis_params,
+    RetCodes dis_generate_grid(void *ctx, int in_width, int in_height, float motion_x, float motion_y, int32_t panning,
+                               FlipMirrorRot flip_mirror_rot, std::shared_ptr<angular_dis_params_t> angular_dis_params,
                                DewarpT *grid);
 
     /// @brief Calculates grid for dewarping the input frame only.
@@ -101,34 +93,28 @@ extern "C"
     /// @param in_width used just to check whether it is the same as in calibration
     /// @param in_height used just to check whether it is the same as in calibration
     /// @param flip_mirror_rot as applied on the output image. Actually, the grid is reordered
-    /// Note!!!: when rotating to 90 or 270 deg, the output images passed to dewarp funcs must be with swapped width/height!
+    /// Note!!!: when rotating to 90 or 270 deg, the output images passed to dewarp funcs must be with swapped
+    /// width/height!
     /// @param grid output; grid.mesh_table must be allocated by the caller. This func fills it.
-    RetCodes dis_dewarp_only_grid(void *ctx,
-                                  int in_width, int in_height,
-                                  FlipMirrorRot flip_mirror_rot,
-                                  DewarpT *grid);
-    
+    RetCodes dis_dewarp_only_grid(void *ctx, int in_width, int in_height, FlipMirrorRot flip_mirror_rot, DewarpT *grid);
+
     /// @brief Calculates the grid for stabilization of the current frame,
     /// using camera motion smoothing algorithms.
     /// @param flip_mirror_rot as applied on the output image
     /// @param curr_orientation the orientation matrix of the current frame
     /// @param smooth_orientaion the orientation matrix calculated by the smoothing algorithm
     /// @param grid output grid
-    RetCodes dis_generate_eis_grid(void *ctx,
-                                    FlipMirrorRot flip_mirror_rot,
-                                    cv::Mat &curr_orientation,
-                                    cv::Mat &smooth_orientation,
-                                    DewarpT *grid);
+    RetCodes dis_generate_eis_grid(void *ctx, FlipMirrorRot flip_mirror_rot, cv::Mat &curr_orientation,
+                                   cv::Mat &smooth_orientation, DewarpT *grid);
 
     /// @brief Calculates the grid for stabilization of the current frame,
     /// using camera motion smoothing algorithms.
     /// @param flip_mirror_rot as applied on the output image
     /// @param rolling_shutter_rotations buffer of rotaions during the last 2 frames
     /// @param grid output grid
-    RetCodes dis_generate_eis_grid_rolling_shutter(void *ctx,
-                                    FlipMirrorRot flip_mirror_rot,
-                                    const std::vector<cv::Mat> &rolling_shutter_rotations,
-                                    DewarpT *grid);
+    RetCodes dis_generate_eis_grid_rolling_shutter(void *ctx, FlipMirrorRot flip_mirror_rot,
+                                                   const std::vector<cv::Mat> &rolling_shutter_rotations,
+                                                   DewarpT *grid);
 
 #ifdef __cplusplus
 };

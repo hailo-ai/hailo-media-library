@@ -71,6 +71,38 @@
             "height": 1800
         }
     },
+    "motion_detection": {
+        "enabled": false,
+        "resolution": {
+            "width": 640,
+            "height": 480,
+            "framerate": 30
+        },
+        "roi": {
+            "x": 200,
+            "y": 200,
+            "width": 640,
+            "height": 480
+        },
+        "sensitivity_level": "MEDIUM",
+        "threshold": 0.5
+    },
+    "motion_detection": {
+        "enabled": false,
+        "resolution": {
+            "width": 640,
+            "height": 480,
+            "framerate": 30
+        },
+        "roi": {
+            "x": 200,
+            "y": 200,
+            "width": 640,
+            "height": 480
+        },
+        "sensitivity_level": "MEDIUM",
+        "threshold": 0.5
+    },
     "rotation": {
         "enabled": false,
         "angle": "ROTATION_ANGLE_180"

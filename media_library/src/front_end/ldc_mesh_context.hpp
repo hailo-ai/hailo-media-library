@@ -16,7 +16,7 @@
 
 class LdcMeshContext
 {
-private:
+  private:
     size_t m_input_width;
     size_t m_input_height;
     ldc_config_t m_ldc_configs;
@@ -39,8 +39,7 @@ private:
     std::shared_mutex m_mutex;
     bool eis_prev_enabled = false;
 
-    media_library_return
-    initialize_dewarp_mesh();
+    media_library_return initialize_dewarp_mesh();
     media_library_return initialize_dis_context();
     media_library_return free_dis_context();
     media_library_return free_angular_dis_resources();
@@ -51,13 +50,12 @@ private:
     FlipMirrorRot get_flip_value(flip_direction_t flip_dir, rotation_angle_t rotation_angle);
     tl::expected<dis_calibration_t, media_library_return> read_calibration_file(const char *name);
 
-public:
+  public:
     LdcMeshContext(ldc_config_t &config);
     ~LdcMeshContext();
     media_library_return configure(ldc_config_t &pre_proc_op_configs);
     media_library_return on_frame_vsm_update(struct hailo15_vsm &vsm);
-    media_library_return on_frame_eis_update(uint64_t curr_frame_isp_timestamp_ns,
-                                             uint64_t integration_time,
+    media_library_return on_frame_eis_update(uint64_t curr_frame_isp_timestamp_ns, uint64_t integration_time,
                                              bool enabled, uint32_t curr_fps);
     media_library_return set_optical_zoom(float magnification);
     std::shared_ptr<angular_dis_params_t> get_angular_dis_params();

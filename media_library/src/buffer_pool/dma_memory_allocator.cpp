@@ -24,6 +24,8 @@
 #include "dma_memory_allocator.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
+#include "common.hpp"
+#include "env_vars.hpp"
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -46,6 +48,13 @@ DmaMemoryAllocator::DmaMemoryAllocator()
     if (dmabuf_fd_open() != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("dmabuf_fd_open failed!");
+    }
+
+    m_should_fd_dup = is_env_variable_on(MEDIALIB_FD_DUP_ENV_VAR);
+
+    if (m_should_fd_dup)
+    {
+        LOGGER__INFO("F_DUPFD is enabled");
     }
 }
 
@@ -71,7 +80,6 @@ media_library_return DmaMemoryAllocator::dmabuf_fd_open()
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
-    fd_count++;
     m_dma_heap_fd_open = true;
     LOGGER__DEBUG("dmabuf_fd_open function-end");
 
@@ -97,10 +105,11 @@ media_library_return DmaMemoryAllocator::dmabuf_fd_close()
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-
-media_library_return DmaMemoryAllocator::dmabuf_heap_alloc(dma_heap_allocation_data &heap_data, uint size, uint min_fd_range)
+media_library_return DmaMemoryAllocator::dmabuf_heap_alloc(dma_heap_allocation_data &heap_data, uint size,
+                                                           uint min_fd_range)
 {
-    LOGGER__DEBUG("dmabuf_heap_alloc function-start: heap_data.fd = {}, heap_data.len = {}", heap_data.fd, heap_data.len);
+    LOGGER__DEBUG("dmabuf_heap_alloc function-start: heap_data.fd = {}, heap_data.len = {}", heap_data.fd,
+                  heap_data.len);
 
     heap_data = {
         .len = size,
@@ -117,11 +126,18 @@ media_library_return DmaMemoryAllocator::dmabuf_heap_alloc(dma_heap_allocation_d
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
-    // F_DUPFD is used to ensure that applications running in a single process do not run out of available file descriptors.
-    // In Linux, a process has a limit of 1024 file descriptors. and some legacy applications might only use the first 1023 file descriptors.
+    if (!m_should_fd_dup)
+    {
+        LOGGER__DEBUG("dmabuf_heap_alloc heap_data.fd = {}, heap_data.len = {}", heap_data.fd, heap_data.len);
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    // F_DUPFD is used to ensure that applications running in a single process do not run out of available file
+    // descriptors. In Linux, a process has a limit of 1024 file descriptors. and some legacy applications might only
+    // use the first 1023 file descriptors.
     int new_fd = fcntl(heap_data.fd, F_DUPFD, min_fd_range);
-    if (new_fd < 0) 
-    { 
+    if (new_fd < 0)
+    {
         LOGGER__ERROR("F_DUPFD failed for fd = {} and new_fd = {} with error = {}", heap_data.fd, new_fd, errno);
         close(heap_data.fd);
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
@@ -159,7 +175,7 @@ media_library_return DmaMemoryAllocator::map_external_dma_buffer(uint size, uint
 {
     LOGGER__DEBUG("map external dma buffer function-start: size = {}", size);
 
-    if(get_ptr(fd, buffer) == MEDIA_LIBRARY_SUCCESS)
+    if (get_ptr(fd, buffer) == MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__DEBUG("buffer already exists (fd = {})", fd);
         return MEDIA_LIBRARY_SUCCESS;
@@ -188,7 +204,7 @@ media_library_return DmaMemoryAllocator::map_external_dma_buffer(uint size, uint
 
 media_library_return DmaMemoryAllocator::dmabuf_map(dma_heap_allocation_data &heap_data, void **mapped_memory)
 {
-    LOGGER__INFO("dmabuf_map start: heap_data.fd = {}, heap_data.len = {}", heap_data.fd, heap_data.len);
+    LOGGER__DEBUG("dmabuf_map start: heap_data.fd = {}, heap_data.len = {}", heap_data.fd, heap_data.len);
 
     *mapped_memory = mmap(NULL, heap_data.len, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, heap_data.fd, 0);
 
@@ -240,7 +256,8 @@ media_library_return DmaMemoryAllocator::allocate_dma_buffer(uint size, void **b
     m_allocated_buffers[*buffer] = heap_data;
 
     fd_count++;
-    LOGGER__DEBUG("allocating dma buffer function-end: buffer = {}, size = {}, fd_count = {}", fmt::ptr(*buffer), size, fd_count);
+    LOGGER__DEBUG("allocating dma buffer function-end: buffer = {}, size = {}, fd_count = {}", fmt::ptr(*buffer), size,
+                  fd_count);
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -249,7 +266,7 @@ media_library_return DmaMemoryAllocator::free_dma_buffer(void *buffer)
     LOGGER__DEBUG("freeing dma buffer function-start: buffer = {}", fmt::ptr(buffer));
 
     int fd;
-    if(get_fd(buffer, fd, false) != MEDIA_LIBRARY_SUCCESS)
+    if (get_fd(buffer, fd, false) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Buffer not found - get_fd failed for buffer = {}", fmt::ptr(buffer));
         return MEDIA_LIBRARY_BUFFER_NOT_FOUND;
@@ -270,7 +287,8 @@ media_library_return DmaMemoryAllocator::free_dma_buffer(void *buffer)
     close(fd);
 
     fd_count--;
-    LOGGER__DEBUG("freeing dma buffer function-end: buffer = {}, size = {}, fd_count = {}", fmt::ptr(buffer), length, fd_count);
+    LOGGER__DEBUG("freeing dma buffer function-end: buffer = {}, size = {}, fd_count = {}", fmt::ptr(buffer), length,
+                  fd_count);
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -296,7 +314,7 @@ media_library_return DmaMemoryAllocator::dmabuf_sync(void *buffer, dma_buf_sync 
     LOGGER__DEBUG("dmabuf_sync function-start: buffer = {}, start_stop = {}", fmt::ptr(buffer), sync.flags);
 
     int fd;
-    if(get_fd(buffer, fd) != MEDIA_LIBRARY_SUCCESS)
+    if (get_fd(buffer, fd) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("get_fd failed for buffer = {}", fmt::ptr(buffer));
         return MEDIA_LIBRARY_BUFFER_NOT_FOUND;
@@ -364,7 +382,7 @@ media_library_return DmaMemoryAllocator::get_fd(void *buffer, int &fd, bool incl
     if (m_allocated_buffers.find(buffer) == m_allocated_buffers.end())
     {
         // TOOD: Change to error once userptr is not supported anymore
-        if(include_external && m_external_buffers.find(buffer) != m_external_buffers.end())
+        if (include_external && m_external_buffers.find(buffer) != m_external_buffers.end())
         {
             fd = m_external_buffers[buffer].fd;
             return MEDIA_LIBRARY_SUCCESS;
@@ -391,7 +409,7 @@ media_library_return DmaMemoryAllocator::get_ptr(uint fd, void **buffer, bool in
         }
     }
 
-    if(include_external)
+    if (include_external)
     {
         for (auto const &[key, val] : m_external_buffers)
         {

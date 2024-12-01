@@ -51,29 +51,28 @@
 // Log to dis_log_file.txt
 // #define LOG_FILE
 
-#define __FILENAME__ \
-    (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
+#define __FILENAME__ (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 
 #if defined(LOG_PRINTF)
-#define LOGE(a, ...)                      \
-    do                                    \
-    {                                     \
-        printf(LOG_TAG a, ##__VA_ARGS__); \
-        printf("\n");                     \
-        fflush(stdout);                   \
+#define LOGE(a, ...)                                                                                                   \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        printf(LOG_TAG a, ##__VA_ARGS__);                                                                              \
+        printf("\n");                                                                                                  \
+        fflush(stdout);                                                                                                \
     } while (false)
 #ifdef LOG_DEBUG
-#define LOG(a, ...)                       \
-    do                                    \
-    {                                     \
-        printf(LOG_TAG a, ##__VA_ARGS__); \
-        printf("\n");                     \
-        fflush(stdout);                   \
+#define LOG(a, ...)                                                                                                    \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        printf(LOG_TAG a, ##__VA_ARGS__);                                                                              \
+        printf("\n");                                                                                                  \
+        fflush(stdout);                                                                                                \
     } while (false)
 #else
-#define LOG(a, ...) \
-    do              \
-    {               \
+#define LOG(a, ...)                                                                                                    \
+    do                                                                                                                 \
+    {                                                                                                                  \
     } while (false)
 #endif
 
@@ -84,8 +83,10 @@
 
 class DisFileLog
 {
-public:
-    DisFileLog() : DisFileLog(LOG_FILENAME) {}
+  public:
+    DisFileLog() : DisFileLog(LOG_FILENAME)
+    {
+    }
     DisFileLog(const char *_fname)
     {
         fname = fopen(_fname, "w");
@@ -101,32 +102,35 @@ public:
                 fprintf(stderr, "Error closing log file\n");
         }
     }
-    FILE *getFD() { return fname; }
+    FILE *getFD()
+    {
+        return fname;
+    }
 
-private:
+  private:
     FILE *fname = NULL;
 };
 
 extern DisFileLog disFileLog;
-#define LOGE(a, ...)                                           \
-    do                                                         \
-    {                                                          \
-        fprintf(disFileLog.getFD(), LOG_TAG a, ##__VA_ARGS__); \
-        fprintf(disFileLog.getFD(), "\n");                     \
-        fflush(disFileLog.getFD());                            \
+#define LOGE(a, ...)                                                                                                   \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        fprintf(disFileLog.getFD(), LOG_TAG a, ##__VA_ARGS__);                                                         \
+        fprintf(disFileLog.getFD(), "\n");                                                                             \
+        fflush(disFileLog.getFD());                                                                                    \
     } while (false)
 #ifdef LOG_DEBUG
-#define LOG(a, ...)                                            \
-    do                                                         \
-    {                                                          \
-        fprintf(disFileLog.getFD(), LOG_TAG a, ##__VA_ARGS__); \
-        fprintf(disFileLog.getFD(), "\n");                     \
-        fflush(disFileLog.getFD());                            \
+#define LOG(a, ...)                                                                                                    \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        fprintf(disFileLog.getFD(), LOG_TAG a, ##__VA_ARGS__);                                                         \
+        fprintf(disFileLog.getFD(), "\n");                                                                             \
+        fflush(disFileLog.getFD());                                                                                    \
     } while (false)
 #else
-#define LOG(a, ...) \
-    do              \
-    {               \
+#define LOG(a, ...)                                                                                                    \
+    do                                                                                                                 \
+    {                                                                                                                  \
     } while (false)
 #endif
 
@@ -137,12 +141,12 @@ extern DisFileLog disFileLog;
 
 #endif // LOG_TO_FILE
 
-#define DIS_ABORT(a, ...)                                                      \
-    do                                                                         \
-    {                                                                          \
-        LOGE("[Error][%s:%d] " a "\n", __FILENAME__, __LINE__, ##__VA_ARGS__); \
-        fflush(stdout);                                                        \
-        abort();                                                               \
+#define DIS_ABORT(a, ...)                                                                                              \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        LOGE("[Error][%s:%d] " a "\n", __FILENAME__, __LINE__, ##__VA_ARGS__);                                         \
+        fflush(stdout);                                                                                                \
+        abort();                                                                                                       \
     } while (false)
 
 #endif /* _DIS_LOG_H_ */

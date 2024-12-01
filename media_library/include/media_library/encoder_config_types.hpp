@@ -39,19 +39,14 @@ enum codec_t
     CODEC_TYPE_HEVC
 };
 
-inline const std::unordered_map<std::string, codec_t> str_to_codec {
-    {"AVC", CODEC_TYPE_H264},
-    {"HEVC", CODEC_TYPE_HEVC}
-};
+inline const std::unordered_map<std::string, codec_t> str_to_codec{{"AVC", CODEC_TYPE_H264}, {"HEVC", CODEC_TYPE_HEVC}};
 
 enum preset_mode_t
 {
     GENERAL
 };
 
-inline const std::unordered_map<std::string, preset_mode_t> str_to_preset_mode {
-    {"general", GENERAL}
-};
+inline const std::unordered_map<std::string, preset_mode_t> str_to_preset_mode{{"general", GENERAL}};
 
 enum rc_mode_t
 {
@@ -61,12 +56,8 @@ enum rc_mode_t
     CQP
 };
 
-inline const std::unordered_map<std::string, rc_mode_t> str_to_rc_mode {
-    {"VBR", VBR},
-    {"CVBR", CVBR},
-    {"HRD", HRD},
-    {"CQP", CQP}
-};
+inline const std::unordered_map<std::string, rc_mode_t> str_to_rc_mode{
+    {"VBR", VBR}, {"CVBR", CVBR}, {"HRD", HRD}, {"CQP", CQP}};
 
 enum deblocking_filter_type_t
 {

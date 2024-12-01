@@ -44,18 +44,22 @@ class SimpleTextOverlayImpl;
 using SimpleTextOverlayImplPtr = std::shared_ptr<SimpleTextOverlayImpl>;
 class SimpleTextOverlayImpl final : public OverlayImpl
 {
-public:
-    static tl::expected<SimpleTextOverlayImplPtr, media_library_return> create(const osd::BaseTextOverlay &overlay, cv::Size2f extra_size, cv::Point2f text_position);
-    SimpleTextOverlayImpl(const osd::BaseTextOverlay &overlay, cv::Size2f extra_size, cv::Point2f text_position, media_library_return &status);
+  public:
+    static tl::expected<SimpleTextOverlayImplPtr, media_library_return> create(const osd::BaseTextOverlay &overlay,
+                                                                               cv::Size2f extra_size,
+                                                                               cv::Point2f text_position);
+    SimpleTextOverlayImpl(const osd::BaseTextOverlay &overlay, cv::Size2f extra_size, cv::Point2f text_position,
+                          media_library_return &status);
     virtual ~SimpleTextOverlayImpl() = default;
 
     virtual std::shared_ptr<osd::Overlay> get_metadata();
-    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(int frame_width, int frame_height);
+    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(
+        int frame_width, int frame_height);
 
     void change_text(const std::string &label);
     cv::Size get_text_size() const;
 
-private:
+  private:
     media_library_return create_text_m_mat(int frame_width, int frame_height);
     tl::expected<size_baseline, media_library_return> get_text_size_baseline(int frame_width, int frame_height);
     media_library_return put_text(cv::Mat dst, cv::Point org);

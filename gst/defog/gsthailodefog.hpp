@@ -40,7 +40,6 @@
 #include "hailo/hailort.h"
 #include "metadata/tensor_meta.hpp"
 
-
 G_BEGIN_DECLS
 
 #define GST_TYPE_HAILO_DEFOG (gst_hailodefog_get_type())
@@ -57,7 +56,7 @@ struct _GstHailoDefog
     GstBin base_hailodefog;
     GstPad *sinkpad;
     GstPad *srcpad;
-    
+
     gchar *config_file_path;
     std::string config_string;
     std::shared_ptr<MediaLibraryDefog> medialib_defog;

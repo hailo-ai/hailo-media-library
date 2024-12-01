@@ -53,8 +53,7 @@ GST_EXPORT
 const GstMetaInfo *gst_hailo_buffer_meta_get_info(void);
 
 GST_EXPORT
-GstHailoBufferMeta *gst_buffer_add_hailo_buffer_meta(GstBuffer *buffer,
-                                                     HailoMediaLibraryBufferPtr buffer_ptr,
+GstHailoBufferMeta *gst_buffer_add_hailo_buffer_meta(GstBuffer *buffer, HailoMediaLibraryBufferPtr buffer_ptr,
                                                      uint32_t used_size);
 
 GST_EXPORT

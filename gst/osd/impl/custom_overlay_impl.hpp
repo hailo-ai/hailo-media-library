@@ -29,16 +29,25 @@ using CustomOverlayImplPtr = std::shared_ptr<CustomOverlayImpl>;
 
 class CustomOverlayImpl : public OverlayImpl
 {
-public:
+  public:
     static tl::expected<CustomOverlayImplPtr, media_library_return> create(const osd::CustomOverlay &overlay);
-    static std::shared_future<tl::expected<CustomOverlayImplPtr, media_library_return>> create_async(const osd::CustomOverlay &overlay);
+    static std::shared_future<tl::expected<CustomOverlayImplPtr, media_library_return>> create_async(
+        const osd::CustomOverlay &overlay);
     CustomOverlayImpl(const osd::CustomOverlay &overlay, media_library_return &status);
     virtual ~CustomOverlayImpl() = default;
 
-    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(int frame_width, int frame_height);
+    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> create_dsp_overlays(
+        int frame_width, int frame_height);
+    virtual tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> get_dsp_overlays();
 
     virtual std::shared_ptr<osd::Overlay> get_metadata();
+    virtual HailoMediaLibraryBufferPtr get_buffer()
+    {
+        return m_medialib_buffer;
+    }
 
-protected:
+  protected:
     osd::custom_overlay_format m_format;
+    HailoMediaLibraryBufferPtr m_medialib_buffer;
+    hailo_dsp_buffer_data_t m_dsp_buffer_data;
 };

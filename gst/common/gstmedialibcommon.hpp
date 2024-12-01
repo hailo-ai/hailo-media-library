@@ -28,34 +28,34 @@
 #include <string>
 #include <sstream>
 
-#define G_VALUE_REPLACE_STRING(dst, src) \
-    {                                    \
-        g_free(dst);                     \
-        dst = g_value_dup_string(src);   \
+#define G_VALUE_REPLACE_STRING(dst, src)                                                                               \
+    {                                                                                                                  \
+        g_free(dst);                                                                                                   \
+        dst = g_value_dup_string(src);                                                                                 \
     }
 
 namespace gstmedialibcommon
 {
-    inline std::string read_json_string_from_file(const gchar *file_path)
-    {
-        std::ifstream file_to_read;
-        file_to_read.open(file_path);
-        if (!file_to_read.is_open())
-            throw std::runtime_error("config path is not valid");
-        std::stringstream buffer;
-        buffer << file_to_read.rdbuf();
-        std::string file_string = buffer.str();
-        file_to_read.close();
-        return file_string;
-    }
+inline std::string read_json_string_from_file(const gchar *file_path)
+{
+    std::ifstream file_to_read;
+    file_to_read.open(file_path);
+    if (!file_to_read.is_open())
+        throw std::runtime_error("config path is not valid");
+    std::stringstream buffer;
+    buffer << file_to_read.rdbuf();
+    std::string file_string = buffer.str();
+    file_to_read.close();
+    return file_string;
+}
 
-    inline void strip_string_syntax(std::string &pipeline_input)
+inline void strip_string_syntax(std::string &pipeline_input)
+{
+    if (pipeline_input.front() == '\'' && pipeline_input.back() == '\'')
     {
-        if (pipeline_input.front() == '\'' && pipeline_input.back() == '\'')
-        {
-            pipeline_input.erase(0, 1);
-            pipeline_input.pop_back();
-        }
+        pipeline_input.erase(0, 1);
+        pipeline_input.pop_back();
     }
+}
 
-} // namespace gsthailocommon
+} // namespace gstmedialibcommon

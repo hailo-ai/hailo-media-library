@@ -32,19 +32,13 @@
 #include <map>
 #include <sstream>
 
-#define DSP_MAX_MESH_WIDTH ((261 << MESH_FRACT_BITS) - ((1 << MESH_FRACT_BITS) / 2)  - 1)
+#define DSP_MAX_MESH_WIDTH ((261 << MESH_FRACT_BITS) - ((1 << MESH_FRACT_BITS) / 2) - 1)
 #define DSP_MAX_MESH_HEIGHT ((247 << MESH_FRACT_BITS) - 1)
 
 /// Map from the possible FlipMirrorRot values to their corresponding rotation matrices.
-const std::map<int, mat2> ROT_MAT_MAP = {
-    {0, {1, 0, 0, 1}},
-    {1, {0, -1, 1, 0}},
-    {2, {-1, 0, 0, -1}},
-    {3, {0, 1, -1, 0}},
-    {4, {-1, 0, 0, 1}},
-    {5, {0, -1, -1, 0}},
-    {6, {1, 0, 0, -1}},
-    {7, {0, 1, 1, 0}}};
+const std::map<int, mat2> ROT_MAT_MAP = {{0, {1, 0, 0, 1}},  {1, {0, -1, 1, 0}}, {2, {-1, 0, 0, -1}},
+                                         {3, {0, 1, -1, 0}}, {4, {-1, 0, 0, 1}}, {5, {0, -1, -1, 0}},
+                                         {6, {1, 0, 0, -1}}, {7, {0, 1, 1, 0}}};
 
 ///////////////////////////////////////////////////////////////////////////////
 // init_in_cam()
@@ -95,10 +89,8 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
     if (m_camera_type == CAMERA_TYPE_PINHOLE)
     { // pinhole
         const float in_tan_ltrb[4] = {
-            tan(std::min(in_cam.ltrb[0], RADIANS(89.9))),
-            tan(std::min(in_cam.ltrb[1], RADIANS(89.9))),
-            tan(std::min(in_cam.ltrb[2], RADIANS(89.9))),
-            tan(std::min(in_cam.ltrb[3], RADIANS(89.9)))};
+            tan(std::min(in_cam.ltrb[0], RADIANS(89.9))), tan(std::min(in_cam.ltrb[1], RADIANS(89.9))),
+            tan(std::min(in_cam.ltrb[2], RADIANS(89.9))), tan(std::min(in_cam.ltrb[3], RADIANS(89.9)))};
         // find max possible output fov
         // The real cameras practically have always barrel distortions. So, if the output is pinhole,
         // H- or V-FOV is always the bottle-neck and the corners see more than needed.
@@ -176,7 +168,7 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
         if (m_camera_fov_factor == 1)
         {
             s = out_diag / crop_diag;
-        } 
+        }
         else
         {
             // when not using max_out_fov, out_fov in degrees needs to be an int for s to be calculated correctly.
@@ -201,7 +193,7 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
     const float ONE_DEG_IN_RADS = RADIANS(1.0f);
 
     float eff_in_height = tan(in_cam.ltrb[3]) * flen + in_cam.oc.y;
-    float eff_in_width  = tan(in_cam.ltrb[2]) * flen + in_cam.oc.x;
+    float eff_in_width = tan(in_cam.ltrb[2]) * flen + in_cam.oc.x;
     LOG("In CAM Eff (WxH):  %.3f, %.3f", eff_in_width, eff_in_height);
     float y1 = eff_in_height / 2;
     float y0 = out_cam->res.y / 2;
@@ -210,10 +202,9 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
     LOG("-- In CAM Eff (WxH):  %.3f, %.3f", x1, y1);
     LOG("-- Out CAM Eff (WxH): %.3f, %.3f", x0, y0);
 
-    float string0 = std::hypotf(y1-y0, x1-x0);
-    room4stab_theta = std::acos((2*pow(out_cam->diag/2, 2) - pow(string0, 2)) / (2*pow(out_cam->diag/2, 2)));
+    float string0 = std::hypotf(y1 - y0, x1 - x0);
+    room4stab_theta = std::acos((2 * pow(out_cam->diag / 2, 2) - pow(string0, 2)) / (2 * pow(out_cam->diag / 2, 2)));
     LOG("Room 4 Stab Rot deg: %.3f", DEGREES(room4stab_theta));
-
 
     room4stab[0] = in_cam.ltrb[0] - out_cam->ltrb[0];
     room4stab[1] = in_cam.ltrb[1] - out_cam->ltrb[1];
@@ -242,9 +233,9 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
             break;
         }
     }
-    LOG("outFOV % .2f deg (max %.2f), room4stab deg LTBR: %.3f %.3f %.3f %.3f",
-        DEGREES(out_cam->fov), DEGREES(max_out_fov),
-        DEGREES(room4stab[0]), DEGREES(room4stab[1]), DEGREES(room4stab[2]), DEGREES(room4stab[3]));
+    LOG("outFOV % .2f deg (max %.2f), room4stab deg LTBR: %.3f %.3f %.3f %.3f", DEGREES(out_cam->fov),
+        DEGREES(max_out_fov), DEGREES(room4stab[0]), DEGREES(room4stab[1]), DEGREES(room4stab[2]),
+        DEGREES(room4stab[3]));
 
     k = cfg.minimun_coefficient_filter;
 
@@ -284,10 +275,8 @@ void DIS::gen_resize_grid(DewarpT &grid)
 ///////////////////////////////////////////////////////////////////////////////
 // generate_grid()
 ///////////////////////////////////////////////////////////////////////////////
-RetCodes DIS::generate_grid(vec2 fmv, int32_t panning,
-                            FlipMirrorRot flip_mirror_rot,
-                            std::shared_ptr<angular_dis_params_t> angular_dis_params,
-                            DewarpT &grid)
+RetCodes DIS::generate_grid(vec2 fmv, int32_t panning, FlipMirrorRot flip_mirror_rot,
+                            std::shared_ptr<angular_dis_params_t> angular_dis_params, DewarpT &grid)
 {
     float stabilization_theta = *(angular_dis_params->dsp_filter_angle->stabilized_theta);
 
@@ -316,8 +305,7 @@ RetCodes DIS::generate_grid(vec2 fmv, int32_t panning,
 
     // char FMV_LIMITED = '-';
     // clamp outlier motion vectors
-    if (dev_from_mean.x * dev_from_mean.x > var.x ||
-        dev_from_mean.y * dev_from_mean.y > var.y)
+    if (dev_from_mean.x * dev_from_mean.x > var.x || dev_from_mean.y * dev_from_mean.y > var.y)
     {
         fmv.x = prev_fmv_mean.x;
         fmv.y = prev_fmv_mean.y;
@@ -423,8 +411,7 @@ RetCodes DIS::generate_grid(vec2 fmv, int32_t panning,
     float cos_la = std::cos(stab_la);
     float sin_la = std::sin(stab_la);
 
-    stab_rot = {cos_lo, 0, sin_lo,
-                -sin_la * sin_lo, cos_la, sin_la * cos_lo,
+    stab_rot = {cos_lo,           0,       sin_lo,         -sin_la * sin_lo, cos_la, sin_la * cos_lo,
                 -cos_la * sin_lo, -sin_la, cos_la * cos_lo};
 
     // if the output rotation is changed, swap the grid size and re-calculate output rays - see calc_out_rays()
@@ -458,7 +445,7 @@ RetCodes DIS::generate_grid(vec2 fmv, int32_t panning,
 
     frame_cnt++;
 
-    if(angular_dis_params->stabilize_rotation)
+    if (angular_dis_params->stabilize_rotation)
     {
         angular_dis_params->dsp_filter_angle->alpha = k;
         angular_dis_params->dsp_filter_angle->maximum_theta = room4stab_theta;
@@ -467,8 +454,8 @@ RetCodes DIS::generate_grid(vec2 fmv, int32_t panning,
     return DIS_OK;
 }
 
-static void eis_update_mesh(DewarpT &grid, int x, int y, mat3 stab_rot9,
-                            const FishEye &in_cam, const std::vector<vec3> &out_rays)
+static void eis_update_mesh(DewarpT &grid, int x, int y, mat3 stab_rot9, const FishEye &in_cam,
+                            const std::vector<vec3> &out_rays)
 {
     int ind = y * grid.mesh_width + x;
     vec2 pt = in_cam.ray2point(stab_rot9 * out_rays[ind]); // xi, yi
@@ -479,7 +466,7 @@ static void eis_update_mesh(DewarpT &grid, int x, int y, mat3 stab_rot9,
     grid.mesh_table[ind * 2 + 1] = pt.y * (1 << MESH_FRACT_BITS); // y
 }
 
-static mat3 flatten_stab_rot(const cv::Mat& stab_rot)
+static mat3 flatten_stab_rot(const cv::Mat &stab_rot)
 {
     cv::Mat stab_rot_flat = stab_rot.reshape(1, 1);
     mat3 stab_rot9;
@@ -490,17 +477,15 @@ static mat3 flatten_stab_rot(const cv::Mat& stab_rot)
 ///////////////////////////////////////////////////////////////////////////////
 // generate_eis_grid()
 ///////////////////////////////////////////////////////////////////////////////
-RetCodes DIS::generate_eis_grid(FlipMirrorRot flip_mirror_rot,
-                                const cv::Mat& curr_orientation,
-                                const cv::Mat& smooth_orientaion,
-                                DewarpT &grid)
+RetCodes DIS::generate_eis_grid(FlipMirrorRot flip_mirror_rot, const cv::Mat &curr_orientation,
+                                const cv::Mat &smooth_orientaion, DewarpT &grid)
 {
     if (cfg.debug.generate_resize_grid)
     {
         gen_resize_grid(grid);
         return DIS_OK;
     }
-    
+
     int cur_flip_mirror_rot = static_cast<int>(flip_mirror_rot);
     if (cur_flip_mirror_rot != last_flip_mirror_rot)
     {
@@ -537,44 +522,52 @@ RetCodes DIS::generate_eis_grid(FlipMirrorRot flip_mirror_rot,
 
 static bool is_mesh_valid(DewarpT &grid)
 {
-    auto calculateMinMax = [](int& min_val, int& max_val, int val1, int val2, int val3, int val4) {
+    auto calculateMinMax = [](int &min_val, int &max_val, int val1, int val2, int val3, int val4) {
         min_val = std::min({val1, val2, val3, val4});
         max_val = std::max({val1, val2, val3, val4});
     };
 
-    for (int mesh_y = 0; mesh_y < grid.mesh_height - 1; mesh_y++) {
-        for (int mesh_x = 0; mesh_x < grid.mesh_width - 1; mesh_x++) {
+    for (int mesh_y = 0; mesh_y < grid.mesh_height - 1; mesh_y++)
+    {
+        for (int mesh_x = 0; mesh_x < grid.mesh_width - 1; mesh_x++)
+        {
 
             int idx00 = ((mesh_y + 0) * grid.mesh_width + mesh_x + 0) * 2;
             int idx01 = ((mesh_y + 0) * grid.mesh_width + mesh_x + 1) * 2;
             int idx10 = ((mesh_y + 1) * grid.mesh_width + mesh_x + 0) * 2;
             int idx11 = ((mesh_y + 1) * grid.mesh_width + mesh_x + 1) * 2;
 
-            int* x_vals[4] = { &grid.mesh_table[idx00], &grid.mesh_table[idx01], &grid.mesh_table[idx10], &grid.mesh_table[idx11] };
-            int* y_vals[4] = { &grid.mesh_table[idx00 + 1], &grid.mesh_table[idx01 + 1], &grid.mesh_table[idx10 + 1], &grid.mesh_table[idx11 + 1] };
+            int *x_vals[4] = {&grid.mesh_table[idx00], &grid.mesh_table[idx01], &grid.mesh_table[idx10],
+                              &grid.mesh_table[idx11]};
+            int *y_vals[4] = {&grid.mesh_table[idx00 + 1], &grid.mesh_table[idx01 + 1], &grid.mesh_table[idx10 + 1],
+                              &grid.mesh_table[idx11 + 1]};
 
             int min_x, max_x, min_y, max_y;
             calculateMinMax(min_x, max_x, *x_vals[0], *x_vals[1], *x_vals[2], *x_vals[3]);
-            
+
             int mesh_width = std::abs(max_x - min_x);
             if (mesh_width > DSP_MAX_MESH_WIDTH)
             {
-                LOGE("Invalid mesh width detected! This means that the dewarp mesh passed to the DSP was not created correctly."
-                     "The mesh width will be truncated for this frame to prevent DSP crash. Be aware that this will cause distortion in the output image.");
+                LOGE("Invalid mesh width detected! This means that the dewarp mesh passed to the DSP was not created "
+                     "correctly."
+                     "The mesh width will be truncated for this frame to prevent DSP crash. Be aware that this will "
+                     "cause distortion in the output image.");
 
                 return false;
             }
 
             calculateMinMax(min_y, max_y, *y_vals[0], *y_vals[1], *y_vals[2], *y_vals[3]);
-            
+
             int mesh_height = std::abs(max_y - min_y);
             if (mesh_height > DSP_MAX_MESH_HEIGHT)
             {
-                LOGE("Invalid mesh height detected! This means that the dewarp mesh passed to the DSP was not created correctly."
-                     "The mesh height will be truncated for this frame to prevent DSP crash. Be aware that this will cause distortion in the output image.");
+                LOGE("Invalid mesh height detected! This means that the dewarp mesh passed to the DSP was not created "
+                     "correctly."
+                     "The mesh height will be truncated for this frame to prevent DSP crash. Be aware that this will "
+                     "cause distortion in the output image.");
 
                 return false;
-            }    
+            }
         }
     }
 
@@ -585,8 +578,7 @@ static bool is_mesh_valid(DewarpT &grid)
 // generate_eis_grid_rolling_shutter()
 ///////////////////////////////////////////////////////////////////////////////
 RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
-                                                const std::vector<cv::Mat> &rolling_shutter_rotations,
-                                                DewarpT &grid)
+                                                const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT &grid)
 {
     if (cfg.debug.generate_resize_grid)
     {
@@ -596,11 +588,11 @@ RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
 
     if (rolling_shutter_rotations.size() != (size_t)grid.mesh_height)
     {
-        LOG("Rolling shutter rotations size (%ld) and grid height (%ld) mismatch!",
-            rolling_shutter_rotations.size(), (size_t)grid.mesh_height);
+        LOG("Rolling shutter rotations size (%ld) and grid height (%ld) mismatch!", rolling_shutter_rotations.size(),
+            (size_t)grid.mesh_height);
         return ERROR_INPUT_DATA;
     }
-    
+
     int cur_flip_mirror_rot = static_cast<int>(flip_mirror_rot);
     if (cur_flip_mirror_rot != last_flip_mirror_rot)
     {
@@ -614,7 +606,7 @@ RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
 
     for (int y = 0; y < grid.mesh_height; y++)
     {
-        mat3 stab_rot9 = flatten_stab_rot(rolling_shutter_rotations[y]);        
+        mat3 stab_rot9 = flatten_stab_rot(rolling_shutter_rotations[y]);
         for (int x = 0; x < grid.mesh_width; x++)
         {
             eis_update_mesh(grid, x, y, stab_rot9, in_cam, out_rays);
@@ -624,14 +616,14 @@ RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
     /* If for some reason the EIS created an invalid mesh, create a mesh without EIS correction */
     if (is_mesh_valid(grid) == false)
     {
-        mat3 stab_rot9 = flatten_stab_rot(cv::Mat::eye(3, 3, CV_32F));  
+        mat3 stab_rot9 = flatten_stab_rot(cv::Mat::eye(3, 3, CV_32F));
         for (int y = 0; y < grid.mesh_height; y++)
-        {        
+        {
             for (int x = 0; x < grid.mesh_width; x++)
             {
                 eis_update_mesh(grid, x, y, stab_rot9, in_cam, out_rays);
             }
-        }        
+        }
     }
 
     frame_cnt++;
@@ -639,12 +631,10 @@ RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
     return DIS_OK;
 }
 
-
 ///////////////////////////////////////////////////////////////////////////////
 // dewarp_only_grid()
 ///////////////////////////////////////////////////////////////////////////////
-RetCodes DIS::dewarp_only_grid(FlipMirrorRot flip_mirror_rot,
-                               DewarpT &grid)
+RetCodes DIS::dewarp_only_grid(FlipMirrorRot flip_mirror_rot, DewarpT &grid)
 {
     if (cfg.debug.generate_resize_grid)
     { // generate grid, which only resizes the input image into the output one
@@ -791,7 +781,7 @@ bool DIS::black_corner_theta_adjust(float &stab_yaw)
     bool limited = false;
     crn_theta[0] = -room4stab_theta - stab_yaw;
     crn_theta[1] = -room4stab_theta + stab_yaw;
-    if ( crn_theta[0] > 0)
+    if (crn_theta[0] > 0)
     {
         stab_yaw = crn_theta[0] + stab_yaw;
         limited = true;

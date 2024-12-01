@@ -1,4 +1,4 @@
-#pragma once 
+#pragma once
 #include <iio.h>
 #include <vector>
 #include <cstring>
@@ -41,7 +41,7 @@ struct iio_device_data
 
 class GyroDevice
 {
-private:
+  private:
     struct iio_context *m_ctx = NULL;
     struct iio_device *m_iio_dev;
     std::vector<gyro_sample_t> m_vector_samples;
@@ -56,8 +56,8 @@ private:
     void shutdown();
     gyro_status_t restart();
     gyro_status_t device_attr_wr_str(const char *attr, const char *str_val);
-    gyro_status_t channel_attr_wr_str(struct iio_channel *chn, const char *attr,
-                                      const char *str_val);
+    gyro_status_t device_buffer_attr_wr_str(const char *attr, const char *str_val);
+    gyro_status_t channel_attr_wr_str(struct iio_channel *chn, const char *attr, const char *str_val);
     gyro_status_t device_cfg_set();
     void show_device_info();
     void prepare_device_data();
@@ -65,7 +65,7 @@ private:
     gyro_status_t prepare_device();
     const char *device_name_get();
 
-public:
+  public:
     std::condition_variable cv;
     GyroDevice(std::string name, std::string device_freq, double gyro_scale)
     {

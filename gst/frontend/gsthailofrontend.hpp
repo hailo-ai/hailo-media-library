@@ -33,7 +33,7 @@
 #include <memory>
 #include <functional>
 #include <gst/gst.h>
-#include <tl/expected.hpp> 
+#include <tl/expected.hpp>
 #include "media_library/denoise.hpp"
 #include "media_library/media_library_types.hpp"
 
@@ -41,7 +41,8 @@ G_BEGIN_DECLS
 
 #define GST_TYPE_HAILO_FRONTEND (gst_hailofrontend_get_type())
 #define GST_HAILO_FRONTEND(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), GST_TYPE_HAILO_FRONTEND, GstHailoFrontend))
-#define GST_HAILO_FRONTEND_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST((klass), GST_TYPE_HAILO_FRONTEND, GstHailoFrontendClass))
+#define GST_HAILO_FRONTEND_CLASS(klass)                                                                                \
+    (G_TYPE_CHECK_CLASS_CAST((klass), GST_TYPE_HAILO_FRONTEND, GstHailoFrontendClass))
 #define GST_IS_HAILO_FRONTEND(obj) (G_TYPE_CHECK_INSTANCE_TYPE((obj), GST_TYPE_HAILO_FRONTEND))
 #define GST_IS_HAILO_FRONTEND_CLASS(obj) (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILO_FRONTEND))
 
@@ -52,11 +53,13 @@ struct _GstHailoFrontend
 {
     GstBin base_hailofrontend;
     GstPad *sinkpad;
-    
+
     gchar *config_file_path;
     std::string config_string;
 
     gboolean m_elements_linked;
+    GstElement *m_image_freeze;
+    GstElement *m_freeze_mresize_queue;
     GstElement *m_denoise;
     GstElement *m_denoise_dis_queue;
     GstElement *m_dis_dewarp;
@@ -65,7 +68,8 @@ struct _GstHailoFrontend
 
     std::shared_ptr<frontend_element_config_t> frontend_element_config;
 
-    media_library_return observe_denoising(const MediaLibraryDenoise::callbacks_t &callback) {
+    media_library_return observe_denoising(const MediaLibraryDenoise::callbacks_t &callback)
+    {
         // GstHailoDenoise* denoise = GST_HAILO_DENOISE(m_denoise);
         // return denoise->observe(callback);
         return MEDIA_LIBRARY_SUCCESS;

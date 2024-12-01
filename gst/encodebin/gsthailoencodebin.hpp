@@ -32,14 +32,15 @@
 #include <fstream>
 #include <memory>
 #include <gst/gst.h>
-#include <tl/expected.hpp> 
+#include <tl/expected.hpp>
 #include "media_library/media_library_types.hpp"
 
 G_BEGIN_DECLS
 
 #define GST_TYPE_HAILO_ENCODE_BIN (gst_hailoencodebin_get_type())
 #define GST_HAILO_ENCODE_BIN(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), GST_TYPE_HAILO_ENCODE_BIN, GstHailoEncodeBin))
-#define GST_HAILO_ENCODE_BIN_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST((klass), GST_TYPE_HAILO_ENCODE_BIN, GstHailoEncodeBinClass))
+#define GST_HAILO_ENCODE_BIN_CLASS(klass)                                                                              \
+    (G_TYPE_CHECK_CLASS_CAST((klass), GST_TYPE_HAILO_ENCODE_BIN, GstHailoEncodeBinClass))
 #define GST_IS_HAILO_ENCODE_BIN(obj) (G_TYPE_CHECK_INSTANCE_TYPE((obj), GST_TYPE_HAILO_ENCODE_BIN))
 #define GST_IS_HAILO_ENCODE_BIN_CLASS(obj) (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILO_ENCODE_BIN))
 
@@ -51,7 +52,7 @@ struct _GstHailoEncodeBin
     GstBin base_hailoencodebin;
     GstPad *sinkpad;
     GstPad *srcpad;
-    
+
     gchar *config_file_path;
     std::string config_string;
     EncoderType encoder_type;

@@ -30,10 +30,10 @@
 
 namespace signal_utils
 {
-    typedef std::function<void(int)> hailo_exit_signal_t;
+typedef std::function<void(int)> hailo_exit_signal_t;
 
-    // shoud register signal only after pipeline initialization is complete
-    void register_signal_handler(hailo_exit_signal_t signal_handler);
+// shoud register signal only after pipeline initialization is complete
+void register_signal_handler(hailo_exit_signal_t signal_handler);
 
 } // namespace signal_utils
 

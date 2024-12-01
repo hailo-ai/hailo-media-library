@@ -73,7 +73,8 @@ int Encoder::Impl::gopConfig::ReadGopConfig(std::vector<GopPicConfig> &config, i
     return ret;
 }
 
-media_library_return Encoder::Impl::gopConfig::init_config(VCEncGopConfig * gopConfig, int gop_size, int b_frame_qp_delta, bool codec_h264)
+media_library_return Encoder::Impl::gopConfig::init_config(VCEncGopConfig *gopConfig, int gop_size,
+                                                           int b_frame_qp_delta, bool codec_h264)
 {
     m_gop_cfg = gopConfig;
     memset(m_gop_pic_cfg, 0, sizeof(m_gop_pic_cfg));
@@ -82,15 +83,15 @@ media_library_return Encoder::Impl::gopConfig::init_config(VCEncGopConfig * gopC
     m_codec_h264 = codec_h264;
     m_gop_size = gop_size;
     int i, pre_load_num;
-    std::vector<std::vector<GopPicConfig>> default_configs = {
-        m_codec_h264 ? RpsDefault_H264_GOPSize_1 : RpsDefault_GOPSize_1,
-        RpsDefault_GOPSize_2,
-        RpsDefault_GOPSize_3,
-        RpsDefault_GOPSize_4,
-        RpsDefault_GOPSize_5,
-        RpsDefault_GOPSize_6,
-        RpsDefault_GOPSize_7,
-        RpsDefault_GOPSize_8};
+    std::vector<std::vector<GopPicConfig>> default_configs = {m_codec_h264 ? RpsDefault_H264_GOPSize_1
+                                                                           : RpsDefault_GOPSize_1,
+                                                              RpsDefault_GOPSize_2,
+                                                              RpsDefault_GOPSize_3,
+                                                              RpsDefault_GOPSize_4,
+                                                              RpsDefault_GOPSize_5,
+                                                              RpsDefault_GOPSize_6,
+                                                              RpsDefault_GOPSize_7,
+                                                              RpsDefault_GOPSize_8};
 
     if (m_gop_size < 0 || m_gop_size > MAX_GOP_SIZE)
     {
@@ -170,10 +171,8 @@ media_library_return Encoder::Impl::gopConfig::init_config(VCEncGopConfig * gopC
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-Encoder::Impl::gopConfig::gopConfig(VCEncGopConfig *gopConfig, int gopSize, int bFrameQpDelta, bool codecH264) : m_gop_cfg(gopConfig),
-                                                                                                                 m_gop_size(gopSize),
-                                                                                                                 m_b_frame_qp_delta(bFrameQpDelta),
-                                                                                                                 m_codec_h264(codecH264)
+Encoder::Impl::gopConfig::gopConfig(VCEncGopConfig *gopConfig, int gopSize, int bFrameQpDelta, bool codecH264)
+    : m_gop_cfg(gopConfig), m_gop_size(gopSize), m_b_frame_qp_delta(bFrameQpDelta), m_codec_h264(codecH264)
 {
 }
 

@@ -44,8 +44,10 @@
 G_BEGIN_DECLS
 
 #define GST_TYPE_HAILO_FRONTEND_BINSRC (gst_hailofrontendbinsrc_get_type())
-#define GST_HAILO_FRONTEND_BINSRC(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), GST_TYPE_HAILO_FRONTEND_BINSRC, GstHailoFrontendBinSrc))
-#define GST_HAILO_FRONTEND_BINSRC_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST((klass), GST_TYPE_HAILO_FRONTEND_BINSRC, GstHailoFrontendBinSrcClass))
+#define GST_HAILO_FRONTEND_BINSRC(obj)                                                                                 \
+    (G_TYPE_CHECK_INSTANCE_CAST((obj), GST_TYPE_HAILO_FRONTEND_BINSRC, GstHailoFrontendBinSrc))
+#define GST_HAILO_FRONTEND_BINSRC_CLASS(klass)                                                                         \
+    (G_TYPE_CHECK_CLASS_CAST((klass), GST_TYPE_HAILO_FRONTEND_BINSRC, GstHailoFrontendBinSrcClass))
 #define GST_IS_HAILO_FRONTEND_BINSRC(obj) (G_TYPE_CHECK_INSTANCE_TYPE((obj), GST_TYPE_HAILO_FRONTEND_BINSRC))
 #define GST_IS_HAILO_FRONTEND_BINSRC_CLASS(obj) (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILO_FRONTEND_BINSRC))
 
@@ -72,7 +74,6 @@ struct _GstHailoFrontendBinSrc
     std::shared_ptr<ConfigManager> m_hdr_config_manager;
     input_video_config_t m_input_config;
     hailort_t m_hailort_config;
-    denoise_config_t m_denoise_config;
     isp_t m_isp_config;
     hdr_config_t m_hdr_config;
     std::unique_ptr<HailortAsyncStitching> m_hdr_stitcher;

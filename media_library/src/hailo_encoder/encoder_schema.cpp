@@ -28,9 +28,11 @@ namespace fs = std::filesystem;
 #include "encoder_config.hpp"
 #include "encoder_internal.hpp"
 
-EncoderConfig::EncoderConfig(const std::string &json_string)
-    : m_json_string(json_string)
+EncoderConfig::EncoderConfig(const std::string &json_string) : m_json_string(json_string)
 {
     m_doc = nlohmann::json::parse(m_json_string);
 }
-const nlohmann::json &EncoderConfig::get_doc() const { return m_doc; }
+const nlohmann::json &EncoderConfig::get_doc() const
+{
+    return m_doc;
+}

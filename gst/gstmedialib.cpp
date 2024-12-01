@@ -38,10 +38,10 @@
 #include "frontend/gsthailofrontend.hpp"
 #include "frontend/gsthailofrontendbinsrc.hpp"
 #include "upload/gsthailoupload.hpp"
+#include "image_freeze/gsthailoimagefreeze.hpp"
 #include <gst/gst.h>
 
-static gboolean
-media_library_plugin_init(GstPlugin *plugin)
+static gboolean media_library_plugin_init(GstPlugin *plugin)
 {
     gst_element_register(plugin, "hailoh265enc", GST_RANK_PRIMARY, GST_TYPE_HAILO_H265_ENC);
     gst_element_register(plugin, "hailoh264enc", GST_RANK_PRIMARY, GST_TYPE_HAILO_H264_ENC);
@@ -56,10 +56,11 @@ media_library_plugin_init(GstPlugin *plugin)
     gst_element_register(plugin, "hailofrontend", GST_RANK_PRIMARY, GST_TYPE_HAILO_FRONTEND);
     gst_element_register(plugin, "hailofrontendbinsrc", GST_RANK_PRIMARY, GST_TYPE_HAILO_FRONTEND_BINSRC);
     gst_element_register(plugin, "hailoupload", GST_RANK_PRIMARY, GST_TYPE_HAILO_UPLOAD);
+    gst_element_register(plugin, "hailoimagefreeze", GST_RANK_PRIMARY, GST_TYPE_HAILO_IMAGE_FREEZE);
     gst_hailo_buffer_meta_get_info();
     gst_hailo_buffer_meta_api_get_type();
     return TRUE;
 }
 
-GST_PLUGIN_DEFINE(GST_VERSION_MAJOR, GST_VERSION_MINOR, medialib, "Hailo Media Library plugin", media_library_plugin_init,
-                  VERSION, "unknown", PACKAGE, "https://hailo.ai/")
+GST_PLUGIN_DEFINE(GST_VERSION_MAJOR, GST_VERSION_MINOR, medialib, "Hailo Media Library plugin",
+                  media_library_plugin_init, VERSION, "unknown", PACKAGE, "https://hailo.ai/")

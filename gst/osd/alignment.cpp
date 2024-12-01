@@ -25,42 +25,42 @@
 
 namespace osd
 {
-    const HorizontalAlignment HorizontalAlignment::LEFT = HorizontalAlignment(0.0);
-    const HorizontalAlignment HorizontalAlignment::CENTER = HorizontalAlignment(0.5);
-    const HorizontalAlignment HorizontalAlignment::RIGHT = HorizontalAlignment(1.0);
+const HorizontalAlignment HorizontalAlignment::LEFT = HorizontalAlignment(0.0);
+const HorizontalAlignment HorizontalAlignment::CENTER = HorizontalAlignment(0.5);
+const HorizontalAlignment HorizontalAlignment::RIGHT = HorizontalAlignment(1.0);
 
-    const VerticalAlignment VerticalAlignment::TOP = VerticalAlignment(0.0);
-    const VerticalAlignment VerticalAlignment::CENTER = VerticalAlignment(0.5);
-    const VerticalAlignment VerticalAlignment::BOTTOM = VerticalAlignment(1.0);
+const VerticalAlignment VerticalAlignment::TOP = VerticalAlignment(0.0);
+const VerticalAlignment VerticalAlignment::CENTER = VerticalAlignment(0.5);
+const VerticalAlignment VerticalAlignment::BOTTOM = VerticalAlignment(1.0);
 
-    static media_library_return check_alignment(float alignment)
+static media_library_return check_alignment(float alignment)
+{
+    if (alignment < 0.0 || alignment > 1.0)
     {
-        if (alignment < 0.0 || alignment > 1.0)
-        {
-            LOGGER__ERROR("Alignment value must be between 0.0 and 1.0, got: {}", alignment);
-            return MEDIA_LIBRARY_INVALID_ARGUMENT;
-        }
-        return MEDIA_LIBRARY_SUCCESS;
+        LOGGER__ERROR("Alignment value must be between 0.0 and 1.0, got: {}", alignment);
+        return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
+    return MEDIA_LIBRARY_SUCCESS;
+}
 
-    tl::expected<HorizontalAlignment, media_library_return> HorizontalAlignment::create(float alignment)
+tl::expected<HorizontalAlignment, media_library_return> HorizontalAlignment::create(float alignment)
+{
+    auto result = check_alignment(alignment);
+    if (result != MEDIA_LIBRARY_SUCCESS)
     {
-        auto result = check_alignment(alignment);
-        if (result != MEDIA_LIBRARY_SUCCESS)
-        {
-            return tl::make_unexpected(result);
-        }
-        return HorizontalAlignment(alignment);
+        return tl::make_unexpected(result);
     }
+    return HorizontalAlignment(alignment);
+}
 
-    tl::expected<VerticalAlignment, media_library_return> VerticalAlignment::create(float alignment)
+tl::expected<VerticalAlignment, media_library_return> VerticalAlignment::create(float alignment)
+{
+    auto result = check_alignment(alignment);
+    if (result != MEDIA_LIBRARY_SUCCESS)
     {
-        auto result = check_alignment(alignment);
-        if (result != MEDIA_LIBRARY_SUCCESS)
-        {
-            return tl::make_unexpected(result);
-        }
-        return VerticalAlignment(alignment);
+        return tl::make_unexpected(result);
     }
+    return VerticalAlignment(alignment);
+}
 
 } // namespace osd

@@ -32,11 +32,12 @@
 #define ENCODER_QUEUE_NAME "encoder_q"
 #define PRINT_FPS true
 
-tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>, media_library_return>
-MediaLibraryEncoder::Impl::create(std::string json_config, std::string name)
+tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>, media_library_return> MediaLibraryEncoder::Impl::create(
+    std::string json_config, std::string name)
 {
     media_library_return status = MEDIA_LIBRARY_UNINITIALIZED;
-    std::shared_ptr<MediaLibraryEncoder::Impl> encoder = std::make_shared<MediaLibraryEncoder::Impl>(json_config, status, name);
+    std::shared_ptr<MediaLibraryEncoder::Impl> encoder =
+        std::make_shared<MediaLibraryEncoder::Impl>(json_config, status, name);
     if (status != MEDIA_LIBRARY_SUCCESS)
     {
         return tl::make_unexpected(status);
@@ -49,7 +50,8 @@ media_library_return MediaLibraryEncoder::Impl::init_buffer_pool()
     std::string name = "jpeg_encoder";
     uint frame_width = m_input_params.width;
     uint frame_height = m_input_params.height;
-    m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(frame_width, frame_height, HAILO_FORMAT_GRAY8, 5, HAILO_MEMORY_TYPE_DMABUF, name);
+    m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(frame_width, frame_height, HAILO_FORMAT_GRAY8, 5,
+                                                             HAILO_MEMORY_TYPE_DMABUF, name);
     if (m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to initialize buffer pool");
@@ -59,9 +61,7 @@ media_library_return MediaLibraryEncoder::Impl::init_buffer_pool()
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-MediaLibraryEncoder::Impl::Impl(std::string json_config,
-                                media_library_return &status,
-                                std::string name)
+MediaLibraryEncoder::Impl::Impl(std::string json_config, media_library_return &status, std::string name)
     : m_json_config(json_config)
 {
     m_name = name;
@@ -99,8 +99,8 @@ MediaLibraryEncoder::Impl::~Impl()
     gst_object_unref(m_pipeline);
 }
 
-tl::expected<MediaLibraryEncoderPtr, media_library_return>
-MediaLibraryEncoder::create(std::string json_config, std::string name)
+tl::expected<MediaLibraryEncoderPtr, media_library_return> MediaLibraryEncoder::create(std::string json_config,
+                                                                                       std::string name)
 {
     auto impl_expected = Impl::create(json_config, name);
     if (impl_expected.has_value())
@@ -113,9 +113,7 @@ MediaLibraryEncoder::create(std::string json_config, std::string name)
     }
 }
 
-MediaLibraryEncoder::MediaLibraryEncoder(
-    std::shared_ptr<MediaLibraryEncoder::Impl> impl)
-    : m_impl(impl)
+MediaLibraryEncoder::MediaLibraryEncoder(std::shared_ptr<MediaLibraryEncoder::Impl> impl) : m_impl(impl)
 {
 }
 
@@ -127,16 +125,13 @@ media_library_return MediaLibraryEncoder::Impl::subscribe(AppWrapperCallback cal
 
 media_library_return MediaLibraryEncoder::Impl::start()
 {
-    GstStateChangeReturn ret =
-        gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
+    GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE)
     {
         LOGGER__ERROR("Failed to start encoder pipeline");
         return MEDIA_LIBRARY_ERROR;
     }
-    m_main_loop_thread = std::make_shared<std::thread>(
-        [this]()
-        { g_main_loop_run(m_main_loop); });
+    m_main_loop_thread = std::make_shared<std::thread>([this]() { g_main_loop_run(m_main_loop); });
 
     GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
     if (encoder_bin == nullptr)
@@ -174,8 +169,7 @@ media_library_return MediaLibraryEncoder::Impl::stop()
  * @return A string containing the gstreamer pipeline.
  * @note prints the return value to the stdout.
  */
-std::string MediaLibraryEncoder::Impl::create_pipeline_string(
-    nlohmann::json encode_osd_json_config)
+std::string MediaLibraryEncoder::Impl::create_pipeline_string(nlohmann::json encode_osd_json_config)
 {
     std::string pipeline = "";
     auto json_osd_encoder_config = encode_osd_json_config.dump();
@@ -190,21 +184,17 @@ std::string MediaLibraryEncoder::Impl::create_pipeline_string(
         caps2 << "image/jpeg,framerate=" << m_input_params.framerate << "/1";
     }
 
-    pipeline =
-        "appsrc do-timestamp=true format=time block=true is-live=true max-bytes=0 "
-        "max-buffers=1 name=encoder_src ! "
-        "queue name=" +
-        std::string(ENCODER_QUEUE_NAME) + " leaky=no max-size-buffers=1 max-size-bytes=0 max-size-time=0 ! " +
-        "hailoencodebin config-string=" +
-        "'" + // Add ' in case the json string contains spaces
-        std::string(json_osd_encoder_config) +
-        "'" + // Close '
-        " name=" + m_name.c_str() +
-        " ! " + caps2.str() + " ! " +
-        "queue leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! "
-        "fpsdisplaysink fps-update-interval=2000 signal-fps-measurements=true name=fpsdisplaysink "
-        "text-overlay=false sync=false video-sink=\"appsink wait-on-eos=false max-buffers=1 qos=false "
-        "name=encoder_sink\"";
+    pipeline = "appsrc do-timestamp=true format=time block=true is-live=true max-bytes=0 "
+               "max-buffers=1 name=encoder_src ! "
+               "queue name=" +
+               std::string(ENCODER_QUEUE_NAME) + " leaky=no max-size-buffers=1 max-size-bytes=0 max-size-time=0 ! " +
+               "hailoencodebin config-string=" + "'" +      // Add ' in case the json string contains spaces
+               std::string(json_osd_encoder_config) + "'" + // Close '
+               " name=" + m_name.c_str() + " ! " + caps2.str() + " ! " +
+               "queue leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! "
+               "fpsdisplaysink fps-update-interval=2000 signal-fps-measurements=true name=fpsdisplaysink "
+               "text-overlay=false sync=false video-sink=\"appsink wait-on-eos=false max-buffers=1 qos=false "
+               "name=encoder_sink\"";
 
     LOGGER__INFO("Pipeline: gst-launch-1.0 {}", pipeline);
 
@@ -216,9 +206,7 @@ std::string MediaLibraryEncoder::Impl::create_pipeline_string(
 //  *
 //  * @note Prints the FPS to the stdout.
 //  */
-void MediaLibraryEncoder::Impl::on_fps_measurement(GstElement *fpsdisplaysink,
-                                                   gdouble fps,
-                                                   gdouble droprate,
+void MediaLibraryEncoder::Impl::on_fps_measurement(GstElement *fpsdisplaysink, gdouble fps, gdouble droprate,
                                                    gdouble avgfps)
 {
     if (PRINT_FPS)
@@ -264,26 +252,20 @@ void MediaLibraryEncoder::Impl::set_gst_callbacks()
 {
     GstAppSinkCallbacks appsink_callbacks = {};
 
-    GstElement *fpssink =
-        gst_bin_get_by_name(GST_BIN(m_pipeline), "fpsdisplaysink");
-    g_signal_connect(fpssink, "fps-measurements", G_CALLBACK(fps_measurement),
-                     this);
+    GstElement *fpssink = gst_bin_get_by_name(GST_BIN(m_pipeline), "fpsdisplaysink");
+    g_signal_connect(fpssink, "fps-measurements", G_CALLBACK(fps_measurement), this);
     GstElement *appsink = gst_bin_get_by_name(GST_BIN(m_pipeline), "encoder_sink");
     appsink_callbacks.new_sample = this->new_sample;
 
-    gst_app_sink_set_callbacks(GST_APP_SINK(appsink), &appsink_callbacks,
-                               (void *)this, NULL);
+    gst_app_sink_set_callbacks(GST_APP_SINK(appsink), &appsink_callbacks, (void *)this, NULL);
     gst_object_unref(appsink);
     gst_object_unref(fpssink);
 
     GstElement *appsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "encoder_src");
     m_appsrc = GST_APP_SRC(appsrc);
-    m_appsrc_caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING,
-                                        m_input_params.format.c_str(), "width",
-                                        G_TYPE_INT, m_input_params.width, "height",
-                                        G_TYPE_INT, m_input_params.height,
-                                        "framerate", GST_TYPE_FRACTION,
-                                        m_input_params.framerate, 1, NULL),
+    m_appsrc_caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, m_input_params.format.c_str(), "width",
+                                        G_TYPE_INT, m_input_params.width, "height", G_TYPE_INT, m_input_params.height,
+                                        "framerate", GST_TYPE_FRACTION, m_input_params.framerate, 1, NULL),
     g_object_set(G_OBJECT(m_appsrc), "caps", m_appsrc_caps, NULL);
 
     gst_object_unref(appsrc);
@@ -299,16 +281,14 @@ gboolean MediaLibraryEncoder::Impl::on_bus_call(GstBus *bus, GstMessage *msg)
 {
     switch (GST_MESSAGE_TYPE(msg))
     {
-    case GST_MESSAGE_EOS:
-    {
+    case GST_MESSAGE_EOS: {
         // TODO: EOS never received
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
         g_main_loop_quit(m_main_loop);
         m_main_loop_thread->join();
         break;
     }
-    case GST_MESSAGE_ERROR:
-    {
+    case GST_MESSAGE_ERROR: {
         gchar *debug;
         GError *err;
 
@@ -327,8 +307,7 @@ gboolean MediaLibraryEncoder::Impl::on_bus_call(GstBus *bus, GstMessage *msg)
     return TRUE;
 }
 
-media_library_return
-MediaLibraryEncoder::Impl::force_keyframe()
+media_library_return MediaLibraryEncoder::Impl::force_keyframe()
 {
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
     GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
@@ -341,7 +320,8 @@ MediaLibraryEncoder::Impl::force_keyframe()
     }
 
     LOGGER__INFO("Force Keyframe requested from Encoder API");
-    GstEvent *event = gst_video_event_new_downstream_force_key_unit(GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE, TRUE, 1);
+    GstEvent *event = gst_video_event_new_downstream_force_key_unit(GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE,
+                                                                    GST_CLOCK_TIME_NONE, TRUE, 1);
     GstPad *sinkpad = gst_element_get_static_pad(encoder_bin, "sink");
     if (!gst_pad_send_event(sinkpad, event))
     {
@@ -356,8 +336,7 @@ MediaLibraryEncoder::Impl::force_keyframe()
     return ret;
 }
 
-media_library_return
-MediaLibraryEncoder::Impl::add_buffer(HailoMediaLibraryBufferPtr ptr)
+media_library_return MediaLibraryEncoder::Impl::add_buffer(HailoMediaLibraryBufferPtr ptr)
 {
     GstBuffer *gst_buffer = gst_buffer_from_hailo_buffer(ptr, m_appsrc_caps);
     if (!gst_buffer)
@@ -414,8 +393,7 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
     }
     switch (m_encoder_type)
     {
-    case EncoderType::Hailo:
-    {
+    case EncoderType::Hailo: {
         buffer_meta = gst_buffer_get_hailo_buffer_meta(buffer);
         if (!buffer_meta)
         {
@@ -437,8 +415,7 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
             gst_buffer_remove_meta(buffer, &buffer_meta->meta);
         break;
     }
-    case EncoderType::Jpeg:
-    {
+    case EncoderType::Jpeg: {
         HailoMediaLibraryBufferPtr hailo_buffer = std::make_shared<hailo_media_library_buffer>();
         if (m_buffer_pool->acquire_buffer(hailo_buffer) != MEDIA_LIBRARY_SUCCESS)
         {
@@ -481,9 +458,15 @@ media_library_return MediaLibraryEncoder::subscribe(AppWrapperCallback callback)
     return m_impl->subscribe(callback);
 }
 
-media_library_return MediaLibraryEncoder::start() { return m_impl->start(); }
+media_library_return MediaLibraryEncoder::start()
+{
+    return m_impl->start();
+}
 
-media_library_return MediaLibraryEncoder::stop() { return m_impl->stop(); }
+media_library_return MediaLibraryEncoder::stop()
+{
+    return m_impl->stop();
+}
 
 media_library_return MediaLibraryEncoder::add_buffer(HailoMediaLibraryBufferPtr ptr)
 {
@@ -511,12 +494,10 @@ media_library_return MediaLibraryEncoder::Impl::configure(encoder_config_t &conf
         m_input_params.width = config_input_stream.width;
         m_input_params.height = config_input_stream.height;
         m_input_params.framerate = config_input_stream.framerate;
-        m_appsrc_caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING,
-                                            m_input_params.format.c_str(), "width",
-                                            G_TYPE_INT, m_input_params.width, "height",
-                                            G_TYPE_INT, m_input_params.height,
-                                            "framerate", GST_TYPE_FRACTION,
-                                            m_input_params.framerate, 1, NULL),
+        m_appsrc_caps =
+            gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, m_input_params.format.c_str(), "width",
+                                G_TYPE_INT, m_input_params.width, "height", G_TYPE_INT, m_input_params.height,
+                                "framerate", GST_TYPE_FRACTION, m_input_params.framerate, 1, NULL),
         g_object_set(G_OBJECT(m_appsrc), "caps", m_appsrc_caps, NULL);
     }
 

@@ -35,10 +35,11 @@ TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay &_overlay, media_library
 TextOverlayImpl::TextOverlayImpl(const osd::BaseTextOverlay &_overlay, media_library_return &status)
     : OverlayImpl(_overlay.id, _overlay.x, _overlay.y, 0, 0, _overlay.z_index, _overlay.angle,
                   _overlay.rotation_alignment_policy, true, _overlay.horizontal_alignment, _overlay.vertical_alignment),
-      m_text_color(_overlay.text_color), m_background_color(_overlay.background_color),
-      m_font_path(_overlay.font_path), m_font_size(_overlay.font_size), m_line_thickness(_overlay.line_thickness),
-      m_shadow_color(_overlay.shadow_color), m_shadow_offset_x(_overlay.shadow_offset_x), m_shadow_offset_y(_overlay.shadow_offset_y),
-      m_font_weight(_overlay.font_weight), m_outline_size(_overlay.outline_size), m_outline_color(_overlay.outline_color)
+      m_text_color(_overlay.text_color), m_background_color(_overlay.background_color), m_font_path(_overlay.font_path),
+      m_font_size(_overlay.font_size), m_line_thickness(_overlay.line_thickness), m_shadow_color(_overlay.shadow_color),
+      m_shadow_offset_x(_overlay.shadow_offset_x), m_shadow_offset_y(_overlay.shadow_offset_y),
+      m_font_weight(_overlay.font_weight), m_outline_size(_overlay.outline_size),
+      m_outline_color(_overlay.outline_color)
 {
     auto extra_size = cv::Size2f(0, 0);
     auto foreground_text_position = cv::Point2f(0, 0);
@@ -64,8 +65,10 @@ TextOverlayImpl::TextOverlayImpl(const osd::BaseTextOverlay &_overlay, media_lib
         extra_size = cv::Size2f(std::abs(overlay.shadow_offset_x), std::abs(overlay.shadow_offset_y));
 
         /* Calculate the foreground and shadow text positions relative to the enlarged matrix */
-        cv::Point2f shadow_text_position(overlay.shadow_offset_x < 0 ? 0 : overlay.shadow_offset_x, overlay.shadow_offset_y < 0 ? 0 : overlay.shadow_offset_y);
-        foreground_text_position = cv::Point2f(overlay.shadow_offset_x > 0 ? 0 : -overlay.shadow_offset_x, overlay.shadow_offset_y > 0 ? 0 : -overlay.shadow_offset_y);
+        cv::Point2f shadow_text_position(overlay.shadow_offset_x < 0 ? 0 : overlay.shadow_offset_x,
+                                         overlay.shadow_offset_y < 0 ? 0 : overlay.shadow_offset_y);
+        foreground_text_position = cv::Point2f(overlay.shadow_offset_x > 0 ? 0 : -overlay.shadow_offset_x,
+                                               overlay.shadow_offset_y > 0 ? 0 : -overlay.shadow_offset_y);
 
         auto shadow_text = SimpleTextOverlayImpl::create(shadow_overlay, extra_size, shadow_text_position);
         if (!shadow_text)
@@ -77,8 +80,8 @@ TextOverlayImpl::TextOverlayImpl(const osd::BaseTextOverlay &_overlay, media_lib
     }
 
     /* If the background color is set, create a background text overlay */
-    if (overlay.background_color.red >= 0 && overlay.background_color.green >= 0 && overlay.background_color.blue >= 0 &&
-        overlay.background_color.alpha > 0)
+    if (overlay.background_color.red >= 0 && overlay.background_color.green >= 0 &&
+        overlay.background_color.blue >= 0 && overlay.background_color.alpha > 0)
     {
         auto background = BackgroundTextOverlayImpl::create(overlay);
         if (!background)
@@ -113,29 +116,24 @@ tl::expected<TextOverlayImplPtr, media_library_return> TextOverlayImpl::create(c
     return osd_overlay;
 }
 
-std::shared_future<tl::expected<TextOverlayImplPtr, media_library_return>>
-TextOverlayImpl::create_async(const osd::TextOverlay &overlay)
+std::shared_future<tl::expected<TextOverlayImplPtr, media_library_return>> TextOverlayImpl::create_async(
+    const osd::TextOverlay &overlay)
 {
-    return std::async(std::launch::async, [overlay]()
-                      { return create(overlay); })
-        .share();
+    return std::async(std::launch::async, [overlay]() { return create(overlay); }).share();
 }
 
 std::shared_ptr<osd::Overlay> TextOverlayImpl::get_metadata()
 {
     auto text_size = m_foreground_text->get_text_size();
-    return std::make_shared<osd::TextOverlay>(m_id, m_x, m_y, m_label,
-                                              m_text_color, m_background_color,
-                                              m_font_size, m_line_thickness, m_z_index, m_font_path,
-                                              m_angle, m_rotation_policy,
-                                              m_shadow_color, m_shadow_offset_x, m_shadow_offset_y,
-                                              m_font_weight, m_outline_size, m_outline_color,
-                                              m_horizontal_alignment, m_vertical_alignment,
-                                              text_size.width, text_size.height);
+    return std::make_shared<osd::TextOverlay>(m_id, m_x, m_y, m_label, m_text_color, m_background_color, m_font_size,
+                                              m_line_thickness, m_z_index, m_font_path, m_angle, m_rotation_policy,
+                                              m_shadow_color, m_shadow_offset_x, m_shadow_offset_y, m_font_weight,
+                                              m_outline_size, m_outline_color, m_horizontal_alignment,
+                                              m_vertical_alignment, text_size.width, text_size.height);
 }
 
-tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return>
-TextOverlayImpl::create_dsp_overlays(int frame_width, int frame_height)
+tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> TextOverlayImpl::create_dsp_overlays(
+    int frame_width, int frame_height)
 {
     /* If the label hasn't changed, return the previously created overlays */
     if (m_rendered_label == m_label)
@@ -215,7 +213,8 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> TextOv
 
 bool TextOverlayImpl::get_enabled()
 {
-    return m_foreground_text->get_enabled() && (!m_shadow_text || m_shadow_text->get_enabled()) && (!m_background || m_background->get_enabled());
+    return m_foreground_text->get_enabled() && (!m_shadow_text || m_shadow_text->get_enabled()) &&
+           (!m_background || m_background->get_enabled());
 }
 
 void TextOverlayImpl::set_enabled(bool enabled)

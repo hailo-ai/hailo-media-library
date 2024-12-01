@@ -114,7 +114,8 @@ HailoMediaLibraryBufferPtr hailo_buffer_from_gst_buffer(GstBuffer *buffer, GstCa
  * @param[in] buffer GstBuffer to create HailoMediaLibraryBufferPtr from.
  * @return HailoMediaLibraryBufferPtr created from GstBuffer.
  */
-HailoMediaLibraryBufferPtr hailo_buffer_from_jpeg_gst_buffer(GstBuffer *buffer, HailoMediaLibraryBufferPtr hailo_buffer, size_t *input_size)
+HailoMediaLibraryBufferPtr hailo_buffer_from_jpeg_gst_buffer(GstBuffer *buffer, HailoMediaLibraryBufferPtr hailo_buffer,
+                                                             size_t *input_size)
 {
     // JPEG encoder results are non-planar, so we treat the whole image as 1 plane
     GstMemory *memory = gst_buffer_peek_memory(buffer, 0);
@@ -130,13 +131,13 @@ HailoMediaLibraryBufferPtr hailo_buffer_from_jpeg_gst_buffer(GstBuffer *buffer, 
     return hailo_buffer;
 }
 
-static GstVideoMeta *add_video_meta_to_buffer(GstBuffer *buffer,
-                                              GstVideoInfo *video_info,
+static GstVideoMeta *add_video_meta_to_buffer(GstBuffer *buffer, GstVideoInfo *video_info,
                                               HailoMediaLibraryBufferPtr hailo_buffer)
 {
     GstVideoAlignment alignment;
     gst_video_alignment_reset(&alignment);
-    alignment.padding_right = hailo_buffer->buffer_data->planes[0].bytesperline - GST_VIDEO_INFO_PLANE_STRIDE(video_info, 0);
+    alignment.padding_right =
+        hailo_buffer->buffer_data->planes[0].bytesperline - GST_VIDEO_INFO_PLANE_STRIDE(video_info, 0);
     if (!gst_video_info_align(video_info, &alignment))
     {
         return NULL;
@@ -145,17 +146,11 @@ static GstVideoMeta *add_video_meta_to_buffer(GstBuffer *buffer,
     return meta;
 }
 
-GstVideoMeta *add_video_meta_to_buffer(GstBuffer *buffer,
-                                       GstVideoInfo *video_info)
+GstVideoMeta *add_video_meta_to_buffer(GstBuffer *buffer, GstVideoInfo *video_info)
 {
-    GstVideoMeta *meta = gst_buffer_add_video_meta_full(buffer,
-                                                        GST_VIDEO_FRAME_FLAG_NONE,
-                                                        GST_VIDEO_INFO_FORMAT(video_info),
-                                                        GST_VIDEO_INFO_WIDTH(video_info),
-                                                        GST_VIDEO_INFO_HEIGHT(video_info),
-                                                        GST_VIDEO_INFO_N_PLANES(video_info),
-                                                        video_info->offset,
-                                                        video_info->stride);
+    GstVideoMeta *meta = gst_buffer_add_video_meta_full(
+        buffer, GST_VIDEO_FRAME_FLAG_NONE, GST_VIDEO_INFO_FORMAT(video_info), GST_VIDEO_INFO_WIDTH(video_info),
+        GST_VIDEO_INFO_HEIGHT(video_info), GST_VIDEO_INFO_N_PLANES(video_info), video_info->offset, video_info->stride);
     return meta;
 }
 
@@ -173,9 +168,12 @@ static GstVideoInfo *video_info_from_caps(HailoMediaLibraryBufferPtr hailo_buffe
         gst_video_info_free(video_info);
         return nullptr;
     }
-    if (hailo_buffer->buffer_data->width != (guint)video_info->width || hailo_buffer->buffer_data->height != (guint)video_info->height)
+    if (hailo_buffer->buffer_data->width != (guint)video_info->width ||
+        hailo_buffer->buffer_data->height != (guint)video_info->height)
     {
-        GST_CAT_ERROR(GST_CAT_DEFAULT, "Output frame size (%ld, %ld) does not match srcpad size (%d, %d)", hailo_buffer->buffer_data->width, hailo_buffer->buffer_data->height, video_info->width, video_info->height);
+        GST_CAT_ERROR(GST_CAT_DEFAULT, "Output frame size (%ld, %ld) does not match srcpad size (%d, %d)",
+                      hailo_buffer->buffer_data->width, hailo_buffer->buffer_data->height, video_info->width,
+                      video_info->height);
         gst_video_info_free(video_info);
         return nullptr;
     }
@@ -210,8 +208,9 @@ GstBuffer *gst_buffer_from_hailo_buffer(HailoMediaLibraryBufferPtr hailo_buffer,
         wrapper->ptr = hailo_buffer;
 
         gst_buffer_append_memory(gst_outbuf,
-                                 gst_memory_new_wrapped(GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS, plane.userptr, plane.bytesused, 0, plane.bytesused,
-                                                        wrapper, GDestroyNotify(hailo_media_library_buffer_release)));
+                                 gst_memory_new_wrapped(GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS, plane.userptr,
+                                                        plane.bytesused, 0, plane.bytesused, wrapper,
+                                                        GDestroyNotify(hailo_media_library_buffer_release)));
     }
     gst_buffer_add_hailo_buffer_meta(gst_outbuf, hailo_buffer, gst_buffer_get_size(gst_outbuf));
 
@@ -240,14 +239,9 @@ GstBuffer *gst_buffer_from_hailo_buffer(HailoMediaLibraryBufferPtr hailo_buffer,
     }
 
     // add hailo_v4l2_meta
-    gst_buffer_add_hailo_v4l2_meta(gst_outbuf,
-                                   hailo_buffer->video_fd,
-                                   hailo_buffer->buffer_index,
-                                   hailo_buffer->vsm,
-                                   hailo_buffer->isp_ae_fps,
-                                   hailo_buffer->isp_ae_converged,
-                                   hailo_buffer->isp_ae_average_luma,
-                                   hailo_buffer->isp_ae_integration_time,
+    gst_buffer_add_hailo_v4l2_meta(gst_outbuf, hailo_buffer->video_fd, hailo_buffer->buffer_index, hailo_buffer->vsm,
+                                   hailo_buffer->isp_ae_fps, hailo_buffer->isp_ae_converged,
+                                   hailo_buffer->isp_ae_average_luma, hailo_buffer->isp_ae_integration_time,
                                    hailo_buffer->isp_timestamp_ns);
 
     return gst_outbuf;
@@ -259,7 +253,8 @@ bool create_hailo_buffer_from_video_frame(GstVideoFrame *video_frame, HailoMedia
     GType hailo_v4l2_type = g_type_from_name(HAILO_V4L2_META_API_NAME);
     if (hailo_v4l2_type)
     {
-        hailo_v4l2_meta = reinterpret_cast<GstHailoV4l2Meta *>(gst_buffer_get_meta(video_frame->buffer, hailo_v4l2_type));
+        hailo_v4l2_meta =
+            reinterpret_cast<GstHailoV4l2Meta *>(gst_buffer_get_meta(video_frame->buffer, hailo_v4l2_type));
     }
     HailoBufferDataPtr buffer_data_ptr;
     if (!create_hailo_buffer_data_from_video_frame(video_frame, buffer_data_ptr))
@@ -336,7 +331,9 @@ void *get_mapped_dmabuf_userptr(int fd, int plane_index, size_t size)
     return user_ptr;
 }
 
-media_library_return create_hailo_data_plane_from_video_frame(GstVideoFrame *video_frame, int index, hailo_data_plane_t &output_plane, size_t size, size_t line_stride)
+media_library_return create_hailo_data_plane_from_video_frame(GstVideoFrame *video_frame, int index,
+                                                              hailo_data_plane_t &output_plane, size_t size,
+                                                              size_t line_stride)
 {
     auto mapped_dma_res = get_mapped_dmabuf_from_video_frame(video_frame, index, size);
     void *data = mapped_dma_res.first;
@@ -356,7 +353,8 @@ media_library_return create_hailo_data_plane_from_video_frame(GstVideoFrame *vid
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return create_hailo_data_plane_from_video_frame(GstVideoFrame *video_frame, int index, hailo_data_plane_t &output_plane)
+media_library_return create_hailo_data_plane_from_video_frame(GstVideoFrame *video_frame, int index,
+                                                              hailo_data_plane_t &output_plane)
 {
     size_t image_height = GST_VIDEO_FRAME_HEIGHT(video_frame);
     size_t line_stride = GST_VIDEO_FRAME_PLANE_STRIDE(video_frame, index);
@@ -381,38 +379,36 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
 
     switch (format)
     {
-    case GST_VIDEO_FORMAT_RGB:
-    {
+    case GST_VIDEO_FORMAT_RGB: {
         // RGB is non-planar, since all channels are interleaved, we treat the whole image as 1 plane
         hailo_data_plane_t plane;
         if (create_hailo_data_plane_from_video_frame(video_frame, 0, plane) != MEDIA_LIBRARY_SUCCESS)
             return false;
 
         // Fill in buffer_data_ values
-        buffer_data = std::make_shared<hailo_buffer_data_t>(
-            image_width, image_height, n_planes, HAILO_FORMAT_RGB, HAILO_MEMORY_TYPE_DMABUF, std::vector<hailo_data_plane_t>{std::move(plane)});
+        buffer_data = std::make_shared<hailo_buffer_data_t>(image_width, image_height, n_planes, HAILO_FORMAT_RGB,
+                                                            HAILO_MEMORY_TYPE_DMABUF,
+                                                            std::vector<hailo_data_plane_t>{std::move(plane)});
         break;
     }
-    case GST_VIDEO_FORMAT_ARGB:
-    {
+    case GST_VIDEO_FORMAT_ARGB: {
         // ARGB is non-planar, since all channels are interleaved, we treat the whole image as 1 plane
         hailo_data_plane_t plane;
         if (create_hailo_data_plane_from_video_frame(video_frame, 0, plane) != MEDIA_LIBRARY_SUCCESS)
             return false;
 
         // Fill in buffer_data_ values
-        buffer_data = std::make_shared<hailo_buffer_data_t>(
-            image_width, image_height, n_planes, HAILO_FORMAT_ARGB, HAILO_MEMORY_TYPE_DMABUF, std::vector<hailo_data_plane_t>{std::move(plane)});
+        buffer_data = std::make_shared<hailo_buffer_data_t>(image_width, image_height, n_planes, HAILO_FORMAT_ARGB,
+                                                            HAILO_MEMORY_TYPE_DMABUF,
+                                                            std::vector<hailo_data_plane_t>{std::move(plane)});
 
         break;
     }
-    case GST_VIDEO_FORMAT_YUY2:
-    {
+    case GST_VIDEO_FORMAT_YUY2: {
         GST_CAT_ERROR(GST_CAT_DEFAULT, "DSP image properties from GstVideoFrame failed: YUY2 not yet supported.");
         return false;
     }
-    case GST_VIDEO_FORMAT_NV12:
-    {
+    case GST_VIDEO_FORMAT_NV12: {
         // NV12 is semi-planar, where the Y channel is a seprate plane from the UV channels
 
         hailo_data_plane_t y_plane_data;
@@ -427,22 +423,24 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
         size_t uv_channel_size = uv_channel_stride * image_height / 2;
 
         hailo_data_plane_t uv_plane_data;
-        if (create_hailo_data_plane_from_video_frame(video_frame, 1, uv_plane_data, uv_channel_size, uv_channel_stride) != MEDIA_LIBRARY_SUCCESS)
+        if (create_hailo_data_plane_from_video_frame(video_frame, 1, uv_plane_data, uv_channel_size,
+                                                     uv_channel_stride) != MEDIA_LIBRARY_SUCCESS)
         {
             GST_CAT_ERROR(GST_CAT_DEFAULT, "Failed to create plane data for uv channel for NV12 frame");
             return false;
         }
 
-        GST_CAT_DEBUG(GST_CAT_DEFAULT, "buffer data from GstVideoFrame: buffer offset = %zu", GST_BUFFER_OFFSET(video_frame->buffer));
+        GST_CAT_DEBUG(GST_CAT_DEFAULT, "buffer data from GstVideoFrame: buffer offset = %zu",
+                      GST_BUFFER_OFFSET(video_frame->buffer));
 
         // Fill in buffer_data values
         buffer_data = std::make_shared<hailo_buffer_data_t>(
-            image_width, image_height, n_planes, HAILO_FORMAT_NV12, HAILO_MEMORY_TYPE_DMABUF, std::vector<hailo_data_plane_t>{std::move(y_plane_data), std::move(uv_plane_data)});
+            image_width, image_height, n_planes, HAILO_FORMAT_NV12, HAILO_MEMORY_TYPE_DMABUF,
+            std::vector<hailo_data_plane_t>{std::move(y_plane_data), std::move(uv_plane_data)});
 
         break;
     }
-    case GST_VIDEO_FORMAT_GRAY8:
-    {
+    case GST_VIDEO_FORMAT_GRAY8: {
         hailo_data_plane_t plane_data;
         if (create_hailo_data_plane_from_video_frame(video_frame, 0, plane_data) != MEDIA_LIBRARY_SUCCESS)
         {
@@ -451,13 +449,13 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
         }
 
         // Fill in buffer_data values
-        buffer_data = std::make_shared<hailo_buffer_data_t>(
-            image_width, image_height, n_planes, HAILO_FORMAT_GRAY8, HAILO_MEMORY_TYPE_DMABUF, std::vector<hailo_data_plane_t>{std::move(plane_data)});
+        buffer_data = std::make_shared<hailo_buffer_data_t>(image_width, image_height, n_planes, HAILO_FORMAT_GRAY8,
+                                                            HAILO_MEMORY_TYPE_DMABUF,
+                                                            std::vector<hailo_data_plane_t>{std::move(plane_data)});
 
         break;
     }
-    case GST_VIDEO_FORMAT_A420:
-    {
+    case GST_VIDEO_FORMAT_A420: {
         // A420 is fully planar (4:4:2:0), essentially I420 YUV with an extra alpha channel at full size
         // Gather channel info
         std::vector<hailo_data_plane_t> a420_planes;
@@ -469,7 +467,8 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
                 channel_size /= 2;
 
             hailo_data_plane_t plane_data;
-            if (create_hailo_data_plane_from_video_frame(video_frame, i, plane_data, channel_size, channel_stride) != MEDIA_LIBRARY_SUCCESS)
+            if (create_hailo_data_plane_from_video_frame(video_frame, i, plane_data, channel_size, channel_stride) !=
+                MEDIA_LIBRARY_SUCCESS)
             {
                 GST_CAT_ERROR(GST_CAT_DEFAULT, "Failed to create plane data for a420 channel");
                 return false;
@@ -478,13 +477,12 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
         }
 
         // Fill in buffer_data_ values
-        buffer_data = std::make_shared<hailo_buffer_data_t>(
-            image_width, image_height, n_planes, HAILO_FORMAT_A420, HAILO_MEMORY_TYPE_DMABUF, a420_planes);
+        buffer_data = std::make_shared<hailo_buffer_data_t>(image_width, image_height, n_planes, HAILO_FORMAT_A420,
+                                                            HAILO_MEMORY_TYPE_DMABUF, a420_planes);
 
         break;
     }
-    default:
-    {
+    default: {
         return false;
     }
     }
@@ -508,8 +506,7 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
 
     switch (format)
     {
-    case GST_VIDEO_FORMAT_RGB:
-    {
+    case GST_VIDEO_FORMAT_RGB: {
         // RGB is non-planar, since all channels are interleaved, we treat the whole image as 1 plane
         size_t input_line_stride = GST_VIDEO_FRAME_PLANE_STRIDE(video_frame, 0);
         size_t input_size = GST_VIDEO_FRAME_SIZE(video_frame);
@@ -546,8 +543,7 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
         };
         break;
     }
-    case GST_VIDEO_FORMAT_ARGB:
-    {
+    case GST_VIDEO_FORMAT_ARGB: {
         // ARGB is non-planar, since all channels are interleaved, we treat the whole image as 1 plane
         size_t input_line_stride = GST_VIDEO_FRAME_PLANE_STRIDE(video_frame, 0);
         size_t input_size = GST_VIDEO_FRAME_SIZE(video_frame);
@@ -582,13 +578,11 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
         };
         break;
     }
-    case GST_VIDEO_FORMAT_YUY2:
-    {
+    case GST_VIDEO_FORMAT_YUY2: {
         GST_CAT_ERROR(GST_CAT_DEFAULT, "DSP image properties from GstVideoFrame failed: YUY2 not yet supported.");
         return false;
     }
-    case GST_VIDEO_FORMAT_NV12:
-    {
+    case GST_VIDEO_FORMAT_NV12: {
         // NV12 is semi-planar, where the Y channel is a seprate plane from the UV channels
         // Gather y channel info
         size_t y_channel_stride = GST_VIDEO_FRAME_PLANE_STRIDE(video_frame, 0);
@@ -640,9 +634,13 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
         yuv_planes[0] = y_plane_data;
         yuv_planes[1] = uv_plane_data;
 
-        GST_CAT_DEBUG(GST_CAT_DEFAULT, "DSP image properties from GstVideoFrame: buffer offset = %zu", GST_BUFFER_OFFSET(video_frame->buffer));
-        GST_CAT_DEBUG(GST_CAT_DEFAULT, "DSP image properties from GstVideoFrame: NV12, y ptr %p, y stride %zu, y size %zu, uv ptr %p, uv stride %zu, uv size %zu",
-                      y_channel_data, y_channel_stride, y_channel_size, uv_channel_data, uv_channel_stride, uv_channel_size);
+        GST_CAT_DEBUG(GST_CAT_DEFAULT, "DSP image properties from GstVideoFrame: buffer offset = %zu",
+                      GST_BUFFER_OFFSET(video_frame->buffer));
+        GST_CAT_DEBUG(GST_CAT_DEFAULT,
+                      "DSP image properties from GstVideoFrame: NV12, y ptr %p, y stride %zu, y size %zu, uv ptr %p, "
+                      "uv stride %zu, uv size %zu",
+                      y_channel_data, y_channel_stride, y_channel_size, uv_channel_data, uv_channel_stride,
+                      uv_channel_size);
         // Fill in dsp_image_properties_t values
         dsp_image_props = {
             .width = image_width,
@@ -660,8 +658,7 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
 
         break;
     }
-    case GST_VIDEO_FORMAT_GRAY8:
-    {
+    case GST_VIDEO_FORMAT_GRAY8: {
         size_t image_stride = GST_VIDEO_FRAME_PLANE_STRIDE(video_frame, 0);
         size_t image_size = image_stride * image_height;
 
@@ -700,8 +697,7 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
         }
         break;
     }
-    case GST_VIDEO_FORMAT_A420:
-    {
+    case GST_VIDEO_FORMAT_A420: {
         // A420 is fully planar (4:4:2:0), essentially I420 YUV with an extra alpha channel at full size
         // Gather channel info
         dsp_data_plane_t *a420_planes = new dsp_data_plane_t[n_planes];
@@ -751,8 +747,7 @@ bool create_dsp_buffer_from_video_frame(GstVideoFrame *video_frame, dsp_image_pr
 
         break;
     }
-    default:
-    {
+    default: {
         return false;
     }
     }

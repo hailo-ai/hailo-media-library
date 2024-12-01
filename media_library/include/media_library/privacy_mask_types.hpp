@@ -32,7 +32,7 @@
 #include "media_library/media_library_types.hpp"
 #include "buffer_pool.hpp"
 
-#define MAX_NUM_OF_PRIVACY_MASKS  8
+#define MAX_NUM_OF_PRIVACY_MASKS 8
 
 /** @defgroup privacy_mask_types_definitions MediaLibrary Privacy Mask Types
  * API definitions
@@ -41,40 +41,42 @@
 
 namespace privacy_mask_types
 {
-  struct vertex
-  {
-      int x, y;
+struct vertex
+{
+    int x, y;
 
-      vertex(int x, int y) : x(x), y(y) {}
-  };
+    vertex(int x, int y) : x(x), y(y)
+    {
+    }
+};
 
-  struct rgb_color_t
-  {
-      uint r, g, b;
-  };
+struct rgb_color_t
+{
+    uint r, g, b;
+};
 
-  struct yuv_color_t
-  {
-      uint8_t y, u, v;
-  };
+struct yuv_color_t
+{
+    uint8_t y, u, v;
+};
 
-  struct polygon
-  {
-      std::string id;
-      std::vector<vertex> vertices;
-  };
-  using PolygonPtr = std::shared_ptr<polygon>;
+struct polygon
+{
+    std::string id;
+    std::vector<vertex> vertices;
+};
+using PolygonPtr = std::shared_ptr<polygon>;
 
-  struct privacy_mask_data_t
-  {
-        HailoMediaLibraryBufferPtr bitmask;
-        yuv_color_t color;
-        roi_t rois[MAX_NUM_OF_PRIVACY_MASKS];
-        uint rois_count;
+struct privacy_mask_data_t
+{
+    HailoMediaLibraryBufferPtr bitmask;
+    yuv_color_t color;
+    roi_t rois[MAX_NUM_OF_PRIVACY_MASKS];
+    uint rois_count;
 
-        privacy_mask_data_t() : bitmask(std::make_shared<hailo_media_library_buffer>()) {};
-  };
-  using PrivacyMaskDataPtr = std::shared_ptr<privacy_mask_data_t>;
-}
+    privacy_mask_data_t() : bitmask(std::make_shared<hailo_media_library_buffer>()) {};
+};
+using PrivacyMaskDataPtr = std::shared_ptr<privacy_mask_data_t>;
+} // namespace privacy_mask_types
 
 /** @} */ // end of privacy_mask_types_definitions

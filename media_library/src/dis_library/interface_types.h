@@ -51,7 +51,7 @@ enum FlipMirrorRot
     FLIPV_MIRROR_ROT90 = 3,  // {0, 1; -1, 0}
     ROT90_FLIPV_MIRROR = 3,  // {0, 1; -1, 0}
     MIRROR = 4,              // {-1, 0; 0, 1}
-    FLIPV_ROT180 = 4,        // {-1, 0; 0, 1}   
+    FLIPV_ROT180 = 4,        // {-1, 0; 0, 1}
     ROT180_FLIPV = 4,        // {-1, 0; 0, 1}
     MIRROR_ROT270 = 5,       // {0, -1; -1, 0}
     FLIPV_ROT90 = 5,         // {0, -1; -1, 0}
@@ -88,7 +88,8 @@ struct dis_calibration_t
     std::vector<float> theta2radius;
 };
 
-struct angular_dis_isp_vsm_t {
+struct angular_dis_isp_vsm_t
+{
     /** Horizontal axis center point of the VSP window used for ISP VSM (calculated as: hoffset + width / 2) */
     size_t center_x;
     /** Vertical axis center point of the VSP window used for ISP VSM (calculated as: voffset + height / 2) */
@@ -99,7 +100,8 @@ struct angular_dis_isp_vsm_t {
     int dy;
 };
 
-struct angular_dis_filter_angle_t {
+struct angular_dis_filter_angle_t
+{
     /** Maximum allowed theta angle */
     float maximum_theta;
     /** Filter alpha */
@@ -111,7 +113,6 @@ struct angular_dis_filter_angle_t {
     /** Output of stabilized theta */
     std::shared_ptr<float> stabilized_theta;
 };
-
 
 struct angular_dis_params_t
 {

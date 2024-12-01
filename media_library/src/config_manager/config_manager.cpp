@@ -45,7 +45,7 @@ class config_manager_error_handler : public nlohmann::json_schema::basic_error_h
 
 class ConfigManager::ConfigManagerImpl
 {
-public:
+  public:
     /**
      * @brief Constructor for the ConfigManagerImpl module
      *
@@ -131,8 +131,7 @@ public:
      * @return media_library_return
      */
     template <typename TConf>
-    media_library_return config_string_to_struct(const std::string &user_config_string,
-                                                 TConf &conf);
+    media_library_return config_string_to_struct(const std::string &user_config_string, TConf &conf);
 
     /**
      * @brief Retrieve an entry from an input JSON string
@@ -151,7 +150,7 @@ public:
      */
     static EncoderType get_encoder_type(const nlohmann::json &config_json);
 
-private:
+  private:
     nlohmann::json_schema::json_validator m_config_validator;
 
     /*
@@ -165,8 +164,7 @@ private:
 
 //------------------------ ConfigManager ------------------------
 
-ConfigManager::ConfigManager(ConfigSchema schema)
-    : m_config_manager_impl{std::make_unique<ConfigManagerImpl>(schema)}
+ConfigManager::ConfigManager(ConfigSchema schema) : m_config_manager_impl{std::make_unique<ConfigManagerImpl>(schema)}
 {
 }
 
@@ -187,20 +185,33 @@ media_library_return ConfigManager::config_string_to_struct(const std::string &u
 }
 
 // Explicit instantiation for config types (because they were defined in a .cpp file)
-template media_library_return ConfigManager::config_string_to_struct<input_video_config_t>(const std::string &user_config_string, input_video_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<multi_resize_config_t>(const std::string &user_config_string, multi_resize_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<eis_config_t>(const std::string &user_config_string, eis_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<gyro_config_t>(const std::string &user_config_string, gyro_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<ldc_config_t>(const std::string &user_config_string, ldc_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<denoise_config_t>(const std::string &user_config_string, denoise_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<defog_config_t>(const std::string &user_config_string, defog_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<isp_t>(const std::string &user_config_string, isp_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<hailort_t>(const std::string &user_config_string, hailort_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<hdr_config_t>(const std::string &user_config_string, hdr_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<encoder_config_t>(const std::string &user_config_string, encoder_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<vsm_config_t>(const std::string &user_config_string, vsm_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<input_video_config_t>(
+    const std::string &user_config_string, input_video_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<multi_resize_config_t>(
+    const std::string &user_config_string, multi_resize_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<eis_config_t>(
+    const std::string &user_config_string, eis_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<gyro_config_t>(
+    const std::string &user_config_string, gyro_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<ldc_config_t>(
+    const std::string &user_config_string, ldc_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<denoise_config_t>(
+    const std::string &user_config_string, denoise_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<defog_config_t>(
+    const std::string &user_config_string, defog_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<isp_t>(const std::string &user_config_string,
+                                                                            isp_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<hailort_t>(const std::string &user_config_string,
+                                                                                hailort_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<hdr_config_t>(
+    const std::string &user_config_string, hdr_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<encoder_config_t>(
+    const std::string &user_config_string, encoder_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<vsm_config_t>(
+    const std::string &user_config_string, vsm_config_t &conf);
 
-tl::expected<std::string, media_library_return> ConfigManager::parse_config(std::string config_string, std::string entry)
+tl::expected<std::string, media_library_return> ConfigManager::parse_config(std::string config_string,
+                                                                            std::string entry)
 {
     return ConfigManager::ConfigManagerImpl::parse_config(config_string, entry);
 }
@@ -287,7 +298,8 @@ media_library_return ConfigManager::ConfigManagerImpl::config_string_to_struct(c
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-tl::expected<std::string, media_library_return> ConfigManager::ConfigManagerImpl::parse_config(std::string config_string, std::string entry)
+tl::expected<std::string, media_library_return> ConfigManager::ConfigManagerImpl::parse_config(
+    std::string config_string, std::string entry)
 {
     // Convert string to JSON
     const nlohmann::json user_config_json = nlohmann::json::parse(config_string, nullptr, false);

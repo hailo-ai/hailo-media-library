@@ -21,28 +21,33 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #pragma once
+#include "media_library_types.hpp"
 #include <memory>
+#include <cstdlib>
+#include <string>
+#include <tl/expected.hpp>
 
 // this macro is used to create a static initializer for a function that should
 // be called before main program starts
 // https://stackoverflow.com/questions/1113409/attribute-constructor-equivalent-in-vc
-#define COMPAT__INITIALIZER(f) \
-    static void f(void);       \
-    struct f##_t_              \
-    {                          \
-        f##_t_(void) { f(); }  \
-    };                         \
-    static f##_t_ f##_;        \
+#define COMPAT__INITIALIZER(f)                                                                                         \
+    static void f(void);                                                                                               \
+    struct f##_t_                                                                                                      \
+    {                                                                                                                  \
+        f##_t_(void)                                                                                                   \
+        {                                                                                                              \
+            f();                                                                                                       \
+        }                                                                                                              \
+    };                                                                                                                 \
+    static f##_t_ f##_;                                                                                                \
     static void f(void)
 
 // From
 // https://stackoverflow.com/questions/57092289/do-stdmake-shared-and-stdmake-unique-have-a-nothrow-version
 template <class T, class... Args>
-static inline std::unique_ptr<T> make_unique_nothrow(Args &&...args) noexcept(
-    noexcept(T(std::forward<Args>(args)...)))
+static inline std::unique_ptr<T> make_unique_nothrow(Args &&...args) noexcept(noexcept(T(std::forward<Args>(args)...)))
 {
-    auto ptr =
-        std::unique_ptr<T>(new (std::nothrow) T(std::forward<Args>(args)...));
+    auto ptr = std::unique_ptr<T>(new (std::nothrow) T(std::forward<Args>(args)...));
     if (nullptr == ptr)
     {
         LOGGER__ERROR("make_unique failed, pointer is null!");
@@ -51,14 +56,36 @@ static inline std::unique_ptr<T> make_unique_nothrow(Args &&...args) noexcept(
 }
 
 template <class T, class... Args>
-static inline std::shared_ptr<T> make_shared_nothrow(Args &&...args) noexcept(
-    noexcept(T(std::forward<Args>(args)...)))
+static inline std::shared_ptr<T> make_shared_nothrow(Args &&...args) noexcept(noexcept(T(std::forward<Args>(args)...)))
 {
-    auto ptr =
-        std::shared_ptr<T>(new (std::nothrow) T(std::forward<Args>(args)...));
+    auto ptr = std::shared_ptr<T>(new (std::nothrow) T(std::forward<Args>(args)...));
     if (nullptr == ptr)
     {
         LOGGER__ERROR("make_shared failed, pointer is null!");
     }
     return ptr;
+}
+
+static inline bool is_env_variable_on(const std::string &env_var_name, const std::string &required_value = "1")
+{
+    auto env_var = std::getenv(env_var_name.c_str());
+    return ((nullptr != env_var) && (required_value == env_var));
+}
+
+static inline tl::expected<std::string, media_library_return> get_env_variable(const std::string &env_var_name)
+{
+    const auto env_var = std::getenv(env_var_name.c_str());
+
+    if (nullptr == env_var)
+    {
+        return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
+    }
+
+    const auto result = std::string(env_var);
+    if (result.empty())
+    {
+        return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
+    }
+
+    return result;
 }

@@ -30,7 +30,7 @@ media_library_common_lib = shared_library('hailo_media_library_common',
 
 media_library_common_dep = declare_dependency(
   include_directories: [include_directories('./include')],
-  dependencies : [spdlog_dep],
+  dependencies : [spdlog_dep, opencv_dep],
   link_with : media_library_common_lib)
 
 pkgc.generate(name: 'hailo_media_library_common',
@@ -50,7 +50,9 @@ frontend_sources = [
     'src/front_end/privacy_mask.cpp',
     'src/front_end/polygon_math.cpp',
     'src/front_end/denoise.cpp',
-    'src/front_end/defog.cpp'
+    'src/front_end/defog.cpp',
+    'src/front_end/motion_detection.cpp',
+    'src/front_end/post_denoise_filter.cpp'
 ]
 
 libiio_dep = dependency('libiio', version: '>=0.19', required: true)

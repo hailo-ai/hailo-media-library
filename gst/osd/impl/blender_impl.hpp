@@ -41,61 +41,62 @@
 
 namespace osd
 {
-    class Blender::Impl final
-    {
-    public:
-        static tl::expected<std::unique_ptr<Blender::Impl>, media_library_return> create(const std::string &config);
-        static std::shared_future<tl::expected<std::unique_ptr<Blender::Impl>, media_library_return>> create_async(const std::string &config);
+class Blender::Impl final
+{
+  public:
+    static tl::expected<std::unique_ptr<Blender::Impl>, media_library_return> create(const std::string &config);
+    static std::shared_future<tl::expected<std::unique_ptr<Blender::Impl>, media_library_return>> create_async(
+        const std::string &config);
 
-        Impl(const nlohmann::json &config, media_library_return &status);
-        ~Impl();
-        media_library_return set_frame_size(int frame_width, int frame_height);
+    Impl(const nlohmann::json &config, media_library_return &status);
+    ~Impl();
+    media_library_return set_frame_size(int frame_width, int frame_height);
 
-        media_library_return add_overlay(const ImageOverlay &overlay);
-        media_library_return add_overlay(const TextOverlay &overlay);
-        media_library_return add_overlay(const DateTimeOverlay &overlay);
-        media_library_return add_overlay(const CustomOverlay &overlay);
-        media_library_return set_overlay_enabled(const std::string &id, bool enabled);
-        std::shared_future<media_library_return> add_overlay_async(const ImageOverlay &overlay);
-        std::shared_future<media_library_return> add_overlay_async(const TextOverlay &overlay);
-        std::shared_future<media_library_return> add_overlay_async(const DateTimeOverlay &overlay);
+    media_library_return add_overlay(const ImageOverlay &overlay);
+    media_library_return add_overlay(const TextOverlay &overlay);
+    media_library_return add_overlay(const DateTimeOverlay &overlay);
+    media_library_return add_overlay(const CustomOverlay &overlay);
+    media_library_return set_overlay_enabled(const std::string &id, bool enabled);
+    std::shared_future<media_library_return> add_overlay_async(const ImageOverlay &overlay);
+    std::shared_future<media_library_return> add_overlay_async(const TextOverlay &overlay);
+    std::shared_future<media_library_return> add_overlay_async(const DateTimeOverlay &overlay);
 
-        media_library_return remove_overlay(const std::string &id);
-        std::shared_future<media_library_return> remove_overlay_async(const std::string &id);
+    media_library_return remove_overlay(const std::string &id);
+    std::shared_future<media_library_return> remove_overlay_async(const std::string &id);
 
-        tl::expected<std::shared_ptr<osd::Overlay>, media_library_return> get_overlay(const std::string &id);
+    tl::expected<std::shared_ptr<osd::Overlay>, media_library_return> get_overlay(const std::string &id);
 
-        media_library_return set_overlay(const ImageOverlay &overlay);
-        media_library_return set_overlay(const TextOverlay &overlay);
-        media_library_return set_overlay(const DateTimeOverlay &overlay);
-        media_library_return set_overlay(const CustomOverlay &overlay);
-        std::shared_future<media_library_return> set_overlay_async(const ImageOverlay &overlay);
-        std::shared_future<media_library_return> set_overlay_async(const TextOverlay &overlay);
-        std::shared_future<media_library_return> set_overlay_async(const DateTimeOverlay &overlay);
+    media_library_return set_overlay(const ImageOverlay &overlay);
+    media_library_return set_overlay(const TextOverlay &overlay);
+    media_library_return set_overlay(const DateTimeOverlay &overlay);
+    media_library_return set_overlay(const CustomOverlay &overlay);
+    std::shared_future<media_library_return> set_overlay_async(const ImageOverlay &overlay);
+    std::shared_future<media_library_return> set_overlay_async(const TextOverlay &overlay);
+    std::shared_future<media_library_return> set_overlay_async(const DateTimeOverlay &overlay);
 
-        media_library_return blend(HailoMediaLibraryBufferPtr &input_buffer);
-        media_library_return configure(const std::string &config);
+    media_library_return blend(HailoMediaLibraryBufferPtr &input_buffer);
+    media_library_return configure(const std::string &config);
 
-    private:
-        Impl(const std::string &config, media_library_return &status);
-        media_library_return set_overlay(const OverlayImplPtr overlay);
-        media_library_return add_overlay(const OverlayImplPtr overlay);
-        media_library_return remove_overlay_internal(const std::string &id);
-        media_library_return add_overlay_internal(const OverlayImplPtr overlay);
+  private:
+    Impl(const std::string &config, media_library_return &status);
+    media_library_return set_overlay(const OverlayImplPtr overlay);
+    media_library_return add_overlay(const OverlayImplPtr overlay);
+    media_library_return remove_overlay_internal(const std::string &id);
+    media_library_return add_overlay_internal(const OverlayImplPtr overlay);
 
-        void initialize_overlay_images();
+    void initialize_overlay_images();
 
-        std::unordered_map<std::string, OverlayImplPtr> m_overlays;
-        std::set<OverlayImplPtr> m_prioritized_overlays;
+    std::unordered_map<std::string, OverlayImplPtr> m_overlays;
+    std::set<OverlayImplPtr> m_prioritized_overlays;
 
-        std::shared_mutex m_mutex;
+    std::shared_mutex m_mutex;
 
-        nlohmann::json m_config;
-        std::shared_ptr<ConfigManager> m_config_manager;
+    nlohmann::json m_config;
+    std::shared_ptr<ConfigManager> m_config_manager;
 
-        int m_frame_width;
-        int m_frame_height;
-        bool m_frame_size_set;
-    };
+    int m_frame_width;
+    int m_frame_height;
+    bool m_frame_size_set;
+};
 
-}
+} // namespace osd

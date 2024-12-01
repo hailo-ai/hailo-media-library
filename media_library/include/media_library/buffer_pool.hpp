@@ -54,7 +54,7 @@ using HailoMediaLibraryBufferPtr = std::shared_ptr<hailo_media_library_buffer>;
 
 class HailoBucket
 {
-private:
+  private:
     size_t m_buffer_size;
     size_t m_num_buffers;
     HailoMemoryType m_memory_type;
@@ -69,9 +69,8 @@ private:
     media_library_return acquire(intptr_t *buffer_ptr);
     media_library_return release(intptr_t buffer_ptr);
 
-public:
-    HailoBucket(size_t buffer_size, size_t num_buffers,
-                HailoMemoryType memory_type);
+  public:
+    HailoBucket(size_t buffer_size, size_t num_buffers, HailoMemoryType memory_type);
     ~HailoBucket();
     // remove copy assigment
     HailoBucket &operator=(const HailoBucket &) = delete;
@@ -89,37 +88,36 @@ using HailoBucketPtr = std::shared_ptr<HailoBucket>;
 /**
  * @class MediaLibraryBufferPool
  * @brief A class representing a buffer pool in the media library.
- * 
+ *
  * The `MediaLibraryBufferPool` class is responsible for managing a pool of buffers used in the media library.
  * It provides methods for acquiring and releasing buffers, as well as initializing and freeing the pool.
  * The buffer pool can be configured with a specific width, height, format, and maximum number of buffers.
- * 
+ *
  * Example usage:
  * @code{.cpp}
  * // Create a buffer pool with a width of 640, height of 480, and maximum of 10 buffers
  * MediaLibraryBufferPool bufferPool(640, 480, HAILO_FORMAT_RGB, 10);
- * 
+ *
  * // Initialize the buffer pool
  * bufferPool.init();
- * 
+ *
  * // Acquire a buffer from the pool
  * HailoMediaLibraryBufferPtr buffer = std::make_shared<hailo_media_library_buffer>();;
  * bufferPool.acquire_buffer(buffer);
- * 
+ *
  * // Use the acquired buffer
  * // ...
- * 
+ *
  * // Release the buffer back to the pool
  * bufferPool.release_buffer(&buffer);
- * 
+ *
  * // Free the buffer pool
  * bufferPool.free();
  * @endcode
  */
-class MediaLibraryBufferPool
-    : public std::enable_shared_from_this<MediaLibraryBufferPool>
+class MediaLibraryBufferPool : public std::enable_shared_from_this<MediaLibraryBufferPool>
 {
-private:
+  private:
     std::string m_name;
     std::vector<HailoBucketPtr> m_buckets;
     uint m_width;
@@ -130,7 +128,7 @@ private:
     size_t m_max_buffers;
     uint32_t m_buffer_index;
 
-public:
+  public:
     /**
      * @brief Constructor of MediaLibraryBufferPool
      *
@@ -141,8 +139,8 @@ public:
      * @param[in] memory_type - memory type
      * @param[in] name - buffer pool owner name
      */
-    MediaLibraryBufferPool(uint width, uint height, HailoFormat format,
-                           size_t max_buffers, HailoMemoryType memory_type, std::string name = "");
+    MediaLibraryBufferPool(uint width, uint height, HailoFormat format, size_t max_buffers, HailoMemoryType memory_type,
+                           std::string name = "");
     /**
      * @brief Constructor of MediaLibraryBufferPool
      *
@@ -154,8 +152,8 @@ public:
      * @param[in] bytes_per_line - bytes per line if the buffer stride is padded (when padding=0, bytes_per_line=width)
      * @param[in] name - buffer pool owner name
      */
-    MediaLibraryBufferPool(uint width, uint height, HailoFormat format,
-                           size_t max_buffers, HailoMemoryType memory_type, uint bytes_per_line, std::string name = "");
+    MediaLibraryBufferPool(uint width, uint height, HailoFormat format, size_t max_buffers, HailoMemoryType memory_type,
+                           uint bytes_per_line, std::string name = "");
     ~MediaLibraryBufferPool();
     // Copy constructor - delete
     MediaLibraryBufferPool(const MediaLibraryBufferPool &) = delete;
@@ -169,7 +167,7 @@ public:
      * Allocates all the required buffers (according to max_buffers)
      *
      * @return media_library_return
-     * 
+     *
      * Example usage:
      * @code{.cpp}
      * MediaLibraryBufferPool buffer_pool(width, height, format, max_buffers, memory_type);
@@ -182,9 +180,10 @@ public:
     media_library_return init();
     /**
      * @brief Free all the allocated buffers
-     * @param[in] fail_on_used_buffers - bool flag to indicate if the function should fail if there are still used buffers
+     * @param[in] fail_on_used_buffers - bool flag to indicate if the function should fail if there are still used
+     * buffers
      * @return media_library_return
-     * 
+     *
      * Example usage:
      * @code{.cpp}
      * media_library_return result = buffer_pool.free();
@@ -199,7 +198,7 @@ public:
      *
      * @param[out] buffer - HailoMediaLibraryBufferPtr to acquire
      * @return media_library_return
-     * 
+     *
      * Example usage:
      * @code{.cpp}
      * HailoMediaLibraryBufferPtr buffer;
@@ -217,14 +216,13 @@ public:
      * @param[in] plane_index - uint index of the plane to release
      * @return media_library_return
      */
-    media_library_return release_plane(hailo_media_library_buffer *buffer,
-                                       uint32_t plane_index);
+    media_library_return release_plane(hailo_media_library_buffer *buffer, uint32_t plane_index);
     /**
      * @brief Release a buffer back to the pool
      *
      * @param[out] buffer - HailoMediaLibraryBufferPtr to release
      * @return media_library_return
-     * 
+     *
      * Example usage:
      * @code{.cpp}
      * media_library_return result = buffer_pool.release_buffer(buffer);
@@ -239,7 +237,8 @@ public:
      * @brief Applies a given function to all the buffers in the buffer pool.
      *
      * This function iterates over all the available and used buffers in the buffer pool and applies
-     * the given function to each buffer. a common use of this function would be to map and unmap the buffers to a device.
+     * the given function to each buffer. a common use of this function would be to map and unmap the buffers to a
+     * device.
      *
      * @param func The function to apply to each buffer, the function takes two parameters: the file descriptor (fd)
      * associated with the buffer and the buffer size.
@@ -258,31 +257,43 @@ public:
      *
      * @return The width of the buffer pool as an unsigned integer.
      */
-    uint get_width() { return m_width; }
+    uint get_width()
+    {
+        return m_width;
+    }
     /**
      * @brief Gets the height of the buffer pool.
      *
      * @return The height of the buffer pool as an unsigned integer.
      */
-    uint get_height() { return m_height; }
+    uint get_height()
+    {
+        return m_height;
+    }
     /**
      * @brief Gets the max size of the buffer pool.
      *
      * @return The height of the buffer pool as an unsigned integer.
      */
-    uint get_size() { return m_max_buffers; }
+    uint get_size()
+    {
+        return m_max_buffers;
+    }
 
     /**
      * @brief Gets the name of the buffer pool.
      *
      * @return The name of the buffer pool as a string.
      */
-    std::string get_name() { return m_name; }
+    std::string get_name()
+    {
+        return m_name;
+    }
 };
 
 struct hailo_media_library_buffer
 {
-private:
+  private:
     std::shared_ptr<std::mutex> m_buffer_mutex;
     std::shared_ptr<std::mutex> m_plane_mutex;
 
@@ -293,7 +304,7 @@ private:
         return true;
     }
 
-public:
+  public:
     HailoBufferDataPtr buffer_data;
     MediaLibraryBufferPoolPtr owner;
     struct hailo15_vsm vsm;
@@ -305,19 +316,16 @@ public:
     uint32_t buffer_index;
     uint64_t isp_timestamp_ns;
     uint64_t pts;
+    HailoMediaLibraryBufferPtr motion_detection_buffer;
+    bool motion_detected;
 
     hailo_media_library_buffer()
-        : m_buffer_mutex(std::make_shared<std::mutex>()),
-          m_plane_mutex(std::make_shared<std::mutex>()),
-          buffer_data(nullptr), owner(nullptr),
-          isp_ae_fps(HAILO_ISP_AE_FPS_DEFAULT_VALUE),
+        : m_buffer_mutex(std::make_shared<std::mutex>()), m_plane_mutex(std::make_shared<std::mutex>()),
+          buffer_data(nullptr), owner(nullptr), isp_ae_fps(HAILO_ISP_AE_FPS_DEFAULT_VALUE),
           isp_ae_converged(HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE),
           isp_ae_integration_time(HAILO_ISP_AE_INTEGRATION_TIME_DEFAULT_VALUE),
-          isp_ae_average_luma(HAILO_ISP_AE_LUMA_DEFUALT_VALUE),
-          video_fd(-1),
-          buffer_index(0),
-          isp_timestamp_ns(0),
-          pts(0)
+          isp_ae_average_luma(HAILO_ISP_AE_LUMA_DEFUALT_VALUE), video_fd(-1), buffer_index(0), isp_timestamp_ns(0),
+          pts(0), motion_detection_buffer(nullptr), motion_detected(false)
     {
         vsm.dx = HAILO_VSM_DEFAULT_VALUE;
         vsm.dy = HAILO_VSM_DEFAULT_VALUE;
@@ -362,6 +370,8 @@ public:
         video_fd = other.video_fd;
         buffer_index = other.buffer_index;
         pts = other.pts;
+        motion_detection_buffer = other.motion_detection_buffer;
+        motion_detected = other.motion_detected;
         other.buffer_data = nullptr;
         other.owner = nullptr;
         other.m_buffer_mutex = nullptr;
@@ -376,11 +386,12 @@ public:
         other.vsm.dy = HAILO_VSM_DEFAULT_VALUE;
         other.buffer_index = 0;
         other.pts = 0;
+        other.motion_detection_buffer = nullptr;
+        other.motion_detected = false;
     }
 
     // Move assignment
-    hailo_media_library_buffer &
-    operator=(hailo_media_library_buffer &&other) noexcept
+    hailo_media_library_buffer &operator=(hailo_media_library_buffer &&other) noexcept
     {
         if (this != &other)
         {
@@ -397,6 +408,8 @@ public:
             video_fd = other.video_fd;
             buffer_index = other.buffer_index;
             pts = other.pts;
+            motion_detection_buffer = other.motion_detection_buffer;
+            motion_detected = other.motion_detected;
             other.buffer_data = nullptr;
             other.owner = nullptr;
             other.m_buffer_mutex = nullptr;
@@ -411,16 +424,16 @@ public:
             other.vsm.dy = HAILO_VSM_DEFAULT_VALUE;
             other.buffer_index = 0;
             other.pts = 0;
+            other.motion_detection_buffer = nullptr;
+            other.motion_detected = false;
         }
         return *this;
     }
 
     // Copy constructor - delete
-    hailo_media_library_buffer(const hailo_media_library_buffer &other) =
-        delete;
+    hailo_media_library_buffer(const hailo_media_library_buffer &other) = delete;
     // Copy assignment - delete
-    hailo_media_library_buffer &
-    operator=(const hailo_media_library_buffer &other) = delete;
+    hailo_media_library_buffer &operator=(const hailo_media_library_buffer &other) = delete;
 
     void copy_metadata_from(const HailoMediaLibraryBufferPtr &other)
     {
@@ -437,8 +450,10 @@ public:
         video_fd = other->video_fd;
         buffer_index = other->buffer_index;
         pts = other->pts;
+        motion_detection_buffer = other->motion_detection_buffer;
+        motion_detected = other->motion_detected;
     }
-    
+
     void *get_plane_ptr(uint32_t index)
     {
         if (index >= buffer_data->planes_count)
@@ -468,15 +483,17 @@ public:
         return buffer_data->planes[index].bytesperline;
     }
 
-    uint32_t get_num_of_planes() { return buffer_data->planes_count; }
+    uint32_t get_num_of_planes()
+    {
+        return buffer_data->planes_count;
+    }
 
     void set_buffer_index(uint32_t buffer_index)
     {
         this->buffer_index = buffer_index;
     }
 
-    media_library_return create(MediaLibraryBufferPoolPtr owner,
-                                HailoBufferDataPtr buffer_data)
+    media_library_return create(MediaLibraryBufferPoolPtr owner, HailoBufferDataPtr buffer_data)
     {
         this->owner = owner;
         this->buffer_data = buffer_data;
@@ -517,7 +534,7 @@ public:
 
         for (uint32_t i = 0; i < get_num_of_planes(); i++)
         {
-            if(sync_start(i) != MEDIA_LIBRARY_SUCCESS)
+            if (sync_start(i) != MEDIA_LIBRARY_SUCCESS)
             {
                 return MEDIA_LIBRARY_ERROR;
             }
@@ -551,7 +568,7 @@ public:
         for (uint32_t i = 0; i < get_num_of_planes(); i++)
         {
             media_library_return ret = sync_end(i);
-            if(ret != MEDIA_LIBRARY_SUCCESS)
+            if (ret != MEDIA_LIBRARY_SUCCESS)
             {
                 return ret;
             }
