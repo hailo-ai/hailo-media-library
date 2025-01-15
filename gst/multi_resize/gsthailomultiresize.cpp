@@ -258,7 +258,7 @@ static GstCaps *gst_hailo_create_caps_from_output_config(GstHailoMultiResize *se
     if (framerate == 0)
         framerate = 1;
 
-    output_video_config_t &output_config = self->medialib_multi_resize->get_output_video_config();
+    output_video_config_t output_config = self->medialib_multi_resize->get_output_video_config();
     HailoFormat &hailo_format = output_config.format;
     std::string format = "";
     switch (hailo_format)
@@ -361,7 +361,7 @@ static gboolean gst_hailo_handle_caps_event(GstHailoMultiResize *self, GstCaps *
         return FALSE;
     }
 
-    std::vector<output_resolution_t> &outputs = self->medialib_multi_resize->get_output_video_config().resolutions;
+    std::vector<output_resolution_t> outputs = self->medialib_multi_resize->get_output_video_config().resolutions;
     ret = gst_hailo_multi_resize_on_output_caps_changed(self, outputs);
     if (!ret)
         return FALSE;
@@ -531,7 +531,7 @@ static gboolean gst_hailo_handle_caps_query(GstHailoMultiResize *self, GstPad *p
         GST_ERROR_OBJECT(pad, "self->medialib_multi_resize nullptr at time of caps query");
         return FALSE;
     }
-    output_video_config_t &output_config = self->medialib_multi_resize->get_output_video_config();
+    output_video_config_t output_config = self->medialib_multi_resize->get_output_video_config();
     for (guint i = 0; i < self->srcpads->size(); i++)
     {
         if (!intersect_peer_srcpad_caps(self, pad, self->srcpads->at(i), output_config.resolutions[i]))
@@ -768,7 +768,7 @@ static void gst_hailo_multi_resize_get_property(GObject *object, guint property_
 }
 
 static GstPad *gst_hailo_multi_resize_request_new_pad(GstElement *element, GstPadTemplate *templ, const gchar *name,
-                                                      const GstCaps *caps)
+                                                      const GstCaps *)
 {
     GstPad *srcpad;
     GstHailoMultiResize *self = GST_HAILO_MULTI_RESIZE(element);

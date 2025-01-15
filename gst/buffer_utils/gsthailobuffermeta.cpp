@@ -67,7 +67,7 @@ const GstMetaInfo *gst_hailo_buffer_meta_get_info(void)
 // Meta init function
 // Fourth field in GstMetaInfo
 // https://gstreamer.freedesktop.org/data/doc/gstreamer/head/gstreamer/html/gstreamer-GstMeta.html#GstMetaInitFunction
-static gboolean gst_hailo_buffer_meta_init(GstMeta *meta, gpointer params, GstBuffer *buffer)
+static gboolean gst_hailo_buffer_meta_init(GstMeta *meta, gpointer, GstBuffer *)
 {
     GstHailoBufferMeta *gst_hailo_buffer_meta = (GstHailoBufferMeta *)meta;
     // GStreamer is allocating the GstHailoBufferMeta struct with POD allocation (like malloc) when
@@ -84,7 +84,7 @@ static gboolean gst_hailo_buffer_meta_init(GstMeta *meta, gpointer params, GstBu
 // Meta free function
 // Fifth field in GstMetaInfo
 // https://gstreamer.freedesktop.org/data/doc/gstreamer/head/gstreamer/html/gstreamer-GstMeta.html#GstMetaFreeFunction
-static void gst_hailo_buffer_meta_free(GstMeta *meta, GstBuffer *buffer)
+static void gst_hailo_buffer_meta_free(GstMeta *meta, GstBuffer *)
 {
     GstHailoBufferMeta *gst_hailo_buffer_meta = (GstHailoBufferMeta *)meta;
     gst_hailo_buffer_meta->buffer_ptr = nullptr;

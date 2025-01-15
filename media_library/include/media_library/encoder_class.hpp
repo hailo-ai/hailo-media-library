@@ -24,7 +24,10 @@
 #include <iostream>
 #include <memory>
 #include <vector>
-
+extern "C"
+{
+#include "video_encoder/hevcencapi.h"
+}
 #include "buffer_pool.hpp"
 #include "encoder_config.hpp"
 #include "media_library_types.hpp"
@@ -34,6 +37,8 @@ struct EncoderOutputBuffer
     HailoMediaLibraryBufferPtr buffer;
     uint32_t size;
     uint32_t frame_number;
+    VCEncPictureCodingType frame_type;
+    VCEncRet encoder_ret_code;
 };
 
 class Encoder
@@ -46,11 +51,13 @@ class Encoder
     void update_stride(uint32_t stride);
     media_library_return configure(std::string json_string);
     media_library_return configure(const encoder_config_t &config);
+    EncoderOutputBuffer get_encoder_header_output_buffer();
     encoder_config_t get_config();
     encoder_config_t get_user_config();
     std::vector<EncoderOutputBuffer> handle_frame(HailoMediaLibraryBufferPtr buf, uint32_t frame_number);
     tl::expected<EncoderOutputBuffer, media_library_return> start();
-    tl::expected<EncoderOutputBuffer, media_library_return> stop();
+    tl::expected<EncoderOutputBuffer, media_library_return> finish();
+    void stop();
     media_library_return init();
     media_library_return release();
     media_library_return dispose();

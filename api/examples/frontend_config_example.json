@@ -128,7 +128,7 @@
     },
     "hdr": {
         "enabled": false,
-        "dol": 3
+        "dol": 2
     },
     "denoise": {
         "enabled": false,

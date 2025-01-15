@@ -59,7 +59,7 @@ GstBufferPool *gst_hailo_dma_buffer_pool_new(guint padding)
 }
 
 static GstFlowReturn gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool, GstBuffer **output_buffer_ptr,
-                                                            GstBufferPoolAcquireParams *params)
+                                                            GstBufferPoolAcquireParams *)
 {
     GstHailoDmaBufferPool *hailo_dmabuf_pool = GST_HAILO_DMA_BUFFER_POOL(pool);
     guint buffer_size = 0;

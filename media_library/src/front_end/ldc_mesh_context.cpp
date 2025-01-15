@@ -28,6 +28,8 @@ LdcMeshContext::LdcMeshContext(ldc_config_t &config)
         return;
 
     configure(config);
+
+    m_last_eis_update_time = std::time(nullptr);
 }
 
 static void kill_gyro_thread()
@@ -348,6 +350,7 @@ media_library_return LdcMeshContext::initialize_dis_context()
 
     if (m_ldc_configs.eis_config.enabled && m_ldc_configs.gyro_config.enabled)
     {
+        LOGGER__INFO("[EIS] EIS enabled");
         camera_fov_factor = m_ldc_configs.eis_config.camera_fov_factor;
         if (eis_prev_enabled == false)
         {
@@ -360,7 +363,8 @@ media_library_return LdcMeshContext::initialize_dis_context()
             {
                 /* This is the first time EIS is enabled, initialize it */
                 m_eis_ptr = std::make_unique<EIS>(m_ldc_configs.eis_config.eis_config_path.c_str(),
-                                                  m_ldc_configs.eis_config.window_size);
+                                                  m_ldc_configs.eis_config.window_size,
+                                                  std::stoi(m_ldc_configs.gyro_config.sensor_frequency));
             }
         }
     }
@@ -368,6 +372,7 @@ media_library_return LdcMeshContext::initialize_dis_context()
     /* Initiliase EIS only once and in the case it is enabled */
     if (m_ldc_configs.gyro_config.enabled && gyroApi == nullptr)
     {
+        LOGGER__INFO("[EIS] Gyro enabled - starting Gyro thread");
         sigset_t set, oldset;
         gyroApi = std::make_unique<GyroDevice>(m_ldc_configs.gyro_config.sensor_name,
                                                m_ldc_configs.gyro_config.sensor_frequency,
@@ -630,7 +635,7 @@ media_library_return LdcMeshContext::on_frame_vsm_update(struct hailo15_vsm &vsm
     FlipMirrorRot flip_mirror_rot = get_flip_value(flip_dir, rotation_angle);
 
     DmaMemoryAllocator::get_instance().dmabuf_sync_start((void *)m_dewarp_mesh.mesh_table);
-    RetCodes ret = dis_generate_grid(m_dis_ctx, m_input_width, m_input_height, vsm.dx, vsm.dy, 0, flip_mirror_rot,
+    RetCodes ret = dis_generate_grid(m_dis_ctx, m_input_width, m_input_height, vsm.dx, vsm.dy, flip_mirror_rot,
                                      m_angular_dis_params, &mesh);
     DmaMemoryAllocator::get_instance().dmabuf_sync_end((void *)m_dewarp_mesh.mesh_table);
     if (ret != DIS_OK)
@@ -661,6 +666,14 @@ media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp
         return MEDIA_LIBRARY_ERROR;
     }
 
+    // if last time is more than 100 ms ago, reset_history
+    if (m_last_eis_update_time != std::time(nullptr) &&
+        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) - m_last_eis_update_time > 100)
+    {
+        m_eis_ptr->reset_history();
+    }
+    m_last_eis_update_time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+
     std::vector<unbiased_gyro_sample_t> unbiased_gyro_samples;
     DewarpT grid = {(int)m_dewarp_mesh.mesh_width, (int)m_dewarp_mesh.mesh_height, (int *)m_dewarp_mesh.mesh_table};
 
@@ -687,7 +700,6 @@ media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp
 
     if (found_vsync_sample)
     {
-        /* We found a gyro sample with VSYNC */
         middle_exposure_timestamp = (*closest_vsync_sample).timestamp_ns - (integration_time / 2);
         /* Previous odd VSYNC - (integration_time / 2) + readout_time */
         threshold_timestamp = middle_exposure_timestamp + readout_time;

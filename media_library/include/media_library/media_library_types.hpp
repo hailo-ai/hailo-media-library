@@ -193,6 +193,13 @@ struct network_config_t
 
 struct feedback_network_config_t
 {
+    bool operator==(const feedback_network_config_t &other) const
+    {
+        return (network_path == other.network_path) && (y_channel == other.y_channel) &&
+               (uv_channel == other.uv_channel) && (feedback_y_channel == other.feedback_y_channel) &&
+               (feedback_uv_channel == other.feedback_uv_channel) && (output_y_channel == other.output_y_channel) &&
+               (output_uv_channel == other.output_uv_channel);
+    }
     std::string network_path;
     std::string y_channel;
     std::string uv_channel;
@@ -517,7 +524,6 @@ struct ldc_config_t
 
 struct denoise_config_t
 {
-  public:
     bool enabled;
     std::string sensor;
     denoise_method_t denoising_quality;
@@ -539,21 +545,6 @@ struct denoise_config_t
         denoising_quality = denoise_configs.denoising_quality;
         loopback_count = denoise_configs.loopback_count;
         network_config = denoise_configs.network_config;
-
-        return MEDIA_LIBRARY_SUCCESS;
-    }
-};
-
-struct defog_config_t
-{
-  public:
-    bool enabled;
-    network_config_t network_config;
-
-    media_library_return update(defog_config_t &defog_configs)
-    {
-        enabled = defog_configs.enabled;
-        network_config = defog_configs.network_config;
 
         return MEDIA_LIBRARY_SUCCESS;
     }

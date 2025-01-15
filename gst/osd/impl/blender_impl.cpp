@@ -384,7 +384,6 @@ tl::expected<std::shared_ptr<osd::Overlay>, media_library_return> Blender::Impl:
     std::shared_lock lock(m_mutex);
     if (!m_overlays.contains(id))
     {
-        LOGGER__ERROR("No overlay with id {}", id);
         return tl::make_unexpected(MEDIA_LIBRARY_INVALID_ARGUMENT);
     }
     auto overlay = m_overlays[id];

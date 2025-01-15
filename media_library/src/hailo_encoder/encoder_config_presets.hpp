@@ -80,8 +80,7 @@ class EncoderConfigPresets
   private:
     EncoderConfigPresets();
     void load_presets();
-    void apply_bit_var_range(hailo_encoder_config_t &config, const encoder_preset_t &preset,
-                             uint32_t preset_bit_var_range) const;
+    void apply_bit_var_range(hailo_encoder_config_t &config, uint32_t preset_bit_var_range) const;
     media_library_return apply_tolerance_moving_bitrate(hailo_encoder_config_t &config, const encoder_preset_t &preset,
                                                         uint32_t preset_tolerance_moving_bitrate) const;
     media_library_return apply_padding(hailo_encoder_config_t &config, const encoder_preset_t &preset) const;

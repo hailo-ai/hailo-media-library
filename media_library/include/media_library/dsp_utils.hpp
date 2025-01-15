@@ -122,7 +122,7 @@ typedef struct
 dsp_status release_device();
 dsp_status acquire_device();
 dsp_status create_hailo_dsp_buffer(size_t size, void **buffer, bool dma = false);
-dsp_status release_hailo_dsp_buffer(void *buffer);
+void release_hailo_dsp_buffer(void *buffer);
 
 dsp_status perform_resize(hailo_buffer_data_t *input_buffer_data, hailo_buffer_data_t *output_buffer_data,
                           dsp_interpolation_type_t dsp_interpolation_type,

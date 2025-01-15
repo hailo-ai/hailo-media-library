@@ -88,7 +88,6 @@ plugin_sources = [
     'multi_resize/gsthailomultiresize.cpp',
     'dewarp/gsthailodewarp.cpp',
     'denoise/gstnativedenoise.cpp',
-    'defog/gsthailodefog.cpp',
     'frontend/gsthailofrontend.cpp',
     'frontend/gsthailofrontendbinsrc.cpp',
     'encodebin/gsthailoencodebin.cpp',

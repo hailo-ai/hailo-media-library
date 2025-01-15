@@ -81,7 +81,7 @@ void subscribe_elements(std::shared_ptr<MediaLibrary> media_lib)
     FrontendCallbacksMap fe_callbacks;
     for (auto s : streams.value())
     {
-        fe_callbacks[s.id] = [s, media_lib](HailoMediaLibraryBufferPtr buffer, size_t size) {
+        fe_callbacks[s.id] = [s, media_lib](HailoMediaLibraryBufferPtr buffer, size_t) {
             if (media_lib->FrontendRestarting == false)
                 media_lib->encoders[s.id]->add_buffer(buffer);
         };
@@ -116,7 +116,7 @@ int update_encoders_bitrate(std::map<output_stream_id_t, MediaLibraryEncoderPtr>
                   << " current bitrate: " << hailo_encoder_config.rate_control.bitrate.target_bitrate << " Setting to "
                   << new_bitrate << std::endl;
         hailo_encoder_config.rate_control.bitrate.target_bitrate = new_bitrate;
-        if (entry.second->configure(encoder_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        if (entry.second->set_config(encoder_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
             std::cout << "Failed to configure Encoder " << enc_i << std::endl;
             return 1;
@@ -143,20 +143,25 @@ int force_keyframe(std::map<output_stream_id_t, MediaLibraryEncoderPtr> &encoder
     return 0;
 }
 
-int main(int argc, char *argv[])
+int main()
 {
     std::shared_ptr<MediaLibrary> media_lib = std::make_shared<MediaLibrary>();
 
     // Create and configure frontend
     std::string preproc_config_string = read_string_from_file(FRONTEND_CONFIG_FILE);
-    tl::expected<MediaLibraryFrontendPtr, media_library_return> frontend_expected =
-        MediaLibraryFrontend::create(FRONTEND_SRC_ELEMENT_V4L2SRC, preproc_config_string);
+    tl::expected<MediaLibraryFrontendPtr, media_library_return> frontend_expected = MediaLibraryFrontend::create();
     if (!frontend_expected.has_value())
     {
         std::cout << "Failed to create Frontend" << std::endl;
         return 1;
     }
     media_lib->frontend = frontend_expected.value();
+
+    if (media_lib->frontend->set_config(preproc_config_string) != MEDIA_LIBRARY_SUCCESS)
+    {
+        std::cout << "Failed to configure frontend" << std::endl;
+        return 1;
+    }
 
     auto streams = media_lib->frontend->get_outputs_streams();
     if (!streams.has_value())
@@ -169,14 +174,18 @@ int main(int argc, char *argv[])
     {
         // Create and configure encoder
         std::string encoderosd_config_string = read_string_from_file(ENCODER_OSD_CONFIG_FILE(s.id).c_str());
-        tl::expected<MediaLibraryEncoderPtr, media_library_return> encoder_expected =
-            MediaLibraryEncoder::create(encoderosd_config_string, s.id);
+        tl::expected<MediaLibraryEncoderPtr, media_library_return> encoder_expected = MediaLibraryEncoder::create(s.id);
         if (!encoder_expected.has_value())
         {
             std::cout << "Failed to create Encoder" << std::endl;
             return 1;
         }
         media_lib->encoders[s.id] = encoder_expected.value();
+        if (media_lib->encoders[s.id]->set_config(encoderosd_config_string) != MEDIA_LIBRARY_SUCCESS)
+        {
+            std::cout << "Failed to configure Encoder" << std::endl;
+            return 1;
+        }
 
         // create and configure output file
         std::string output_file_path = OUTPUT_FILE(s.id);

@@ -21,6 +21,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #pragma once
+#include "media_library/config_manager.hpp"
 #include "media_library/encoder.hpp"
 #include <gst/gst.h>
 #include <gst/app/gstappsink.h>
@@ -50,27 +51,34 @@ enum appsrc_state
 class MediaLibraryEncoder::Impl final
 {
   private:
+    GstAppSrc *m_appsrc = nullptr;
+    GstCaps *m_appsrc_caps = nullptr;
+    GMainContext *m_main_context = nullptr;
+    GMainLoop *m_main_loop = nullptr;
+    GstElement *m_pipeline = nullptr;
+
     std::string m_name;
     InputParams m_input_params;
     std::vector<AppWrapperCallback> m_callbacks;
     MediaLibraryBufferPoolPtr m_buffer_pool;
-    GstAppSrc *m_appsrc;
-    GstCaps *m_appsrc_caps;
-    GMainLoop *m_main_loop;
     std::shared_ptr<std::thread> m_main_loop_thread;
-    GstElement *m_pipeline;
-    std::string m_json_config; // TODO: this should be const
+    std::string m_json_config_str;
     std::shared_ptr<osd::Blender> m_blender;
     appsrc_state m_appsrc_state;
     EncoderType m_encoder_type;
     float m_current_fps;
+    ConfigManager m_config_manager;
+
+    bool init_pipeline(const std::string &encoder_json_config, const InputParams &input_params,
+                       EncoderType encoder_type);
+    void deinit_pipeline();
+    bool is_started();
 
   public:
-    static tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>, media_library_return> create(
-        std::string json_config, std::string name);
+    static tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>, media_library_return> create(std::string name);
 
     ~Impl();
-    Impl(std::string json_config, media_library_return &status, std::string name);
+    Impl(media_library_return &status, std::string name);
 
   public:
     media_library_return subscribe(AppWrapperCallback callback);
@@ -78,7 +86,8 @@ class MediaLibraryEncoder::Impl final
     media_library_return stop();
     media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
     std::shared_ptr<osd::Blender> get_blender();
-    media_library_return configure(encoder_config_t &config);
+    media_library_return set_config(const encoder_config_t &config);
+    media_library_return set_config(const std::string &json_config);
     media_library_return set_force_videorate(bool force);
     encoder_config_t get_config();
     encoder_config_t get_user_config();
@@ -94,7 +103,7 @@ class MediaLibraryEncoder::Impl final
   public:
     void on_fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps);
     GstFlowReturn on_new_sample(GstAppSink *appsink);
-    gboolean on_bus_call(GstBus *bus, GstMessage *msg);
+    gboolean on_bus_call(GstMessage *msg);
 
   private:
     static void fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps, gpointer user_data)
@@ -108,10 +117,10 @@ class MediaLibraryEncoder::Impl final
         MediaLibraryEncoder::Impl *encoder = static_cast<MediaLibraryEncoder::Impl *>(user_data);
         return encoder->on_new_sample(appsink);
     }
-    static gboolean bus_call(GstBus *bus, GstMessage *msg, gpointer user_data)
+    static gboolean bus_call(GstBus *, GstMessage *msg, gpointer user_data)
     {
         MediaLibraryEncoder::Impl *encoder = static_cast<MediaLibraryEncoder::Impl *>(user_data);
-        return encoder->on_bus_call(bus, msg);
+        return encoder->on_bus_call(msg);
     }
     void update_fps(gdouble fps)
     {
@@ -119,8 +128,9 @@ class MediaLibraryEncoder::Impl final
     }
 
   private:
-    media_library_return init_buffer_pool();
-    void set_gst_callbacks();
+    media_library_return init_buffer_pool(const InputParams &input_params);
+    bool set_gst_callbacks(GstElement *pipeline);
     GstFlowReturn add_buffer_internal(GstBuffer *buffer);
-    std::string create_pipeline_string(nlohmann::json osd_json_config);
+    std::string create_pipeline_string(const std::string &encoder_json_config, const InputParams &input_params,
+                                       EncoderType encoder_type);
 };

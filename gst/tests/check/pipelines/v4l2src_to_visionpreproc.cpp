@@ -28,7 +28,7 @@ static GstElement *create_v4l2_pipeline(std::string video_device, std::string fo
     return pipeline;
 }
 
-static GstPadProbeReturn buffer_callback(GstObject *pad, GstPadProbeInfo *info, gpointer data)
+static GstPadProbeReturn buffer_callback(GstObject *, GstPadProbeInfo *info, gpointer)
 {
     GstBuffer *buffer;
     struct hailo15_vsm vsm;

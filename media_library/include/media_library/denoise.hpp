@@ -46,7 +46,7 @@ class MediaLibraryDenoise
 {
   protected:
     class Impl;
-    std::shared_ptr<Impl> m_impl;
+    std::unique_ptr<Impl> m_impl;
 
   public:
     class callbacks_t
@@ -58,31 +58,9 @@ class MediaLibraryDenoise
     };
 
     /**
-     * @brief Create the denoise module
-     *
-     * @return tl::expected<MediaLibraryDenoisePtr, media_library_return> -
-     * An expected object that holds either a shared pointer
-     * to an MediaLibraryDenoise object, or a error code.
-     */
-    static tl::expected<std::shared_ptr<MediaLibraryDenoise>, media_library_return> create();
-
-    /**
-     * @brief Create the denoise module
-     *
-     * @param[in] config_string - json configuration string
-     * @return tl::expected<MediaLibraryDenoisePtr, media_library_return> -
-     * An expected object that holds either a shared pointer
-     * to an MediaLibraryDenoise object, or a error code.
-     */
-    static tl::expected<std::shared_ptr<MediaLibraryDenoise>, media_library_return> create(std::string config_string);
-
-    /**
      * @brief Constructor for the denoise module
-     *
-     * @param[in] impl - shared pointer to the implementation object
-     * @note This constructor is used internally by the create function.
      */
-    MediaLibraryDenoise(std::shared_ptr<MediaLibraryDenoise::Impl> impl);
+    MediaLibraryDenoise();
 
     /**
      * @brief Destructor for the denoise module
@@ -96,7 +74,7 @@ class MediaLibraryDenoise
      * @param[in] config_string - configuration json as string
      * @return media_library_return - status of the configuration operation
      */
-    media_library_return configure(std::string config_string);
+    media_library_return configure(const std::string &config_string);
 
     /**
      * @brief Configure the denoise module with denoise_config_t object
@@ -106,7 +84,7 @@ class MediaLibraryDenoise
      * @param[in] hailort_t - hailort_t object
      * @return media_library_return - status of the configuration operation
      */
-    media_library_return configure(denoise_config_t &denoise_configs, hailort_t &hailort_configs);
+    media_library_return configure(const denoise_config_t &denoise_configs, const hailort_t &hailort_configs);
 
     /**
      * @brief Perform low-light-enhancement on the input frame and return the output frame
@@ -123,14 +101,14 @@ class MediaLibraryDenoise
      *
      * @return denoise_config_t - denoise configurations
      */
-    denoise_config_t &get_denoise_configs();
+    denoise_config_t get_denoise_configs();
 
     /**
      * @brief get the hailort configurations object
      *
      * @return hailort_t - hailort configurations
      */
-    hailort_t &get_hailort_configs();
+    hailort_t get_hailort_configs();
 
     /**
      * @brief check enabled flag

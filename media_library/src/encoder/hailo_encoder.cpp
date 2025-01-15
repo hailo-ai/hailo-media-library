@@ -648,7 +648,7 @@ VCEncRet EncodeFrame(EncoderParams *enc_params, VCEncInst encoder, VCEncSliceRea
     return VCEncStrmEncode(encoder, pEncIn, pEncOut, sliceReadyCbFunc, pAppData);
 }
 
-void ForceKeyframe(EncoderParams *enc_params, VCEncInst encoder)
+void ForceKeyframe(EncoderParams *enc_params)
 {
     VCEncIn *pEncIn = &(enc_params->encIn);
     pEncIn->codingType = VCENC_INTRA_FRAME;
@@ -656,7 +656,7 @@ void ForceKeyframe(EncoderParams *enc_params, VCEncInst encoder)
     enc_params->last_idr_picture_cnt = enc_params->picture_cnt;
 }
 
-void UpdateEncoderGOP(EncoderParams *enc_params, VCEncInst encoder)
+void UpdateEncoderGOP(EncoderParams *enc_params)
 {
     VCEncIn *pEncIn = &(enc_params->encIn);
     pEncIn->timeIncrement = enc_params->frameRateDenom;

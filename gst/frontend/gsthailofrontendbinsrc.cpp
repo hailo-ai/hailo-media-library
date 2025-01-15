@@ -30,6 +30,7 @@
 #include <gst/video/video.h>
 #include <dlfcn.h>
 #include <unistd.h>
+#include <chrono>
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailofrontendbinsrc_debug_category);
 #define GST_CAT_DEFAULT gst_hailofrontendbinsrc_debug_category
@@ -75,7 +76,8 @@ enum
     PROP_HAILORT_CONFIG,
     PROP_INPUT_VIDEO_CONFIG,
     PROP_ISP_CONFIG,
-    PROP_FREEZE
+    PROP_FREEZE,
+    PROP_NUM_BUFFERS
 };
 
 // Pad Templates
@@ -142,6 +144,10 @@ static void gst_hailofrontendbinsrc_class_init(GstHailoFrontendBinSrcClass *klas
         gobject_class, PROP_FREEZE,
         g_param_spec_boolean("freeze", "Freeze", "Freeze the image", FALSE,
                              (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(gobject_class, PROP_NUM_BUFFERS,
+                                    g_param_spec_int("num-buffers", "number of buffers",
+                                                     "Number of buffers to output before sending EOS (-1 = unlimited)",
+                                                     -1, G_MAXINT, -1, (GParamFlags)(G_PARAM_READWRITE)));
 
     element_class->change_state = GST_DEBUG_FUNCPTR(gst_hailofrontendbinsrc_change_state);
     element_class->request_new_pad = GST_DEBUG_FUNCPTR(gst_hailofrontendbinsrc_request_new_pad);
@@ -185,7 +191,6 @@ static void gst_hailofrontendbinsrc_init(GstHailoFrontendBinSrc *hailofrontendbi
         if (!ret)
             GST_ERROR_OBJECT(hailofrontendbinsrc, "Failed to respond to low-light-enhancement settings change");
     };
-    hailofrontendbinsrc->observe_denoising(callbacks);
 
     // Add elements and pads in the bin
     gst_bin_add_many(GST_BIN(hailofrontendbinsrc), hailofrontendbinsrc->m_v4l2src, hailofrontendbinsrc->m_capsfilter,
@@ -377,6 +382,10 @@ void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id, co
         g_object_set(self->m_frontend, "freeze", g_value_get_boolean(value), NULL);
         break;
     }
+    case PROP_NUM_BUFFERS: {
+        g_object_set(self->m_v4l2src, "num-buffers", g_value_get_int(value), NULL);
+        break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
@@ -430,6 +439,10 @@ void gst_hailofrontendbinsrc_get_property(GObject *object, guint property_id, GV
         g_object_get(hailofrontendbinsrc->m_frontend, "freeze", &value, NULL);
         break;
     }
+    case PROP_NUM_BUFFERS: {
+        g_object_get(hailofrontendbinsrc->m_v4l2src, "num-buffers", &value, NULL);
+        break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
@@ -448,6 +461,7 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
 {
     GstStateChangeReturn result = GST_STATE_CHANGE_SUCCESS;
     GstHailoFrontendBinSrc *self = GST_HAILO_FRONTEND_BINSRC(element);
+    std::lock_guard<std::mutex> lock(self->m_config_mutex);
 
     switch (transition)
     {
@@ -491,18 +505,18 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
         {
             GST_DEBUG_OBJECT(self, "Setting HDR configuration");
             isp_utils::setup_hdr(INPUT_VIDEO_IS_4K(self), self->m_hdr_config.dol);
-            isp_utils::set_hdr_configuration(INPUT_VIDEO_IS_4K(self));
+            isp_utils::set_hdr_configuration();
         }
         else if (denoise_config->enabled)
         {
             GST_DEBUG_OBJECT(self, "Setting denoise configuration");
-            isp_utils::set_denoise_configuration();
+            isp_utils::set_lowlight_configuration();
         }
         else
         {
             GST_DEBUG_OBJECT(self, "Setting SDR configuration");
-            isp_utils::setup_sdr();
-            isp_utils::set_default_configuration();
+            isp_utils::set_daylight_configuration();
+            isp_utils::setup_sdr(INPUT_VIDEO_IS_4K(self));
         }
         break;
     }
@@ -521,18 +535,10 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
         if (self->m_hdr_config.enabled)
         {
             GST_DEBUG_OBJECT(self, "Initializing HDR");
-            self->m_hdr_stitcher = std::make_unique<HailortAsyncStitching>();
-            bool res_stitch = self->m_hdr_stitcher->init(get_hdr_hef_path(self), self->m_hailort_config.device_id, 1,
-                                                         1000, HDR_IMAGING_DOL(self));
-            if (res_stitch != 0) // 0 = success
-            {
-                GST_ERROR_OBJECT(self, "Failed to initialize HDR stitching");
-                return GST_STATE_CHANGE_FAILURE;
-            }
             self->m_hdr = std::make_unique<HDR::HDRManager>();
-            bool res_hdr =
-                self->m_hdr->init(self->m_hdr_stitcher.get(), HDR_IMAGING_DOL(self), HDR_IMAGING_RESOLUTION(self),
-                                  self->m_hdr_config.ls_ratio, self->m_hdr_config.vs_ratio);
+            bool res_hdr = self->m_hdr->init(get_hdr_hef_path(self), self->m_hailort_config.device_id, 1, 1000,
+                                             HDR_IMAGING_DOL(self), HDR_IMAGING_RESOLUTION(self),
+                                             self->m_hdr_config.ls_ratio, self->m_hdr_config.vs_ratio);
             if (!res_hdr)
             {
                 GST_ERROR_OBJECT(self, "Failed to initialize HDR manager");
@@ -552,7 +558,7 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
                 return GST_STATE_CHANGE_FAILURE;
             }
             // sleep for 100 ms
-            usleep(100000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
         else
         {
@@ -562,7 +568,6 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
     }
     case GST_STATE_CHANGE_READY_TO_NULL: {
         GST_DEBUG_OBJECT(self, "GST_STATE_CHANGE_READY_TO_NULL");
-        self->m_hdr_stitcher = nullptr;
         self->m_hdr = nullptr;
         break;
     }
@@ -681,12 +686,12 @@ static gboolean gst_hailofrontendbinsrc_denoise_enabled_changed(GstHailoFrontend
     if (enabled)
     {
         // Enabled ai low-light-enhancement, disable 3dnr
-        isp_utils::set_denoise_configuration();
+        isp_utils::set_lowlight_configuration();
     }
     else
     {
         // Disabled ai low-light-enhancement, enable 3dnr
-        isp_utils::set_default_configuration();
+        isp_utils::set_daylight_configuration();
     }
 
     return TRUE;

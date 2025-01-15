@@ -42,7 +42,7 @@ static void gst_hailoencodebin_init_ghost_src(GstHailoEncodeBin *hailoencodebin)
 static EncoderType gst_hailoencodebin_get_encoder_type(nlohmann::json &config_json);
 static nlohmann::json gst_hailoencodebin_get_encoder_json(const gchar *property_value, bool is_file);
 static void gst_hailoencodebin_set_encoder_properties(GstHailoEncodeBin *hailoencodebin, const char *config_property,
-                                                      const gchar *property_value, nlohmann::json &config_json);
+                                                      const gchar *property_value);
 static gboolean gst_hailoencodebin_prepare_encoder_element(GstHailoEncodeBin *hailoencodebin,
                                                            const char *config_property, const gchar *property_value);
 static gboolean gst_hailoencodebin_link_elements(GstElement *element);
@@ -192,8 +192,8 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id, const G
             EncoderType encoder_type = gst_hailoencodebin_get_encoder_type(config_json);
             if (hailoencodebin->encoder_type == encoder_type)
             {
-                gst_hailoencodebin_set_encoder_properties(hailoencodebin, "config-file-path", g_value_get_string(value),
-                                                          config_json);
+                gst_hailoencodebin_set_encoder_properties(hailoencodebin, "config-file-path",
+                                                          g_value_get_string(value));
             }
             else
             {
@@ -229,8 +229,7 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id, const G
             EncoderType encoder_type = gst_hailoencodebin_get_encoder_type(config_json);
             if (hailoencodebin->encoder_type == encoder_type)
             {
-                gst_hailoencodebin_set_encoder_properties(hailoencodebin, "config-string", g_value_get_string(value),
-                                                          config_json);
+                gst_hailoencodebin_set_encoder_properties(hailoencodebin, "config-string", g_value_get_string(value));
             }
             else
             {
@@ -434,7 +433,7 @@ static nlohmann::json gst_hailoencodebin_get_encoder_json(const gchar *property_
 }
 
 static void gst_hailoencodebin_set_encoder_properties(GstHailoEncodeBin *hailoencodebin, const char *config_property,
-                                                      const gchar *property_value, nlohmann::json &config_json)
+                                                      const gchar *property_value)
 {
     switch (hailoencodebin->encoder_type)
     {
@@ -470,7 +469,7 @@ static gboolean gst_hailoencodebin_prepare_encoder_element(GstHailoEncodeBin *ha
     }
 
     hailoencodebin->encoder_type = encoder_type;
-    gst_hailoencodebin_set_encoder_properties(hailoencodebin, config_property, property_value, config_json);
+    gst_hailoencodebin_set_encoder_properties(hailoencodebin, config_property, property_value);
     gst_bin_add(GST_BIN(hailoencodebin), hailoencodebin->m_encoder);
     // Now that we have encoder, initialize the ghost src pad
     gst_hailoencodebin_init_ghost_src(hailoencodebin);

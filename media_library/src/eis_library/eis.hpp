@@ -148,6 +148,7 @@ struct gyro_calibration_config_t
 class EIS
 {
   private:
+    uint32_t m_sample_rate;
     gyro_calibration_config_t m_gyro_calibration_config;
     prev_high_pass_t prev_high_pass;
     CircularBuffer<cv::Mat> previous_orientations;
@@ -155,11 +156,12 @@ class EIS
     cv::Mat m_prev_total_rotation;
     unbiased_gyro_sample_t m_last_sample = unbiased_gyro_sample_t(0, 0, 0, 0);
     cv::Vec3d m_cur_angle = cv::Vec3d(0.0, 0.0, 0.0);
+    cv::Vec3d m_prev_angle = cv::Vec3d(0.0, 0.0, 0.0);
 
   public:
     size_t m_frame_count;
 
-    EIS(const std::string &config_filename, uint32_t window_size);
+    EIS(const std::string &config_filename, uint32_t window_size, uint32_t sample_rate);
     ~EIS() {};
 
     cv::Mat smooth(const cv::Mat &current_orientation, double rotational_smoothing_coefficient);

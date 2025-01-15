@@ -21,8 +21,10 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #pragma once
+#include <condition_variable>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <map>
 #include <queue>
@@ -59,6 +61,13 @@ enum encoder_config_type_t
     ENCODER_CONFIG_GOP,
     ENCODER_CONFIG_STREAM,
     ENCODER_CONFIG_MONITORS
+};
+
+enum class encoder_operation_t
+{
+    ENCODER_OPERATION_START = 0,
+    ENCODER_OPERATION_ENCODE,
+    ENCODER_OPERATION_STOP
 };
 struct EncoderCounters
 {
@@ -151,7 +160,6 @@ class Encoder::Impl final
     void *m_ewl;
     bool m_multislice_encoding;
     u32 m_intra_pic_rate;
-    EWLLinearMem_t m_output_memory;
     std::vector<std::pair<uint32_t, HailoMediaLibraryBufferPtr>> m_inputs;
     EncoderOutputBuffer m_header;
     std::shared_ptr<EncoderConfig> m_config;
@@ -163,6 +171,10 @@ class Encoder::Impl final
     EncoderBitrateMonitor m_bitrate_monitor;
     EncoderCycleMonitor m_cycle_monitor;
 
+    bool m_is_encoding_multiple_frames;
+    std::mutex m_is_encoding_multiple_frames_mtx;
+    std::condition_variable m_is_encoding_multiple_frames_cv;
+
     std::vector<encoder_config_type_t> m_update_required;
 
   public:
@@ -172,12 +184,14 @@ class Encoder::Impl final
     void force_keyframe();
     void update_stride(uint32_t stride);
     int get_gop_size();
+    EncoderOutputBuffer get_encoder_header_output_buffer();
     media_library_return configure(std::string json_string);
     media_library_return configure(const encoder_config_t &config);
     encoder_config_t get_config();
     encoder_config_t get_user_config();
     tl::expected<EncoderOutputBuffer, media_library_return> start();
-    tl::expected<EncoderOutputBuffer, media_library_return> stop();
+    void stop();
+    tl::expected<EncoderOutputBuffer, media_library_return> finish();
     media_library_return init();
     media_library_return release();
     media_library_return dispose();
@@ -204,8 +218,8 @@ class Encoder::Impl final
     VCEncPictureType get_input_format(std::string format);
     VCEncPictureCodingType find_next_pic();
     media_library_return update_input_buffer(HailoMediaLibraryBufferPtr buf);
-    media_library_return create_output_buffer(EncoderOutputBuffer &output_buf);
-    media_library_return allocate_output_memory();
+    media_library_return allocate_output_memory(HailoMediaLibraryBufferPtr buffer_ptr);
+    tl::expected<EncoderOutputBuffer, media_library_return> encode_executer(encoder_operation_t op);
     media_library_return update_configurations();
     media_library_return update_gop_configurations();
     media_library_return stream_restart();
@@ -234,7 +248,7 @@ class Encoder::Impl::gopConfig
     int m_b_frame_qp_delta;
     bool m_codec_h264;
     int ReadGopConfig(std::vector<GopPicConfig> &config, int gopSize);
-    int ParseGopConfigLine(GopPicConfig &pic_cfg, int gopSize);
+    int ParseGopConfigLine(GopPicConfig &pic_cfg);
 
   public:
     gopConfig(VCEncGopConfig *gopConfig, int gopSize, int bFrameQpDelta, bool codecH264);

@@ -27,7 +27,7 @@
 #include "encoder_internal.hpp"
 #include "encoder_gop_config.hpp"
 
-int Encoder::Impl::gopConfig::ParseGopConfigLine(GopPicConfig &pic_cfg, int gopSize)
+int Encoder::Impl::gopConfig::ParseGopConfigLine(GopPicConfig &pic_cfg)
 {
     if (m_gop_cfg->size >= MAX_GOP_PIC_CONFIG_NUM)
     {
@@ -66,7 +66,7 @@ int Encoder::Impl::gopConfig::ReadGopConfig(std::vector<GopPicConfig> &config, i
 
     for (auto &pic_cfg : config)
     {
-        if (ParseGopConfigLine(pic_cfg, gopSize) == -1)
+        if (ParseGopConfigLine(pic_cfg) == -1)
             return -1;
     }
     ret = 0;

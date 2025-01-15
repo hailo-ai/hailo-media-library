@@ -26,7 +26,7 @@
 
 namespace config_schemas
 {
-static nlohmann::json encoder_config_schema = R"(
+static nlohmann::json encoding_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for encoder configuration",
@@ -535,9 +535,10 @@ static nlohmann::json encoder_config_schema = R"(
 static nlohmann::json osd_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "osdschema",
     "title": "Media Library schema for on screen display configuration",
     "type": "object",
-    "definitions": {
+    "$defs": {
       "color": {
         "type": "array",
         "items": {
@@ -634,25 +635,25 @@ static nlohmann::json osd_config_schema = R"(
                   "type": "number"
                 },
                 "angle": {
-                  "$ref": "#/definitions/angle"
+                  "$ref": "#/$defs/angle"
                 },
                 "rotation_policy": {
-                  "$ref": "#/definitions/rotation_policy"
+                  "$ref": "#/$defs/rotation_policy"
                 },
                 "x": {
-                  "$ref": "#/definitions/coordinate"
+                  "$ref": "#/$defs/coordinate"
                 },
                 "y": {
-                  "$ref": "#/definitions/coordinate"
+                  "$ref": "#/$defs/coordinate"
                 },
                 "z-index": {
-                  "$ref": "#/definitions/z-index"
+                  "$ref": "#/$defs/z-index"
                 },
                 "horizontal_alignment": {
-                  "$ref": "#/definitions/horizontal_alignment"
+                  "$ref": "#/$defs/horizontal_alignment"
                 },
                 "vertical_alignment": {
-                  "$ref": "#/definitions/vertical_alignment"
+                  "$ref": "#/$defs/vertical_alignment"
                 }
               },
               "required": [
@@ -685,43 +686,43 @@ static nlohmann::json osd_config_schema = R"(
                   "type": "string"
                 },
                 "font_weight": {
-                  "$ref": "#/definitions/font_weight"
+                  "$ref": "#/$defs/font_weight"
                 },
                 "datetime_format": {
                   "type": "string"
                 },
                 "line_thickness": {
-                  "$ref": "#/definitions/line_thickness"
+                  "$ref": "#/$defs/line_thickness"
                 },
                 "text_color": {
-                  "$ref": "#/definitions/color"
+                  "$ref": "#/$defs/color"
                 },
                 "background_color": {
-                  "$ref": "#/definitions/color"
+                  "$ref": "#/$defs/color"
                 },
                 "outline_size": {
-                  "$ref": "#/definitions/outline_size"
+                  "$ref": "#/$defs/outline_size"
                 },
                 "outline_color": {
-                  "$ref": "#/definitions/color"
+                  "$ref": "#/$defs/color"
                 },
                 "angle": {
-                  "$ref": "#/definitions/angle"
+                  "$ref": "#/$defs/angle"
                 },
                 "rotation_policy": {
-                  "$ref": "#/definitions/rotation_policy"
+                  "$ref": "#/$defs/rotation_policy"
                 },
                 "x": {
-                  "$ref": "#/definitions/coordinate"
+                  "$ref": "#/$defs/coordinate"
                 },
                 "y": {
-                  "$ref": "#/definitions/coordinate"
+                  "$ref": "#/$defs/coordinate"
                 },
                 "z-index": {
-                  "$ref": "#/definitions/z-index"
+                  "$ref": "#/$defs/z-index"
                 },
                 "shadow_color": {
-                  "$ref": "#/definitions/color"
+                  "$ref": "#/$defs/color"
                 },
                 "shadow_offset_x": {
                   "type": "number"
@@ -730,10 +731,10 @@ static nlohmann::json osd_config_schema = R"(
                   "type": "number"
                 },
                 "horizontal_alignment": {
-                  "$ref": "#/definitions/horizontal_alignment"
+                  "$ref": "#/$defs/horizontal_alignment"
                 },
                 "vertical_alignment": {
-                  "$ref": "#/definitions/vertical_alignment"
+                  "$ref": "#/$defs/vertical_alignment"
                 }
               },
               "required": [
@@ -769,40 +770,40 @@ static nlohmann::json osd_config_schema = R"(
                   "type": "string"
                 },
                 "font_weight": {
-                  "$ref": "#/definitions/font_weight"
+                  "$ref": "#/$defs/font_weight"
                 },
                 "line_thickness": {
-                  "$ref": "#/definitions/line_thickness"
+                  "$ref": "#/$defs/line_thickness"
                 },
                 "text_color": {
-                  "$ref": "#/definitions/color"
+                  "$ref": "#/$defs/color"
                 },
                 "background_color": {
-                  "$ref": "#/definitions/color"
+                  "$ref": "#/$defs/color"
                 },
                 "outline_size": {
-                  "$ref": "#/definitions/outline_size"
+                  "$ref": "#/$defs/outline_size"
                 },
                 "outline_color": {
-                  "$ref": "#/definitions/color"
+                  "$ref": "#/$defs/color"
                 },
                 "angle": {
-                  "$ref": "#/definitions/angle"
+                  "$ref": "#/$defs/angle"
                 },
                 "rotation_policy": {
-                  "$ref": "#/definitions/rotation_policy"
+                  "$ref": "#/$defs/rotation_policy"
                 },
                 "x": {
-                  "$ref": "#/definitions/coordinate"
+                  "$ref": "#/$defs/coordinate"
                 },
                 "y": {
-                  "$ref": "#/definitions/coordinate"
+                  "$ref": "#/$defs/coordinate"
                 },
                 "z-index": {
-                  "$ref": "#/definitions/z-index"
+                  "$ref": "#/$defs/z-index"
                 },
                 "shadow_color": {
-                  "$ref": "#/definitions/color"
+                  "$ref": "#/$defs/color"
                 },
                 "shadow_offset_x": {
                   "type": "number"
@@ -811,10 +812,10 @@ static nlohmann::json osd_config_schema = R"(
                   "type": "number"
                 },
                 "horizontal_alignment": {
-                  "$ref": "#/definitions/horizontal_alignment"
+                  "$ref": "#/$defs/horizontal_alignment"
                 },
                 "vertical_alignment": {
-                  "$ref": "#/definitions/vertical_alignment"
+                  "$ref": "#/$defs/vertical_alignment"
                 }
               },
               "required": [
@@ -1491,60 +1492,6 @@ static nlohmann::json denoise_config_schema = R"(
   }
   )"_json;
 
-static nlohmann::json defog_config_schema = R"(
-  {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "title": "Media Library schema for defog configuration",
-    "type": "object",
-    "properties": {
-      "defog": {
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "network": {
-            "type": "object",
-            "properties": {
-              "network_path": {
-                "type": "string"
-              },
-              "y_channel": {
-                "type": "string"
-              },
-              "uv_channel": {
-                "type": "string"
-              },
-              "output_y_channel": {
-                "type": "string"
-              },
-              "output_uv_channel": {
-                "type": "string"
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "network_path",
-              "y_channel",
-              "uv_channel",
-              "output_y_channel",
-              "output_uv_channel"
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "enabled",
-          "network"
-        ]
-      }
-    },
-    "required": [
-      "defog"
-    ]
-  }
-  )"_json;
-
 static nlohmann::json vsm_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1607,6 +1554,11 @@ static nlohmann::json input_video_config_schema = R"(
         "source": {
           "type": "string"
         },
+        "source_type":{
+          "type": "string",
+          "enum": ["V4L2SRC", "APPSRC"],
+          "default": "V4L2SRC"
+        },
         "resolution": {
           "type": "object",
           "properties": {
@@ -1630,6 +1582,7 @@ static nlohmann::json input_video_config_schema = R"(
       },
       "additionalProperties": false,
       "required": [
+        "source",
         "resolution"
       ]
     }
@@ -1638,5 +1591,12 @@ static nlohmann::json input_video_config_schema = R"(
     "input_video"
   ]
 })"_json;
+
+static nlohmann::json frontend_config_schema = {
+    {"allOf",
+     {multi_resize_config_schema, ldc_config_schema, hailort_config_schema, isp_config_schema, hdr_config_schema,
+      denoise_config_schema, input_video_config_schema}}};
+
+static nlohmann::json encoder_config_schema = {{"allOf", {encoding_config_schema, osd_config_schema}}};
 
 } // namespace config_schemas

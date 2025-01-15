@@ -41,7 +41,7 @@ class MotionDetection
     bool initialize_previous_frame(const HailoMediaLibraryBufferPtr &buffer_ptr);
     void create_current_frame(const HailoMediaLibraryBufferPtr &buffer_ptr);
     HailoMediaLibraryBufferPtr allocate_bitmask_buffer();
-    void create_motion_mask(const HailoMediaLibraryBufferPtr &bitmask_buffer);
+    void create_motion_mask();
     bool detect_motion() const;
     void update_output_frames(std::vector<HailoMediaLibraryBufferPtr> &output_frames,
                               HailoMediaLibraryBufferPtr &bitmask_buffer, bool motion_detected);

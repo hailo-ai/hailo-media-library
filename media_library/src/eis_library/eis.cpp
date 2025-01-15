@@ -3,6 +3,10 @@
 #include "media_library_logger.hpp"
 #include "eis.hpp"
 
+#define MAX_SKIPPED_GYRO_SAMPLES 3.0 // the maximum amount of gyro samples that can be missing
+#define DELTA_TIME_THRESHOLD(sample_rate)                                                                              \
+    (MAX_SKIPPED_GYRO_SAMPLES / sample_rate) // maximum allowed time between gyro samples while integrating
+
 static cv::Mat SLERP(const cv::Mat &r1, const cv::Mat &r2, double rotational_smoothing_coefficient)
 {
     /* Convert rotation vectors to rotation matrices */
@@ -103,6 +107,7 @@ std::vector<std::pair<uint64_t, cv::Mat>> EIS::integrate_rotations_rolling_shutt
     const std::vector<unbiased_gyro_sample_t> &gyro_samples)
 {
     double dt;
+    size_t out_rotations_count = 0;
     std::vector<std::pair<uint64_t, cv::Mat>> out_rotations;
 
     if (gyro_samples.size() == 0)
@@ -119,13 +124,36 @@ std::vector<std::pair<uint64_t, cv::Mat>> EIS::integrate_rotations_rolling_shutt
         else
             dt = ((double)gyro_samples[i].timestamp_ns - (double)gyro_samples[i - 1].timestamp_ns) * 1e-9;
 
-        if (dt < 0)
+        if (dt >
+            DELTA_TIME_THRESHOLD(
+                m_sample_rate)) // Gap between samples is too big, probably some dropped samples, skip this integration
+        {
+            LOGGER__INFO("integrate_rotations_rolling_shutter time delta is too big: {} skipping integration", dt);
             continue;
+        }
+        if (dt < 0) // Gap is negative, probably a messed up sample
+        {
+            LOGGER__INFO("integrate_rotations_rolling_shutter time delta is negative: {}", dt);
+            if (i > 0)
+            {
+                // since this is a messed up sample, remove the last integration it took a part in too.
+                LOGGER__INFO("reverting current angle {} to previous angle {} and popping back {} items", m_cur_angle,
+                             m_prev_angle, out_rotations.size() - out_rotations_count);
+                m_cur_angle = m_prev_angle;
+                while (out_rotations.size() > out_rotations_count)
+                {
+                    out_rotations.pop_back();
+                }
+            }
+            continue;
+        }
 
+        m_prev_angle = m_cur_angle;
         m_cur_angle += cv::Vec3d(gyro_samples[i].vx, gyro_samples[i].vy, gyro_samples[i].vz) * dt;
         cv::Mat delta_rot = euler_angles_to_rot_mat(m_cur_angle);
         cv::Mat rot_camera = (m_gyro_to_cam_rot_mat * delta_rot.t()) * m_gyro_to_cam_rot_mat.t();
         out_rotations.emplace_back(std::pair<uint64_t, cv::Mat>(gyro_samples[i].timestamp_ns, rot_camera));
+        out_rotations_count = out_rotations.size();
     }
 
     m_last_sample = gyro_samples.back();
@@ -262,9 +290,8 @@ static int parse_gyro_calibration_config_file(const std::string &filename,
     return 0;
 }
 
-EIS::EIS(const std::string &config_filename, uint32_t window_size)
+EIS::EIS(const std::string &config_filename, uint32_t window_size, uint32_t sample_rate) : m_sample_rate(sample_rate)
 {
-    std::cout << "[EIS] EIS enabled!" << std::endl;
     if (parse_gyro_calibration_config_file(config_filename, m_gyro_calibration_config) == -1)
     {
         LOGGER__ERROR("EIS: Failed to parse gyro calibration config file, configuring all calibration values with 0's");

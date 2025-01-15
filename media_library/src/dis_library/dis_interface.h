@@ -78,12 +78,11 @@ extern "C"
     /// @param in_height used just to check whether it is the same as in calibration
     /// @param motion_x x component current-to-previous frame motion vector in pixels
     /// @param motion_y y component current-to-previous frame motion vector in pixels
-    /// @param panning 0 or 1, shows whether the panning motor rotates the camera intentionally
     /// @param flip_mirror_rot as applied on the output image. Actually, the grid is reordered
     /// Note!!!: when rotating to 90 or 270 deg, the output images passed to dewarp funcs must be with swapped
     /// width/height!
     /// @param grid output; grid.mesh_table must be allocated by the caller. This func fills it.
-    RetCodes dis_generate_grid(void *ctx, int in_width, int in_height, float motion_x, float motion_y, int32_t panning,
+    RetCodes dis_generate_grid(void *ctx, int in_width, int in_height, float motion_x, float motion_y,
                                FlipMirrorRot flip_mirror_rot, std::shared_ptr<angular_dis_params_t> angular_dis_params,
                                DewarpT *grid);
 

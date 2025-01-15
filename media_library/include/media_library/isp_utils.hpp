@@ -35,37 +35,32 @@
 #define V4L2_DEVICE_NAME "/dev/video0"
 #define TRIPLE_A_CONFIG_PATH "/usr/bin/3aconfig.json"
 #define SONY_CONFIG_PATH "/usr/bin/sony_imx678.xml"
+#define SENSOR0_ENTRY_CONFIG_PATH "/usr/bin/Sensor0_Entry.cfg"
 #define MEDIA_SERVER_CONFIG_PATH "/usr/bin/media_server_cfg.json"
-#define ISP_CONFIG_PATH "/usr/lib/medialib/sensors/imx678/default/default/isp_profiles/"
+#define ISP_CONFIG_PATH "/usr/lib/medialib/default_config/isp_profiles/"
 
-#define _DEFAULT "default/"
-#define _DENOISE "denoise/"
+#define _DAYLIGHT "daylight/"
+#define _LOWLIGHT "lowlight/"
 #define _HDR "hdr/"
-#define _BACKLIGHT "backlight/"
+#define _2DOL "2dol/"
+#define _3DOL "3dol/"
 
 #define _3A_CONFIG "3aconfig.json"
 #define _SONY_CONFIG "sony_imx678.xml"
 #define _MEDIA_SERVER_CONFIG "media_server_cfg.json"
+#define ISP_SENSOR0_ENTRY_CONFIG "Sensor0_Entry.cfg"
 
 // 3A config
-#define ISP_DEFAULT_3A_CONFIG (ISP_CONFIG_PATH _DEFAULT _3A_CONFIG)
-#define ISP_DENOISE_3A_CONFIG (ISP_CONFIG_PATH _DENOISE _3A_CONFIG)
-#define ISP_BACKLIGHT_3A_CONFIG (ISP_CONFIG_PATH _BACKLIGHT _3A_CONFIG)
-#define ISP_HDR_3A_CONFIG_4K "/usr/bin/3aconfig_imx678_nnhdr.json"
-#define ISP_HDR_3A_CONFIG_FHD "/usr/bin/3aconfig_imx678.json"
+#define ISP_DAYLIGHT_3A_CONFIG (ISP_CONFIG_PATH _DAYLIGHT _3A_CONFIG)
+#define ISP_LOWLIGHT_3A_CONFIG (ISP_CONFIG_PATH _LOWLIGHT _3A_CONFIG)
+#define ISP_HDR_2DOL_3A_CONFIG (ISP_CONFIG_PATH _HDR _2DOL _3A_CONFIG)
 
-// Sony sensor config
-#define ISP_DEFAULT_SONY_CONFIG (ISP_CONFIG_PATH _DEFAULT _SONY_CONFIG)
-#define ISP_DENOISE_SONY_CONFIG (ISP_CONFIG_PATH _DENOISE _SONY_CONFIG)
+// Sensor0 config
+#define ISP_DAYLIGHT_SENSOR0_CONFIG (ISP_CONFIG_PATH _DAYLIGHT ISP_SENSOR0_ENTRY_CONFIG)
+#define ISP_LOWLIGHT_SENSOR0_CONFIG (ISP_CONFIG_PATH _LOWLIGHT ISP_SENSOR0_ENTRY_CONFIG)
+#define ISP_HDR_2DOL_SENSOR0_CONFIG (ISP_CONFIG_PATH _HDR _2DOL ISP_SENSOR0_ENTRY_CONFIG)
 
 // Media server config
-#define ISP_DEFAULT_MEDIA_SERVER_CONFIG (ISP_CONFIG_PATH _DEFAULT _MEDIA_SERVER_CONFIG)
-#define ISP_DENOISE_MEDIA_SERVER_CONFIG (ISP_CONFIG_PATH _DENOISE _MEDIA_SERVER_CONFIG)
-#define ISP_SENSOR0_ENTRY_CONFIG "Sensor0_Entry.cfg"
-#define ISP_SENSOR0_ENTRY_HDR_IMX678_CONFIG "/usr/bin/imx678hdr4k_Sensor0_Entry.cfg"
-#define ISP_SENSOR0_ENTRY_IMX678_CONFIG "/usr/bin/imx678_Sensor0_Entry.cfg"
-#define MEDIA_SERVER_HDR_CONFIG "/usr/bin/media_server_cfg_nnhdr.json"
-#define MEDIA_SERVER_SDR_CONFIG "/usr/bin/media_server_cfg_default.json"
 #define MEDIA_SERVER_CONFIG "/usr/bin/media_server_cfg.json"
 
 /** @defgroup isp_utils_definitions MediaLibrary ISP utilities CPP API
@@ -82,13 +77,12 @@ extern bool m_auto_configure;
 void set_auto_configure(bool auto_configure);
 void set_isp_config_files_path(std::string &path);
 void override_file(const std::string &src, const std::string &dst);
-void set_default_configuration();
-void set_denoise_configuration();
-void set_backlight_configuration();
-void set_hdr_configuration(bool is_4k);
+void set_daylight_configuration();
+void set_lowlight_configuration();
+void set_hdr_configuration();
 std::string find_subdevice_path(const std::string &subdevice_name);
 void setup_hdr(bool is_4k, hdr_dol_t dol);
-void setup_sdr();
+void setup_sdr(bool is_4k);
 void set_hdr_ratios(float ls_ratio, float vs_ratio);
 } // namespace isp_utils
 

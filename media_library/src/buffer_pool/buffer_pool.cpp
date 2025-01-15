@@ -20,6 +20,7 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+#include <thread>
 #include "buffer_pool.hpp"
 #include "media_library_logger.hpp"
 
@@ -190,6 +191,25 @@ MediaLibraryBufferPool::MediaLibraryBufferPool(uint width, uint height, HailoFor
 MediaLibraryBufferPool::~MediaLibraryBufferPool()
 {
     free();
+}
+
+media_library_return MediaLibraryBufferPool::wait_for_used_buffers(uint timeout_in_ms)
+{
+    std::unique_lock<std::mutex> lock(*m_buffer_pool_mutex);
+    for (uint8_t i = 0; i < m_buckets.size(); i++)
+    {
+        HailoBucketPtr &bucket = m_buckets[i];
+        LOGGER__DEBUG("{}: Waiting for bucket {} of size {} num of buffers {}", m_name, i, bucket->m_buffer_size,
+                      bucket->m_num_buffers);
+
+        if (!m_pool_cv.wait_for(lock, std::chrono::milliseconds(timeout_in_ms),
+                                [&bucket]() { return bucket->used_buffers_count() == 0; }))
+        {
+            LOGGER__ERROR("{}: Timeout waiting for used buffers to be released", m_name);
+            return MEDIA_LIBRARY_ERROR;
+        }
+    }
+    return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return MediaLibraryBufferPool::free(bool fail_on_used_buffers)
@@ -423,6 +443,12 @@ int HailoBucket::available_buffers_count()
 {
     std::unique_lock<std::mutex> lock(*m_bucket_mutex);
     return m_available_buffers.size();
+}
+
+int HailoBucket::used_buffers_count()
+{
+    std::unique_lock<std::mutex> lock(*m_bucket_mutex);
+    return m_used_buffers.size();
 }
 
 int MediaLibraryBufferPool::get_available_buffers_count()

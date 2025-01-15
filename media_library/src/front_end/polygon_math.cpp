@@ -109,7 +109,7 @@ static void fill_packaged_array_with_line(uint width, uint y, uint x1, uint x2, 
     packaged_array[(packaged_array_offset + num_of_bytes + 1)] |= byte_mask;
 }
 
-static void fill_edge_collection(Mat &img, std::vector<PolyEdge> &edges, const void *color, uint stride,
+static void fill_edge_collection(Mat &img, std::vector<PolyEdge> &edges, uint stride,
                                  std::vector<uint8_t> &packaged_array)
 {
     PolyEdge tmp;
@@ -295,8 +295,8 @@ static std::vector<Point> convert_vertices_to_points(const std::vector<privacy_m
     return points;
 }
 
-static void collect_poly_edges(Mat &img, const Point2l *v, int count, std::vector<PolyEdge> &edges, const void *color,
-                               int line_type, int shift, Point offset)
+static void collect_poly_edges(const Point2l *v, int count, std::vector<PolyEdge> &edges, int line_type, int shift,
+                               Point offset)
 {
     int i, delta = offset.y + ((1 << shift) >> 1);
     Point2l pt0 = v[count - 1], pt1;
@@ -392,10 +392,10 @@ void fill_poly_internal(InputOutputArray _img, const Point **pts, const int *npt
     for (i = 0; i < ncontours; i++)
     {
         std::vector<Point2l> _pts(pts[i], pts[i] + npts[i]);
-        collect_poly_edges(img, _pts.data(), npts[i], edges, buf, line_type, shift, offset);
+        collect_poly_edges(_pts.data(), npts[i], edges, line_type, shift, offset);
     }
 
-    fill_edge_collection(img, edges, buf, stride, packaged_array);
+    fill_edge_collection(img, edges, stride, packaged_array);
 }
 
 media_library_return fill_poly_packaged_array(InputOutputArray img, InputArrayOfArrays pts, const Scalar &color,

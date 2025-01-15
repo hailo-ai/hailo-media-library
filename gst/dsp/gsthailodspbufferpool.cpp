@@ -61,7 +61,7 @@ GstBufferPool *gst_hailo_dsp_buffer_pool_new(guint padding)
 }
 
 static GstFlowReturn gst_hailo_dsp_buffer_pool_alloc_buffer(GstBufferPool *pool, GstBuffer **output_buffer_ptr,
-                                                            GstBufferPoolAcquireParams *params)
+                                                            GstBufferPoolAcquireParams *)
 {
     GstHailoDspBufferPool *hailo_dsp_pool = GST_HAILO_DSP_BUFFER_POOL(pool);
     guint buffer_size = 0;

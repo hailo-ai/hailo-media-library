@@ -1,21 +1,13 @@
 # Project Declaration
 project('media-library', 'c', 'cpp',
-        version : '0.1.0',
-        default_options : [ 'warning_level=2',
-                            'buildtype=release',
-                            'werror=true',
-                            'c_std=c11', 'cpp_std=c++20']
-       )
+    version : '1.6.0',
+    default_options : [ 'warning_level=2', 'werror=true',
+                        'buildtype=' + get_option('buildtype'),
+                        'c_std=c11', 'cpp_std=c++20']
+)
 
 # Compiler Arguments
-add_global_arguments('-Wpessimizing-move', language : 'cpp')
-add_global_arguments('-Wredundant-move', language : 'cpp')
-add_global_arguments('-fconcepts', language : 'cpp')
-add_global_arguments('-Wno-unused-variable', language : 'cpp')
-add_global_arguments('-Wno-unused-parameter', language : 'cpp')
-add_global_arguments('-Wno-format', language : 'cpp')
-add_global_arguments('-Wno-format-security', language : 'cpp')
-add_global_arguments('-Wno-cast-function-type', language : 'cpp')
+add_global_arguments('-Werror', language : 'cpp')
 
 pkgc = import('pkgconfig')
 targets = get_option('targets')
@@ -46,7 +38,7 @@ json_dep = meson.get_compiler('cpp').find_library('libnlohmann_json_schema_valid
 opencv_dep = dependency('opencv4', version : '>= 4.0', method : 'pkg-config', include_type : 'system')
 spdlog_dep = dependency('spdlog', version: '1.9.2')
 
-if 'core' in targets 
+if 'core' in targets
     subdir('media_library')
 else
     media_library_common_dep = dependency('hailo_media_library_common', method : 'pkg-config', required:false)
@@ -58,9 +50,9 @@ endif
 
 if 'gst' in targets
     if 'core' not in targets
-        if (not media_library_frontend_dep.found() or 
+        if (not media_library_frontend_dep.found() or
             not media_library_common_dep.found() or
-            not encoder_dep.found() or 
+            not encoder_dep.found() or
             not media_library_encoder_dep.found())
                 error('Media library core package is missing. please make sure it is located in your system or add core target to the build')
         endif

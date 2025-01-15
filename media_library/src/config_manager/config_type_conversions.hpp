@@ -1051,26 +1051,6 @@ void from_json(const nlohmann::json &j, denoise_config_t &d_conf)
     denoise.at("network").get_to(d_conf.network_config);
 }
 
-//------------------------ defog_config_t ------------------------
-
-void to_json(nlohmann::json &j, const defog_config_t &d_conf)
-{
-    j = nlohmann::json{
-        {"defog",
-         {
-             {"enabled", d_conf.enabled},
-             {"network", d_conf.network_config},
-         }},
-    };
-}
-
-void from_json(const nlohmann::json &j, defog_config_t &d_conf)
-{
-    const auto &defog = j.at("defog");
-    defog.at("enabled").get_to(d_conf.enabled);
-    defog.at("network").get_to(d_conf.network_config);
-}
-
 //------------------------ vsm_config_t ------------------------
 
 void to_json(nlohmann::json &j, const vsm_config_t &vsm_conf)
@@ -1115,6 +1095,6 @@ void from_json(const nlohmann::json &j, hdr_config_t &hdr_conf)
     const auto &hdr = j.at("hdr");
     hdr.at("enabled").get_to(hdr_conf.enabled);
     hdr.at("dol").get_to(hdr_conf.dol);
-    hdr_conf.ls_ratio = j.value("lsRatio", 23.7);
-    hdr_conf.vs_ratio = j.value("vsRatio", 6.25);
+    hdr_conf.ls_ratio = hdr.value("lsRatio", 16); // 1048576/(1<<16 = 65536) = 16
+    hdr_conf.vs_ratio = hdr.value("vsRatio", 4);  // 1048576/(1<<18 = 262144) = 4
 }

@@ -30,7 +30,7 @@
 #include <stdio.h>
 #include <string.h>
 
-std::pair<void *, int> get_mapped_dmabuf_from_gst_memory(GstMemory *memory, size_t size, uint plane_index)
+std::pair<void *, int> get_mapped_dmabuf_from_gst_memory(GstMemory *memory, size_t size)
 {
     int fd = -1;
     void *data;
@@ -59,7 +59,7 @@ std::pair<void *, int> get_mapped_dmabuf_from_video_frame(GstVideoFrame *video_f
 
     // If failed, try to get the fd from GStreamer
     GstMemory *memory = gst_buffer_peek_memory(video_frame->buffer, plane_index);
-    return get_mapped_dmabuf_from_gst_memory(memory, size, plane_index);
+    return get_mapped_dmabuf_from_gst_memory(memory, size);
 }
 
 /**
@@ -318,17 +318,6 @@ bool dma_buffer_sync_end(GstBuffer *buffer)
     }
 
     return ret;
-}
-
-void *get_mapped_dmabuf_userptr(int fd, int plane_index, size_t size)
-{
-    void *user_ptr;
-    if (DmaMemoryAllocator::get_instance().map_external_dma_buffer(size, fd, &user_ptr) != MEDIA_LIBRARY_SUCCESS)
-    {
-        return nullptr;
-    }
-
-    return user_ptr;
 }
 
 media_library_return create_hailo_data_plane_from_video_frame(GstVideoFrame *video_frame, int index,

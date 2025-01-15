@@ -120,7 +120,7 @@
     },
     "hdr": {
         "enabled": false,
-        "dol": 3,
+        "dol": 2,
         "resolution": "4k",
         "lsRatio": 23.7,
         "vsRatio": 6.25

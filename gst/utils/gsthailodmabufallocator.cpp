@@ -99,6 +99,6 @@ static void gst_hailo_dmabuf_allocator_class_init(GstHailoDmabufAllocatorClass *
     allocator_class->free = gst_hailo_dmabuf_allocator_free;
 }
 
-static void gst_hailo_dmabuf_allocator_init(GstHailoDmabufAllocator *allocator)
+static void gst_hailo_dmabuf_allocator_init(GstHailoDmabufAllocator *)
 {
 }

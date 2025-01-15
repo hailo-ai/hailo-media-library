@@ -50,9 +50,9 @@ frontend_sources = [
     'src/front_end/privacy_mask.cpp',
     'src/front_end/polygon_math.cpp',
     'src/front_end/denoise.cpp',
-    'src/front_end/defog.cpp',
     'src/front_end/motion_detection.cpp',
-    'src/front_end/post_denoise_filter.cpp'
+    'src/front_end/post_denoise_filter.cpp',
+    'src/front_end/hailort_denoise.cpp'
 ]
 
 libiio_dep = dependency('libiio', version: '>=0.19', required: true)

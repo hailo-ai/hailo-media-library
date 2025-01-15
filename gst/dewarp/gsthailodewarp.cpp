@@ -245,8 +245,8 @@ static GstCaps *gst_hailo_create_caps_from_output_config(GstHailoDewarp *self, o
         framerate = 1;
 
     // Format does not change from input to output
-    input_video_config_t &input_config = self->medialib_dewarp->get_input_video_config();
-    HailoFormat &image_format = input_config.format;
+    input_video_config_t input_config = self->medialib_dewarp->get_input_video_config();
+    HailoFormat image_format = input_config.format;
     std::string format = "";
     switch (image_format)
     {
@@ -365,7 +365,7 @@ static gboolean gst_hailo_handle_caps_event(GstHailoDewarp *self, GstCaps *caps)
         ret = FALSE;
     }
 
-    output_resolution_t &output_config = self->medialib_dewarp->get_output_video_config();
+    output_resolution_t output_config = self->medialib_dewarp->get_output_video_config();
 
     ret = gst_hailo_set_srcpad_caps(self, self->srcpad, output_config);
     if (!ret)
@@ -465,7 +465,7 @@ static gboolean gst_hailo_handle_caps_query(GstHailoDewarp *self, GstPad *pad, G
         GST_ERROR_OBJECT(pad, "self->medialib_dewarp nullptr at time of caps query");
         return FALSE;
     }
-    output_resolution_t &output_config = self->medialib_dewarp->get_output_video_config();
+    output_resolution_t output_config = self->medialib_dewarp->get_output_video_config();
     if (!intersect_peer_srcpad_caps(self, pad, self->srcpad, output_config))
     {
         gst_caps_unref(caps_result);

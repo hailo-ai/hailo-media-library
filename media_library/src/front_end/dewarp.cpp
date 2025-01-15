@@ -31,6 +31,7 @@
 #include <iostream>
 #include <linux/v4l2-controls.h>
 #include <linux/v4l2-subdev.h>
+#include <mutex>
 #include <stdint.h>
 #include <string>
 #include <sys/ioctl.h>
@@ -68,13 +69,13 @@ class MediaLibraryDewarp::Impl final
     media_library_return handle_frame(HailoMediaLibraryBufferPtr input_frame, HailoMediaLibraryBufferPtr output_frame);
 
     // get the pre-processing configurations object
-    ldc_config_t &get_ldc_configs();
+    ldc_config_t get_ldc_configs();
 
     // get the input video configurations object
-    input_video_config_t &get_input_video_config();
+    input_video_config_t get_input_video_config();
 
     // get the output video configurations object
-    output_resolution_t &get_output_video_config();
+    output_resolution_t get_output_video_config();
 
     // set magnification level of optical zoom
     media_library_return set_optical_zoom(float magnification);
@@ -154,17 +155,17 @@ media_library_return MediaLibraryDewarp::handle_frame(HailoMediaLibraryBufferPtr
     return m_impl->handle_frame(input_frame, output_frame);
 }
 
-ldc_config_t &MediaLibraryDewarp::get_ldc_configs()
+ldc_config_t MediaLibraryDewarp::get_ldc_configs()
 {
     return m_impl->get_ldc_configs();
 }
 
-input_video_config_t &MediaLibraryDewarp::get_input_video_config()
+input_video_config_t MediaLibraryDewarp::get_input_video_config()
 {
     return m_impl->get_input_video_config();
 }
 
-output_resolution_t &MediaLibraryDewarp::get_output_video_config()
+output_resolution_t MediaLibraryDewarp::get_output_video_config()
 {
     return m_impl->get_output_video_config();
 }
@@ -319,17 +320,6 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
     bool rot_changed = m_ldc_configs.rotation_config != prev_rot_config;
     bool out_changed = !m_ldc_configs.output_video_config.dimensions_equal(prev_out_config);
 
-    for (auto &callbacks : m_callbacks)
-    {
-        if (out_changed && callbacks.on_output_resolution_change)
-            callbacks.on_output_resolution_change(m_ldc_configs.output_video_config);
-        if (rot_changed && callbacks.on_rotation_change)
-        {
-            auto rot_val = m_ldc_configs.rotation_config.effective_value();
-            callbacks.on_rotation_change(rot_val);
-        }
-    }
-
     if (!m_ldc_configs.gyro_config.enabled && m_ldc_configs.eis_config.enabled)
     {
         LOGGER__ERROR("EIS is enabled, but Gyro is not! This means that currently EIS correction will not be applied."
@@ -344,6 +334,17 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
     }
 
     m_configured = true;
+    lock.unlock();
+    for (auto &callbacks : m_callbacks)
+    {
+        if (out_changed && callbacks.on_output_resolution_change)
+            callbacks.on_output_resolution_change(m_ldc_configs.output_video_config);
+        if (rot_changed && callbacks.on_rotation_change)
+        {
+            auto rot_val = m_ldc_configs.rotation_config.effective_value();
+            callbacks.on_rotation_change(rot_val);
+        }
+    }
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -576,18 +577,21 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBuf
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-ldc_config_t &MediaLibraryDewarp::Impl::get_ldc_configs()
+ldc_config_t MediaLibraryDewarp::Impl::get_ldc_configs()
 {
+    std::unique_lock<std::shared_mutex> lock(rw_lock);
     return m_ldc_configs;
 }
 
-input_video_config_t &MediaLibraryDewarp::Impl::get_input_video_config()
+input_video_config_t MediaLibraryDewarp::Impl::get_input_video_config()
 {
+    std::unique_lock<std::shared_mutex> lock(rw_lock);
     return m_ldc_configs.input_video_config;
 }
 
-output_resolution_t &MediaLibraryDewarp::Impl::get_output_video_config()
+output_resolution_t MediaLibraryDewarp::Impl::get_output_video_config()
 {
+    std::unique_lock<std::shared_mutex> lock(rw_lock);
     return m_ldc_configs.output_video_config;
 }
 

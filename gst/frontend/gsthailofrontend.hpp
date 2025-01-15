@@ -67,13 +67,6 @@ struct _GstHailoFrontend
     GstElement *m_multi_resize;
 
     std::shared_ptr<frontend_element_config_t> frontend_element_config;
-
-    media_library_return observe_denoising(const MediaLibraryDenoise::callbacks_t &callback)
-    {
-        // GstHailoDenoise* denoise = GST_HAILO_DENOISE(m_denoise);
-        // return denoise->observe(callback);
-        return MEDIA_LIBRARY_SUCCESS;
-    }
 };
 
 struct _GstHailoFrontendClass

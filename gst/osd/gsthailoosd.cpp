@@ -323,7 +323,7 @@ static void gst_hailoosd_before_transform(GstBaseTransform *trans, GstBuffer *bu
     GST_DEBUG_OBJECT(hailoosd, "Buffer is writable, refcount: %d, continuing...", GST_OBJECT_REFCOUNT(buffer));
 }
 
-static gboolean gst_hailoosd_set_caps(GstBaseTransform *trans, GstCaps *incaps, GstCaps *outcaps)
+static gboolean gst_hailoosd_set_caps(GstBaseTransform *trans, GstCaps *incaps, GstCaps *)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
 

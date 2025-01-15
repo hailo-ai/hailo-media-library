@@ -126,14 +126,14 @@ class MediaLibraryMultiResize
      *
      * @return multi_resize_config_t - multi-resize configurations
      */
-    multi_resize_config_t &get_multi_resize_configs();
+    multi_resize_config_t get_multi_resize_configs();
 
     /**
      * @brief get the output video configurations object
      *
      * @return output_video_config_t - output video configurations
      */
-    output_video_config_t &get_output_video_config();
+    output_video_config_t get_output_video_config();
 
     /**
      * @brief set the input video configurations object

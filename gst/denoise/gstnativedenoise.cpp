@@ -53,7 +53,7 @@ static void gst_hailo_denoise_get_property(GObject *object, guint property_id, G
 static GstFlowReturn gst_hailo_denoise_chain(GstPad *pad, GstObject *parent, GstBuffer *buffer);
 static GstStateChangeReturn gst_hailo_denoise_change_state(GstElement *element, GstStateChange transition);
 static gboolean send_denoise_event(GstPad *srcpad, gboolean denoise_status);
-static gboolean gst_hailo_denoise_create(GstHailoDenoise *self, std::string config_string);
+static gboolean gst_hailo_denoise_create(GstHailoDenoise *self, const std::string &config_string);
 static gboolean gst_hailo_denoise_sink_query(GstPad *pad, GstObject *parent, GstQuery *query);
 static void gst_hailo_denoise_queue_buffer(GstHailoDenoise *self, GstBuffer *buffer);
 static GstBuffer *gst_hailo_denoise_dequeue_buffer(GstHailoDenoise *self);
@@ -113,7 +113,6 @@ static void gst_hailo_denoise_init(GstHailoDenoise *denoise)
     denoise->medialib_denoise = NULL;
     denoise->m_flushing = false;
     denoise->m_mutex = std::make_shared<std::mutex>();
-    denoise->m_config_mutex = std::make_shared<std::mutex>();
     denoise->m_condvar = std::make_unique<std::condition_variable>();
     denoise->m_queue_size = 2;
     denoise->m_staging_queue = std::make_shared<std::queue<GstBuffer *>>();
@@ -132,7 +131,6 @@ static void gst_hailo_denoise_init(GstHailoDenoise *denoise)
 static void gst_hailo_denoise_set_property(GObject *object, guint property_id, const GValue *value, GParamSpec *pspec)
 {
     GstHailoDenoise *self = GST_HAILO_DENOISE(object);
-    std::unique_lock<std::mutex> lock(*(self->m_config_mutex));
 
     switch (property_id)
     {
@@ -227,20 +225,17 @@ static void gst_hailo_denoise_get_property(GObject *object, guint property_id, G
     }
 }
 
-static gboolean gst_hailo_denoise_create(GstHailoDenoise *self, std::string config_string)
+static gboolean gst_hailo_denoise_create(GstHailoDenoise *self, const std::string &config_string)
 // gst_hailo_denoise_create(GstHailoDenoise *self)
 {
-    tl::expected<MediaLibraryDenoisePtr, media_library_return> denoise = MediaLibraryDenoise::create(config_string);
-    if (denoise.has_value())
+    auto medialb_denoise = std::make_shared<MediaLibraryDenoise>();
+    if (medialb_denoise->configure(config_string) != MEDIA_LIBRARY_SUCCESS)
     {
-        self->medialib_denoise = denoise.value();
-    }
-    else
-    {
-        GST_ERROR_OBJECT(self, "Denoise configuration error: %d", denoise.error());
-        throw std::runtime_error("Denoise failed to configure, check config file.");
+        GST_ERROR_OBJECT(self, "Failed to config denoise");
+        return FALSE;
     }
 
+    self->medialib_denoise = medialb_denoise;
     // set event callbacks
     MediaLibraryDenoise::callbacks_t callbacks;
     callbacks.on_buffer_ready = [self](HailoMediaLibraryBufferPtr out_buf) {
@@ -315,7 +310,6 @@ static GstFlowReturn gst_hailo_denoise_chain(GstPad *pad, GstObject *parent, Gst
 {
     GstHailoDenoise *self = GST_HAILO_DENOISE(parent);
     GstFlowReturn ret = GST_FLOW_OK;
-    std::unique_lock<std::mutex> lock(*(self->m_config_mutex));
 
     GST_DEBUG_OBJECT(self, "Chain - Received buffer from sinkpad");
 
@@ -363,7 +357,6 @@ static GstFlowReturn gst_hailo_denoise_chain(GstPad *pad, GstObject *parent, Gst
         gst_buffer_unref(buffer);
         return GST_FLOW_ERROR;
     }
-    lock.unlock();
 
     GST_DEBUG_OBJECT(self, "Handle frame done");
     gst_hailo_denoise_queue_buffer(self, buffer);
@@ -475,7 +468,6 @@ static void gst_hailo_denoise_finalize(GObject *object)
     }
 
     self->m_mutex = nullptr;
-    self->m_config_mutex = nullptr;
     self->m_condvar = nullptr;
     self->m_staging_queue = nullptr;
 

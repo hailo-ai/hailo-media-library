@@ -6,8 +6,8 @@ gboolean gst_is_hailo_dmabuf_pool_type(GstBufferPool *pool)
     return GST_IS_HAILO_DMA_BUFFER_POOL(pool);
 }
 
-gboolean gst_hailo_dmabuf_configure_pool(GstDebugCategory *category, GstBufferPool *pool, GstCaps *caps, gsize size,
-                                         guint min_buffers, guint max_buffers)
+gboolean gst_hailo_dmabuf_configure_pool(GstBufferPool *pool, GstCaps *caps, gsize size, guint min_buffers,
+                                         guint max_buffers)
 {
     GstStructure *config = NULL;
 
@@ -47,7 +47,7 @@ GstBufferPool *gst_hailo_dma_create_new_pool(GstDebugCategory *category, GstCaps
     }
 
     // Configure the bufferpool
-    gboolean res = gst_hailo_dmabuf_configure_pool(category, pool, caps, size, min_buffers, max_buffers);
+    gboolean res = gst_hailo_dmabuf_configure_pool(pool, caps, size, min_buffers, max_buffers);
     if (res == FALSE)
     {
         GST_ERROR_OBJECT(pool, "Unable to configure pool");

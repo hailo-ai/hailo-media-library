@@ -34,13 +34,14 @@
 #include <nlohmann/json.hpp>
 #include <tl/expected.hpp>
 
-enum frontend_src_element_t
+enum class frontend_src_element_t
 {
-    FRONTEND_SRC_ELEMENT_V4L2SRC = 0,
-    FRONTEND_SRC_ELEMENT_APPSRC,
+    UNKNOWN = 0,
+    V4L2SRC,
+    APPSRC,
 
     /** Max enum value to maintain ABI Integrity */
-    FRONTEND_SRC_ELEMENT_MAX = INT_MAX
+    MAX = INT_MAX
 };
 
 using output_stream_id_t = std::string;
@@ -100,13 +101,11 @@ class MediaLibraryFrontend
     /**
      * @brief Constructs an MediaLibraryFrontend object
      *
-     * @param[in] json_config - json configuration string
      * @return tl::expected<MediaLibraryFrontendPtr, media_library_return> -
      * An expected object that holds either a shared pointer
      *  to an MediaLibraryFrontend object, or a error code.
      */
-    static tl::expected<MediaLibraryFrontendPtr, media_library_return> create(frontend_src_element_t src_element,
-                                                                              std::string json_config);
+    static tl::expected<MediaLibraryFrontendPtr, media_library_return> create();
 
     /**
      * @brief get the configuration of the MediaLibraryFrontend module
@@ -119,11 +118,11 @@ class MediaLibraryFrontend
      * @param[in] config - [frontend_config_t] configuration object, obtained from the ``get_config`` function
      * @return media_library_return
      */
-    media_library_return set_config(frontend_config_t config);
+    media_library_return set_config(const frontend_config_t &config);
 
     /**
      * @brief Start the MediaLibraryFrontend module, the MediaLibraryFrontend
-     * module will be ready to receive buffers.
+     * module will be ready to receive buffers. set_config(const string&) must be called before start()
      * @return media_library_return - status of the start operation
      */
 
@@ -142,7 +141,7 @@ class MediaLibraryFrontend
      * @param[in] json_config - a json string containing the configuration
      * @return media_library_return - status of the configuration operation
      */
-    media_library_return configure(std::string json_config);
+    media_library_return set_config(const std::string &json_config);
 
     /**
      * @brief Subscribe to the MediaLibraryFrontend module to receive the output

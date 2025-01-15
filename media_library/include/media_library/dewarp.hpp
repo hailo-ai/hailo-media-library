@@ -107,21 +107,21 @@ class MediaLibraryDewarp
      *
      * @return ldc_config_t - dewarp configurations
      */
-    ldc_config_t &get_ldc_configs();
+    ldc_config_t get_ldc_configs();
 
     /**
      * @brief get the input video configurations object
      *
      * @return input_video_config_t - input video configurations
      */
-    input_video_config_t &get_input_video_config();
+    input_video_config_t get_input_video_config();
 
     /**
      * @brief get the output video configurations object
      *
      * @return output_resolution_t - output video configurations
      */
-    output_resolution_t &get_output_video_config();
+    output_resolution_t get_output_video_config();
 
     /**
      * @brief set magnification level of optical zoom

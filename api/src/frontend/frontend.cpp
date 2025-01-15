@@ -1,9 +1,12 @@
-#include <charconv>
 #include <nlohmann/json.hpp>
-#include <regex>
+#include <tl/expected.hpp>
 #include <unordered_map>
 
 #include "media_library/frontend.hpp"
+#include "glib.h"
+#include "gst/gstelement.h"
+#include "gst/gstpipeline.h"
+#include "media_library/config_manager.hpp"
 #include "media_library/logger_macros.hpp"
 #include "media_library/media_library_logger.hpp"
 #include "frontend_internal.hpp"
@@ -19,10 +22,9 @@ MediaLibraryFrontend::MediaLibraryFrontend(std::shared_ptr<Impl> impl) : m_impl(
 {
 }
 
-tl::expected<MediaLibraryFrontendPtr, media_library_return> MediaLibraryFrontend::create(
-    frontend_src_element_t src_element, std::string json_config)
+tl::expected<MediaLibraryFrontendPtr, media_library_return> MediaLibraryFrontend::create()
 {
-    auto impl_expected = MediaLibraryFrontend::Impl::create(src_element, json_config);
+    auto impl_expected = MediaLibraryFrontend::Impl::create();
     if (!impl_expected.has_value())
     {
         return tl::make_unexpected(impl_expected.error());
@@ -41,9 +43,9 @@ media_library_return MediaLibraryFrontend::stop()
     return m_impl->stop();
 }
 
-media_library_return MediaLibraryFrontend::configure(std::string json_config)
+media_library_return MediaLibraryFrontend::set_config(const std::string &json_config)
 {
-    return m_impl->configure(json_config);
+    return m_impl->set_config(json_config);
 }
 
 media_library_return MediaLibraryFrontend::subscribe(FrontendCallbacksMap callbacks)
@@ -67,9 +69,9 @@ tl::expected<frontend_config_t, media_library_return> MediaLibraryFrontend::get_
     return m_impl->get_config();
 }
 
-media_library_return MediaLibraryFrontend::set_config(frontend_config_t config)
+media_library_return MediaLibraryFrontend::set_config(const frontend_config_t &config)
 {
-    return m_impl->configure(config);
+    return m_impl->set_config(config);
 }
 
 PrivacyMaskBlenderPtr MediaLibraryFrontend::get_privacy_mask_blender()
@@ -104,12 +106,10 @@ media_library_return MediaLibraryFrontend::Impl::add_buffer(HailoMediaLibraryBuf
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-tl::expected<std::shared_ptr<MediaLibraryFrontend::Impl>, media_library_return> MediaLibraryFrontend::Impl::create(
-    frontend_src_element_t src_element, std::string config)
+tl::expected<std::shared_ptr<MediaLibraryFrontend::Impl>, media_library_return> MediaLibraryFrontend::Impl::create()
 {
     media_library_return status;
-    std::shared_ptr<MediaLibraryFrontend::Impl> fe =
-        std::make_shared<MediaLibraryFrontend::Impl>(src_element, config, status);
+    std::shared_ptr<MediaLibraryFrontend::Impl> fe = std::make_shared<MediaLibraryFrontend::Impl>(status);
     if (status != MEDIA_LIBRARY_SUCCESS)
     {
         return tl::make_unexpected(MEDIA_LIBRARY_UNINITIALIZED);
@@ -117,89 +117,88 @@ tl::expected<std::shared_ptr<MediaLibraryFrontend::Impl>, media_library_return> 
     return fe;
 }
 
-MediaLibraryFrontend::Impl::Impl(frontend_src_element_t src_element, std::string config, media_library_return &status)
-    : m_src_element(src_element), m_config_str(config), m_send_buffer_id(0)
+MediaLibraryFrontend::Impl::Impl(media_library_return &status)
+    : m_src_element(frontend_src_element_t::UNKNOWN), m_send_buffer_id(0), m_config_manager(CONFIG_SCHEMA_FRONTEND)
 {
     gst_init(nullptr, nullptr);
 
-    if (!nlohmann::json::accept(config))
-    {
-        LOGGER__ERROR("Failed to parse frontend config file");
-        status = MEDIA_LIBRARY_CONFIGURATION_ERROR;
-        return;
-    }
-
-    m_json_config = nlohmann::json::parse(config);
-    if (!create_output_streams())
-    {
-        status = MEDIA_LIBRARY_CONFIGURATION_ERROR;
-        return;
-    }
-
-    m_pipeline = gst_parse_launch(create_pipeline_string().c_str(), NULL);
-    if (!m_pipeline)
-    {
-        LOGGER__ERROR("Failed to create pipeline");
-        status = MEDIA_LIBRARY_ERROR;
-        return;
-    }
-
-    if (m_src_element == FRONTEND_SRC_ELEMENT_APPSRC)
-    {
-        GstElement *appsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "src");
-        m_appsrc = GST_APP_SRC(appsrc);
-        m_appsrc_caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "NV12", "width", G_TYPE_INT, 3840,
-                                            "height", G_TYPE_INT, 2160, "framerate", GST_TYPE_FRACTION, 30, 1, NULL),
-        g_object_set(G_OBJECT(m_appsrc), "caps", m_appsrc_caps, NULL);
-    }
-
     m_main_loop = g_main_loop_new(NULL, FALSE);
-
-    set_gst_callbacks();
 
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
 MediaLibraryFrontend::Impl::~Impl()
 {
-    if (m_src_element == FRONTEND_SRC_ELEMENT_APPSRC)
-        gst_caps_unref(m_appsrc_caps);
-    gst_object_unref(m_pipeline);
+    deinit_pipeline();
+
+    if (m_main_loop != nullptr)
+    {
+        g_main_loop_unref(m_main_loop);
+        m_main_loop = nullptr;
+    }
 }
 
-bool MediaLibraryFrontend::Impl::create_output_streams()
+frontend_src_element_t MediaLibraryFrontend::Impl::get_input_stream_type(const std::string &validated_json_config)
 {
+    if (validated_json_config.empty())
+    {
+        return frontend_src_element_t::UNKNOWN;
+    }
+    nlohmann::json::json_pointer src_type_ptr("/input_video/source_type");
+    nlohmann::json tmp_config_json = nlohmann::json::parse(validated_json_config, nullptr, false);
+
+    std::string source_type_str = tmp_config_json.value(src_type_ptr, DEFAULT_INPUT_STREAM_TYPE);
+    if (source_type_str == "V4L2SRC")
+    {
+        return frontend_src_element_t::V4L2SRC;
+    }
+    else if (source_type_str == "APPSRC")
+    {
+        return frontend_src_element_t::APPSRC;
+    }
+
+    return frontend_src_element_t::UNKNOWN;
+}
+
+nlohmann::json MediaLibraryFrontend::Impl::get_output_streams_json(const std::string &validated_json_config)
+{
+    if (validated_json_config.empty())
+    {
+        return {};
+    }
     nlohmann::json::json_pointer resolutions_ptr("/output_video/resolutions");
-    if (!m_json_config.contains(resolutions_ptr))
+    nlohmann::json tmp_config_json = nlohmann::json::parse(validated_json_config, nullptr, false);
+
+    if (!tmp_config_json.contains(resolutions_ptr))
     {
-        LOGGER__ERROR("Could not find {} in frontend config file", resolutions_ptr);
-        return false;
+        LOGGER__ERROR("Failed to find outputs info in json config");
+        return {};
     }
 
-    auto resolutions_json = m_json_config.at(resolutions_ptr);
-    if (!resolutions_json.is_array())
+    return tmp_config_json.at(resolutions_ptr);
+}
+
+std::optional<std::vector<frontend_output_stream_t>> MediaLibraryFrontend::Impl::create_output_streams(
+    const nlohmann::json &output_streams_json)
+{
+    if (!output_streams_json.is_array())
     {
-        LOGGER__ERROR("{} is not a json array", resolutions_json);
-        return false;
+        return std::nullopt;
     }
 
-    for (size_t i = 0; i < resolutions_json.size(); ++i)
+    std::vector<frontend_output_stream_t> output_streams;
+    for (size_t i = 0; i < output_streams_json.size(); ++i)
     {
-        auto output_cfg = resolutions_json[i];
-        if (!output_cfg.contains("width") || !output_cfg.contains("height") || !output_cfg.contains("framerate"))
-        {
-            LOGGER__ERROR("Resolution format in frontend config file is incorrect");
-            continue;
-        }
+        auto output_cfg = output_streams_json[i];
         frontend_output_stream_t output;
         output.id = OUTPUT_SINK_ID(i);
         output.width = output_cfg["width"];
         output.height = output_cfg["height"];
         output.target_fps = output_cfg["framerate"];
         output.current_fps = 0;
-        m_output_streams.push_back(output);
+        output_streams.push_back(output);
     }
-    return true;
+    return output_streams;
 }
 
 tl::expected<GstElement *, media_library_return> MediaLibraryFrontend::Impl::get_frontend_element()
@@ -280,6 +279,17 @@ media_library_return MediaLibraryFrontend::Impl::subscribe(FrontendCallbacksMap 
 
 media_library_return MediaLibraryFrontend::Impl::start()
 {
+    if (is_started())
+    {
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    if (m_json_config_str.empty())
+    {
+        LOGGER__ERROR("set_config() must be called before start()");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
     GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE)
     {
@@ -307,6 +317,10 @@ media_library_return MediaLibraryFrontend::Impl::start()
 
 media_library_return MediaLibraryFrontend::Impl::stop()
 {
+    if (!is_started())
+    {
+        return MEDIA_LIBRARY_SUCCESS;
+    }
     if (m_send_buffer_id != 0)
     {
         g_source_remove(m_send_buffer_id);
@@ -320,30 +334,112 @@ media_library_return MediaLibraryFrontend::Impl::stop()
     }
 
     gst_element_set_state(m_pipeline, GST_STATE_NULL);
+
     g_main_loop_quit(m_main_loop);
-    m_main_loop_thread->join();
-    return MEDIA_LIBRARY_SUCCESS;
-}
-
-media_library_return MediaLibraryFrontend::Impl::configure(std::string json_config)
-{
-    m_json_config = nlohmann::json::parse(json_config);
-    GstElement *frontend = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
-    if (frontend == nullptr)
+    if (m_main_loop_thread->joinable())
     {
-        LOGGER__ERROR("Failed to get frontend element");
-        return MEDIA_LIBRARY_ERROR;
+        m_main_loop_thread->join();
     }
-    g_object_set(G_OBJECT(frontend), "config-string", json_config.c_str(), NULL);
-    gst_object_unref(frontend);
+
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryFrontend::Impl::configure(frontend_config_t config)
+bool MediaLibraryFrontend::Impl::is_config_change_allowed(nlohmann::json old_output_streams_config,
+                                                          nlohmann::json new_output_streams_config,
+                                                          frontend_src_element_t new_config_input_stream_type)
 {
+    if (new_config_input_stream_type != m_src_element)
+    {
+        LOGGER__ERROR("Config change not allowed, input stream type is different");
+        return false;
+    }
+
+    // only change allowed in outputs is framerate
+    for (auto &output_stream : old_output_streams_config)
+    {
+        output_stream.erase(output_stream.find("framerate"));
+    }
+    for (auto &output_stream : new_output_streams_config)
+    {
+        output_stream.erase(output_stream.find("framerate"));
+    }
+    if (old_output_streams_config != new_output_streams_config)
+    {
+        LOGGER__ERROR("Config change not allowed, output streams are different");
+        return false;
+    }
+    return true;
+}
+
+media_library_return MediaLibraryFrontend::Impl::set_config(const std::string &json_config)
+{
+    if (!json_config.empty() && (json_config == m_json_config_str))
+    {
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    if (m_config_manager.validate_configuration(json_config) != MEDIA_LIBRARY_SUCCESS)
+    {
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    media_library_return rc = MEDIA_LIBRARY_SUCCESS;
+
+    const nlohmann::json old_config_output_streams = get_output_streams_json(m_json_config_str);
+    const nlohmann::json new_config_output_streams = get_output_streams_json(json_config);
+
+    const frontend_src_element_t new_config_input_stream_type = get_input_stream_type(json_config);
+
+    if (!m_json_config_str.empty() &&
+        !is_config_change_allowed(old_config_output_streams, new_config_output_streams,
+                                  new_config_input_stream_type)) // require replacing working pipeline
+    {
+        LOGGER__ERROR(
+            "Failed to set config, input or output streams cannot be changed after successful frontend configure");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    if (m_json_config_str.empty())
+    {
+        auto output_streams = create_output_streams(new_config_output_streams);
+        if (!output_streams.has_value())
+        {
+            LOGGER__ERROR("Failed to get output streams from json config");
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+        }
+        if (!init_pipeline(json_config, new_config_input_stream_type, output_streams.value()))
+        {
+            return MEDIA_LIBRARY_ERROR;
+        }
+        m_src_element = new_config_input_stream_type;
+        m_output_streams = std::move(
+            output_streams.value()); // has to move, when setting fps cb in init_pipeline output_stream given as arg
+    }
+    else
+    {
+        GstElement *frontend = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
+        if (frontend == nullptr)
+        {
+            LOGGER__ERROR("Failed to get frontend element");
+            return MEDIA_LIBRARY_UNINITIALIZED;
+        }
+
+        g_object_set(G_OBJECT(frontend), "config-string", json_config.c_str(), NULL);
+        gst_object_unref(frontend);
+    }
+
+    m_json_config_str = json_config;
+    return rc;
+}
+
+media_library_return MediaLibraryFrontend::Impl::set_config(const frontend_config_t &config)
+{
+    if (m_pipeline == nullptr)
+    {
+        return MEDIA_LIBRARY_UNINITIALIZED;
+    }
     auto frontendbinsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
     media_library_return ret = MEDIA_LIBRARY_ERROR;
-    if (frontendbinsrc)
+    if (frontendbinsrc != nullptr)
     {
         g_object_set(G_OBJECT(frontendbinsrc), "config", &config, NULL);
         ret = MEDIA_LIBRARY_SUCCESS;
@@ -352,40 +448,113 @@ media_library_return MediaLibraryFrontend::Impl::configure(frontend_config_t con
     return ret;
 }
 
+bool MediaLibraryFrontend::Impl::is_started()
+{
+    if (m_main_loop == nullptr)
+    {
+        return false;
+    }
+    if (!g_main_loop_is_running(m_main_loop))
+    {
+        return false;
+    }
+    return true;
+}
+
 tl::expected<std::vector<frontend_output_stream_t>, media_library_return> MediaLibraryFrontend::Impl::
     get_outputs_streams()
 {
+    if (m_output_streams.empty())
+    {
+        return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
+    }
     return m_output_streams;
 }
 
-std::string MediaLibraryFrontend::Impl::create_pipeline_string()
+void MediaLibraryFrontend::Impl::deinit_pipeline()
 {
-    auto outputs_expected = get_outputs_streams();
-    if (!outputs_expected.has_value())
+    LOGGER__INFO("Cleaning frontend gst pipeline");
+    stop();
+    if ((m_src_element == frontend_src_element_t::APPSRC) && (m_appsrc_caps != nullptr))
     {
-        LOGGER__ERROR("Failed to get output streams ids");
-        throw new std::runtime_error("Failed to get output streams ids");
+        gst_caps_unref(m_appsrc_caps);
+        m_appsrc_caps = nullptr;
     }
+    if (m_appsrc != nullptr)
+    {
+        gst_object_unref(m_appsrc);
+        m_appsrc = nullptr;
+    }
+    if (m_pipeline != nullptr)
+    {
+        gst_object_unref(m_pipeline);
+        m_pipeline = nullptr;
+    }
+}
+
+bool MediaLibraryFrontend::Impl::init_pipeline(const std::string &frontend_json_config,
+                                               frontend_src_element_t source_type,
+                                               std::vector<frontend_output_stream_t> &output_streams)
+{
+    LOGGER__INFO("Initializing frontend gst pipeline");
+
+    GstElement *pipeline =
+        gst_parse_launch(create_pipeline_string(frontend_json_config, source_type, output_streams).c_str(), NULL);
+    if (pipeline == nullptr)
+    {
+        LOGGER__ERROR("Failed to create pipeline");
+        return false;
+    }
+
+    GstElement *appsrc = nullptr;
+    GstCaps *appsrc_caps = nullptr;
+    if (source_type == frontend_src_element_t::APPSRC)
+    {
+        appsrc = gst_bin_get_by_name(GST_BIN(pipeline), "src");
+        appsrc_caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "NV12", "width", G_TYPE_INT, 3840,
+                                          "height", G_TYPE_INT, 2160, "framerate", GST_TYPE_FRACTION, 30, 1, NULL),
+        g_object_set(G_OBJECT(appsrc), "caps", appsrc_caps, NULL);
+    }
+
+    if (!set_gst_callbacks(pipeline, source_type, output_streams))
+    {
+        return false;
+    }
+
+    if (appsrc != nullptr)
+    {
+        m_appsrc = GST_APP_SRC(appsrc);
+        m_appsrc_caps = appsrc_caps;
+    }
+
+    m_pipeline = pipeline;
+    return true;
+}
+
+std::string MediaLibraryFrontend::Impl::create_pipeline_string(
+    const std::string &frontend_json_config, frontend_src_element_t source_type,
+    const std::vector<frontend_output_stream_t> &output_streams)
+{
     std::ostringstream pipeline;
 
-    switch (m_src_element)
+    switch (source_type)
     {
-    case FRONTEND_SRC_ELEMENT_APPSRC:
+    case frontend_src_element_t::APPSRC:
         pipeline
             << "appsrc name=src do-timestamp=true format=buffers block=true is-live=true max-buffers=5 max-bytes=0 ! ";
         pipeline << "queue leaky=downstream max-size-buffers=1 max-size-time=0 max-size-bytes=0 ! ";
         pipeline << "video/x-raw,format=NV12,width=3840,height=2160,framerate=30/1 ! ";
-        pipeline << "hailofrontend name=frontend config-string='" << std::string(m_json_config.dump()) << "' ";
+        pipeline << "hailofrontend name=frontend config-string='" << frontend_json_config << "' ";
         break;
-    case FRONTEND_SRC_ELEMENT_V4L2SRC:
-        pipeline << "hailofrontendbinsrc name=frontend config-string='" << std::string(m_json_config.dump()) << "' ";
+    case frontend_src_element_t::V4L2SRC:
+        pipeline << "hailofrontendbinsrc name=frontend config-string='" << frontend_json_config << "' ";
         break;
     default:
-        LOGGER__ERROR("Invalid src element {}", m_src_element);
+        LOGGER__ERROR("Invalid src element {}", static_cast<int>(source_type));
         throw new std::runtime_error("frontend src element not supported");
     }
 
-    for (frontend_output_stream_t s : outputs_expected.value())
+    for (const frontend_output_stream_t &s : output_streams)
     {
         pipeline << "frontend. ! ";
         pipeline << "queue leaky=no max-size-buffers=3 max-size-time=0 max-size-bytes=0 ! ";
@@ -418,38 +587,55 @@ void MediaLibraryFrontend::Impl::fps_measurement(GstElement *fpsdisplaysink, gdo
     output_stream->current_fps = static_cast<float>(fps);
 }
 
-bool MediaLibraryFrontend::Impl::set_gst_callbacks()
+bool MediaLibraryFrontend::Impl::set_gst_callbacks(GstElement *pipeline, frontend_src_element_t source_type,
+                                                   std::vector<frontend_output_stream_t> &output_streams)
 {
-    if (m_src_element == FRONTEND_SRC_ELEMENT_APPSRC)
+    GstElement *appsrc = nullptr;
+    std::vector<GstElement *> fpssinks;
+
+    if (source_type == frontend_src_element_t::APPSRC)
     {
-        GstAppSrcCallbacks appsrc_callbacks = {};
         const gchar *gst_element_name = "src";
-        GstElement *appsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), gst_element_name);
+        appsrc = gst_bin_get_by_name(GST_BIN(pipeline), gst_element_name);
         if (appsrc == nullptr)
         {
             LOGGER__ERROR("Could not find gst element {}", gst_element_name);
             return false;
         }
-        m_appsrc = GST_APP_SRC(appsrc);
+    }
+
+    for (auto &output_stream : output_streams)
+    {
+        const std::string gst_element_name = std::string("fpsdisplay") + output_stream.id;
+        GstElement *fpssink = gst_bin_get_by_name(GST_BIN(pipeline), gst_element_name.c_str());
+        if (fpssink == nullptr)
+        {
+            LOGGER__ERROR("Could not find gst element {}", gst_element_name);
+            return false;
+        }
+        fpssinks.push_back(fpssink);
+    }
+
+    if (appsrc != nullptr)
+    {
+        GstAppSrcCallbacks appsrc_callbacks = {};
         gst_app_src_set_callbacks(GST_APP_SRC(appsrc), &appsrc_callbacks, (void *)this, NULL);
         gst_object_unref(appsrc);
     }
 
     GstAppSinkCallbacks appsink_callbacks = {};
     appsink_callbacks.new_sample = new_sample;
-    for (auto &output_stream : m_output_streams)
+    for (size_t i = 0; i < output_streams.size(); ++i)
     {
+        auto &output_stream = output_streams[i];
+        auto &fpssink = fpssinks[i];
+
         LOGGER__INFO("Setting callback for sink {}", output_stream.id);
-        const std::string gst_element_name = std::string("fpsdisplay") + output_stream.id;
-        GstElement *fpssink = gst_bin_get_by_name(GST_BIN(m_pipeline), gst_element_name.c_str());
-        if (fpssink == nullptr)
-        {
-            LOGGER__ERROR("Could not find gst element {}", gst_element_name);
-            return false;
-        }
+
         g_signal_connect(fpssink, "fps-measurements", G_CALLBACK(fps_measurement), &output_stream);
         gst_object_unref(fpssink);
-        GstElement *appsink = gst_bin_get_by_name(GST_BIN(m_pipeline), output_stream.id.c_str());
+
+        GstElement *appsink = gst_bin_get_by_name(GST_BIN(pipeline), output_stream.id.c_str());
         gst_app_sink_set_callbacks(GST_APP_SINK(appsink), &appsink_callbacks, (void *)this, NULL);
         gst_object_unref(appsink);
     }

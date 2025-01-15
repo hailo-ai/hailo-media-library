@@ -20,24 +20,27 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+#include "media_library/config_manager.hpp"
+#include "media_library/logger_macros.hpp"
 #include "media_library/media_library_logger.hpp"
 #include "media_library/encoder.hpp"
 #include "buffer_utils.hpp"
 #include "encoder_internal.hpp"
 #include "gsthailobuffermeta.hpp"
+#include "media_library/media_library_types.hpp"
 #include <algorithm>
 #include <iostream>
 #include <sstream>
+#include <string>
 
 #define ENCODER_QUEUE_NAME "encoder_q"
 #define PRINT_FPS true
 
 tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>, media_library_return> MediaLibraryEncoder::Impl::create(
-    std::string json_config, std::string name)
+    std::string name)
 {
     media_library_return status = MEDIA_LIBRARY_UNINITIALIZED;
-    std::shared_ptr<MediaLibraryEncoder::Impl> encoder =
-        std::make_shared<MediaLibraryEncoder::Impl>(json_config, status, name);
+    std::shared_ptr<MediaLibraryEncoder::Impl> encoder = std::make_shared<MediaLibraryEncoder::Impl>(status, name);
     if (status != MEDIA_LIBRARY_SUCCESS)
     {
         return tl::make_unexpected(status);
@@ -45,11 +48,13 @@ tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>, media_library_return> M
     return encoder;
 }
 
-media_library_return MediaLibraryEncoder::Impl::init_buffer_pool()
+media_library_return MediaLibraryEncoder::Impl::init_buffer_pool(const InputParams &input_params)
 {
+    LOGGER__INFO("Initializing encoder buffer pool");
     std::string name = "jpeg_encoder";
-    uint frame_width = m_input_params.width;
-    uint frame_height = m_input_params.height;
+    uint frame_width = input_params.width;
+    uint frame_height = input_params.height;
+
     m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(frame_width, frame_height, HAILO_FORMAT_GRAY8, 5,
                                                              HAILO_MEMORY_TYPE_DMABUF, name);
     if (m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
@@ -61,48 +66,36 @@ media_library_return MediaLibraryEncoder::Impl::init_buffer_pool()
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-MediaLibraryEncoder::Impl::Impl(std::string json_config, media_library_return &status, std::string name)
-    : m_json_config(json_config)
+MediaLibraryEncoder::Impl::Impl(media_library_return &status, std::string name)
+    : m_main_context(g_main_context_default()), m_encoder_type(EncoderType::None),
+      m_config_manager(CONFIG_SCHEMA_ENCODER)
 {
-    m_name = name;
-    nlohmann::json encoder_config = nlohmann::json::parse(m_json_config);
-    nlohmann::json input_stream_config = encoder_config["encoding"]["input_stream"];
 
-    // Validating json with json shcema is performed in media_library/src/hailo_encoder/encoder_config.cpp
-    m_input_params.format = input_stream_config["format"];
-    m_input_params.width = input_stream_config["width"];
-    m_input_params.height = input_stream_config["height"];
-    m_input_params.framerate = input_stream_config["framerate"];
-    m_encoder_type = ConfigManager::get_encoder_type(encoder_config);
+    m_name = name;
+
     gst_init(nullptr, nullptr);
-    m_pipeline = gst_parse_launch(create_pipeline_string(encoder_config).c_str(), NULL);
-    if (!m_pipeline)
-    {
-        LOGGER__ERROR("Failed to create pipeline");
-        status = MEDIA_LIBRARY_ERROR;
-        return;
-    }
-    gst_bus_add_watch(gst_element_get_bus(m_pipeline), (GstBusFunc)bus_call, this);
-    m_main_loop = g_main_loop_new(NULL, FALSE);
-    this->set_gst_callbacks();
+
+    m_main_loop = g_main_loop_new(m_main_context, FALSE);
     m_appsrc_state = APPSRC_STATE_UNINITIALIZED;
     m_current_fps = 0;
     m_buffer_pool = NULL;
-    if (m_encoder_type == EncoderType::Jpeg)
-        init_buffer_pool();
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
 MediaLibraryEncoder::Impl::~Impl()
 {
-    gst_caps_unref(m_appsrc_caps);
-    gst_object_unref(m_pipeline);
+    deinit_pipeline();
+
+    if (m_main_loop != nullptr)
+    {
+        g_main_loop_unref(m_main_loop);
+        m_main_loop = nullptr;
+    }
 }
 
-tl::expected<MediaLibraryEncoderPtr, media_library_return> MediaLibraryEncoder::create(std::string json_config,
-                                                                                       std::string name)
+tl::expected<MediaLibraryEncoderPtr, media_library_return> MediaLibraryEncoder::create(std::string name)
 {
-    auto impl_expected = Impl::create(json_config, name);
+    auto impl_expected = Impl::create(name);
     if (impl_expected.has_value())
     {
         return std::make_shared<MediaLibraryEncoder>(impl_expected.value());
@@ -125,12 +118,23 @@ media_library_return MediaLibraryEncoder::Impl::subscribe(AppWrapperCallback cal
 
 media_library_return MediaLibraryEncoder::Impl::start()
 {
+    if (is_started())
+    {
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+    if (m_json_config_str.empty())
+    {
+        LOGGER__ERROR("set_config() must be called before start()");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
     GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE)
     {
         LOGGER__ERROR("Failed to start encoder pipeline");
         return MEDIA_LIBRARY_ERROR;
     }
+
     m_main_loop_thread = std::make_shared<std::thread>([this]() { g_main_loop_run(m_main_loop); });
 
     GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
@@ -150,6 +154,10 @@ media_library_return MediaLibraryEncoder::Impl::start()
 
 media_library_return MediaLibraryEncoder::Impl::stop()
 {
+    if (!is_started())
+    {
+        return MEDIA_LIBRARY_SUCCESS;
+    }
     gboolean ret = gst_element_send_event(m_pipeline, gst_event_new_eos());
     if (!ret)
     {
@@ -159,7 +167,11 @@ media_library_return MediaLibraryEncoder::Impl::stop()
 
     gst_element_set_state(m_pipeline, GST_STATE_NULL);
     g_main_loop_quit(m_main_loop);
-    m_main_loop_thread->join();
+    g_main_context_wakeup(m_main_context);
+    if (m_main_loop_thread->joinable())
+    {
+        m_main_loop_thread->join();
+    }
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -169,32 +181,29 @@ media_library_return MediaLibraryEncoder::Impl::stop()
  * @return A string containing the gstreamer pipeline.
  * @note prints the return value to the stdout.
  */
-std::string MediaLibraryEncoder::Impl::create_pipeline_string(nlohmann::json encode_osd_json_config)
+std::string MediaLibraryEncoder::Impl::create_pipeline_string(const std::string &encoder_json_config,
+                                                              const InputParams &input_params, EncoderType encoder_type)
 {
-    std::string pipeline = "";
-    auto json_osd_encoder_config = encode_osd_json_config.dump();
-
-    std::ostringstream caps2;
-    if (m_encoder_type == EncoderType::Hailo)
+    std::string caps2;
+    if (encoder_type == EncoderType::Hailo)
     {
-        caps2 << "video/x-h264,framerate=" << m_input_params.framerate << "/1";
+        caps2 = std::string("video/x-h264,framerate=") + std::to_string(input_params.framerate) + "/1";
     }
     else
     {
-        caps2 << "image/jpeg,framerate=" << m_input_params.framerate << "/1";
+        caps2 = std::string("image/jpeg,framerate=") + std::to_string(input_params.framerate) + "/1";
     }
 
-    pipeline = "appsrc do-timestamp=true format=time block=true is-live=true max-bytes=0 "
-               "max-buffers=1 name=encoder_src ! "
-               "queue name=" +
-               std::string(ENCODER_QUEUE_NAME) + " leaky=no max-size-buffers=1 max-size-bytes=0 max-size-time=0 ! " +
-               "hailoencodebin config-string=" + "'" +      // Add ' in case the json string contains spaces
-               std::string(json_osd_encoder_config) + "'" + // Close '
-               " name=" + m_name.c_str() + " ! " + caps2.str() + " ! " +
-               "queue leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! "
-               "fpsdisplaysink fps-update-interval=2000 signal-fps-measurements=true name=fpsdisplaysink "
-               "text-overlay=false sync=false video-sink=\"appsink wait-on-eos=false max-buffers=1 qos=false "
-               "name=encoder_sink\"";
+    std::string pipeline =
+        std::string("appsrc do-timestamp=true format=time block=true is-live=true max-bytes=0 max-buffers=1 "
+                    "name=encoder_src ! "
+                    "queue name=") +
+        ENCODER_QUEUE_NAME + " leaky=no max-size-buffers=1 max-size-bytes=0 max-size-time=0 ! " +
+        "hailoencodebin name=" + m_name + " config-string='" + encoder_json_config + "' ! " + caps2 + " ! " +
+        "queue leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! "
+        "fpsdisplaysink fps-update-interval=2000 signal-fps-measurements=true name=fpsdisplaysink "
+        "text-overlay=false sync=false video-sink=\"appsink wait-on-eos=false max-buffers=1 qos=false "
+        "name=encoder_sink\"";
 
     LOGGER__INFO("Pipeline: gst-launch-1.0 {}", pipeline);
 
@@ -223,7 +232,7 @@ void MediaLibraryEncoder::Impl::on_fps_measurement(GstElement *fpsdisplaysink, g
  * @param queue element that is overrun
  * @param user_data
  */
-static void on_queue_overrun(GstElement *queue, gpointer user_data)
+static void on_queue_overrun(GstElement *queue, gpointer)
 {
     static uint8_t encoder_count = 0;
     gchar *queue_name = gst_element_get_name(queue);
@@ -246,38 +255,56 @@ static void on_queue_overrun(GstElement *queue, gpointer user_data)
  * Set the Appsink callbacks
  *
  * @param[in] pipeline        The pipeline as a GstElement.
+ * @return                   true if all elements were found and callbacks were set up successfully,
+ *                           false if any element could not be found or there was an error.
  * @note Sets the new_sample callback, without callback user data (NULL).
  */
-void MediaLibraryEncoder::Impl::set_gst_callbacks()
+bool MediaLibraryEncoder::Impl::set_gst_callbacks(GstElement *pipeline)
 {
     GstAppSinkCallbacks appsink_callbacks = {};
 
-    GstElement *fpssink = gst_bin_get_by_name(GST_BIN(m_pipeline), "fpsdisplaysink");
+    const gchar *gst_element_name = "fpsdisplaysink";
+    GstElement *fpssink = gst_bin_get_by_name(GST_BIN(pipeline), gst_element_name);
+    if (fpssink == nullptr)
+    {
+        LOGGER__ERROR("Could not find gst element {}", gst_element_name);
+        return false;
+    }
+
+    gst_element_name = "encoder_sink";
+    GstElement *appsink = gst_bin_get_by_name(GST_BIN(pipeline), gst_element_name);
+    if (appsink == nullptr)
+    {
+        gst_object_unref(fpssink);
+        LOGGER__ERROR("Could not find gst element {}", gst_element_name);
+        return false;
+    }
+
+    gst_element_name = ENCODER_QUEUE_NAME;
+    GstElement *encoder_queue = gst_bin_get_by_name(GST_BIN(pipeline), gst_element_name);
+    if (encoder_queue == nullptr)
+    {
+        gst_object_unref(appsink);
+        gst_object_unref(fpssink);
+        LOGGER__ERROR("Could not find gst element {}", gst_element_name);
+        return false;
+    }
+
     g_signal_connect(fpssink, "fps-measurements", G_CALLBACK(fps_measurement), this);
-    GstElement *appsink = gst_bin_get_by_name(GST_BIN(m_pipeline), "encoder_sink");
     appsink_callbacks.new_sample = this->new_sample;
-
     gst_app_sink_set_callbacks(GST_APP_SINK(appsink), &appsink_callbacks, (void *)this, NULL);
-    gst_object_unref(appsink);
-    gst_object_unref(fpssink);
-
-    GstElement *appsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "encoder_src");
-    m_appsrc = GST_APP_SRC(appsrc);
-    m_appsrc_caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, m_input_params.format.c_str(), "width",
-                                        G_TYPE_INT, m_input_params.width, "height", G_TYPE_INT, m_input_params.height,
-                                        "framerate", GST_TYPE_FRACTION, m_input_params.framerate, 1, NULL),
-    g_object_set(G_OBJECT(m_appsrc), "caps", m_appsrc_caps, NULL);
-
-    gst_object_unref(appsrc);
-
-    GstElement *encoder_queue = gst_bin_get_by_name(GST_BIN(m_pipeline), ENCODER_QUEUE_NAME);
 
     // Connect to the "overrun" signal of the queue
     g_signal_connect(encoder_queue, "overrun", G_CALLBACK(on_queue_overrun), NULL);
+
     gst_object_unref(encoder_queue);
+    gst_object_unref(appsink);
+    gst_object_unref(fpssink);
+
+    return true;
 }
 
-gboolean MediaLibraryEncoder::Impl::on_bus_call(GstBus *bus, GstMessage *msg)
+gboolean MediaLibraryEncoder::Impl::on_bus_call(GstMessage *msg)
 {
     switch (GST_MESSAGE_TYPE(msg))
     {
@@ -285,7 +312,11 @@ gboolean MediaLibraryEncoder::Impl::on_bus_call(GstBus *bus, GstMessage *msg)
         // TODO: EOS never received
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
         g_main_loop_quit(m_main_loop);
-        m_main_loop_thread->join();
+        g_main_context_wakeup(m_main_context);
+        if (m_main_loop_thread->joinable())
+        {
+            m_main_loop_thread->join();
+        }
         break;
     }
     case GST_MESSAGE_ERROR: {
@@ -483,11 +514,162 @@ std::shared_ptr<osd::Blender> MediaLibraryEncoder::get_blender()
     return m_impl->get_blender();
 }
 
-media_library_return MediaLibraryEncoder::Impl::configure(encoder_config_t &config)
+bool MediaLibraryEncoder::Impl::init_pipeline(const std::string &encoder_json_config, const InputParams &input_params,
+                                              EncoderType encoder_type)
+{
+    LOGGER__INFO("Initializing encoder gst pipeline");
+    GstElement *pipeline =
+        gst_parse_launch(create_pipeline_string(encoder_json_config, input_params, encoder_type).c_str(), NULL);
+    if (pipeline == nullptr)
+    {
+        LOGGER__ERROR("Failed to create pipeline");
+        return false;
+    }
+
+    gst_bus_add_watch(gst_element_get_bus(pipeline), (GstBusFunc)bus_call, this);
+
+    const gchar *gst_element_name = "encoder_src";
+    GstElement *appsrc = gst_bin_get_by_name(GST_BIN(pipeline), gst_element_name);
+    if (appsrc == nullptr)
+    {
+        LOGGER__ERROR("Could not find gst element {}", gst_element_name);
+        gst_object_unref(pipeline);
+        return false;
+    }
+
+    if (!set_gst_callbacks(pipeline))
+    {
+        gst_object_unref(appsrc);
+        gst_object_unref(pipeline);
+        return false;
+    }
+
+    if (encoder_type == EncoderType::Jpeg)
+    {
+        if (init_buffer_pool(input_params) != MEDIA_LIBRARY_SUCCESS)
+        {
+            gst_object_unref(appsrc);
+            gst_object_unref(pipeline);
+            return MEDIA_LIBRARY_ERROR;
+        }
+    }
+    else
+    {
+        m_buffer_pool = nullptr;
+    }
+
+    m_appsrc = GST_APP_SRC(appsrc);
+    m_pipeline = pipeline;
+
+    return true;
+}
+
+void MediaLibraryEncoder::Impl::deinit_pipeline()
+{
+    LOGGER__INFO("Cleaning encoder gst pipeline");
+    stop();
+    if (m_appsrc_caps != nullptr)
+    {
+        gst_caps_unref(m_appsrc_caps);
+        m_appsrc_caps = nullptr;
+    }
+    if (m_appsrc != nullptr)
+    {
+        gst_object_unref(m_appsrc);
+        m_appsrc = nullptr;
+    }
+    if (m_pipeline != nullptr)
+    {
+        gst_object_unref(m_pipeline);
+        m_pipeline = nullptr;
+    }
+}
+
+bool MediaLibraryEncoder::Impl::is_started()
+{
+    if (m_main_loop == nullptr)
+    {
+        return false;
+    }
+    if (!g_main_loop_is_running(m_main_loop))
+    {
+        return false;
+    }
+    return true;
+}
+
+media_library_return MediaLibraryEncoder::Impl::set_config(const std::string &json_config_str)
+{
+    LOGGER__INFO("Configuring encoder using json config");
+
+    if (m_config_manager.validate_configuration(json_config_str) != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__ERROR("Validation of encoder json config failed");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    nlohmann::json json_config = nlohmann::json::parse(json_config_str);
+    nlohmann::json input_stream_config = json_config["encoding"]["input_stream"];
+
+    InputParams new_input_params;
+    new_input_params.format = input_stream_config["format"];
+    new_input_params.width = input_stream_config["width"];
+    new_input_params.height = input_stream_config["height"];
+    new_input_params.framerate = input_stream_config["framerate"];
+
+    EncoderType config_encoder_type = ConfigManager::get_encoder_type(json_config);
+    bool does_unsupported_runtime_change = (config_encoder_type != m_encoder_type) ||
+                                           (new_input_params.width != m_input_params.width) ||
+                                           (new_input_params.height != m_input_params.height);
+    if (!m_json_config_str.empty() && does_unsupported_runtime_change) // require replacing working pipeline
+    {
+        LOGGER__ERROR("Failed to set config: unsupported runtime change detected. Encoder type, width, or height "
+                      "cannot be modified after initial configuration.");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    if (m_json_config_str.empty())
+    {
+        if (!init_pipeline(json_config_str, new_input_params, config_encoder_type))
+        {
+            return MEDIA_LIBRARY_ERROR;
+        }
+        m_encoder_type = config_encoder_type;
+    }
+    else
+    {
+        auto encoderbinsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
+        if (encoderbinsrc == nullptr)
+        {
+            LOGGER__ERROR("Failed to get encoderbinsrc");
+            return MEDIA_LIBRARY_UNINITIALIZED;
+        }
+
+        g_object_set(G_OBJECT(encoderbinsrc), "config-string", json_config_str.c_str(), NULL);
+        gst_object_unref(encoderbinsrc);
+    }
+
+    if (m_appsrc_caps != nullptr)
+    {
+        gst_caps_unref(m_appsrc_caps);
+        m_appsrc_caps = nullptr;
+    }
+
+    m_appsrc_caps =
+        gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, new_input_params.format.c_str(), "width",
+                            G_TYPE_INT, new_input_params.width, "height", G_TYPE_INT, new_input_params.height,
+                            "framerate", GST_TYPE_FRACTION, new_input_params.framerate, 1, NULL),
+    g_object_set(G_OBJECT(m_appsrc), "caps", m_appsrc_caps, NULL);
+
+    m_input_params = new_input_params;
+    m_json_config_str = json_config_str;
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return MediaLibraryEncoder::Impl::set_config(const encoder_config_t &config)
 {
     if (m_encoder_type == EncoderType::Hailo)
     {
-        hailo_encoder_config_t &hailo_config = std::get<hailo_encoder_config_t>(config);
+        const hailo_encoder_config_t &hailo_config = std::get<hailo_encoder_config_t>(config);
         input_config_t config_input_stream = hailo_config.input_stream;
 
         m_input_params.format = config_input_stream.format;
@@ -556,9 +738,14 @@ EncoderType MediaLibraryEncoder::Impl::get_type()
     return m_encoder_type;
 }
 
-media_library_return MediaLibraryEncoder::configure(encoder_config_t &config)
+media_library_return MediaLibraryEncoder::set_config(encoder_config_t &config)
 {
-    return m_impl->configure(config);
+    return m_impl->set_config(config);
+}
+
+media_library_return MediaLibraryEncoder::set_config(const std::string &config)
+{
+    return m_impl->set_config(config);
 }
 
 media_library_return MediaLibraryEncoder::force_keyframe()

@@ -33,6 +33,7 @@
 #include <functional>
 #include <shared_mutex>
 #include <thread>
+#include <utility>
 
 /**
  * @brief Denoise parameters recived from the ISP
@@ -41,33 +42,53 @@
 struct __attribute__((packed)) post_denoise_config_t
 {
     bool enabled;
+    bool auto_luma;
+    float manual_contrast;
+    int32_t manual_brightness;
+    float auto_percentile_low;
+    float auto_percentile_high;
+    uint8_t auto_target_low;
+    uint8_t auto_target_high;
+    float auto_low_pass_filter_alpha;
     uint32_t sharpness;
-    float contrast;
-    int32_t brightness;
-    float saturation_u_a;
-    float saturation_v_a;
-    int32_t saturation_u_b;
-    int32_t saturation_v_b;
+    float saturation;
 };
 
 class PostDenoiseFilter
 {
   public:
+    using Histogram = uint32_t[256];
+    static std::pair<uint16_t, uint16_t> histogram_sample_step_for_frame(std::pair<size_t, size_t> frame_size);
+
     PostDenoiseFilter();
     ~PostDenoiseFilter();
-    void get_denoise_params(dsp_image_enhancement_params_t &denoise_params);
+    dsp_image_enhancement_params_t get_dsp_denoise_params();
+    void set_dsp_denoise_params_from_histogram(const Histogram &histogram);
     bool is_enabled();
     bool m_denoise_element_enabled;
 
   private:
-    void denoise_read_denoise_params();
+    static constexpr uint32_t histogram_sample_size = 10'000;
+
+    void read_denoise_params_from_isp();
+    void set_dsp_denoise_params_from_isp(const post_denoise_config_t &m_post_denoise_config);
+    std::pair<uint8_t, uint8_t> find_percentile_pixels(const Histogram &histogram);
+    std::pair<float, int16_t> contrast_brightness_from_percentiles(uint8_t low_percentile_pixel,
+                                                                   uint8_t high_percentile_pixel);
+    std::pair<float, float> contrast_brightness_lowpass_filter(float contrast, int16_t brightness);
 
     std::atomic<bool> m_enabled;
     std::atomic<bool> m_running;
     post_denoise_config_t m_post_denoise_config;
     dsp_image_enhancement_params_t m_denoise_params;
+    dsp_image_enhancement_histogram_t m_histogram_params;
+    // Denoise queue name from which the denoise parameters are read from the ISP[]
+    static constexpr char post_denoise_isp_data[] = "/post_denoise_data";
     std::thread m_denoise_update_thread;
     std::shared_mutex m_post_denoise_lock;
-    // Denoise queue name from which the denoise parameters are read from the ISP[]
-    std::string post_denoise_isp_data = "/post_denoise_data";
+
+    // m_denoise_params is int, and since the weight of the brightness calculated from the histogram might be small,
+    // little changes will be casted away and the brightness value won't change over time so we use an additional
+    // float value to track it
+    std::optional<float> m_brightness;
 };

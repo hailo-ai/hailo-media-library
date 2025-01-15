@@ -30,6 +30,7 @@
 #include "config_manager_schemas.hpp"
 #include "config_type_conversions.hpp"
 #include "media_library_logger.hpp"
+#include "media_library_types.hpp"
 
 /* json-parse configurations - with custom error handler */
 class config_manager_error_handler : public nlohmann::json_schema::basic_error_handler
@@ -81,11 +82,11 @@ class ConfigManager::ConfigManagerImpl
         case ConfigSchema::CONFIG_SCHEMA_DENOISE:
             m_config_validator.set_root_schema(config_schemas::denoise_config_schema);
             break;
-        case ConfigSchema::CONFIG_SCHEMA_DEFOG:
-            m_config_validator.set_root_schema(config_schemas::defog_config_schema);
-            break;
         case ConfigSchema::CONFIG_SCHEMA_INPUT_VIDEO:
             m_config_validator.set_root_schema(config_schemas::input_video_config_schema);
+            break;
+        case ConfigSchema::CONFIG_SCHEMA_FRONTEND:
+            m_config_validator.set_root_schema(config_schemas::frontend_config_schema);
             break;
         }
     };
@@ -197,8 +198,6 @@ template media_library_return ConfigManager::config_string_to_struct<ldc_config_
     const std::string &user_config_string, ldc_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<denoise_config_t>(
     const std::string &user_config_string, denoise_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<defog_config_t>(
-    const std::string &user_config_string, defog_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<isp_t>(const std::string &user_config_string,
                                                                             isp_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<hailort_t>(const std::string &user_config_string,
@@ -229,6 +228,7 @@ media_library_return ConfigManager::ConfigManagerImpl::validate_config(const nlo
     m_config_validator.validate(user_config, err); // validate the document
     if (err)
     {
+        LOGGER__ERROR("Failed to validate given json against schema");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     return MEDIA_LIBRARY_SUCCESS;

@@ -14,8 +14,7 @@ template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_set<unsigned int>(isp_
 template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_set<short>(isp_utils::ctrl::v4l2_ctrl_id, short);
 template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_set<int>(isp_utils::ctrl::v4l2_ctrl_id, int);
 template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_set<bool>(isp_utils::ctrl::v4l2_ctrl_id, bool);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_set_array<int *>(isp_utils::ctrl::v4l2_ctrl_id, int *,
-                                                                           size_t);
+template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_set_array<int *>(isp_utils::ctrl::v4l2_ctrl_id, int *);
 template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_set2<unsigned short>(isp_utils::ctrl::v4l2_ctrl_id,
                                                                                unsigned short &);
 template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_set2<int>(isp_utils::ctrl::v4l2_ctrl_id, int &);
@@ -181,7 +180,7 @@ template <typename T> bool v4l2Control::v4l2_ext_ctrl_set(v4l2_ctrl_id id, T val
     return true;
 }
 
-template <typename T> bool v4l2Control::v4l2_ext_ctrl_set_array(v4l2_ctrl_id id, T val, size_t size)
+template <typename T> bool v4l2Control::v4l2_ext_ctrl_set_array(v4l2_ctrl_id id, T val)
 {
     struct v4l2_ext_control ctrl;
     struct v4l2_ext_controls ctrls;

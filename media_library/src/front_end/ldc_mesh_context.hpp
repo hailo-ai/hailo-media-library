@@ -22,6 +22,7 @@ class LdcMeshContext
     ldc_config_t m_ldc_configs;
     vsm_config_t m_vsm_config;
     uint64_t m_last_threshold_timestamp;
+    std::time_t m_last_eis_update_time;
     // configuration manager
     std::shared_ptr<ConfigManager> m_config_manager;
     // Pointer to internally allocated DIS instance. used for DIS library mesh generation

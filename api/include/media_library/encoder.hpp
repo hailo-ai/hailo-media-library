@@ -80,16 +80,14 @@ class MediaLibraryEncoder
     /**
      * @brief Constructs an MediaLibraryEncoder object
      *
-     * @param[in] json_config - json configuration string
      * @return tl::expected<MediaLibraryEncoderPtr, media_library_return> -
      * An expected object that holds either a shared pointer
      *  to an MediaLibraryEncoder object, or a error code.
      */
-    static tl::expected<MediaLibraryEncoderPtr, media_library_return> create(std::string json_config,
-                                                                             std::string name = "encoder");
+    static tl::expected<MediaLibraryEncoderPtr, media_library_return> create(std::string name = "encoder");
     /**
      * @brief Start the MediaLibraryEncoder module, the MediaLibraryEncoder
-     * module will be ready to encode buffers.
+     * module will be ready to encode buffers. set_config(const string&) must be called before start().
      * @return media_library_return - status of the start operation
      */
     media_library_return start();
@@ -143,7 +141,15 @@ class MediaLibraryEncoder
      * @param[in] config - encoder configuration object
      * @return media_library_return - status of the configuration operation
      */
-    media_library_return configure(encoder_config_t &config);
+    media_library_return set_config(encoder_config_t &config);
+
+    /**
+     * @brief
+     * Configure the encoder module with a json config
+     * @param[in] config - encoder configuration in a json format
+     * @return media_library_return - status of the configuration operation
+     */
+    media_library_return set_config(const std::string &json_config);
 
     /**
      * @brief

@@ -229,12 +229,12 @@ dsp_status create_hailo_dsp_buffer(size_t size, void **buffer, bool dma)
  * @param[in] buffer the buffer to release
  * @return dsp_status
  */
-dsp_status release_hailo_dsp_buffer(void *buffer)
+void release_hailo_dsp_buffer(void *buffer)
 {
     if (device == NULL)
     {
         LOGGER__ERROR("DSP release buffer failed: device is NULL");
-        return DSP_UNINITIALIZED;
+        return;
     }
 
     LOGGER__DEBUG("Releasing dsp buffer");
@@ -242,11 +242,11 @@ dsp_status release_hailo_dsp_buffer(void *buffer)
     if (status != DSP_SUCCESS)
     {
         LOGGER__ERROR("DSP release buffer failed with status {}", status);
-        return status;
+        return;
     }
 
     LOGGER__DEBUG("DSP buffer released successfully");
-    return DSP_SUCCESS;
+    return;
 }
 
 /**

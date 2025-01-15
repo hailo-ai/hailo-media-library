@@ -62,7 +62,6 @@ class PrivacyMaskBlender : public std::enable_shared_from_this<PrivacyMaskBlende
      */
     ~PrivacyMaskBlender();
     static tl::expected<std::shared_ptr<PrivacyMaskBlender>, media_library_return> create();
-    static tl::expected<std::shared_ptr<PrivacyMaskBlender>, media_library_return> create(const nlohmann::json &config);
     /**
      * @brief Create the PrivacyMaskBlender object
      *
@@ -74,9 +73,6 @@ class PrivacyMaskBlender : public std::enable_shared_from_this<PrivacyMaskBlende
      */
     static tl::expected<std::shared_ptr<PrivacyMaskBlender>, media_library_return> create(uint frame_width,
                                                                                           uint frame_height);
-    static tl::expected<std::shared_ptr<PrivacyMaskBlender>, media_library_return> create(uint frame_width,
-                                                                                          uint frame_height,
-                                                                                          const nlohmann::json &config);
 
     /**
      * @brief Add a new privacy mask

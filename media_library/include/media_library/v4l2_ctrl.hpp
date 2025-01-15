@@ -62,7 +62,7 @@ class v4l2Control
     template <typename T> bool v4l2_ctrl_set(v4l2_ctrl_id id, T val);
     template <typename T> bool v4l2_ctrl_get(v4l2_ctrl_id id, T &val);
     template <typename T> bool v4l2_ext_ctrl_set(v4l2_ctrl_id id, T val);
-    template <typename T> bool v4l2_ext_ctrl_set_array(v4l2_ctrl_id id, T val, size_t size);
+    template <typename T> bool v4l2_ext_ctrl_set_array(v4l2_ctrl_id id, T val);
     template <typename T> bool v4l2_ext_ctrl_set2(v4l2_ctrl_id id, T &val);
     template <typename T> bool v4l2_ext_ctrl_get(v4l2_ctrl_id id, T &val);
 };

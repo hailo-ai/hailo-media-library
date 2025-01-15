@@ -48,7 +48,7 @@
 #define REGEX_INTEGER "\\d+"
 #define REGEX_XML_FILENAME "\\w+\\.xml"
 #define HDR_ENABLE_REGEX "hdr_enable = " REGEX_INTEGER
-#define MODE_REGEX "mode = " REGEX_INTEGER
+#define MODE_REGEX "(^|\n)mode = " REGEX_INTEGER
 #define MODE_XML_REGEX(MODE) "(\\[mode\\." + std::to_string(MODE) + "\\]\\nxml = \")(" REGEX_XML_FILENAME ")"
 
 using json = nlohmann::json;
@@ -88,32 +88,45 @@ std::string find_subdevice_path(const std::string &subdevice_name)
 
 void override_file(const std::string &src, const std::string &dst)
 {
+    if (!std::filesystem::exists(src))
+    {
+        LOGGER__ERROR("Source file {} does not exist", src);
+        return;
+    }
+    if (!std::filesystem::exists(dst))
+    {
+        LOGGER__ERROR("Destination file {} does not exist", dst);
+        return;
+    }
     LOGGER__DEBUG("ISP config overriding file {} to {}", src, dst);
     std::filesystem::copy_file(src, dst, std::filesystem::copy_options::overwrite_existing);
 }
 
-void set_default_configuration()
+void set_daylight_configuration()
 {
     if (m_auto_configure)
-        override_file(ISP_DEFAULT_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
+    {
+        override_file(ISP_DAYLIGHT_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
+        override_file(ISP_DAYLIGHT_SENSOR0_CONFIG, SENSOR0_ENTRY_CONFIG_PATH);
+    }
 }
 
-void set_denoise_configuration()
+void set_lowlight_configuration()
 {
     if (m_auto_configure)
-        override_file(ISP_DENOISE_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
+    {
+        override_file(ISP_LOWLIGHT_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
+        override_file(ISP_LOWLIGHT_SENSOR0_CONFIG, SENSOR0_ENTRY_CONFIG_PATH);
+    }
 }
 
-void set_backlight_configuration()
+void set_hdr_configuration()
 {
     if (m_auto_configure)
-        override_file(ISP_BACKLIGHT_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
-}
-
-void set_hdr_configuration(bool is_4k)
-{
-    if (m_auto_configure)
-        override_file(is_4k ? ISP_HDR_3A_CONFIG_4K : ISP_HDR_3A_CONFIG_FHD, TRIPLE_A_CONFIG_PATH);
+    {
+        override_file(ISP_HDR_2DOL_3A_CONFIG, TRIPLE_A_CONFIG_PATH);
+        override_file(ISP_HDR_2DOL_SENSOR0_CONFIG, SENSOR0_ENTRY_CONFIG_PATH);
+    }
 }
 
 void edit_media_server_cfg(const std::string &path, bool hdr_enable)
@@ -275,12 +288,12 @@ void setup_hdr(bool is_4k, hdr_dol_t dol)
     }
 }
 
-void setup_sdr()
+void setup_sdr(bool is_4k)
 {
     LOGGER__DEBUG("Setting up SDR configuration");
 
     edit_media_server_cfg(m_isp_config_files_path + std::string("/") + std::string(_MEDIA_SERVER_CONFIG), false);
-    edit_sensor_entry(m_isp_config_files_path + std::string("/") + std::string(ISP_SENSOR0_ENTRY_CONFIG), false, true);
+    edit_sensor_entry(m_isp_config_files_path + std::string("/") + std::string(ISP_SENSOR0_ENTRY_CONFIG), false, is_4k);
 
     if (auto imx678_path = find_subdevice_path("imx678"); !imx678_path.empty())
     {
@@ -310,7 +323,7 @@ void set_hdr_ratios(float ls_ratio, float vs_ratio)
 {
     isp_utils::ctrl::v4l2Control v4l2_ctrl("/dev/video0");
     int ratios[] = {static_cast<int>(ls_ratio * (1 << 16)), static_cast<int>(vs_ratio * (1 << 16))};
-    if (!v4l2_ctrl.v4l2_ext_ctrl_set_array(isp_utils::ctrl::V4l2_CTRL_SET_HDR_RATIOS, ratios, 2))
+    if (!v4l2_ctrl.v4l2_ext_ctrl_set_array(isp_utils::ctrl::V4l2_CTRL_SET_HDR_RATIOS, ratios))
     {
         LOGGER__WARN("Failed to set HDR ratios to {} and {}", ls_ratio, vs_ratio);
     }

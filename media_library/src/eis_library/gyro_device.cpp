@@ -188,7 +188,7 @@ std::vector<gyro_sample_t> GyroDevice::get_gyro_samples_for_frame_isp_timestamp(
     return result;
 }
 
-static void handle_sig(int sig)
+static void handle_sig(int)
 {
     if (gyroApi->stopRunning())
         LOGGER__INFO("Notify process to finish...");

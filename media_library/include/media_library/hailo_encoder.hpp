@@ -44,9 +44,9 @@ void CloseEncoder(VCEncInst encoder);
 int AllocRes(EncoderParams *enc_params);
 void FreeRes(EncoderParams *enc_params);
 u32 SetupInputBuffer(EncoderParams *enc_params, VCEncIn *pEncIn);
-void UpdateEncoderGOP(EncoderParams *enc_params, VCEncInst encoder);
+void UpdateEncoderGOP(EncoderParams *enc_params);
 VCEncRet EncodeFrame(EncoderParams *enc_params, VCEncInst encoder, VCEncSliceReadyCallBackFunc sliceReadyCbFunc,
                      void *pAppData);
-void ForceKeyframe(EncoderParams *enc_params, VCEncInst encoder);
+void ForceKeyframe(EncoderParams *enc_params);
 
 /** @} */ // end of hailo_encoder_definitions

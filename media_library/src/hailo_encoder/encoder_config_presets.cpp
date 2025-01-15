@@ -170,7 +170,7 @@ media_library_return EncoderConfigPresets::apply_preset(hailo_encoder_config_t &
     apply_variation(config, *preset);
 
     auto preset_bit_var_range = get_preset_bit_var_range(config, *preset);
-    apply_bit_var_range(config, *preset, preset_bit_var_range);
+    apply_bit_var_range(config, preset_bit_var_range);
     status = apply_tolerance_moving_bitrate(config, *preset, preset_bit_var_range);
     if (status != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
@@ -240,8 +240,7 @@ uint32_t EncoderConfigPresets::get_preset_bit_var_range(hailo_encoder_config_t &
     }
 }
 
-void EncoderConfigPresets::apply_bit_var_range(hailo_encoder_config_t &config, const encoder_preset_t &preset,
-                                               uint32_t preset_bit_var_range) const
+void EncoderConfigPresets::apply_bit_var_range(hailo_encoder_config_t &config, uint32_t preset_bit_var_range) const
 {
     if (!config.rate_control.bitrate.bit_var_range_i.has_value())
     {

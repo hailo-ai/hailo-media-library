@@ -91,7 +91,7 @@ media_library_return DmaMemoryAllocator::dmabuf_fd_close()
     std::unique_lock<std::mutex> lock(*m_allocator_mutex);
     if (m_allocated_buffers.size() > 0)
     {
-        LOGGER__INFO("allocated buffers not freed");
+        LOGGER__ERROR("allocated buffers not freed");
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 

@@ -26,6 +26,7 @@
 #include "buffer_pool.hpp"
 #include "config_manager.hpp"
 #include "media_library_logger.hpp"
+#include "media_library_types.hpp"
 #include "media_library_utils.hpp"
 
 #include <iostream>
@@ -45,39 +46,28 @@
 #include <thread>
 #include <condition_variable>
 
-#define BPOOL_MAX_SIZE 10
-#define Q_SIZE 4
-
 class MediaLibraryDenoise::Impl final
 {
   public:
-    static tl::expected<std::shared_ptr<MediaLibraryDenoise::Impl>, media_library_return> create();
-    static tl::expected<std::shared_ptr<MediaLibraryDenoise::Impl>, media_library_return> create(
-        std::string config_string);
-    // Constructor
-    Impl(media_library_return &status);
-    Impl(media_library_return &status, std::string config_string);
-    // Destructor
+    Impl();
     ~Impl();
-    // Move constructor
     Impl(Impl &&) = delete;
-    // Move assignment
     Impl &operator=(Impl &&) = delete;
 
     // Configure the denoise module with new json string
-    media_library_return configure(std::string config_string);
+    media_library_return configure(const std::string &config_string);
 
     // Configure the denoise module with denoise_config_t and hailort_t object
-    media_library_return configure(denoise_config_t &denoise_configs, hailort_t &hailort_configs);
+    media_library_return configure(const denoise_config_t &denoise_configs, const hailort_t &hailort_configs);
 
     // Perform pre-processing on the input frame and return the output frames
     media_library_return handle_frame(HailoMediaLibraryBufferPtr input_frame, HailoMediaLibraryBufferPtr output_frame);
 
     // get the denoise configurations object
-    denoise_config_t &get_denoise_configs();
+    denoise_config_t get_denoise_configs();
 
     // get the hailort configurations object
-    hailort_t &get_hailort_configs();
+    hailort_t get_hailort_configs();
 
     // get the enabled config status
     bool is_enabled();
@@ -86,42 +76,52 @@ class MediaLibraryDenoise::Impl final
     media_library_return observe(const MediaLibraryDenoise::callbacks_t &callbacks);
 
   private:
+    static constexpr size_t QUEUE_DEFAULT_SIZE = 4;
+
+    static constexpr int HAILORT_SCHEDULER_THRESHOLD = 1;
+    static constexpr std::chrono::milliseconds HAILORT_SCHEDULER_TIMEOUT{1000};
+    static constexpr int HAILORT_SCHEDULER_BATCH_SIZE = 2;
+
+    static constexpr size_t BUFFER_POOL_MAX_BUFFERS = 10;
+    static constexpr size_t BUFFER_POOL_BUFFER_WIDTH = 3840;
+    static constexpr size_t BUFFER_POOL_BUFFER_HEIGHT = 2160;
+    static constexpr const char *BUFFER_POOL_NAME = "denoise_output";
+
     // configured flag - to determine if first configuration was done
-    bool m_configured;
     // configuration manager
-    std::shared_ptr<ConfigManager> m_denoise_config_manager;
-    std::shared_ptr<ConfigManager> m_hailort_config_manager;
+    ConfigManager m_denoise_config_manager;
+    ConfigManager m_hailort_config_manager;
     std::vector<MediaLibraryDenoise::callbacks_t> m_callbacks;
     // output buffer pool
-    MediaLibraryBufferPoolPtr m_output_buffer_pool;
+    std::shared_ptr<MediaLibraryBufferPool> m_output_buffer_pool;
     // operation configurations
     denoise_config_t m_denoise_configs;
     hailort_t m_hailort_configs;
     // configuration mutex
     std::shared_mutex rw_lock;
     // HRT module
-    HailortAsyncDenoisePtr m_hailort_denoise;
+    HailortAsyncDenoise m_hailort_denoise;
     // loopback controls
-    uint8_t m_queue_size;
-    uint8_t m_loop_counter;
-    uint8_t m_initial_batch_callback_counter;
-    uint8_t m_loopback_batch_counter;
-    uint8_t m_loopback_limit;
-    bool m_flushing;
-    std::unique_ptr<std::condition_variable> m_loopback_condvar;
-    std::shared_ptr<std::mutex> m_loopback_mutex;
+    uint8_t m_queue_size = QUEUE_DEFAULT_SIZE;
+    uint8_t m_loop_counter = 0;
+    uint8_t m_initial_batch_callback_counter = 0;
+    uint8_t m_loopback_batch_counter = 0;
+    uint8_t m_loopback_limit = 1;
+    bool m_configured = false;
+    bool m_flushing = false;
+
+    std::condition_variable m_loopback_condvar;
+    std::mutex m_loopback_mutex;
     std::queue<HailoMediaLibraryBufferPtr> m_loopback_queue;
-    std::unique_ptr<std::condition_variable> m_staging_condvar;
-    std::shared_ptr<std::mutex> m_staging_mutex;
+    std::condition_variable m_staging_condvar;
+    std::mutex m_staging_mutex;
     std::queue<HailoMediaLibraryBufferPtr> m_staging_queue;
     // callback controls
-    std::unique_ptr<std::condition_variable> m_inference_callback_condvar;
-    std::shared_ptr<std::mutex> m_inference_callback_mutex;
+    std::condition_variable m_inference_callback_condvar;
+    std::mutex m_inference_callback_mutex;
     std::queue<HailoMediaLibraryBufferPtr> m_inference_callback_queue;
 
-    media_library_return reconfigure();
     media_library_return create_and_initialize_buffer_pools();
-    media_library_return validate_configurations(denoise_config_t &denoise_configs, hailort_t &hailort_configs);
     media_library_return decode_config_json_string(denoise_config_t &denoise_configs, hailort_t &hailort_configs,
                                                    std::string config_string);
     media_library_return perform_denoise(HailoMediaLibraryBufferPtr input_buffer,
@@ -130,7 +130,6 @@ class MediaLibraryDenoise::Impl final
                                                HailoMediaLibraryBufferPtr output_buffer);
     media_library_return perform_subsequent_batches(HailoMediaLibraryBufferPtr input_buffer,
                                                     HailoMediaLibraryBufferPtr output_buffer);
-    void set_default_members();
     void stamp_time_and_log_fps(timespec &start_handle, timespec &end_handle);
     void inference_callback(HailoMediaLibraryBufferPtr output_buffer);
     void queue_loopback_buffer(HailoMediaLibraryBufferPtr buffer);
@@ -155,37 +154,21 @@ class MediaLibraryDenoise::Impl final
 };
 
 //------------------------ MediaLibraryDenoise ------------------------
-tl::expected<std::shared_ptr<MediaLibraryDenoise>, media_library_return> MediaLibraryDenoise::create()
-{
-    auto impl_expected = Impl::create();
-    if (impl_expected.has_value())
-        return std::make_shared<MediaLibraryDenoise>(impl_expected.value());
-    else
-        return tl::make_unexpected(impl_expected.error());
-}
 
-tl::expected<std::shared_ptr<MediaLibraryDenoise>, media_library_return> MediaLibraryDenoise::create(
-    std::string config_string)
+MediaLibraryDenoise::MediaLibraryDenoise()
 {
-    auto impl_expected = Impl::create(config_string);
-    if (impl_expected.has_value())
-        return std::make_shared<MediaLibraryDenoise>(impl_expected.value());
-    else
-        return tl::make_unexpected(impl_expected.error());
-}
-
-MediaLibraryDenoise::MediaLibraryDenoise(std::shared_ptr<MediaLibraryDenoise::Impl> impl) : m_impl(impl)
-{
+    m_impl = std::make_unique<MediaLibraryDenoise::Impl>();
 }
 
 MediaLibraryDenoise::~MediaLibraryDenoise() = default;
 
-media_library_return MediaLibraryDenoise::configure(std::string config_string)
+media_library_return MediaLibraryDenoise::configure(const std::string &config_string)
 {
     return m_impl->configure(config_string);
 }
 
-media_library_return MediaLibraryDenoise::configure(denoise_config_t &denoise_configs, hailort_t &hailort_configs)
+media_library_return MediaLibraryDenoise::configure(const denoise_config_t &denoise_configs,
+                                                    const hailort_t &hailort_configs)
 {
     return m_impl->configure(denoise_configs, hailort_configs);
 }
@@ -196,12 +179,12 @@ media_library_return MediaLibraryDenoise::handle_frame(HailoMediaLibraryBufferPt
     return m_impl->handle_frame(input_frame, output_frame);
 }
 
-denoise_config_t &MediaLibraryDenoise::get_denoise_configs()
+denoise_config_t MediaLibraryDenoise::get_denoise_configs()
 {
     return m_impl->get_denoise_configs();
 }
 
-hailort_t &MediaLibraryDenoise::get_hailort_configs()
+hailort_t MediaLibraryDenoise::get_hailort_configs()
 {
     return m_impl->get_hailort_configs();
 }
@@ -217,100 +200,28 @@ media_library_return MediaLibraryDenoise::observe(const MediaLibraryDenoise::cal
 }
 
 //------------------------ MediaLibraryDenoise::Impl ------------------------
-tl::expected<std::shared_ptr<MediaLibraryDenoise::Impl>, media_library_return> MediaLibraryDenoise::Impl::create()
+
+MediaLibraryDenoise::Impl::Impl()
+    : m_denoise_config_manager(ConfigSchema::CONFIG_SCHEMA_DENOISE),
+      m_hailort_config_manager(ConfigSchema::CONFIG_SCHEMA_HAILORT),
+      m_output_buffer_pool(std::make_shared<MediaLibraryBufferPool>(BUFFER_POOL_BUFFER_WIDTH, BUFFER_POOL_BUFFER_HEIGHT,
+                                                                    HAILO_FORMAT_NV12, BUFFER_POOL_MAX_BUFFERS,
+                                                                    HAILO_MEMORY_TYPE_DMABUF, BUFFER_POOL_NAME)),
+      m_hailort_denoise([this](HailoMediaLibraryBufferPtr output_buffer) { inference_callback(output_buffer); })
 {
-    media_library_return status = MEDIA_LIBRARY_UNINITIALIZED;
-    std::shared_ptr<MediaLibraryDenoise::Impl> denoise = std::make_shared<MediaLibraryDenoise::Impl>(status);
-    if (status != MEDIA_LIBRARY_SUCCESS)
-    {
-        return tl::make_unexpected(status);
-    }
-    return denoise;
-}
-
-tl::expected<std::shared_ptr<MediaLibraryDenoise::Impl>, media_library_return> MediaLibraryDenoise::Impl::create(
-    std::string config_string)
-{
-    media_library_return status = MEDIA_LIBRARY_UNINITIALIZED;
-    std::shared_ptr<MediaLibraryDenoise::Impl> denoise =
-        std::make_shared<MediaLibraryDenoise::Impl>(status, config_string);
-    if (status != MEDIA_LIBRARY_SUCCESS)
-    {
-        return tl::make_unexpected(status);
-    }
-    return denoise;
-}
-
-void MediaLibraryDenoise::Impl::set_default_members()
-{
-    m_configured = false;
-    m_denoise_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_DENOISE);
-    m_hailort_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_HAILORT);
-    m_hailort_denoise = std::make_shared<HailortAsyncDenoise>(
-        [this](HailoMediaLibraryBufferPtr output_buffer) { inference_callback(output_buffer); });
-
-    m_loopback_limit = 1;
-    m_loop_counter = 0;
-    m_initial_batch_callback_counter = 0;
-    m_loopback_batch_counter = 0;
-    m_flushing = false;
-    m_queue_size = Q_SIZE;
-    m_loopback_mutex = std::make_shared<std::mutex>();
-    m_loopback_condvar = std::make_unique<std::condition_variable>();
-    m_loopback_queue = std::queue<HailoMediaLibraryBufferPtr>();
-    m_staging_mutex = std::make_shared<std::mutex>();
-    m_staging_condvar = std::make_unique<std::condition_variable>();
-    m_staging_queue = std::queue<HailoMediaLibraryBufferPtr>();
-    m_inference_callback_mutex = std::make_shared<std::mutex>();
-    m_inference_callback_condvar = std::make_unique<std::condition_variable>();
-    m_inference_callback_queue = std::queue<HailoMediaLibraryBufferPtr>();
-}
-
-MediaLibraryDenoise::Impl::Impl(media_library_return &status)
-{
-    set_default_members();
-
-    status = MEDIA_LIBRARY_SUCCESS;
-}
-
-MediaLibraryDenoise::Impl::Impl(media_library_return &status, std::string config_string)
-{
-    set_default_members();
-
-    if (decode_config_json_string(m_denoise_configs, m_hailort_configs, config_string) != MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__ERROR("Failed to decode json string");
-        status = MEDIA_LIBRARY_INVALID_ARGUMENT;
-        return;
-    }
-
-    if (configure(m_denoise_configs, m_hailort_configs) != MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__ERROR("Failed to configure denoise");
-        status = MEDIA_LIBRARY_CONFIGURATION_ERROR;
-        return;
-    }
-
-    m_configured = true;
-
-    status = MEDIA_LIBRARY_SUCCESS;
 }
 
 MediaLibraryDenoise::Impl::~Impl()
 {
     LOGGER__DEBUG("Denoise - destructor");
     m_flushing = true;
-    m_inference_callback_condvar->notify_one();
-    m_loopback_condvar->notify_one();
-    m_staging_condvar->notify_one();
+    m_inference_callback_condvar.notify_one();
+    m_loopback_condvar.notify_one();
+    m_staging_condvar.notify_one();
     if (m_inference_callback_thread.joinable())
         m_inference_callback_thread.join();
-    if (m_output_buffer_pool)
-    {
-        m_output_buffer_pool->for_each_buffer(
-            [this](int fd, size_t size) { return m_hailort_denoise->unmap_buffer_to_hailort(fd, size); });
-    }
-    m_hailort_denoise.reset();
+    m_output_buffer_pool->for_each_buffer(
+        [this](int fd, size_t size) { return m_hailort_denoise.unmap_buffer_to_hailort(fd, size); });
     clear_inference_callback_queue();
     clear_loopback_queue();
     clear_staging_queue();
@@ -321,14 +232,14 @@ media_library_return MediaLibraryDenoise::Impl::decode_config_json_string(denois
                                                                           std::string config_string)
 {
     media_library_return hailort_status =
-        m_hailort_config_manager->config_string_to_struct<hailort_t>(config_string, hailort_configs);
+        m_hailort_config_manager.config_string_to_struct<hailort_t>(config_string, hailort_configs);
     if (hailort_status != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to decode Hailort config from json string: {}", config_string);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     media_library_return denoise_status =
-        m_denoise_config_manager->config_string_to_struct<denoise_config_t>(config_string, denoise_configs);
+        m_denoise_config_manager.config_string_to_struct<denoise_config_t>(config_string, denoise_configs);
     if (denoise_status != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to decode denoise config from json string: {}", config_string);
@@ -337,7 +248,7 @@ media_library_return MediaLibraryDenoise::Impl::decode_config_json_string(denois
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryDenoise::Impl::configure(std::string config_string)
+media_library_return MediaLibraryDenoise::Impl::configure(const std::string &config_string)
 {
     denoise_config_t denoise_configs;
     hailort_t hailort_configs;
@@ -350,108 +261,99 @@ media_library_return MediaLibraryDenoise::Impl::configure(std::string config_str
     return configure(denoise_configs, hailort_configs);
 }
 
-media_library_return MediaLibraryDenoise::Impl::validate_configurations(denoise_config_t &denoise_configs,
-                                                                        hailort_t &hailort_configs)
-{
-    // TODO: add validation
-    return MEDIA_LIBRARY_SUCCESS;
-}
-
-media_library_return MediaLibraryDenoise::Impl::configure(denoise_config_t &denoise_configs, hailort_t &hailort_configs)
+media_library_return MediaLibraryDenoise::Impl::configure(const denoise_config_t &denoise_configs,
+                                                          const hailort_t &hailort_configs)
 {
     LOGGER__INFO("Configuring denoise");
     std::unique_lock<std::shared_mutex> lock(rw_lock);
 
-    if (validate_configurations(denoise_configs, hailort_configs) != MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__ERROR("Failed to validate configurations");
-        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-    }
-    auto prev_enabled = m_denoise_configs.enabled;
-    m_denoise_configs = denoise_configs;
-    m_hailort_configs = hailort_configs;
-    bool enabled_changed = m_denoise_configs.enabled != prev_enabled;
+    bool enabled_changed = (m_denoise_configs.enabled != denoise_configs.enabled);
     LOGGER__INFO("NOTE: Loopback limit configurations are only applied when denoise is enabled.");
 
-    if (prev_enabled == false && m_denoise_configs.enabled == false)
+    if (!m_denoise_configs.enabled && !denoise_configs.enabled)
     {
         LOGGER__INFO("Denoise Remains disabled, skipping configuration");
+        return MEDIA_LIBRARY_SUCCESS;
     }
 
-    // on first configure
-    if (!m_configured)
+    if ((denoise_configs.network_config != m_denoise_configs.network_config) ||
+        (hailort_configs.device_id != m_hailort_configs.device_id))
     {
-        int status = m_hailort_denoise->init(m_denoise_configs.network_config, m_hailort_configs.device_id, 1, 1000, 2);
-        if (status != 0)
+        if (!m_hailort_denoise.set_config(denoise_configs.network_config, hailort_configs.device_id,
+                                          HAILORT_SCHEDULER_THRESHOLD, HAILORT_SCHEDULER_TIMEOUT,
+                                          HAILORT_SCHEDULER_BATCH_SIZE))
         {
             LOGGER__ERROR("Failed to init hailort");
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
-        // Create and initialize buffer pools
+    }
+
+    // check if enabling
+    if (denoise_configs.enabled && enabled_changed)
+    {
         media_library_return ret = create_and_initialize_buffer_pools();
         if (ret != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__ERROR("Failed to allocate denoise buffer pool");
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
-    }
-
-    // check if enabling
-    if (m_denoise_configs.enabled && (enabled_changed || !m_configured))
-    {
         m_loop_counter = 0;
         m_initial_batch_callback_counter = 0;
         m_loopback_batch_counter = 0;
-        m_loopback_limit = m_denoise_configs.loopback_count;
+        m_loopback_limit = denoise_configs.loopback_count;
         m_flushing = false;
         m_inference_callback_thread = std::thread(&MediaLibraryDenoise::Impl::inference_callback_thread, this);
     }
 
     // check if disabling
-    if (!m_denoise_configs.enabled && enabled_changed)
+    if (!denoise_configs.enabled && enabled_changed)
     {
         m_flushing = true;
         // notify all queues that we are flushing
-        m_inference_callback_condvar->notify_one();
-        m_loopback_condvar->notify_one();
-        m_staging_condvar->notify_one();
+        m_inference_callback_condvar.notify_one();
+        m_loopback_condvar.notify_one();
+        m_staging_condvar.notify_one();
         if (m_inference_callback_thread.joinable())
             m_inference_callback_thread.join();
+        m_output_buffer_pool->for_each_buffer(
+            [this](int fd, size_t size) { return m_hailort_denoise.unmap_buffer_to_hailort(fd, size); });
         clear_inference_callback_queue();
         clear_loopback_queue();
         clear_staging_queue();
+
+        // Wait 1000 milliseconds for all used buffers to be released
+        if (m_output_buffer_pool->wait_for_used_buffers(1000) != MEDIA_LIBRARY_SUCCESS)
+        {
+            return MEDIA_LIBRARY_ERROR;
+        }
+        if (m_output_buffer_pool->free() != MEDIA_LIBRARY_SUCCESS)
+        {
+            return MEDIA_LIBRARY_ERROR;
+        }
     }
 
     // Call observing callbacks in case configuration changed
     for (auto &callbacks : m_callbacks)
     {
-        if ((!m_configured || enabled_changed) && callbacks.on_enable_changed)
-            callbacks.on_enable_changed(m_denoise_configs.enabled);
+        if (enabled_changed && callbacks.on_enable_changed)
+            callbacks.on_enable_changed(denoise_configs.enabled);
         if (enabled_changed && callbacks.send_event)
         {
-            callbacks.send_event(m_denoise_configs.enabled);
+            callbacks.send_event(denoise_configs.enabled);
         }
     }
+
+    m_denoise_configs = denoise_configs;
+    m_hailort_configs = hailort_configs;
     m_configured = true;
     return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return MediaLibraryDenoise::Impl::create_and_initialize_buffer_pools()
 {
-    // Only support 4k for now
-    uint width, height;
-    width = 3840;
-    height = 2160;
-    std::string name = "denoise_output";
-    if (m_output_buffer_pool)
-    {
-        return MEDIA_LIBRARY_SUCCESS;
-    }
     // Create output buffer pool
-    LOGGER__DEBUG("Creating buffer pool named {} for output resolution: width {} height {} in buffers size of {}", name,
-                  width, height, BPOOL_MAX_SIZE);
-    m_output_buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, HAILO_FORMAT_NV12, BPOOL_MAX_SIZE,
-                                                                    HAILO_MEMORY_TYPE_DMABUF, name);
+    LOGGER__DEBUG("Initalizing buffer pool named {} for output resolution: width {} height {} in buffers size of {}",
+                  BUFFER_POOL_NAME, BUFFER_POOL_BUFFER_WIDTH, BUFFER_POOL_BUFFER_HEIGHT, BUFFER_POOL_MAX_BUFFERS);
     if (m_output_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to init buffer pool");
@@ -460,7 +362,7 @@ media_library_return MediaLibraryDenoise::Impl::create_and_initialize_buffer_poo
 
     // Pre-mapping buffers to HailoRT boost performance
     m_output_buffer_pool->for_each_buffer(
-        [this](int fd, size_t size) { return m_hailort_denoise->map_buffer_to_hailort(fd, size); });
+        [this](int fd, size_t size) { return m_hailort_denoise.map_buffer_to_hailort(fd, size); });
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -496,9 +398,7 @@ void MediaLibraryDenoise::Impl::stamp_time_and_log_fps(timespec &start_handle, t
 media_library_return MediaLibraryDenoise::Impl::perform_initial_batch(HailoMediaLibraryBufferPtr input_buffer,
                                                                       HailoMediaLibraryBufferPtr output_buffer)
 {
-    int ret = m_hailort_denoise->process(input_buffer, input_buffer, output_buffer);
-
-    if (ret != 0)
+    if (!m_hailort_denoise.process(input_buffer, input_buffer, output_buffer))
     {
         LOGGER__ERROR("Failed to process denoise, during initial batch");
         return MEDIA_LIBRARY_ERROR;
@@ -557,9 +457,8 @@ media_library_return MediaLibraryDenoise::Impl::perform_subsequent_batches(Hailo
     }
 
     queue_staging_buffer(loopback_buffer);
-    int ret = m_hailort_denoise->process(input_buffer, loopback_buffer, output_buffer);
 
-    if (ret != 0)
+    if (!m_hailort_denoise.process(input_buffer, loopback_buffer, output_buffer))
     {
         LOGGER__ERROR("Failed to process denoise");
         return MEDIA_LIBRARY_ERROR;
@@ -630,18 +529,21 @@ media_library_return MediaLibraryDenoise::Impl::handle_frame(HailoMediaLibraryBu
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-denoise_config_t &MediaLibraryDenoise::Impl::get_denoise_configs()
+denoise_config_t MediaLibraryDenoise::Impl::get_denoise_configs()
 {
+    std::unique_lock<std::shared_mutex> lock(rw_lock);
     return m_denoise_configs;
 }
 
-hailort_t &MediaLibraryDenoise::Impl::get_hailort_configs()
+hailort_t MediaLibraryDenoise::Impl::get_hailort_configs()
 {
+    std::unique_lock<std::shared_mutex> lock(rw_lock);
     return m_hailort_configs;
 }
 
 bool MediaLibraryDenoise::Impl::is_enabled()
 {
+    std::unique_lock<std::shared_mutex> lock(rw_lock);
     return m_denoise_configs.enabled;
 }
 
@@ -697,105 +599,105 @@ void MediaLibraryDenoise::Impl::inference_callback(HailoMediaLibraryBufferPtr ou
 
 void MediaLibraryDenoise::Impl::queue_loopback_buffer(HailoMediaLibraryBufferPtr buffer)
 {
-    std::unique_lock<std::mutex> lock(*(m_loopback_mutex));
-    m_loopback_condvar->wait(lock, [this] { return m_loopback_queue.size() < m_queue_size; });
+    std::unique_lock<std::mutex> lock(m_loopback_mutex);
+    m_loopback_condvar.wait(lock, [this] { return m_loopback_queue.size() < m_queue_size; });
     m_loopback_queue.push(buffer);
-    m_loopback_condvar->notify_one();
+    m_loopback_condvar.notify_one();
 }
 
 HailoMediaLibraryBufferPtr MediaLibraryDenoise::Impl::dequeue_loopback_buffer()
 {
-    std::unique_lock<std::mutex> lock(*(m_loopback_mutex));
-    m_loopback_condvar->wait(lock, [this] { return !m_loopback_queue.empty() || m_flushing; });
+    std::unique_lock<std::mutex> lock(m_loopback_mutex);
+    m_loopback_condvar.wait(lock, [this] { return !m_loopback_queue.empty() || m_flushing; });
     if (m_loopback_queue.empty())
     {
         return nullptr;
     }
     HailoMediaLibraryBufferPtr buffer = m_loopback_queue.front();
     m_loopback_queue.pop();
-    m_loopback_condvar->notify_one();
+    m_loopback_condvar.notify_one();
     return buffer;
 }
 
 void MediaLibraryDenoise::Impl::clear_loopback_queue()
 {
-    std::unique_lock<std::mutex> lock(*(m_loopback_mutex));
+    std::unique_lock<std::mutex> lock(m_loopback_mutex);
     while (!m_loopback_queue.empty())
     {
         HailoMediaLibraryBufferPtr buffer = m_loopback_queue.front();
         m_loopback_queue.pop();
     }
-    m_loopback_condvar->notify_one();
+    m_loopback_condvar.notify_one();
 }
 
 // Staging queue controls
 
 void MediaLibraryDenoise::Impl::queue_staging_buffer(HailoMediaLibraryBufferPtr buffer)
 {
-    std::unique_lock<std::mutex> lock(*(m_staging_mutex));
-    m_staging_condvar->wait(lock, [this] { return m_staging_queue.size() < m_queue_size; });
+    std::unique_lock<std::mutex> lock(m_staging_mutex);
+    m_staging_condvar.wait(lock, [this] { return m_staging_queue.size() < m_queue_size; });
     m_staging_queue.push(buffer);
-    m_staging_condvar->notify_one();
+    m_staging_condvar.notify_one();
 }
 
 HailoMediaLibraryBufferPtr MediaLibraryDenoise::Impl::dequeue_staging_buffer()
 {
-    std::unique_lock<std::mutex> lock(*(m_staging_mutex));
-    m_staging_condvar->wait(lock, [this] { return !m_staging_queue.empty() || m_flushing; });
+    std::unique_lock<std::mutex> lock(m_staging_mutex);
+    m_staging_condvar.wait(lock, [this] { return !m_staging_queue.empty() || m_flushing; });
     if (m_staging_queue.empty())
     {
         return nullptr;
     }
     HailoMediaLibraryBufferPtr buffer = m_staging_queue.front();
     m_staging_queue.pop();
-    m_staging_condvar->notify_one();
+    m_staging_condvar.notify_one();
     return buffer;
 }
 
 void MediaLibraryDenoise::Impl::clear_staging_queue()
 {
-    std::unique_lock<std::mutex> lock(*(m_staging_mutex));
+    std::unique_lock<std::mutex> lock(m_staging_mutex);
     while (!m_staging_queue.empty())
     {
         HailoMediaLibraryBufferPtr buffer = m_staging_queue.front();
         m_staging_queue.pop();
     }
-    m_staging_condvar->notify_one();
+    m_staging_condvar.notify_one();
 }
 
 // Thread queue controls
 
 void MediaLibraryDenoise::Impl::queue_inference_callback_buffer(HailoMediaLibraryBufferPtr buffer)
 {
-    std::unique_lock<std::mutex> lock(*(m_inference_callback_mutex));
-    m_inference_callback_condvar->wait(lock, [this] { return m_inference_callback_queue.size() < m_queue_size; });
+    std::unique_lock<std::mutex> lock(m_inference_callback_mutex);
+    m_inference_callback_condvar.wait(lock, [this] { return m_inference_callback_queue.size() < m_queue_size; });
     m_inference_callback_queue.push(buffer);
-    m_inference_callback_condvar->notify_one();
+    m_inference_callback_condvar.notify_one();
 }
 
 HailoMediaLibraryBufferPtr MediaLibraryDenoise::Impl::dequeue_inference_callback_buffer()
 {
-    std::unique_lock<std::mutex> lock(*(m_inference_callback_mutex));
-    m_inference_callback_condvar->wait(lock, [this] { return !m_inference_callback_queue.empty() || m_flushing; });
+    std::unique_lock<std::mutex> lock(m_inference_callback_mutex);
+    m_inference_callback_condvar.wait(lock, [this] { return !m_inference_callback_queue.empty() || m_flushing; });
     if (m_inference_callback_queue.empty())
     {
         return nullptr;
     }
     HailoMediaLibraryBufferPtr buffer = m_inference_callback_queue.front();
     m_inference_callback_queue.pop();
-    m_inference_callback_condvar->notify_one();
+    m_inference_callback_condvar.notify_one();
     return buffer;
 }
 
 void MediaLibraryDenoise::Impl::clear_inference_callback_queue()
 {
-    std::unique_lock<std::mutex> lock(*(m_inference_callback_mutex));
+    std::unique_lock<std::mutex> lock(m_inference_callback_mutex);
     while (!m_inference_callback_queue.empty())
     {
         HailoMediaLibraryBufferPtr buffer = m_inference_callback_queue.front();
         m_inference_callback_queue.pop();
     }
-    m_inference_callback_condvar->notify_one();
+    m_inference_callback_condvar.notify_one();
 }
 
 // Generic Queue Control

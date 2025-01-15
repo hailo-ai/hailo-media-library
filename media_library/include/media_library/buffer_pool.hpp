@@ -34,6 +34,7 @@
 #include <string>
 #include <unordered_set>
 #include <vector>
+#include <condition_variable>
 
 #include "media_library_types.hpp"
 #include "hailo_v4l2/hailo_v4l2.h"
@@ -82,6 +83,7 @@ class HailoBucket
     HailoBucket &operator=(HailoBucket &&) = delete;
     friend class MediaLibraryBufferPool;
     int available_buffers_count();
+    int used_buffers_count();
 };
 using HailoBucketPtr = std::shared_ptr<HailoBucket>;
 
@@ -127,6 +129,7 @@ class MediaLibraryBufferPool : public std::enable_shared_from_this<MediaLibraryB
     std::shared_ptr<std::mutex> m_buffer_pool_mutex;
     size_t m_max_buffers;
     uint32_t m_buffer_index;
+    std::condition_variable m_pool_cv;
 
   public:
     /**
@@ -246,6 +249,14 @@ class MediaLibraryBufferPool : public std::enable_shared_from_this<MediaLibraryB
      * applied to all buffers. Otherwise, it returns MEDIA_LIBRARY_ERROR.
      */
     media_library_return for_each_buffer(std::function<bool(int, size_t)> func);
+
+    /**
+     * @brief Waits for all the buffers in the pool to be used.
+     * @param timeout_ms The timeout in milliseconds to wait for the buffers to be used.
+     *
+     * @return media_library_return Returns MEDIA_LIBRARY_SUCCESS if all the buffers are used within the timeout.
+     */
+    media_library_return wait_for_used_buffers(uint32_t timeout_ms);
 
     /**
      * @brief Swaps the width and height of the buffer.

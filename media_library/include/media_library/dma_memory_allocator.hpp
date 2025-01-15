@@ -81,7 +81,7 @@ class DmaMemoryAllocator
     media_library_return get_ptr(uint fd, void **buffer, bool include_external = true);
 };
 
-static inline media_library_return destroy_dma_buffer(void *buffer)
+static inline void destroy_dma_buffer(void *buffer)
 {
-    return DmaMemoryAllocator::get_instance().free_dma_buffer(buffer);
+    DmaMemoryAllocator::get_instance().free_dma_buffer(buffer);
 }

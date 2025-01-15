@@ -148,10 +148,9 @@ class DIS
     /// @brief Calculates the grid for stabilization of the current frame, described by frame
     /// motion vector between current and the previous frame.
     /// @param fmv motion vector per frame
-    /// @param panning panning per frame
     /// @param flip_mirror_rot as applied on the output image
     /// @param grid output grid
-    RetCodes generate_grid(vec2 fmv, int32_t panning, FlipMirrorRot flip_mirror_rot,
+    RetCodes generate_grid(vec2 fmv, FlipMirrorRot flip_mirror_rot,
                            std::shared_ptr<angular_dis_params_t> angular_dis_params, DewarpT &grid);
 
     /// @brief Calculates grid for dewarping the input frame only.

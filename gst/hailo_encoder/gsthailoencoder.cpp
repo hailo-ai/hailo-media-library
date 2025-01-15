@@ -29,10 +29,14 @@
 #include <errno.h>
 #include <stdio.h>
 #include <time.h>
-
+#include <pthread.h>
+#include <cstdlib>   // For getenv
+#include <stdexcept> // For std::invalid_argument, std::out_of_range
 #include "gsthailobuffermeta.hpp"
 #include "gsthailoencoder.hpp"
 #include "buffer_utils/buffer_utils.hpp"
+
+#define MEDIALIB_ENCODER_THREAD_PRIORITY_ENV_VAR ("MEDIALIB_ENCODER_THREAD_PRIORITY")
 
 /*******************
 Property Definitions
@@ -307,7 +311,7 @@ static inline void hailo_media_library_encoder_release(PtrWrapper *wrapper)
     delete wrapper;
 }
 
-static GstBuffer *gst_hailo_encoder_get_output_buffer(GstHailoEncoder *hailoencoder, EncoderOutputBuffer output)
+static GstBuffer *gst_hailo_encoder_get_output_buffer(EncoderOutputBuffer output)
 {
     PtrWrapper *wrapper = new PtrWrapper();
     wrapper->ptr = output.buffer;
@@ -412,7 +416,7 @@ static gboolean gst_hailo_encoder_propose_allocation(GstVideoEncoder *encoder, G
     return GST_VIDEO_ENCODER_CLASS(parent_class)->propose_allocation(encoder, query);
 }
 
-static gboolean gst_hailo_encoder_flush(GstVideoEncoder *encoder)
+static gboolean gst_hailo_encoder_flush(GstVideoEncoder *)
 {
     return TRUE;
 }
@@ -485,7 +489,7 @@ static gboolean gst_hailo_encoder_start(GstVideoEncoder *encoder)
         GST_ERROR_OBJECT(hailoencoder, "Failed to start encoder");
         return FALSE;
     }
-    GstBuffer *buf = gst_hailo_encoder_get_output_buffer(hailoencoder, output_expected.value());
+    GstBuffer *buf = gst_hailo_encoder_get_output_buffer(output_expected.value());
     gst_buffer_add_hailo_buffer_meta(buf, output_expected.value().buffer, output_expected.value().size);
     gst_hailo_encoder_add_headers(hailoencoder, buf);
 
@@ -498,6 +502,7 @@ static gboolean gst_hailo_encoder_stop(GstVideoEncoder *encoder)
 {
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
     GST_DEBUG_OBJECT(hailoencoder, "hailoencoder stop callback");
+    hailoencoder->encoder->stop();
     hailoencoder->encoder->release();
     g_queue_free(hailoencoder->dts_queue);
     return TRUE;
@@ -508,13 +513,13 @@ static GstFlowReturn gst_hailo_encoder_finish(GstVideoEncoder *encoder)
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
 
     GST_DEBUG_OBJECT(hailoencoder, "hailoencoder finish callback");
-    auto output_expected = hailoencoder->encoder->stop();
+    auto output_expected = hailoencoder->encoder->finish();
     if (!output_expected.has_value())
     {
-        GST_ERROR_OBJECT(hailoencoder, "Could not stop hailoencoder");
+        GST_ERROR_OBJECT(hailoencoder, "Could not finish hailoencoder");
         return GST_FLOW_ERROR;
     }
-    GstBuffer *eos_buffer = gst_hailo_encoder_get_output_buffer(hailoencoder, output_expected.value());
+    GstBuffer *eos_buffer = gst_hailo_encoder_get_output_buffer(output_expected.value());
     gst_buffer_add_hailo_buffer_meta(eos_buffer, output_expected.value().buffer, output_expected.value().size);
 
     eos_buffer->pts = eos_buffer->dts = GPOINTER_TO_UINT(g_queue_peek_tail(hailoencoder->dts_queue));
@@ -555,7 +560,7 @@ static GstFlowReturn gst_hailo_encoder_encode_frame(GstVideoEncoder *encoder, Gs
         }
         else
         {
-            current_frame->output_buffer = gst_hailo_encoder_get_output_buffer(hailoencoder, output);
+            current_frame->output_buffer = gst_hailo_encoder_get_output_buffer(output);
         }
 
         current_frame->dts = GPOINTER_TO_UINT(g_queue_pop_head(hailoencoder->dts_queue));
@@ -570,8 +575,70 @@ static GstFlowReturn gst_hailo_encoder_encode_frame(GstVideoEncoder *encoder, Gs
     return GST_FLOW_OK;
 }
 
+int get_env_variable_as_int(const std::string &var_name)
+{
+    const char *env_value = std::getenv(var_name.c_str());
+    if (env_value == nullptr)
+    {
+        return -1;
+    }
+
+    try
+    {
+        return std::stoi(env_value);
+    }
+    catch (const std::invalid_argument &e)
+    {
+        throw std::runtime_error("Invalid value for environment variable '" + var_name + "': not a valid integer");
+    }
+    catch (const std::out_of_range &e)
+    {
+        throw std::runtime_error("Invalid value for environment variable '" + var_name + "': out of range");
+    }
+}
+
+static void set_thread_priority(GstVideoEncoder *encoder)
+{
+    struct sched_param sch_params;
+    int desired_sched_policy = SCHED_FIFO;
+    GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
+    int encoder_thread_priority_number = get_env_variable_as_int(MEDIALIB_ENCODER_THREAD_PRIORITY_ENV_VAR);
+    int desired_priority = encoder_thread_priority_number;
+
+    // Get current thread scheduling parameters
+    int current_sched_policy;
+    struct sched_param current_params;
+    if (pthread_getschedparam(pthread_self(), &current_sched_policy, &current_params) != 0)
+    {
+        GST_WARNING_OBJECT(hailoencoder, "Failed to get current thread scheduling parameters: %s", strerror(errno));
+        return;
+    }
+
+    // Check if an update is necessary
+    if (current_sched_policy == desired_sched_policy && current_params.sched_priority == desired_priority)
+    {
+        GST_DEBUG_OBJECT(hailoencoder, "Thread priority and scheduling policy are already set.");
+        return;
+    }
+
+    // Set the desired priority and policy
+    sch_params.sched_priority = desired_priority;
+    if (pthread_setschedparam(pthread_self(), desired_sched_policy, &sch_params) != 0)
+    {
+        GST_WARNING_OBJECT(hailoencoder, "Failed to set thread priority: %s", strerror(errno));
+    }
+    else
+    {
+        GST_DEBUG_OBJECT(hailoencoder, "Thread priority set to %d with policy SCHED_FIFO", sch_params.sched_priority);
+    }
+}
+
 static GstFlowReturn gst_hailo_encoder_handle_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *frame)
 {
+    if (get_env_variable_as_int(MEDIALIB_ENCODER_THREAD_PRIORITY_ENV_VAR) != -1)
+    {
+        set_thread_priority(encoder);
+    }
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
     GstFlowReturn ret = GST_FLOW_ERROR;
     GstVideoCodecFrame *input_frame = nullptr;

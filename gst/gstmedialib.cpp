@@ -34,7 +34,6 @@
 #include "multi_resize/gsthailomultiresize.hpp"
 #include "dewarp/gsthailodewarp.hpp"
 #include "denoise/gstnativedenoise.hpp"
-#include "defog/gsthailodefog.hpp"
 #include "frontend/gsthailofrontend.hpp"
 #include "frontend/gsthailofrontendbinsrc.hpp"
 #include "upload/gsthailoupload.hpp"
@@ -52,7 +51,6 @@ static gboolean media_library_plugin_init(GstPlugin *plugin)
     gst_element_register(plugin, "hailomultiresize", GST_RANK_PRIMARY, GST_TYPE_HAILO_MULTI_RESIZE);
     gst_element_register(plugin, "hailodewarp", GST_RANK_PRIMARY, GST_TYPE_HAILO_DEWARP);
     gst_element_register(plugin, "hailodenoise", GST_RANK_PRIMARY, GST_TYPE_HAILO_DENOISE);
-    gst_element_register(plugin, "hailodefog", GST_RANK_PRIMARY, GST_TYPE_HAILO_DEFOG);
     gst_element_register(plugin, "hailofrontend", GST_RANK_PRIMARY, GST_TYPE_HAILO_FRONTEND);
     gst_element_register(plugin, "hailofrontendbinsrc", GST_RANK_PRIMARY, GST_TYPE_HAILO_FRONTEND_BINSRC);
     gst_element_register(plugin, "hailoupload", GST_RANK_PRIMARY, GST_TYPE_HAILO_UPLOAD);

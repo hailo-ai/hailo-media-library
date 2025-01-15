@@ -1,5 +1,9 @@
-debug_args = ['-g', '-O0']
+debug_args = ['-g', '-O0', '-U_FORTIFY_SOURCE']
 common_args = ['-DHAVE_CONFIG_H']
+
+if get_option('buildtype') == 'debug'
+    common_args += debug_args
+endif
 
 core_conf = configuration_data()
 core_conf.set('PACKAGE', '"@0@"'.format(meson.project_name()))

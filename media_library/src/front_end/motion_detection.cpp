@@ -35,8 +35,7 @@ MotionDetection::MotionDetection(motion_detection_config_t &motion_detection_con
 media_library_return MotionDetection::allocate_motion_detection(uint32_t max_buffer_pool_size)
 {
     m_motion_detection_roi = cv::Rect(m_motion_detection_config.roi.x, m_motion_detection_config.roi.y,
-                                      m_motion_detection_config.roi.width - m_motion_detection_config.roi.x,
-                                      m_motion_detection_config.roi.height - m_motion_detection_config.roi.y);
+                                      m_motion_detection_config.roi.width, m_motion_detection_config.roi.height);
 
     if (m_motion_detection_buffer_pool != nullptr &&
         m_motion_detection_buffer_pool->get_width() ==
@@ -95,7 +94,7 @@ media_library_return MotionDetection::perform_motion_detection(std::vector<Hailo
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
-    create_motion_mask(bitmask_buffer);
+    create_motion_mask();
 
     bool motion_detected = detect_motion();
 
@@ -146,7 +145,7 @@ HailoMediaLibraryBufferPtr MotionDetection::allocate_bitmask_buffer()
     return bitmask_buffer;
 }
 
-void MotionDetection::create_motion_mask(const HailoMediaLibraryBufferPtr &bitmask_buffer)
+void MotionDetection::create_motion_mask()
 {
     cv::absdiff(m_motion_detection_current_frame, m_motion_detection_previous_frame, m_motion_detection_mask);
 

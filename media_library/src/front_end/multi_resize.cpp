@@ -80,10 +80,10 @@ class MediaLibraryMultiResize::Impl final
                                       std::vector<HailoMediaLibraryBufferPtr> &output_frames);
 
     // get the multi-resize configurations object
-    multi_resize_config_t &get_multi_resize_configs();
+    multi_resize_config_t get_multi_resize_configs();
 
     // get the output video configurations object
-    output_video_config_t &get_output_video_config();
+    output_video_config_t get_output_video_config();
 
     // set the input video configurations object
     media_library_return set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate);
@@ -133,8 +133,7 @@ class MediaLibraryMultiResize::Impl final
                                                 std::vector<HailoMediaLibraryBufferPtr> &buffers);
     bool should_push_frame_logic(uint32_t output_framerate, uint8_t output_index, uint64_t isp_timestamp_ns);
     media_library_return create_and_initialize_buffer_pools();
-    media_library_return validate_input_and_output_frames(HailoMediaLibraryBufferPtr input_frame,
-                                                          std::vector<HailoMediaLibraryBufferPtr> &output_frames);
+    media_library_return validate_output_frames(std::vector<HailoMediaLibraryBufferPtr> &output_frames);
     media_library_return perform_multi_resize(HailoMediaLibraryBufferPtr input_buffer,
                                               std::vector<HailoMediaLibraryBufferPtr> &output_frames);
     media_library_return configure_internal(multi_resize_config_t &mresize_config);
@@ -176,12 +175,12 @@ media_library_return MediaLibraryMultiResize::handle_frame(HailoMediaLibraryBuff
     return m_impl->handle_frame(input_frame, output_frames);
 }
 
-multi_resize_config_t &MediaLibraryMultiResize::get_multi_resize_configs()
+multi_resize_config_t MediaLibraryMultiResize::get_multi_resize_configs()
 {
     return m_impl->get_multi_resize_configs();
 }
 
-output_video_config_t &MediaLibraryMultiResize::get_output_video_config()
+output_video_config_t MediaLibraryMultiResize::get_output_video_config()
 {
     return m_impl->get_output_video_config();
 }
@@ -854,18 +853,35 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
     }
 
     // Using std::optional to manage the denoise parameters
-    std::optional<dsp_image_enhancement_params_t> m_denoise_params;
-
+    std::optional<dsp_image_enhancement_params_t> dsp_denoise_params;
     if (m_post_denoise_filter->m_denoise_element_enabled && m_post_denoise_filter->is_enabled())
     {
-        m_denoise_params.emplace();
-        m_post_denoise_filter->get_denoise_params(*m_denoise_params);
+        dsp_denoise_params =
+            std::make_optional<dsp_image_enhancement_params_t>(m_post_denoise_filter->get_dsp_denoise_params());
 
-        LOGGER__DEBUG("Denoise params: sharpness {} contrast {} brightness {} saturation_u_a {} saturation_u_b {} "
-                      "saturation_v_a {} saturation_v_b {}",
-                      m_denoise_params->sharpness, m_denoise_params->contrast, m_denoise_params->brightness,
-                      m_denoise_params->saturation_u_a, m_denoise_params->saturation_u_b,
-                      m_denoise_params->saturation_v_a, m_denoise_params->saturation_v_b);
+        if (dsp_denoise_params->histogram_params)
+        {
+            auto frame_size =
+                std::make_pair(input_roi->end_x - input_roi->start_x, input_roi->end_y - input_roi->start_y);
+            auto [x_sample_step, y_sample_step] = PostDenoiseFilter::histogram_sample_step_for_frame(frame_size);
+            dsp_denoise_params->histogram_params->x_sample_step = x_sample_step;
+            dsp_denoise_params->histogram_params->y_sample_step = y_sample_step;
+            LOGGER__DEBUG("Denoise params: sharpness {} contrast {} brightness {} saturation_u_a {} saturation_u_b {} "
+                          "saturation_v_a {} saturation_v_b {} histogram x_sample_step {} y_sample_step {} ",
+                          dsp_denoise_params->sharpness, dsp_denoise_params->contrast, dsp_denoise_params->brightness,
+                          dsp_denoise_params->saturation_u_a, dsp_denoise_params->saturation_u_b,
+                          dsp_denoise_params->saturation_v_a, dsp_denoise_params->saturation_v_b,
+                          dsp_denoise_params->histogram_params->x_sample_step,
+                          dsp_denoise_params->histogram_params->y_sample_step);
+        }
+        else
+        {
+            LOGGER__DEBUG("Denoise params: sharpness {} contrast {} brightness {} saturation_u_a {} saturation_u_b {} "
+                          "saturation_v_a {} saturation_v_b {}",
+                          dsp_denoise_params->sharpness, dsp_denoise_params->contrast, dsp_denoise_params->brightness,
+                          dsp_denoise_params->saturation_u_a, dsp_denoise_params->saturation_u_b,
+                          dsp_denoise_params->saturation_v_a, dsp_denoise_params->saturation_v_b);
+        }
     }
 
     LOGGER__DEBUG("Performing multi resize on the DSP with digital zoom ROI: start_x {} start_y {} end_x {} end_y "
@@ -873,9 +889,15 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
                   input_roi->start_x, input_roi->start_y, input_roi->end_x, input_roi->end_y,
                   privacy_mask_data->rois_count);
 
-    dsp_status ret = dsp_utils::perform_dsp_telescopic_multi_resize(&multi_crop_resize_params,
-                                                                    dsp_privacy_mask ? &*dsp_privacy_mask : nullptr,
-                                                                    m_denoise_params ? &*m_denoise_params : nullptr);
+    dsp_status ret = dsp_utils::perform_dsp_telescopic_multi_resize(
+        &multi_crop_resize_params, dsp_privacy_mask ? &dsp_privacy_mask.value() : nullptr,
+        dsp_denoise_params ? &dsp_denoise_params.value() : nullptr);
+
+    if (m_post_denoise_filter->m_denoise_element_enabled && m_post_denoise_filter->is_enabled() &&
+        dsp_denoise_params->histogram_params)
+    {
+        m_post_denoise_filter->set_dsp_denoise_params_from_histogram(dsp_denoise_params->histogram_params->histogram);
+    }
 
     clock_gettime(CLOCK_MONOTONIC, &end_resize);
     [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_resize, start_resize);
@@ -901,8 +923,8 @@ void MediaLibraryMultiResize::Impl::increase_frame_counter()
     m_frame_counter = (m_frame_counter == 60) ? 1 : m_frame_counter + 1;
 }
 
-media_library_return MediaLibraryMultiResize::Impl::validate_input_and_output_frames(
-    HailoMediaLibraryBufferPtr input_frame, std::vector<HailoMediaLibraryBufferPtr> &output_frames)
+media_library_return MediaLibraryMultiResize::Impl::validate_output_frames(
+    std::vector<HailoMediaLibraryBufferPtr> &output_frames)
 {
     // Check if vector of output buffers is not empty
     if (!output_frames.empty())
@@ -932,7 +954,7 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(HailoMediaLibra
     struct timespec start_handle, end_handle;
     clock_gettime(CLOCK_MONOTONIC, &start_handle);
 
-    if (validate_input_and_output_frames(input_frame, output_frames) != MEDIA_LIBRARY_SUCCESS)
+    if (validate_output_frames(output_frames) != MEDIA_LIBRARY_SUCCESS)
     {
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
@@ -983,13 +1005,13 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(HailoMediaLibra
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-multi_resize_config_t &MediaLibraryMultiResize::Impl::get_multi_resize_configs()
+multi_resize_config_t MediaLibraryMultiResize::Impl::get_multi_resize_configs()
 {
     std::shared_lock<std::shared_mutex> lock(rw_lock);
     return m_multi_resize_config;
 }
 
-output_video_config_t &MediaLibraryMultiResize::Impl::get_output_video_config()
+output_video_config_t MediaLibraryMultiResize::Impl::get_output_video_config()
 {
     std::shared_lock<std::shared_mutex> lock(rw_lock);
     return m_multi_resize_config.output_video_config;

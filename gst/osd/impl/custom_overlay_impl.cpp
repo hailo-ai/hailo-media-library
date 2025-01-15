@@ -66,7 +66,6 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Custom
 
     m_dsp_buffer_data = m_medialib_buffer->buffer_data->As<hailo_dsp_buffer_data_t>();
     m_dsp_overlays[0].overlay = m_dsp_buffer_data.properties;
-    void *overlay_ptr = &m_dsp_overlays[0].overlay;
     return m_dsp_overlays;
 }
 

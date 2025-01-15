@@ -275,7 +275,7 @@ void DIS::gen_resize_grid(DewarpT &grid)
 ///////////////////////////////////////////////////////////////////////////////
 // generate_grid()
 ///////////////////////////////////////////////////////////////////////////////
-RetCodes DIS::generate_grid(vec2 fmv, int32_t panning, FlipMirrorRot flip_mirror_rot,
+RetCodes DIS::generate_grid(vec2 fmv, FlipMirrorRot flip_mirror_rot,
                             std::shared_ptr<angular_dis_params_t> angular_dis_params, DewarpT &grid)
 {
     float stabilization_theta = *(angular_dis_params->dsp_filter_angle->stabilized_theta);

@@ -182,7 +182,7 @@ static GstFlowReturn create_and_initialize_buffer_pools(GstHailoImageFreeze *sel
         return GST_FLOW_OK;
     }
 
-    GST_INFO_OBJECT(self, "Creating buffer pool with width %d and height %d", width, height);
+    GST_INFO_OBJECT(self, "Creating buffer pool with width %zu and height %zu", width, height);
     self->m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, HAILO_FORMAT_NV12, 1,
                                                                    HAILO_MEMORY_TYPE_DMABUF, "image_freeze_output");
     if (self->m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)

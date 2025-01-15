@@ -35,8 +35,8 @@ GstBufferPool *gst_hailo_dmabuf_create_new_pool(GstDebugCategory *category, GstQ
  * @return boolean - pool was successfully configured
  *
  */
-gboolean gst_hailo_dmabuf_configure_pool(GstDebugCategory *category, GstBufferPool *pool, GstCaps *caps, gsize size,
-                                         guint min_buffers, guint max_buffers);
+gboolean gst_hailo_dmabuf_configure_pool(GstBufferPool *pool, GstCaps *caps, gsize size, guint min_buffers,
+                                         guint max_buffers);
 
 /**
  * Checks if the pool is a hailo pool

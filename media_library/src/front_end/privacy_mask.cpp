@@ -75,17 +75,6 @@ PrivacyMaskBlender::~PrivacyMaskBlender()
 
 tl::expected<PrivacyMaskBlenderPtr, media_library_return> PrivacyMaskBlender::create()
 {
-    return create(nlohmann::json());
-}
-
-tl::expected<PrivacyMaskBlenderPtr, media_library_return> PrivacyMaskBlender::create(uint frame_width,
-                                                                                     uint frame_height)
-{
-    return create(frame_width, frame_height, nlohmann::json());
-}
-
-tl::expected<PrivacyMaskBlenderPtr, media_library_return> PrivacyMaskBlender::create(const nlohmann::json &config)
-{
     PrivacyMaskBlenderPtr privacy_mask_blender_ptr = std::make_shared<PrivacyMaskBlender>();
 
     dsp_status dsp_ret = dsp_utils::acquire_device();
@@ -99,8 +88,8 @@ tl::expected<PrivacyMaskBlenderPtr, media_library_return> PrivacyMaskBlender::cr
 }
 
 tl::expected<PrivacyMaskBlenderPtr, media_library_return> PrivacyMaskBlender::create(uint frame_width,
-                                                                                     uint frame_height,
-                                                                                     const nlohmann::json &config)
+                                                                                     uint frame_height)
+
 {
     PrivacyMaskBlenderPtr privacy_mask_blender_ptr = std::make_shared<PrivacyMaskBlender>(frame_width, frame_height);
 

@@ -920,7 +920,7 @@ static VCEncRet gst_hailoenc_encode_header(GstVideoEncoder *encoder)
  * @param[in] frame        A GstVideoCodecFrame used for sending stream_end data.
  * @return Upon success, returns GST_FLOW_OK, GST_FLOW_ERROR on failure.
  */
-static GstFlowReturn gst_hailoenc_stream_restart(GstVideoEncoder *encoder, GstVideoCodecFrame *frame)
+static GstFlowReturn gst_hailoenc_stream_restart(GstVideoEncoder *encoder)
 {
     VCEncRet enc_ret;
     GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
@@ -1235,7 +1235,7 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
                     hailoenc->stream_restart = TRUE;
                 }
             }
-            UpdateEncoderGOP(enc_params, hailoenc->encoder_instance);
+            UpdateEncoderGOP(enc_params);
         }
         break;
     default:
@@ -1404,7 +1404,7 @@ static gboolean gst_hailoenc_propose_allocation(GstVideoEncoder *encoder, GstQue
     return GST_VIDEO_ENCODER_CLASS(parent_class)->propose_allocation(encoder, query);
 }
 
-static gboolean gst_hailoenc_flush(GstVideoEncoder *encoder)
+static gboolean gst_hailoenc_flush(GstVideoEncoder *)
 {
     return TRUE;
 }
@@ -1551,7 +1551,7 @@ static GstFlowReturn gst_hailoenc_handle_frame(GstVideoEncoder *encoder, GstVide
 
     if (hailoenc->stream_restart)
     {
-        ret = gst_hailoenc_stream_restart(encoder, frame);
+        ret = gst_hailoenc_stream_restart(encoder);
         if (ret != GST_FLOW_OK)
         {
             GST_ERROR_OBJECT(hailoenc, "Failed to restart encoder");
@@ -1568,7 +1568,7 @@ static GstFlowReturn gst_hailoenc_handle_frame(GstVideoEncoder *encoder, GstVide
         GST_DEBUG_OBJECT(hailoenc, "Forcing keyframe");
         // Adding sync point in order to delete forced keyframe evnet from the queue.
         GST_VIDEO_CODEC_FRAME_SET_SYNC_POINT(frame);
-        ForceKeyframe(enc_params, hailoenc->encoder_instance);
+        ForceKeyframe(enc_params);
         oldest_frame = gst_video_encoder_get_oldest_frame(encoder);
         ret = encode_single_frame(hailoenc, oldest_frame);
         if (ret != GST_FLOW_OK)
