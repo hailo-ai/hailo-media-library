@@ -153,20 +153,34 @@ class MediaLibraryMultiResize
     PrivacyMaskBlenderPtr get_privacy_mask_blender();
 
     /**
-     * @brief Sets the rotation angle for the media library.
+     * @brief Sets wether to perform flip and rotate inside the multi-resize operation.
+     *
+     * @param do_flip_rotate - the status to be set.
+     * @return The status of the operation.
+     */
+    media_library_return set_do_flip_rotate(bool do_flip_rotate);
+    /**
+     * @brief Sets the flip direction to perform inside the multi-resize operation.
+     *
+     * @param flip The flip direction to be set.
+     * @return The status of the operation.
+     */
+    media_library_return set_output_flip(flip_direction_t flip);
+    /**
+     * @brief Sets the rotation angle to perform inside the multi-resize operation.
      *
      * @param rotation The rotation angle to be set.
      * @return The status of the operation.
      */
-    media_library_return set_output_rotation(const rotation_angle_t &rotation);
+    media_library_return set_output_rotation(rotation_angle_t rotation);
 
     /**
-     * @brief Sets the denoise status for the media library.
+     * @brief Sets wether to perform image enhancement inside the multi-resize operation.
      *
      * @param status The status to be set.
      * @return The status of the operation.
      */
-    media_library_return set_denoise_status(bool status);
+    media_library_return set_image_enhancement_status(bool status);
 };
 
 /** @} */ // end of multi_resize_type_definitions

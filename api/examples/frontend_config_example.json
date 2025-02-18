@@ -11,6 +11,7 @@
         "method": "INTERPOLATION_TYPE_BILINEAR",
         "format": "IMAGE_FORMAT_NV12",
         "grayscale": false,
+        "keep_aspect_ratio": false,
         "resolutions": [
             {
                 "width": 3840,
@@ -42,7 +43,7 @@
         "black_corners_correction_enabled": true,
         "black_corners_threshold": 0.5,
         "average_luminance_threshold": 0,
-        "camera_fov_factor": 1,
+        "camera_fov_factor": 0.85,
         "angular_dis": {
             "enabled": false,
             "vsm": {

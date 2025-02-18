@@ -4,6 +4,7 @@ endif
 
 incdir = [include_directories('./include/media_library')]
 utils_incdir = [include_directories('./src/utils')]
+denoise_incdir = [include_directories('./src/front_end/denoise')]
 
 
 common_sourcs = [
@@ -49,10 +50,11 @@ frontend_sources = [
     'src/front_end/ldc_mesh_context.cpp',
     'src/front_end/privacy_mask.cpp',
     'src/front_end/polygon_math.cpp',
-    'src/front_end/denoise.cpp',
+    'src/front_end/denoise/hailort_denoise.cpp',
+    'src/front_end/denoise/post_isp_denoise.cpp',
+    'src/front_end/denoise/pre_isp_denoise.cpp',
     'src/front_end/motion_detection.cpp',
-    'src/front_end/post_denoise_filter.cpp',
-    'src/front_end/hailort_denoise.cpp'
+    'src/front_end/dsp_image_enhancement.cpp'
 ]
 
 libiio_dep = dependency('libiio', version: '>=0.19', required: true)
@@ -95,8 +97,8 @@ executable('gyro_calibration',
 media_library_frontend_lib = shared_library('hailo_media_library_frontend',
     frontend_sources,
     cpp_args: common_args,
-    include_directories: [incdir, dis_incdir, eis_incdir, utils_incdir],
-    dependencies : [opencv_dep,  dsp_dep, dis_library_dep, gyro_lib_dep, spdlog_dep, json_dep, expected_dep, media_library_common_dep, libhailort_dep, eis_lib_dep],
+    include_directories: [incdir, dis_incdir, eis_incdir, utils_incdir, denoise_incdir],
+    dependencies : [opencv_dep, dsp_dep, dis_library_dep, gyro_lib_dep, spdlog_dep, json_dep, expected_dep, media_library_common_dep, libhailort_dep, eis_lib_dep, imaging_hdr_dep],
     version: meson.project_version(),
     install: true,
     install_dir: get_option('libdir'),

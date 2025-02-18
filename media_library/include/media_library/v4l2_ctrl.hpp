@@ -17,29 +17,29 @@ namespace ctrl
 {
 enum v4l2_ctrl_id
 {
-    V4L2_CTRL_POWERLINE_FREQUENCY = 1,
-    V4L2_CTRL_NOISE_REDUCTION = 2,
-    V4L2_CTRL_SHARPNESS_DOWN = 3,
-    V4L2_CTRL_SHARPNESS_UP = 4,
-    V4L2_CTRL_BRIGHTNESS = 5,
-    V4L2_CTRL_CONTRAST = 6,
-    V4L2_CTRL_SATURATION = 7,
-    V4L2_CTRL_EE_ENABLE = 8,
+    V4L2_CTRL_POWERLINE_FREQUENCY,
+    V4L2_CTRL_NOISE_REDUCTION,
+    V4L2_CTRL_SHARPNESS_DOWN,
+    V4L2_CTRL_SHARPNESS_UP,
+    V4L2_CTRL_BRIGHTNESS,
+    V4L2_CTRL_CONTRAST,
+    V4L2_CTRL_SATURATION,
+    V4L2_CTRL_EE_ENABLE,
 
-    V4L2_CTRL_AE_ENABLE = 9,
-    V4L2_CTRL_AE_GAIN = 10,
-    V4L2_CTRL_AE_INTEGRATION_TIME = 11,
-    V4L2_CTRL_AE_WDR_VALUES = 15,
+    V4L2_CTRL_AE_ENABLE,
+    V4L2_CTRL_AE_GAIN,
+    V4L2_CTRL_AE_INTEGRATION_TIME,
+    V4L2_CTRL_AE_WDR_VALUES,
 
-    V4L2_CTRL_WDR_CONTRAST = 12,
+    V4L2_CTRL_WDR_CONTRAST,
 
-    V4L2_CTRL_AWB_MODE = 13,
-    V4L2_CTRL_AWB_ILLUM_INDEX = 14,
+    V4L2_CTRL_AWB_MODE,
+    V4L2_CTRL_AWB_ILLUM_INDEX,
 
-    V4l2_CTRL_CSI_MODE_SEL = 16,
-    V4l2_CTRL_IMX_WDR = 17,
+    V4l2_CTRL_CSI_MODE_SEL,
+    V4l2_CTRL_IMX_WDR,
 
-    V4l2_CTRL_SET_HDR_RATIOS = 18,
+    V4l2_CTRL_SET_HDR_RATIOS,
 
     V4L2_CTRL_MAX
 };
@@ -65,6 +65,7 @@ class v4l2Control
     template <typename T> bool v4l2_ext_ctrl_set_array(v4l2_ctrl_id id, T val);
     template <typename T> bool v4l2_ext_ctrl_set2(v4l2_ctrl_id id, T &val);
     template <typename T> bool v4l2_ext_ctrl_get(v4l2_ctrl_id id, T &val);
+    template <typename T> bool v4l2_ioctl_set(unsigned long request, T &val);
 };
 } // namespace ctrl
 } // namespace isp_utils

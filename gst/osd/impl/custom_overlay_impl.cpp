@@ -30,6 +30,7 @@ CustomOverlayImpl::CustomOverlayImpl(const osd::CustomOverlay &overlay, media_li
                   overlay.rotation_alignment_policy, false, overlay.horizontal_alignment, overlay.vertical_alignment)
 {
     m_format = overlay.get_format();
+    m_is_dsp_buffer_data = false;
     status = MEDIA_LIBRARY_SUCCESS;
 }
 

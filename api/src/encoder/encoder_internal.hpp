@@ -95,7 +95,7 @@ class MediaLibraryEncoder::Impl final
     GstFlowReturn add_gst_buffer(GstBuffer *buffer);
     media_library_return force_keyframe();
     float get_current_fps();
-
+    encoder_monitors get_encoder_monitors();
     /**
      * Below are public functions that are not part of the public API
      * but are public for GStreamer callbacks.

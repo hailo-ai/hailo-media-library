@@ -31,6 +31,10 @@ GST_DEBUG_CATEGORY_STATIC(gst_hailo_multi_resize_debug);
 #define GST_CAT_DEFAULT gst_hailo_multi_resize_debug
 
 #define DENOISE_EVENT_NAME "DENOISE_STATUS_EVENT"
+#define DO_FLIP_ROTATE_EVENT_NAME "HAILO_DO_FLIP_ROTATE_EVENT"
+#define DO_FLIP_ROTATE_PROP_NAME "do-flip-rotate"
+#define FLIP_EVENT_NAME "HAILO_FLIP_EVENT"
+#define FLIP_EVENT_PROP_NAME "flip"
 #define ROTATION_EVENT_NAME "HAILO_ROTATION_EVENT"
 #define ROTATION_EVENT_PROP_NAME "rotation"
 
@@ -410,7 +414,46 @@ static gboolean gst_hailo_multi_resize_sink_event(GstPad *pad, GstObject *parent
             return FALSE;
         }
 
-        if (gst_structure_has_name(structure, ROTATION_EVENT_NAME))
+        if (gst_structure_has_name(structure, DO_FLIP_ROTATE_EVENT_NAME))
+        {
+            gboolean do_flip_rotate;
+            if (!gst_structure_get_boolean(structure, DO_FLIP_ROTATE_PROP_NAME, &do_flip_rotate))
+            {
+                GST_ERROR_OBJECT(self, "Failed receiving do-flip-rotate value from custom event");
+                gst_event_unref(event);
+                return FALSE;
+            }
+
+            GST_DEBUG_OBJECT(self, "Received custom do-flip-rotate event from sinkpad: do-flip-rotate %d",
+                             do_flip_rotate);
+            if (self->medialib_multi_resize->set_do_flip_rotate((bool)do_flip_rotate) != MEDIA_LIBRARY_SUCCESS)
+            {
+                GST_ERROR_OBJECT(self, "Failed to set do-flip-rotate value");
+                gst_event_unref(event);
+                return FALSE;
+            }
+            gst_event_unref(event);
+        }
+        else if (gst_structure_has_name(structure, FLIP_EVENT_NAME))
+        {
+            guint flip;
+            if (!gst_structure_get_uint(structure, FLIP_EVENT_PROP_NAME, &flip))
+            {
+                GST_ERROR_OBJECT(self, "Failed receiving flip value from custom event");
+                gst_event_unref(event);
+                return FALSE;
+            }
+
+            GST_DEBUG_OBJECT(self, "Received custom flip event from sinkpad: flip %d", flip);
+            if (self->medialib_multi_resize->set_output_flip((flip_direction_t)flip) != MEDIA_LIBRARY_SUCCESS)
+            {
+                GST_ERROR_OBJECT(self, "Failed to set flip value");
+                gst_event_unref(event);
+                return FALSE;
+            }
+            gst_event_unref(event);
+        }
+        else if (gst_structure_has_name(structure, ROTATION_EVENT_NAME))
         {
             guint rotation;
             if (!gst_structure_get_uint(structure, ROTATION_EVENT_PROP_NAME, &rotation))
@@ -439,7 +482,7 @@ static gboolean gst_hailo_multi_resize_sink_event(GstPad *pad, GstObject *parent
                 return FALSE;
             }
             GST_DEBUG_OBJECT(self, "Received custom denoise status event from sinkpad: status %d", denoise_status);
-            self->medialib_multi_resize->set_denoise_status(denoise_status);
+            self->medialib_multi_resize->set_image_enhancement_status(denoise_status);
             gst_event_unref(event);
         }
         else
@@ -607,6 +650,7 @@ static void gst_hailo_multi_resize_dispose(GObject *object)
     GST_DEBUG_OBJECT(self, "dispose");
 
     gst_hailo_multi_resize_reset(self);
+    self->multi_resize_config = nullptr;
 
     G_OBJECT_CLASS(parent_class)->dispose(object);
 }

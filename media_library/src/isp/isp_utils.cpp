@@ -86,6 +86,24 @@ std::string find_subdevice_path(const std::string &subdevice_name)
     return "";
 }
 
+std::string find_sensor_name()
+{
+    for (const auto &entry : std::filesystem::directory_iterator("/sys/class/video4linux/"))
+    {
+        if (entry.path().filename().string().find("v4l-subdev") != std::string::npos)
+        {
+            std::ifstream name_file(entry.path() / "name");
+            std::string name;
+            name_file >> name;
+            if (name.find("imx") != std::string::npos)
+            {
+                return name.substr(0, name.find(" "));
+            }
+        }
+    }
+    return "";
+}
+
 void override_file(const std::string &src, const std::string &dst)
 {
     if (!std::filesystem::exists(src))
@@ -263,16 +281,16 @@ void setup_hdr(bool is_4k, hdr_dol_t dol)
     edit_media_server_cfg(m_isp_config_files_path + std::string("/") + std::string(_MEDIA_SERVER_CONFIG), true);
     edit_sensor_entry(m_isp_config_files_path + std::string("/") + std::string(ISP_SENSOR0_ENTRY_CONFIG), true, is_4k,
                       dol);
-    if (auto imx678_path = find_subdevice_path("imx678"); !imx678_path.empty())
+    if (auto imx_path = find_subdevice_path("imx"); !imx_path.empty())
     {
-        isp_utils::ctrl::v4l2Control v4l2_ctrl(imx678_path);
+        isp_utils::ctrl::v4l2Control v4l2_ctrl(imx_path);
         bool val = true;
         if (!v4l2_ctrl.v4l2_ext_ctrl_set(isp_utils::ctrl::V4l2_CTRL_IMX_WDR, val))
-            LOGGER__WARN("Failed to set IMX_WDR for {} to {}", imx678_path, val);
+            LOGGER__WARN("Failed to set IMX_WDR for {} to {}", imx_path, val);
     }
     else
     {
-        LOGGER__DEBUG("Subdevice 'imx678' not found.");
+        LOGGER__DEBUG("Subdevice 'imx' not found.");
     }
 
     if (auto csi_path = find_subdevice_path("csi"); !csi_path.empty())
@@ -295,16 +313,16 @@ void setup_sdr(bool is_4k)
     edit_media_server_cfg(m_isp_config_files_path + std::string("/") + std::string(_MEDIA_SERVER_CONFIG), false);
     edit_sensor_entry(m_isp_config_files_path + std::string("/") + std::string(ISP_SENSOR0_ENTRY_CONFIG), false, is_4k);
 
-    if (auto imx678_path = find_subdevice_path("imx678"); !imx678_path.empty())
+    if (auto imx_path = find_subdevice_path("imx"); !imx_path.empty())
     {
-        isp_utils::ctrl::v4l2Control v4l2_ctrl(imx678_path);
+        isp_utils::ctrl::v4l2Control v4l2_ctrl(imx_path);
         bool val = false;
         if (!v4l2_ctrl.v4l2_ext_ctrl_set(isp_utils::ctrl::V4l2_CTRL_IMX_WDR, val))
-            LOGGER__WARN("Failed to set IMX_WDR for {} to {}", imx678_path, val);
+            LOGGER__WARN("Failed to set IMX_WDR for {} to {}", imx_path, val);
     }
     else
     {
-        LOGGER__DEBUG("Subdevice 'imx678' not found.");
+        LOGGER__DEBUG("Subdevice 'imx' not found.");
     }
 
     if (auto csi_path = find_subdevice_path("csi"); !csi_path.empty())

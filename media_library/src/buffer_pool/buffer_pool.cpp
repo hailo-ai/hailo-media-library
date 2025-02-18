@@ -162,6 +162,8 @@ MediaLibraryBufferPool::MediaLibraryBufferPool(uint width, uint height, HailoFor
                      std::to_string(m_max_buffers);
     }
 
+    LOGGER__INFO("Creating buffer pool with name {}", m_name);
+
     m_buffer_pool_mutex = std::make_shared<std::mutex>();
 
     switch (format)
@@ -190,6 +192,7 @@ MediaLibraryBufferPool::MediaLibraryBufferPool(uint width, uint height, HailoFor
 
 MediaLibraryBufferPool::~MediaLibraryBufferPool()
 {
+    LOGGER__INFO("Destroying buffer pool with name {}", m_name);
     free();
 }
 

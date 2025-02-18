@@ -42,7 +42,9 @@
             },
             "maxSensorAgain" : 3980,
             "maxSensorDgain" : 1,
-            "maxIspDgain" : 1 
+            "maxIspDgain" : 1,
+            "priority" : [[[0.000038, 0.0035],[1,3900], [1.6, 1.6], ["shutter", "gain", "iris"]]]
+
         },
         {
             "classname" : "Awbv2",

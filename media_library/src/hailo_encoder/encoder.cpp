@@ -460,7 +460,6 @@ media_library_return Encoder::Impl::update_configurations()
 
 media_library_return Encoder::Impl::stream_restart()
 {
-
     VCEncRet enc_ret = VCEncStrmEnd(m_inst, &m_enc_in, &m_enc_out);
     if (enc_ret != VCENC_OK)
     {
@@ -1205,4 +1204,24 @@ void Encoder::Impl::monitor_write_to_file(std::ofstream &file, const std::string
         std::string timestampStr(timestamp);
         file << timestampStr << " " << data << std::endl;
     }).detach();
+}
+
+encoder_monitors Encoder::Impl::get_monitors()
+{
+    encoder_monitors monitors;
+    monitors.bitrate_monitor.enabled = m_bitrate_monitor.enabled;
+    monitors.bitrate_monitor.fps = m_bitrate_monitor.fps;
+    monitors.bitrate_monitor.period = m_bitrate_monitor.period;
+    monitors.bitrate_monitor.ma_bitrate = m_bitrate_monitor.ma_bitrate;
+    monitors.cycle_monitor.enabled = m_cycle_monitor.enabled;
+    monitors.cycle_monitor.deviation_threshold = m_cycle_monitor.deviation_threshold;
+    monitors.cycle_monitor.monitor_frames = m_cycle_monitor.monitor_frames;
+    monitors.cycle_monitor.start_delay = m_cycle_monitor.start_delay;
+
+    return monitors;
+}
+
+encoder_monitors Encoder::get_monitors()
+{
+    return m_impl->get_monitors();
 }

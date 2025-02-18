@@ -31,6 +31,10 @@
 GST_DEBUG_CATEGORY_STATIC(gst_hailo_dewarp_debug);
 #define GST_CAT_DEFAULT gst_hailo_dewarp_debug
 
+#define DO_FLIP_ROTATE_EVENT_NAME "HAILO_DO_FLIP_ROTATE_EVENT"
+#define DO_FLIP_ROTATE_PROP_NAME "do-flip-rotate"
+#define FLIP_EVENT_NAME "HAILO_FLIP_EVENT"
+#define FLIP_EVENT_PROP_NAME "flip"
 #define ROTATION_EVENT_NAME "HAILO_ROTATION_EVENT"
 #define ROTATION_EVENT_PROP_NAME "rotation"
 
@@ -529,6 +533,7 @@ static void gst_hailo_dewarp_finalize(GObject *object)
         self->medialib_dewarp.reset();
         self->medialib_dewarp = NULL;
     }
+    self->dewarp_config = nullptr;
     G_OBJECT_CLASS(parent_class)->finalize(object);
 }
 
@@ -582,7 +587,6 @@ static void gst_hailo_dewarp_set_property(GObject *object, guint property_id, co
         std::string config_string = gstmedialibcommon::read_json_string_from_file(self->config_file_path);
         if (self->medialib_dewarp == nullptr)
         {
-            // gst_hailo_dewarp_create(self);
             gst_hailo_dewarp_create(self, config_string);
         }
         else
@@ -600,7 +604,6 @@ static void gst_hailo_dewarp_set_property(GObject *object, guint property_id, co
 
         if (self->medialib_dewarp == nullptr)
         {
-            // gst_hailo_dewarp_create(self);
             gst_hailo_dewarp_create(self, config_string);
         }
         else
@@ -666,9 +669,7 @@ static void gst_hailo_dewarp_get_property(GObject *object, guint property_id, GV
     }
 }
 
-static gboolean
-// gst_hailo_dewarp_create(GstHailoDewarp *self)
-gst_hailo_dewarp_create(GstHailoDewarp *self, std::string config_string)
+static gboolean gst_hailo_dewarp_create(GstHailoDewarp *self, std::string config_string)
 {
     tl::expected<MediaLibraryDewarpPtr, media_library_return> dewarp = MediaLibraryDewarp::create(config_string);
     if (!dewarp.has_value())
@@ -680,21 +681,53 @@ gst_hailo_dewarp_create(GstHailoDewarp *self, std::string config_string)
 
     // set event callbacks
     MediaLibraryDewarp::callbacks_t callbacks;
-    callbacks.on_output_resolution_change = [self](output_resolution_t &output_res) {
+    callbacks.on_output_resolution_change = std::make_optional([self](output_resolution_t &output_res) {
         // initialize caps negotiation to be passed downstream
         auto ret = gst_hailo_set_srcpad_caps(self, self->srcpad, output_res);
         if (!ret)
             GST_ERROR_OBJECT(self, "Failed to set srcpad caps after output resolution change callback was called");
-    };
-    callbacks.on_rotation_change = [self](rotation_angle_t &rotation) {
-        // create a custom gstreamer event that notifies the rotation change
+        else
+            GST_INFO_OBJECT(self, "Output resolution change callback was called, srcpad caps changed to %ldx%ld",
+                            output_res.dimensions.destination_width, output_res.dimensions.destination_height);
+    });
+    callbacks.on_do_flip_rotate_change = std::make_optional([self](bool do_flip_rotate) {
+        // create a custom gstreamer event that notifies wether multi resize should do flip and rotate
+        GstStructure *structure = gst_structure_new(DO_FLIP_ROTATE_EVENT_NAME, DO_FLIP_ROTATE_PROP_NAME, G_TYPE_BOOLEAN,
+                                                    (gboolean)do_flip_rotate, NULL);
+        auto ret = gst_pad_push_event(self->srcpad, gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM, structure));
+
+        if (!ret)
+            GST_ERROR_OBJECT(
+                self, "Failed to push do-flip-rotate event to srcpad after do-flip-rotate change callback was called");
+        else
+            GST_INFO_OBJECT(self,
+                            "Do-flip-rotate change callback was called, srcpad event pushed with do-flip-rotate %d",
+                            do_flip_rotate);
+    });
+    callbacks.on_flip_change = std::make_optional([self](flip_direction_t flip) {
+        // create a custom gstreamer event that notifies of flip direction changes
+        GstStructure *structure =
+            gst_structure_new(FLIP_EVENT_NAME, FLIP_EVENT_PROP_NAME, G_TYPE_UINT, (guint)flip, NULL);
+        auto ret = gst_pad_push_event(self->srcpad, gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM, structure));
+
+        if (!ret)
+            GST_ERROR_OBJECT(self, "Failed to push flip event to srcpad after flip change callback was called");
+        else
+            GST_INFO_OBJECT(self, "Flip change callback was called, srcpad event pushed with flip %d", flip);
+    });
+    callbacks.on_rotation_change = std::make_optional([self](rotation_angle_t rotation) {
+        // create a custom gstreamer event that notifies of rotation angle changes
         GstStructure *structure =
             gst_structure_new(ROTATION_EVENT_NAME, ROTATION_EVENT_PROP_NAME, G_TYPE_UINT, (guint)rotation, NULL);
         auto ret = gst_pad_push_event(self->srcpad, gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM, structure));
 
         if (!ret)
             GST_ERROR_OBJECT(self, "Failed to push rotation event to srcpad after rotation change callback was called");
-    };
+        else
+            GST_INFO_OBJECT(self, "Rotation change callback was called, srcpad event pushed with rotation %d",
+                            rotation);
+    });
+
     self->medialib_dewarp->observe(callbacks);
 
     return TRUE;

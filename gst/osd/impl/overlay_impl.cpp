@@ -311,9 +311,13 @@ void OverlayImpl::free_resources()
     {
         gst_video_frame_unmap(&video_frame);
     }
-    for (auto &dsp_overlay : m_dsp_overlays)
+
+    if (m_is_dsp_buffer_data)
     {
-        dsp_utils::free_overlay_property_planes(&dsp_overlay);
+        for (auto &dsp_overlay : m_dsp_overlays)
+        {
+            dsp_utils::free_overlay_property_planes(&dsp_overlay);
+        }
     }
 
     m_video_frames.clear();

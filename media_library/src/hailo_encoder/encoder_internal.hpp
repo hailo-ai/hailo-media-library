@@ -195,6 +195,7 @@ class Encoder::Impl final
     media_library_return init();
     media_library_return release();
     media_library_return dispose();
+    encoder_monitors get_monitors();
 
     // static const char *json_schema const get_json_schema() const;
     // static const char * const load_json_schema() const;

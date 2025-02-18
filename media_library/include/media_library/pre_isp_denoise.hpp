@@ -36,13 +36,13 @@
 #include "buffer_pool.hpp"
 #include "media_library_types.hpp"
 
-/** @defgroup denoise_type_definitions MediaLibrary Denoise CPP API definitions
+/** @defgroup pre_isp_denoise_type_definitions MediaLibrary Pre ISP Denoise CPP API definitions
  *  @{
  */
-class MediaLibraryDenoise;
-using MediaLibraryDenoisePtr = std::shared_ptr<MediaLibraryDenoise>;
+class MediaLibraryPreIspDenoise;
+using MediaLibraryPreIspDenoisePtr = std::shared_ptr<MediaLibraryPreIspDenoise>;
 
-class MediaLibraryDenoise
+class MediaLibraryPreIspDenoise
 {
   protected:
     class Impl;
@@ -60,12 +60,12 @@ class MediaLibraryDenoise
     /**
      * @brief Constructor for the denoise module
      */
-    MediaLibraryDenoise();
+    MediaLibraryPreIspDenoise();
 
     /**
      * @brief Destructor for the denoise module
      */
-    ~MediaLibraryDenoise();
+    ~MediaLibraryPreIspDenoise();
 
     /**
      * @brief Configure the denoise module with new json string
@@ -85,16 +85,6 @@ class MediaLibraryDenoise
      * @return media_library_return - status of the configuration operation
      */
     media_library_return configure(const denoise_config_t &denoise_configs, const hailort_t &hailort_configs);
-
-    /**
-     * @brief Perform low-light-enhancement on the input frame and return the output frame
-     *
-     * @param[in] input_frame - pointer to the input frame to be pre-processed
-     * @param[out] output_frames - output frame after denoise
-     *
-     * @return media_library_return - status of the denoise operation
-     */
-    media_library_return handle_frame(HailoMediaLibraryBufferPtr input_frame, HailoMediaLibraryBufferPtr output_frame);
 
     /**
      * @brief get the denoise configurations object
@@ -127,6 +117,20 @@ class MediaLibraryDenoise
      * @return media_library_return - status of the observation operation
      */
     media_library_return observe(const callbacks_t &callbacks);
+
+    /**
+     * @brief Start the pre ISP denoise module, must be called before /dev/video0 is opened
+     *
+     * @return media_library_return - status of the operation
+     */
+    media_library_return start();
+
+    /**
+     * @brief Stop the pre ISP denoise module
+     *
+     * @return media_library_return - status of the operation
+     */
+    media_library_return stop();
 };
 
-/** @} */ // end of denoise_type_definitions
+/** @} */ // end of pre_isp_denoise_type_definitions

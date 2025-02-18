@@ -31,6 +31,7 @@
 #include <tl/expected.hpp>
 #include <functional>
 #include <string>
+#include <ctime>
 
 /** @defgroup media_library_types_definitions MediaLibrary Types CPP API definitions
  *  @{
@@ -209,6 +210,20 @@ struct feedback_network_config_t
     std::string output_uv_channel;
 };
 
+struct bayer_network_config_t
+{
+    bool operator==(const bayer_network_config_t &other) const
+    {
+        return (network_path == other.network_path) && (bayer_channel == other.bayer_channel) &&
+               (feedback_bayer_channel == other.feedback_bayer_channel) &&
+               (output_bayer_channel == other.output_bayer_channel);
+    }
+    std::string network_path;
+    std::string bayer_channel;
+    std::string feedback_bayer_channel;
+    std::string output_bayer_channel;
+};
+
 struct dewarp_config_t
 {
     bool enabled;
@@ -245,6 +260,21 @@ struct flip_config_t
 {
     bool enabled;
     flip_direction_t direction;
+
+    bool operator==(const flip_config_t &other) const
+    {
+        return enabled == other.enabled && direction == other.direction;
+    }
+
+    bool operator!=(const flip_config_t &other) const
+    {
+        return !(*this == other);
+    }
+
+    flip_direction_t effective_value() const
+    {
+        return enabled ? direction : FLIP_DIRECTION_NONE;
+    }
 };
 
 struct rotation_config_t
@@ -254,7 +284,7 @@ struct rotation_config_t
 
     bool operator==(const rotation_config_t &other) const
     {
-        return angle == other.angle && enabled == other.enabled;
+        return enabled == other.enabled && angle == other.angle;
     }
 
     bool operator!=(const rotation_config_t &other) const
@@ -316,6 +346,7 @@ struct output_video_config_t
     dsp_interpolation_type_t interpolation_type;
     HailoFormat format;
     bool grayscale;
+    bool keep_aspect_ratio;
     std::vector<output_resolution_t> resolutions;
 };
 
@@ -380,8 +411,10 @@ struct multi_resize_config_t
     {
         rotation_angle_t current_rotation_angle = rotation_config.effective_value();
         rotation_angle_t new_rotation_angle = new_rotation_config.effective_value();
+
         if (current_rotation_angle % 2 == new_rotation_angle % 2)
         {
+            // new frame maybe rotated but has the same dimensions as current frame
             rotation_config = new_rotation_config;
             return MEDIA_LIBRARY_SUCCESS;
         }
@@ -502,7 +535,8 @@ struct ldc_config_t
     bool check_ops_enabled(bool dewarp_actions_only = false)
     {
         return (dewarp_config.enabled || dis_config.enabled || eis_config.enabled || gyro_config.enabled ||
-                flip_config.enabled || rotation_config.enabled ||
+                rotation_config.effective_value() == ROTATION_ANGLE_90 ||
+                rotation_config.effective_value() == ROTATION_ANGLE_270 ||
                 (!dewarp_actions_only && optical_zoom_config.enabled));
     }
 
@@ -525,14 +559,17 @@ struct ldc_config_t
 struct denoise_config_t
 {
     bool enabled;
+    bool bayer;
     std::string sensor;
     denoise_method_t denoising_quality;
     uint32_t loopback_count;
     feedback_network_config_t network_config;
+    bayer_network_config_t bayer_network_config;
 
     denoise_config_t()
     {
         enabled = false;
+        bayer = false;
         sensor = "imx678";
         denoising_quality = DENOISE_METHOD_VD2;
         loopback_count = 1;
@@ -541,10 +578,12 @@ struct denoise_config_t
     media_library_return update(denoise_config_t &denoise_configs)
     {
         enabled = denoise_configs.enabled;
+        bayer = denoise_configs.bayer;
         sensor = denoise_configs.sensor;
         denoising_quality = denoise_configs.denoising_quality;
         loopback_count = denoise_configs.loopback_count;
         network_config = denoise_configs.network_config;
+        bayer_network_config = denoise_configs.bayer_network_config;
 
         return MEDIA_LIBRARY_SUCCESS;
     }
@@ -600,5 +639,31 @@ struct frontend_config_t
 
         return MEDIA_LIBRARY_SUCCESS;
     }
+};
+
+struct encoder_bitrate_monitor
+{
+    bool enabled;
+    uint32_t fps;
+    uint32_t period;
+    uint32_t sum_period;
+    uint32_t ma_bitrate;
+};
+
+struct encoder_cycle_monitor
+{
+    bool enabled;
+    uint32_t deviation_threshold;
+    uint32_t monitor_frames;
+    uint32_t start_delay;
+    uint32_t frame_count;
+    uint32_t sum;
+    std::time_t start_time;
+};
+
+struct encoder_monitors
+{
+    encoder_bitrate_monitor bitrate_monitor;
+    encoder_cycle_monitor cycle_monitor;
 };
 /** @} */ // end of media_library_types_definitions

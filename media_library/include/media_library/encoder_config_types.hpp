@@ -59,6 +59,9 @@ enum rc_mode_t
 inline const std::unordered_map<std::string, rc_mode_t> str_to_rc_mode{
     {"VBR", VBR}, {"CVBR", CVBR}, {"HRD", HRD}, {"CQP", CQP}};
 
+inline const std::unordered_map<rc_mode_t, std::string> rc_mode_to_str{
+    {VBR, "VBR"}, {CVBR, "CVBR"}, {HRD, "HRD"}, {CQP, "CQP"}};
+
 enum deblocking_filter_type_t
 {
     DEBLOCKING_FILTER_ENABLED,
@@ -139,7 +142,7 @@ struct quantization_config_t
 {
     std::optional<uint32_t> qp_min;
     std::optional<uint32_t> qp_max;
-    uint32_t qp_hdr;
+    int32_t qp_hdr;
     std::optional<int32_t> intra_qp_delta;
     std::optional<uint32_t> fixed_intra_qp;
 };

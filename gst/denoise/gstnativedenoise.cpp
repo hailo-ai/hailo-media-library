@@ -228,7 +228,7 @@ static void gst_hailo_denoise_get_property(GObject *object, guint property_id, G
 static gboolean gst_hailo_denoise_create(GstHailoDenoise *self, const std::string &config_string)
 // gst_hailo_denoise_create(GstHailoDenoise *self)
 {
-    auto medialb_denoise = std::make_shared<MediaLibraryDenoise>();
+    auto medialb_denoise = std::make_shared<MediaLibraryPostIspDenoise>();
     if (medialb_denoise->configure(config_string) != MEDIA_LIBRARY_SUCCESS)
     {
         GST_ERROR_OBJECT(self, "Failed to config denoise");
@@ -237,7 +237,7 @@ static gboolean gst_hailo_denoise_create(GstHailoDenoise *self, const std::strin
 
     self->medialib_denoise = medialb_denoise;
     // set event callbacks
-    MediaLibraryDenoise::callbacks_t callbacks;
+    MediaLibraryPostIspDenoise::callbacks_t callbacks;
     callbacks.on_buffer_ready = [self](HailoMediaLibraryBufferPtr out_buf) {
         gst_hailo_denoise_deploy_buffer(self, out_buf);
     };
@@ -251,7 +251,10 @@ static gboolean gst_hailo_denoise_create(GstHailoDenoise *self, const std::strin
     };
     callbacks.send_event = [self](bool enabled) {
         // send event downstream to notify about denoise enabled or disabled
-        send_denoise_event(self->srcpad, enabled);
+        if (GST_STATE(self) == GST_STATE_PLAYING || GST_STATE(self) == GST_STATE_PAUSED)
+        {
+            send_denoise_event(self->srcpad, enabled);
+        }
     };
     self->medialib_denoise->observe(callbacks);
 
@@ -316,7 +319,7 @@ static GstFlowReturn gst_hailo_denoise_chain(GstPad *pad, GstObject *parent, Gst
     // If Denoise disbled, just push the buffer to srcpad
     if (!self->medialib_denoise->is_enabled())
     {
-        GST_DEBUG_OBJECT(self, "Denoise disabled, pushing buffer to srcpad");
+        GST_DEBUG_OBJECT(self, "Post ISP Denoise disabled, pushing buffer to srcpad");
         gst_pad_push(self->srcpad, buffer);
         return ret;
     }
@@ -333,7 +336,7 @@ static GstFlowReturn gst_hailo_denoise_chain(GstPad *pad, GstObject *parent, Gst
     }
     else if (video_info->width != 3840 || video_info->height != 2160)
     {
-        GST_CAT_ERROR(GST_CAT_DEFAULT, "Denoising currently only supported in 4k, check CAPS.");
+        GST_CAT_ERROR(GST_CAT_DEFAULT, "Post ISP Denoising currently only supported in 4k, check CAPS.");
         gst_video_info_free(video_info);
         return GST_FLOW_ERROR;
     }
@@ -353,6 +356,13 @@ static GstFlowReturn gst_hailo_denoise_chain(GstPad *pad, GstObject *parent, Gst
     media_library_return media_lib_ret = self->medialib_denoise->handle_frame(input_frame_ptr, output_frame_ptr);
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
     {
+        if (media_lib_ret == MEDIA_LIBRARY_UNINITIALIZED)
+        {
+            GST_DEBUG_OBJECT(self, "Post ISP Denoise disabled, pushing buffer to srcpad");
+            gst_pad_push(self->srcpad, buffer);
+            return ret;
+        }
+
         GST_ERROR_OBJECT(self, "Media library handle frame failed on error %d", media_lib_ret);
         gst_buffer_unref(buffer);
         return GST_FLOW_ERROR;
@@ -378,7 +388,6 @@ static gboolean send_denoise_event(GstPad *srcpad, gboolean denoise_status)
     if (!gst_pad_push_event(srcpad, event))
     {
         GST_ERROR("Failed to push denoise status event to srcpad");
-        gst_event_unref(event); // Cleanup in case of failure
         return FALSE;
     }
 
@@ -470,6 +479,7 @@ static void gst_hailo_denoise_finalize(GObject *object)
     self->m_mutex = nullptr;
     self->m_condvar = nullptr;
     self->m_staging_queue = nullptr;
+    self->denoise_config = nullptr;
 
     G_OBJECT_CLASS(parent_class)->finalize(object);
 }

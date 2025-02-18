@@ -193,7 +193,7 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
     const float ONE_DEG_IN_RADS = RADIANS(1.0f);
 
     float eff_in_height = tan(in_cam.ltrb[3]) * flen + in_cam.oc.y;
-    float eff_in_width = tan(in_cam.ltrb[2]) * flen + in_cam.oc.x;
+    // float eff_in_width = tan(in_cam.ltrb[2]) * flen + in_cam.oc.x;
     LOG("In CAM Eff (WxH):  %.3f, %.3f", eff_in_width, eff_in_height);
     float y1 = eff_in_height / 2;
     float y0 = out_cam->res.y / 2;

@@ -95,6 +95,7 @@ class OverlayImpl
     unsigned int m_angle;
     osd::rotation_alignment_policy_t m_rotation_policy;
     bool m_enabled;
+    bool m_is_dsp_buffer_data = true;
     osd::HorizontalAlignment m_horizontal_alignment;
     osd::VerticalAlignment m_vertical_alignment;
 

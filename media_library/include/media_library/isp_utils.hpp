@@ -81,6 +81,7 @@ void set_daylight_configuration();
 void set_lowlight_configuration();
 void set_hdr_configuration();
 std::string find_subdevice_path(const std::string &subdevice_name);
+std::string find_sensor_name();
 void setup_hdr(bool is_4k, hdr_dol_t dol);
 void setup_sdr(bool is_4k);
 void set_hdr_ratios(float ls_ratio, float vs_ratio);

@@ -34,7 +34,7 @@
 #include "media_library_utils.hpp"
 #include "privacy_mask.hpp"
 #include "motion_detection.hpp"
-#include "post_denoise_filter.hpp"
+#include "dsp_image_enhancement.hpp"
 #include <iostream>
 #include <stdint.h>
 #include <string>
@@ -90,11 +90,17 @@ class MediaLibraryMultiResize::Impl final
 
     PrivacyMaskBlenderPtr get_privacy_mask_blender();
 
-    // set the output video rotation
-    media_library_return set_output_rotation(const rotation_angle_t &rotation);
+    // set flip rotate status
+    media_library_return set_do_flip_rotate(bool do_flip_rotate);
 
-    // set the denoise status
-    media_library_return set_denoise_status(bool status);
+    // set the output video flip
+    media_library_return set_output_flip(flip_direction_t flip);
+
+    // set the output video rotation
+    media_library_return set_output_rotation(rotation_angle_t rotation);
+
+    // set the image enhancement status
+    media_library_return set_image_enhancement_status(bool status);
 
     // set the callbacks object
     media_library_return observe(const MediaLibraryMultiResize::callbacks_t &callbacks);
@@ -102,6 +108,12 @@ class MediaLibraryMultiResize::Impl final
   private:
     static constexpr int max_frames_jitter_multiplier = 3;
     static constexpr int max_frames_latency_multiplier = 20;
+
+    // flip-rotate flag
+    bool m_do_flip_rotate = false;
+
+    // flip direction
+    flip_config_t m_flip_config = {false, FLIP_DIRECTION_NONE};
 
     // configured flag - to determine if first configuration was done
     bool m_configured;
@@ -125,7 +137,7 @@ class MediaLibraryMultiResize::Impl final
     uint32_t m_max_buffer_pool_size;
 
     MotionDetection m_motion_detection;
-    std::unique_ptr<PostDenoiseFilter> m_post_denoise_filter;
+    std::unique_ptr<DspImageEnhancement> m_dsp_image_enhancement;
 
     media_library_return validate_configurations(multi_resize_config_t &mresize_config);
     media_library_return decode_config_json_string(multi_resize_config_t &mresize_config, std::string config_string);
@@ -196,14 +208,24 @@ media_library_return MediaLibraryMultiResize::set_input_video_config(uint32_t wi
     return m_impl->set_input_video_config(width, height, framerate);
 }
 
-media_library_return MediaLibraryMultiResize::set_output_rotation(const rotation_angle_t &rotation)
+media_library_return MediaLibraryMultiResize::set_do_flip_rotate(bool do_flip_rotate)
+{
+    return m_impl->set_do_flip_rotate(do_flip_rotate);
+}
+
+media_library_return MediaLibraryMultiResize::set_output_flip(flip_direction_t flip)
+{
+    return m_impl->set_output_flip(flip);
+}
+
+media_library_return MediaLibraryMultiResize::set_output_rotation(rotation_angle_t rotation)
 {
     return m_impl->set_output_rotation(rotation);
 }
 
-media_library_return MediaLibraryMultiResize::set_denoise_status(bool status)
+media_library_return MediaLibraryMultiResize::set_image_enhancement_status(bool status)
 {
-    return m_impl->set_denoise_status(status);
+    return m_impl->set_image_enhancement_status(status);
 }
 
 media_library_return MediaLibraryMultiResize::observe(const MediaLibraryMultiResize::callbacks_t &callbacks)
@@ -227,7 +249,7 @@ tl::expected<std::shared_ptr<MediaLibraryMultiResize::Impl>, media_library_retur
 }
 
 MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string config_string)
-    : m_post_denoise_filter(std::make_unique<PostDenoiseFilter>())
+    : m_dsp_image_enhancement(std::make_unique<DspImageEnhancement>())
 {
     m_configured = false;
     // Start frame count from 0 - to make sure we always handle the first frame even if framerate is set to 0
@@ -252,9 +274,11 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
 
     multi_resize_config_t mresize_config;
     mresize_config = m_multi_resize_config;
-    m_multi_resize_config.rotation_config.angle = ROTATION_ANGLE_0;
     m_motion_detection = MotionDetection(m_multi_resize_config.motion_detection_config);
 
+    // revert the rotation to 0, so when we update the configuration we will correctly detect 90 degree rotation
+    // and flip the output dimensions
+    m_multi_resize_config.rotation_config.angle = ROTATION_ANGLE_0;
     if (configure(mresize_config) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__ERROR("Failed to configure multi-resize");
@@ -322,7 +346,23 @@ media_library_return MediaLibraryMultiResize::Impl::validate_configurations(mult
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryMultiResize::Impl::set_output_rotation(const rotation_angle_t &angle)
+media_library_return MediaLibraryMultiResize::Impl::set_do_flip_rotate(bool do_flip_rotate)
+{
+    std::unique_lock<std::shared_mutex> lock(rw_lock);
+    m_do_flip_rotate = do_flip_rotate;
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return MediaLibraryMultiResize::Impl::set_output_flip(flip_direction_t direction)
+{
+    LOGGER__INFO("Setting output flip from {} to {}", m_flip_config.direction, direction);
+    flip_config_t new_flip = {true, direction};
+    std::unique_lock<std::shared_mutex> lock(rw_lock);
+    m_flip_config = new_flip;
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return MediaLibraryMultiResize::Impl::set_output_rotation(rotation_angle_t angle)
 {
     rotation_config_t new_rotation = {true, angle};
     rotation_config_t &current_rotation = m_multi_resize_config.rotation_config;
@@ -363,9 +403,10 @@ media_library_return MediaLibraryMultiResize::Impl::set_output_rotation(const ro
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryMultiResize::Impl::set_denoise_status(bool status)
+media_library_return MediaLibraryMultiResize::Impl::set_image_enhancement_status(bool status)
 {
-    m_post_denoise_filter->m_denoise_element_enabled = status;
+    std::unique_lock<std::shared_mutex> lock(rw_lock);
+    m_dsp_image_enhancement->m_denoise_element_enabled = status;
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -616,11 +657,40 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(
     return MEDIA_LIBRARY_SUCCESS;
 };
 
+static std::pair<size_t, size_t> adjust_to_aspect_ratio(size_t src_width, size_t src_height, size_t dst_width,
+                                                        size_t dst_height)
+{
+    float src_aspect_ratio = static_cast<float>(src_width) / src_height;
+    float dst_aspect_ratio = static_cast<float>(dst_width) / dst_height;
+
+    size_t new_width, new_height;
+    if (dst_aspect_ratio > src_aspect_ratio)
+    {
+        // adjust height to maintain aspect ratio
+        new_width = dst_width;
+        new_height = std::ceil(dst_width / src_aspect_ratio);
+    }
+    else
+    {
+        // adjust width to maintain aspect ratio
+        new_width = std::ceil(dst_height * src_aspect_ratio);
+        new_height = dst_height;
+    }
+
+    // NV12 requires even resolutions
+    new_width += new_width % 2;
+    new_height += new_height % 2;
+
+    return {new_width, new_height};
+}
+
 /* The telescopic multi-resize function in the DSP requires that the resolutions on each dsp_crop_resize_params_t
  * will be in descending order (for both width and height).
  * This function splits the output resolutions into groups of resolutions that can be resized together.
  */
-static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::vector<hailo_dsp_buffer_data_t> &outputs)
+static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::vector<hailo_dsp_buffer_data_t> &outputs,
+                                                                         const dsp_roi_t &input_roi,
+                                                                         bool keep_aspect_ratio)
 {
     std::vector<dsp_crop_resize_params_t> params;
 
@@ -631,12 +701,10 @@ static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::ve
 
     for (auto &output : outputs)
     {
-
         // Try to find a suitable crop_resize_param for the current output
         bool found = false;
         for (auto &crop_resize_param : params)
         {
-
             // Find the first empty slot (the first slot can be skipped since it's always initialized)
             size_t i = 1;
             while (i < DSP_MULTI_RESIZE_OUTPUTS_COUNT && crop_resize_param.dst[i] != nullptr)
@@ -652,8 +720,21 @@ static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::ve
 
             // Check if the current buffer can be added based on the width and height of the previous buffer
             // (a previous buffer exists since crop_resize_param is never added with an empty dst)
-            if (crop_resize_param.dst[i - 1]->width >= output.properties.width &&
-                crop_resize_param.dst[i - 1]->height >= output.properties.height)
+            auto prev_width = crop_resize_param.dst[i - 1]->width;
+            auto prev_height = crop_resize_param.dst[i - 1]->height;
+            auto curr_width = output.properties.width;
+            auto curr_height = output.properties.height;
+            if (keep_aspect_ratio)
+            {
+                auto src_width = input_roi.end_x - input_roi.start_x;
+                auto src_height = input_roi.end_y - input_roi.start_y;
+                std::tie(prev_width, prev_height) =
+                    adjust_to_aspect_ratio(src_width, src_height, prev_width, prev_height);
+                std::tie(curr_width, curr_height) =
+                    adjust_to_aspect_ratio(src_width, src_height, curr_width, curr_height);
+            }
+
+            if (prev_width >= curr_width && prev_height >= curr_height)
             {
                 crop_resize_param.dst[i] = &output.properties;
                 found = true;
@@ -668,6 +749,7 @@ static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::ve
         {
             dsp_crop_resize_params_t new_param = {};
             new_param.dst[0] = &output.properties;
+            new_param.keep_aspect_ratio = keep_aspect_ratio;
             params.push_back(new_param);
         }
     }
@@ -796,7 +878,14 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
         return MEDIA_LIBRARY_SUCCESS;
     }
 
-    auto crop_resize_params = split_to_crop_resize_params(output_dsp_buffers);
+    auto input_roi = get_input_roi();
+    if (!input_roi.has_value())
+    {
+        return input_roi.error();
+    }
+
+    auto crop_resize_params = split_to_crop_resize_params(output_dsp_buffers, input_roi.value(),
+                                                          m_multi_resize_config.output_video_config.keep_aspect_ratio);
 
     dsp_multi_crop_resize_params_t multi_crop_resize_params = {
         .src = &dsp_buffer_data.properties,
@@ -805,11 +894,6 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
         .interpolation = m_multi_resize_config.output_video_config.interpolation_type,
     };
 
-    auto input_roi = get_input_roi();
-    if (!input_roi.has_value())
-    {
-        input_roi.error();
-    }
     // Apply the input ROI to all crop_resize_params
     for (auto &p : crop_resize_params)
     {
@@ -852,35 +936,39 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
         }
     }
 
-    // Using std::optional to manage the denoise parameters
-    std::optional<dsp_image_enhancement_params_t> dsp_denoise_params;
-    if (m_post_denoise_filter->m_denoise_element_enabled && m_post_denoise_filter->is_enabled())
+    // Using std::optional to manage the image enhancement parameters
+    std::optional<dsp_image_enhancement_params_t> dsp_image_enhancement_params;
+    if (m_dsp_image_enhancement->m_denoise_element_enabled && m_dsp_image_enhancement->is_enabled())
     {
-        dsp_denoise_params =
-            std::make_optional<dsp_image_enhancement_params_t>(m_post_denoise_filter->get_dsp_denoise_params());
+        dsp_image_enhancement_params =
+            std::make_optional<dsp_image_enhancement_params_t>(m_dsp_image_enhancement->get_dsp_params());
 
-        if (dsp_denoise_params->histogram_params)
+        if (dsp_image_enhancement_params->histogram_params)
         {
             auto frame_size =
                 std::make_pair(input_roi->end_x - input_roi->start_x, input_roi->end_y - input_roi->start_y);
-            auto [x_sample_step, y_sample_step] = PostDenoiseFilter::histogram_sample_step_for_frame(frame_size);
-            dsp_denoise_params->histogram_params->x_sample_step = x_sample_step;
-            dsp_denoise_params->histogram_params->y_sample_step = y_sample_step;
-            LOGGER__DEBUG("Denoise params: sharpness {} contrast {} brightness {} saturation_u_a {} saturation_u_b {} "
-                          "saturation_v_a {} saturation_v_b {} histogram x_sample_step {} y_sample_step {} ",
-                          dsp_denoise_params->sharpness, dsp_denoise_params->contrast, dsp_denoise_params->brightness,
-                          dsp_denoise_params->saturation_u_a, dsp_denoise_params->saturation_u_b,
-                          dsp_denoise_params->saturation_v_a, dsp_denoise_params->saturation_v_b,
-                          dsp_denoise_params->histogram_params->x_sample_step,
-                          dsp_denoise_params->histogram_params->y_sample_step);
+            auto [x_sample_step, y_sample_step] = DspImageEnhancement::histogram_sample_step_for_frame(frame_size);
+            dsp_image_enhancement_params->histogram_params->x_sample_step = x_sample_step;
+            dsp_image_enhancement_params->histogram_params->y_sample_step = y_sample_step;
+            LOGGER__DEBUG(
+                "Image enhancement params: sharpness {} contrast {} brightness {} saturation_u_a {} saturation_u_b {} "
+                "saturation_v_a {} saturation_v_b {} histogram x_sample_step {} y_sample_step {} ",
+                dsp_image_enhancement_params->sharpness, dsp_image_enhancement_params->contrast,
+                dsp_image_enhancement_params->brightness, dsp_image_enhancement_params->saturation_u_a,
+                dsp_image_enhancement_params->saturation_u_b, dsp_image_enhancement_params->saturation_v_a,
+                dsp_image_enhancement_params->saturation_v_b,
+                dsp_image_enhancement_params->histogram_params->x_sample_step,
+                dsp_image_enhancement_params->histogram_params->y_sample_step);
         }
         else
         {
-            LOGGER__DEBUG("Denoise params: sharpness {} contrast {} brightness {} saturation_u_a {} saturation_u_b {} "
-                          "saturation_v_a {} saturation_v_b {}",
-                          dsp_denoise_params->sharpness, dsp_denoise_params->contrast, dsp_denoise_params->brightness,
-                          dsp_denoise_params->saturation_u_a, dsp_denoise_params->saturation_u_b,
-                          dsp_denoise_params->saturation_v_a, dsp_denoise_params->saturation_v_b);
+            LOGGER__DEBUG(
+                "Image enhancement params: sharpness {} contrast {} brightness {} saturation_u_a {} saturation_u_b {} "
+                "saturation_v_a {} saturation_v_b {}",
+                dsp_image_enhancement_params->sharpness, dsp_image_enhancement_params->contrast,
+                dsp_image_enhancement_params->brightness, dsp_image_enhancement_params->saturation_u_a,
+                dsp_image_enhancement_params->saturation_u_b, dsp_image_enhancement_params->saturation_v_a,
+                dsp_image_enhancement_params->saturation_v_b);
         }
     }
 
@@ -889,15 +977,24 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
                   input_roi->start_x, input_roi->start_y, input_roi->end_x, input_roi->end_y,
                   privacy_mask_data->rois_count);
 
-    dsp_status ret = dsp_utils::perform_dsp_telescopic_multi_resize(
-        &multi_crop_resize_params, dsp_privacy_mask ? &dsp_privacy_mask.value() : nullptr,
-        dsp_denoise_params ? &dsp_denoise_params.value() : nullptr);
-
-    if (m_post_denoise_filter->m_denoise_element_enabled && m_post_denoise_filter->is_enabled() &&
-        dsp_denoise_params->histogram_params)
+    // enable only for flip horizontal and vertical (no 90 degree rotation for now)
+    // and only if not already done in dewarp
+    std::optional<dsp_flip_rotate_params_t> dsp_flip_rotate_params;
+    if (m_do_flip_rotate)
     {
-        m_post_denoise_filter->set_dsp_denoise_params_from_histogram(dsp_denoise_params->histogram_params->histogram);
+        dsp_flip_rotate_params = dsp_flip_rotate_params_t{
+            .flip_dir = static_cast<dsp_flip_direction_t>(m_flip_config.effective_value()),
+            .rot_ang = static_cast<dsp_rotation_angle_t>(m_multi_resize_config.rotation_config.effective_value()),
+        };
     }
+
+    const dsp_frontend_params_t dsp_frontend_params = {
+        .multi_crop_resize_params = &multi_crop_resize_params,
+        .privacy_mask_params = dsp_privacy_mask ? &dsp_privacy_mask.value() : nullptr,
+        .image_enhancement_params = dsp_image_enhancement_params ? &dsp_image_enhancement_params.value() : nullptr,
+        .flip_rotate_params = dsp_flip_rotate_params ? &dsp_flip_rotate_params.value() : nullptr,
+    };
+    dsp_status ret = dsp_utils::perform_dsp_frontend_process(dsp_frontend_params);
 
     clock_gettime(CLOCK_MONOTONIC, &end_resize);
     [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_resize, start_resize);
@@ -905,6 +1002,13 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
 
     if (ret != DSP_SUCCESS)
         return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
+
+    if (m_dsp_image_enhancement->m_denoise_element_enabled && m_dsp_image_enhancement->is_enabled() &&
+        dsp_image_enhancement_params->histogram_params)
+    {
+        m_dsp_image_enhancement->update_dsp_params_from_histogram(
+            dsp_image_enhancement_params->histogram_params->histogram);
+    }
 
     return MEDIA_LIBRARY_SUCCESS;
 }

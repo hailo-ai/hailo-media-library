@@ -42,7 +42,7 @@
 
 /// Define to enable logs for debug. Comment to leave only logs for critical
 /// errors
-#define LOG_DEBUG
+// #define LOG_DEBUG
 
 /// ONLY ONE of the following should be defined!
 /// Log by printf

@@ -35,6 +35,7 @@
 #include <unordered_set>
 #include <vector>
 #include <condition_variable>
+#include <functional>
 
 #include "media_library_types.hpp"
 #include "hailo_v4l2/hailo_v4l2.h"
@@ -314,6 +315,8 @@ struct hailo_media_library_buffer
         buffer_data = nullptr;
         return true;
     }
+    std::function<void(void *)> on_free;
+    void *on_free_data;
 
   public:
     HailoBufferDataPtr buffer_data;
@@ -363,6 +366,10 @@ struct hailo_media_library_buffer
                 }
             }
         }
+
+        if (on_free)
+            on_free(on_free_data);
+
         dispose();
     }
     // Move constructor
@@ -383,6 +390,8 @@ struct hailo_media_library_buffer
         pts = other.pts;
         motion_detection_buffer = other.motion_detection_buffer;
         motion_detected = other.motion_detected;
+        on_free = other.on_free;
+        on_free_data = other.on_free_data;
         other.buffer_data = nullptr;
         other.owner = nullptr;
         other.m_buffer_mutex = nullptr;
@@ -399,6 +408,8 @@ struct hailo_media_library_buffer
         other.pts = 0;
         other.motion_detection_buffer = nullptr;
         other.motion_detected = false;
+        other.on_free = nullptr;
+        other.on_free_data = nullptr;
     }
 
     // Move assignment
@@ -421,6 +432,8 @@ struct hailo_media_library_buffer
             pts = other.pts;
             motion_detection_buffer = other.motion_detection_buffer;
             motion_detected = other.motion_detected;
+            on_free = other.on_free;
+            on_free_data = other.on_free_data;
             other.buffer_data = nullptr;
             other.owner = nullptr;
             other.m_buffer_mutex = nullptr;
@@ -437,6 +450,8 @@ struct hailo_media_library_buffer
             other.pts = 0;
             other.motion_detection_buffer = nullptr;
             other.motion_detected = false;
+            other.on_free = nullptr;
+            other.on_free_data = nullptr;
         }
         return *this;
     }
@@ -504,10 +519,13 @@ struct hailo_media_library_buffer
         this->buffer_index = buffer_index;
     }
 
-    media_library_return create(MediaLibraryBufferPoolPtr owner, HailoBufferDataPtr buffer_data)
+    media_library_return create(MediaLibraryBufferPoolPtr owner, HailoBufferDataPtr buffer_data,
+                                std::function<void(void *)> on_free = nullptr, void *on_free_data = nullptr)
     {
         this->owner = owner;
         this->buffer_data = buffer_data;
+        this->on_free = on_free;
+        this->on_free_data = on_free_data;
         return MEDIA_LIBRARY_SUCCESS;
     }
 
@@ -586,6 +604,11 @@ struct hailo_media_library_buffer
         }
 
         return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    void *get_on_free_data()
+    {
+        return on_free_data;
     }
 };
 

@@ -28,7 +28,7 @@
 
 #pragma once
 
-#include "media_library/denoise.hpp"
+#include "media_library/post_isp_denoise.hpp"
 #include <fstream>
 #include <gst/gst.h>
 #include <memory>
@@ -66,9 +66,9 @@ struct _GstHailoDenoise
     uint8_t m_queue_size;
     std::shared_ptr<std::queue<GstBuffer *>> m_staging_queue;
 
-    std::shared_ptr<MediaLibraryDenoise> medialib_denoise;
+    std::shared_ptr<MediaLibraryPostIspDenoise> medialib_denoise;
     std::shared_ptr<denoise_config_t> denoise_config;
-    media_library_return observe(const MediaLibraryDenoise::callbacks_t &callback)
+    media_library_return observe(const MediaLibraryPostIspDenoise::callbacks_t &callback)
     {
         return medialib_denoise->observe(callback);
     }

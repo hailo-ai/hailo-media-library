@@ -21,7 +21,7 @@ extern std::unique_ptr<GyroDevice> gyroApi;
 std::thread gyroThread;
 std::mutex global_mtx;
 
-LdcMeshContext::LdcMeshContext(ldc_config_t &config)
+LdcMeshContext::LdcMeshContext(ldc_config_t &config) : m_ldc_configs(config)
 {
     if (!config.check_ops_enabled(true) || config.output_video_config.dimensions.destination_width == 0 ||
         config.output_video_config.dimensions.destination_height == 0)

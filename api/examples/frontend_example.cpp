@@ -266,12 +266,20 @@ void stop_pipeline()
     {
         entry.second->stop();
     }
+}
+
+void cleanup_resources()
+{
+    m_media_lib->frontend = nullptr;
+    m_media_lib->encoders.clear();
 
     // close all file in m_media_lib->output_files
     for (auto &entry : m_media_lib->output_files)
     {
         entry.second.close();
     }
+
+    m_media_lib->output_files.clear();
 }
 
 media_library_return toggle_frontend_config(MediaLibraryFrontendPtr frontend)
@@ -362,6 +370,7 @@ int main()
     // register signal SIGINT and signal handler
     signal_utils::register_signal_handler([](int signal) {
         stop_pipeline();
+        cleanup_resources();
         // terminate program
         exit(signal);
         ;
@@ -450,6 +459,7 @@ int main()
     if (update_privacy_masks(privacy_blender) != 0)
     {
         stop_pipeline();
+        cleanup_resources();
         return 1;
     }
 
@@ -485,6 +495,7 @@ int main()
     std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
 
     stop_pipeline();
+    cleanup_resources();
 
     return 0;
 }

@@ -84,9 +84,10 @@ class EncoderConfigPresets
     media_library_return apply_tolerance_moving_bitrate(hailo_encoder_config_t &config, const encoder_preset_t &preset,
                                                         uint32_t preset_tolerance_moving_bitrate) const;
     media_library_return apply_padding(hailo_encoder_config_t &config, const encoder_preset_t &preset) const;
-    void apply_hrd_cpb_size(hailo_encoder_config_t &config, const encoder_preset_t &preset) const;
-    void apply_variation(hailo_encoder_config_t &config, const encoder_preset_t &preset) const;
-    uint32_t get_preset_bit_var_range(hailo_encoder_config_t &config, const encoder_preset_t &preset) const;
+    media_library_return apply_hrd_cpb_size(hailo_encoder_config_t &config, const encoder_preset_t &preset) const;
+    media_library_return apply_variation(hailo_encoder_config_t &config, const encoder_preset_t &preset) const;
+    tl::expected<uint32_t, media_library_return> get_preset_bit_var_range(hailo_encoder_config_t &config,
+                                                                          const encoder_preset_t &preset) const;
 
     std::vector<encoder_preset_t> m_presets;
 };

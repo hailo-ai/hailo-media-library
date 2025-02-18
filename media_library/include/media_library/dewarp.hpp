@@ -30,6 +30,7 @@
 #include <vector>
 #include <string>
 #include <functional>
+#include <optional>
 #include <memory>
 #include <tl/expected.hpp>
 
@@ -53,8 +54,10 @@ class MediaLibraryDewarp
     class callbacks_t
     {
       public:
-        std::function<void(output_resolution_t &)> on_output_resolution_change = nullptr;
-        std::function<void(rotation_angle_t &)> on_rotation_change = nullptr;
+        std::optional<std::function<void(output_resolution_t &)>> on_output_resolution_change;
+        std::optional<std::function<void(bool)>> on_do_flip_rotate_change;
+        std::optional<std::function<void(flip_direction_t)>> on_flip_change;
+        std::optional<std::function<void(rotation_angle_t)>> on_rotation_change;
     };
 
     /**

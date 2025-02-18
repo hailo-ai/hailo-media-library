@@ -29,6 +29,7 @@ if meson.is_cross_build()
     endif
 endif
 
+imaging_hdr_dep = meson.get_compiler('c').find_library('libhdrlib', required: false, dirs: '/lib/')
 libhailort_dep = [meson.get_compiler('cpp').find_library('hailort', required: false)]
 gsthailort_dep = [meson.get_compiler('cpp').find_library('libgsthailo', required: false, dirs: sysroot + '/usr/lib/gstreamer-1.0/')]
 

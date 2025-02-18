@@ -35,9 +35,10 @@
 #include <gst/gst.h>
 #include <tl/expected.hpp>
 #include "media_library/isp_utils.hpp"
-#include "media_library/denoise.hpp"
+#include "media_library/post_isp_denoise.hpp"
 #include "media_library/media_library_types.hpp"
 #include "media_library/config_manager.hpp"
+#include "media_library/pre_isp_denoise.hpp"
 #include "imaging/hailo_hdr.hpp"
 #include "gsthailofrontend.hpp"
 
@@ -77,6 +78,7 @@ struct _GstHailoFrontendBinSrc
     isp_t m_isp_config;
     hdr_config_t m_hdr_config;
     std::unique_ptr<HDR::HDRManager> m_hdr;
+    MediaLibraryPreIspDenoisePtr m_pre_isp_denoise;
     std::mutex m_config_mutex;
 };
 

@@ -100,6 +100,7 @@ namespace dsp_utils
 {
 static dsp_device device = NULL;
 static uint dsp_device_refcount = 0;
+static const int DSP_VISION_PRIORITY = 100;
 
 /**
  * Create a DSP device and store it globally
@@ -108,16 +109,22 @@ static uint dsp_device_refcount = 0;
  */
 static dsp_status create_device()
 {
-    dsp_status create_device_status = DSP_UNINITIALIZED;
     // If the device is not initialized, initialize it, else return SUCCESS
     if (device == NULL)
     {
         LOGGER__INFO("Creating dsp device");
-        create_device_status = dsp_create_device(&device);
-        if (create_device_status != DSP_SUCCESS)
+        dsp_status status = dsp_create_device(&device);
+        if (status != DSP_SUCCESS)
         {
-            LOGGER__ERROR("Open DSP device failed with status {}", create_device_status);
-            return create_device_status;
+            LOGGER__ERROR("Open DSP device failed with status {}", status);
+            return status;
+        }
+
+        status = dsp_set_priority(device, DSP_VISION_PRIORITY);
+        if (status != DSP_SUCCESS)
+        {
+            LOGGER__ERROR("Set DSP priority failed with status {}", status);
+            return status;
         }
     }
 
@@ -471,7 +478,13 @@ dsp_status perform_dsp_multi_resize(dsp_multi_crop_resize_params_t *multi_crop_r
  */
 dsp_status perform_dsp_telescopic_multi_resize(dsp_multi_crop_resize_params_t *multi_crop_resize_params)
 {
-    return dsp_telescopic_multi_crop_and_resize(device, multi_crop_resize_params);
+    const dsp_frontend_params_t frontend_params = {
+        .multi_crop_resize_params = multi_crop_resize_params,
+        .privacy_mask_params = nullptr,
+        .image_enhancement_params = nullptr,
+        .flip_rotate_params = nullptr,
+    };
+    return dsp_frontend_process(device, &frontend_params);
 }
 
 /**
@@ -487,7 +500,13 @@ dsp_status perform_dsp_telescopic_multi_resize(dsp_multi_crop_resize_params_t *m
 dsp_status perform_dsp_telescopic_multi_resize(dsp_multi_crop_resize_params_t *multi_crop_resize_params,
                                                dsp_privacy_mask_t *privacy_mask_params)
 {
-    return dsp_telescopic_multi_crop_and_resize_privacy_mask(device, multi_crop_resize_params, privacy_mask_params);
+    const dsp_frontend_params_t frontend_params = {
+        .multi_crop_resize_params = multi_crop_resize_params,
+        .privacy_mask_params = privacy_mask_params,
+        .image_enhancement_params = nullptr,
+        .flip_rotate_params = nullptr,
+    };
+    return dsp_frontend_process(device, &frontend_params);
 }
 
 /**
@@ -500,10 +519,15 @@ dsp_status perform_dsp_telescopic_multi_resize(dsp_multi_crop_resize_params_t *m
  */
 dsp_status perform_dsp_telescopic_multi_resize(dsp_multi_crop_resize_params_t *multi_crop_resize_params,
                                                dsp_privacy_mask_t *privacy_mask_params,
-                                               dsp_image_enhancement_params_t *denoise_params)
+                                               dsp_image_enhancement_params_t *image_enhancement_params)
 {
-    return dsp_telescopic_multi_resize_privacy_mask_image_enhancement(device, multi_crop_resize_params,
-                                                                      privacy_mask_params, denoise_params);
+    const dsp_frontend_params_t frontend_params = {
+        .multi_crop_resize_params = multi_crop_resize_params,
+        .privacy_mask_params = privacy_mask_params,
+        .image_enhancement_params = image_enhancement_params,
+        .flip_rotate_params = nullptr,
+    };
+    return dsp_frontend_process(device, &frontend_params);
 }
 
 /**
@@ -514,11 +538,30 @@ dsp_status perform_dsp_telescopic_multi_resize(dsp_multi_crop_resize_params_t *m
  * @return dsp_status Status of the DSP operation.
  */
 dsp_status perform_dsp_telescopic_multi_resize(dsp_multi_crop_resize_params_t *multi_crop_resize_params,
-                                               dsp_image_enhancement_params_t *denoise_params)
+                                               dsp_image_enhancement_params_t *image_enhancement_params)
 {
-    // Note: privacy mask is nullptr because DSP knows how to handle it and dont have function without privacy mask
-    return dsp_telescopic_multi_resize_privacy_mask_image_enhancement(device, multi_crop_resize_params, nullptr,
-                                                                      denoise_params);
+    const dsp_frontend_params_t frontend_params = {
+        .multi_crop_resize_params = multi_crop_resize_params,
+        .privacy_mask_params = nullptr,
+        .image_enhancement_params = image_enhancement_params,
+        .flip_rotate_params = nullptr,
+    };
+    return dsp_frontend_process(device, &frontend_params);
+}
+
+/**
+ * @brief Performs a telescopic multi-resize operation using DSP.
+ *
+ * This function takes in parameters for multi-crop and resize operations and
+ * performs the telescopic multi-resize using the DSP (Digital Signal Processor).
+ *
+ * @param dsp_frontend_params_t A pointer to a structure containing the parameters
+ *                              for the multi-crop and resize operations.
+ * @return dsp_status The status of the DSP operation.
+ */
+dsp_status perform_dsp_frontend_process(const dsp_frontend_params_t &frontend_params)
+{
+    return dsp_frontend_process(device, &frontend_params);
 }
 
 dsp_status perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,

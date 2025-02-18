@@ -34,7 +34,7 @@
 #include <functional>
 #include <gst/gst.h>
 #include <tl/expected.hpp>
-#include "media_library/denoise.hpp"
+#include "media_library/post_isp_denoise.hpp"
 #include "media_library/media_library_types.hpp"
 
 G_BEGIN_DECLS

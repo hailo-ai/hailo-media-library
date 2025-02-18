@@ -28,6 +28,7 @@ template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_get<unsigned int>(isp_
                                                                             unsigned int &);
 template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_get<unsigned short>(isp_utils::ctrl::v4l2_ctrl_id,
                                                                               unsigned short &);
+template bool isp_utils::ctrl::v4l2Control::v4l2_ioctl_set<unsigned int>(unsigned long, unsigned int &);
 
 std::unordered_map<isp_utils::ctrl::v4l2_ctrl_id, std::string> isp_utils::ctrl::v4l2Control::m_ctrl_id_to_name = {
     {V4L2_CTRL_POWERLINE_FREQUENCY, "isp_ae_flicker_period"},
@@ -274,6 +275,11 @@ template <typename T> bool v4l2Control::v4l2_ext_ctrl_get(v4l2_ctrl_id id, T &va
     val = *(T *)ctrl.ptr;
     free(ctrl.ptr);
     return true;
+}
+
+template <typename T> bool v4l2Control::v4l2_ioctl_set(unsigned long request, T &val)
+{
+    return xioctl(request, &val) != -1;
 }
 } // namespace ctrl
 } // namespace isp_utils

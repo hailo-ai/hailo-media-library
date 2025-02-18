@@ -70,7 +70,6 @@ MediaLibraryEncoder::Impl::Impl(media_library_return &status, std::string name)
     : m_main_context(g_main_context_default()), m_encoder_type(EncoderType::None),
       m_config_manager(CONFIG_SCHEMA_ENCODER)
 {
-
     m_name = name;
 
     gst_init(nullptr, nullptr);
@@ -145,7 +144,7 @@ media_library_return MediaLibraryEncoder::Impl::start()
     }
     gpointer value = nullptr;
     g_object_get(encoder_bin, "blender", &value, NULL);
-    osd::Blender *blender = reinterpret_cast<osd::Blender *>(value);
+    osd::Blender *blender = static_cast<osd::Blender *>(value);
     m_blender = blender->shared_from_this();
     gst_object_unref(encoder_bin);
 
@@ -344,8 +343,7 @@ media_library_return MediaLibraryEncoder::Impl::force_keyframe()
     GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
     if (encoder_bin == nullptr)
     {
-        LOGGER__ERROR("Failed to get encoder bin from pipeline");
-        std::cout << "Got null encoder bin element in get_config" << std::endl;
+        LOGGER__ERROR("Got null encoder bin element in get_config");
         gst_object_unref(encoder_bin);
         return MEDIA_LIBRARY_ERROR;
     }
@@ -676,6 +674,12 @@ media_library_return MediaLibraryEncoder::Impl::set_config(const encoder_config_
         m_input_params.width = config_input_stream.width;
         m_input_params.height = config_input_stream.height;
         m_input_params.framerate = config_input_stream.framerate;
+
+        if (m_appsrc_caps != nullptr)
+        {
+            gst_caps_unref(m_appsrc_caps);
+            m_appsrc_caps = nullptr;
+        }
         m_appsrc_caps =
             gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, m_input_params.format.c_str(), "width",
                                 G_TYPE_INT, m_input_params.width, "height", G_TYPE_INT, m_input_params.height,
@@ -686,7 +690,7 @@ media_library_return MediaLibraryEncoder::Impl::set_config(const encoder_config_
     GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
     if (encoder_bin == nullptr)
     {
-        std::cout << "Got null encoder bin element in get_config" << std::endl;
+        LOGGER__ERROR("Got null encoder bin element in set_config");
         return MEDIA_LIBRARY_ERROR;
     }
 
@@ -707,12 +711,12 @@ encoder_config_t MediaLibraryEncoder::Impl::get_config()
     GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
     if (encoder_bin == nullptr)
     {
-        std::cout << "Got null encoder bin element in get_config" << std::endl;
+        LOGGER__ERROR("Got null encoder bin element in get_config");
         return config;
     }
     gpointer value = nullptr;
     g_object_get(encoder_bin, "config", &value, NULL);
-    config = *reinterpret_cast<encoder_config_t *>(value);
+    config = *static_cast<encoder_config_t *>(value);
     gst_object_unref(encoder_bin);
     return config;
 }
@@ -723,12 +727,12 @@ encoder_config_t MediaLibraryEncoder::Impl::get_user_config()
     GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
     if (encoder_bin == nullptr)
     {
-        std::cout << "Got null encoder bin element in get_user_config" << std::endl;
+        LOGGER__ERROR("Got null encoder bin element in get_user_config");
         return config;
     }
     gpointer value = nullptr;
     g_object_get(encoder_bin, "user-config", &value, NULL);
-    config = *reinterpret_cast<encoder_config_t *>(value);
+    config = *static_cast<encoder_config_t *>(value);
     gst_object_unref(encoder_bin);
     return config;
 }
@@ -776,4 +780,25 @@ float MediaLibraryEncoder::Impl::get_current_fps()
 float MediaLibraryEncoder::get_current_fps()
 {
     return m_impl->get_current_fps();
+}
+
+encoder_monitors MediaLibraryEncoder::Impl::get_encoder_monitors()
+{
+    encoder_monitors monitors;
+    GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
+    if (encoder_bin == nullptr)
+    {
+        LOGGER__ERROR("Got null encoder bin element in get_encoder_monitors");
+        return monitors;
+    }
+    gpointer value = nullptr;
+    g_object_get(encoder_bin, "encoder-monitors", &value, NULL);
+    monitors = *static_cast<encoder_monitors *>(value);
+    gst_object_unref(encoder_bin);
+    return monitors;
+}
+
+encoder_monitors MediaLibraryEncoder::get_encoder_monitors()
+{
+    return m_impl->get_encoder_monitors();
 }

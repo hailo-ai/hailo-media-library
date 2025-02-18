@@ -49,6 +49,7 @@ enum
     PROP_CONFIG,
     PROP_ENFORCE_CAPS,
     PROP_USER_CONFIG,
+    PROP_ENCODER_MONITORS,
     NUM_OF_PROPS,
 };
 
@@ -148,6 +149,10 @@ static void gst_hailo_encoder_class_init(GstHailoEncoderClass *klass)
         g_param_spec_pointer("user-config", "Encoder user config",
                              "Encoder user config, used for setting the encoder configuration",
                              (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_ENCODER_MONITORS,
+        g_param_spec_pointer("encoder-monitors", "Encoder Monitors", "Encoder monitors struct",
+                             (GParamFlags)(G_PARAM_READABLE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 
     venc_class->open = gst_hailo_encoder_open;
     venc_class->start = gst_hailo_encoder_start;
@@ -217,6 +222,18 @@ static void gst_hailo_encoder_get_property(GObject *object, guint prop_id, GValu
         g_value_set_boolean(value, hailoencoder->enforce_caps);
         break;
     }
+    case PROP_ENCODER_MONITORS: {
+        if (hailoencoder->encoder)
+        {
+            hailoencoder->encoder_monitors = std::make_shared<encoder_monitors>(hailoencoder->encoder->get_monitors());
+            g_value_set_pointer(value, hailoencoder->encoder_monitors.get());
+        }
+        else
+        {
+            g_value_set_pointer(value, nullptr);
+        }
+        break;
+    }
     default: {
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
         break;
@@ -232,6 +249,11 @@ static void gst_hailo_encoder_set_property(GObject *object, guint prop_id, const
     switch (prop_id)
     {
     case PROP_CONFIG_STRING: {
+        if (!hailoencoder->config.empty())
+        {
+            hailoencoder->config.clear();
+            hailoencoder->config.shrink_to_fit();
+        }
         hailoencoder->config = std::string(g_value_get_string(value));
         break;
     }
@@ -294,6 +316,20 @@ static void gst_hailo_encoder_dispose(GObject *object)
         hailoencoder->encoder.reset();
         hailoencoder->encoder = nullptr;
     }
+    if (!hailoencoder->config.empty())
+    {
+        hailoencoder->config.clear();
+        hailoencoder->config.shrink_to_fit();
+    }
+    if (!hailoencoder->config_path.empty())
+    {
+        hailoencoder->config_path.clear();
+        hailoencoder->config_path.shrink_to_fit();
+    }
+
+    hailoencoder->encoder_config = nullptr;
+    hailoencoder->encoder_user_config = nullptr;
+    hailoencoder->encoder_monitors = nullptr;
     G_OBJECT_CLASS(parent_class)->dispose(object);
 }
 

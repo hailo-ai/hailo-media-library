@@ -267,6 +267,43 @@ media_library_return MediaLibraryDewarp::Impl::configure(std::string config_stri
 
 media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_configs)
 {
+    // first check changes in ldc config relevant to multi resize (flip rotate)
+    // and notify the multi resize element if needed
+    std::unique_lock<std::shared_mutex> lock(rw_lock);
+
+    auto prev_do_flip_rotate = !m_ldc_configs.check_ops_enabled(true);
+    auto prev_flip_config = m_ldc_configs.flip_config;
+    auto prev_rot_config = m_ldc_configs.rotation_config;
+
+    auto do_flip_rotate = !ldc_configs.check_ops_enabled(true);
+
+    // if output config has changed, call callback
+    bool do_flip_rotate_changed = !m_configured || do_flip_rotate != prev_do_flip_rotate;
+    bool flip_changed = !m_configured || ldc_configs.flip_config != prev_flip_config;
+    bool rot_changed = !m_configured || ldc_configs.rotation_config != prev_rot_config;
+
+    lock.unlock();
+
+    for (auto &callbacks : m_callbacks)
+    {
+        if (do_flip_rotate_changed && callbacks.on_do_flip_rotate_change)
+        {
+            (*callbacks.on_do_flip_rotate_change)(do_flip_rotate);
+        }
+        if (flip_changed && callbacks.on_flip_change)
+        {
+            auto flip_dir = ldc_configs.flip_config.effective_value();
+            (*callbacks.on_flip_change)(flip_dir);
+        }
+        if (rot_changed && callbacks.on_rotation_change)
+        {
+            auto rot_val = ldc_configs.rotation_config.effective_value();
+            (*callbacks.on_rotation_change)(rot_val);
+        }
+    }
+
+    lock.lock();
+
     if (!(ldc_configs.check_ops_enabled() ||
           ldc_configs.check_ops_enabled_changed(
               m_ldc_configs))) // everything is disabled and nothing is previously enabled
@@ -284,10 +321,12 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
 
     LOGGER__INFO("Configuring dewarp");
 
-    std::unique_lock<std::shared_mutex> lock(rw_lock);
-
     auto prev_out_config = m_ldc_configs.output_video_config;
-    auto prev_rot_config = m_ldc_configs.rotation_config;
+    if (ldc_configs.dis_config.enabled && ldc_configs.dis_config.camera_fov_factor == 1)
+    {
+        LOGGER__WARNING("DIS is enabled with camera_fov_factor = 1, this may cause EIS to be redundant");
+    }
+
     // update if requested
     media_library_return ret = m_ldc_configs.update(ldc_configs);
     if (ret != MEDIA_LIBRARY_SUCCESS)
@@ -317,7 +356,6 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
         return ret;
 
     // if output config has changed, call callback
-    bool rot_changed = m_ldc_configs.rotation_config != prev_rot_config;
     bool out_changed = !m_ldc_configs.output_video_config.dimensions_equal(prev_out_config);
 
     if (!m_ldc_configs.gyro_config.enabled && m_ldc_configs.eis_config.enabled)
@@ -338,11 +376,8 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
     for (auto &callbacks : m_callbacks)
     {
         if (out_changed && callbacks.on_output_resolution_change)
-            callbacks.on_output_resolution_change(m_ldc_configs.output_video_config);
-        if (rot_changed && callbacks.on_rotation_change)
         {
-            auto rot_val = m_ldc_configs.rotation_config.effective_value();
-            callbacks.on_rotation_change(rot_val);
+            (*callbacks.on_output_resolution_change)(m_ldc_configs.output_video_config);
         }
     }
     return MEDIA_LIBRARY_SUCCESS;

@@ -786,6 +786,7 @@ void to_json(nlohmann::json &j, const output_video_config_t &out_conf)
         {"format", out_conf.format},
         {"resolutions", out_conf.resolutions},
         {"grayscale", out_conf.grayscale},
+        {"keep_aspect_ratio", out_conf.keep_aspect_ratio},
     };
 }
 
@@ -795,6 +796,7 @@ void from_json(const nlohmann::json &j, output_video_config_t &out_conf)
     j.at("format").get_to(out_conf.format);
     j.at("resolutions").get_to(out_conf.resolutions);
     j.at("grayscale").get_to(out_conf.grayscale);
+    out_conf.keep_aspect_ratio = j.value("keep_aspect_ratio", false);
 }
 
 //------------------------ input_video_config_t ------------------------
@@ -1025,18 +1027,49 @@ void from_json(const nlohmann::json &j, network_config_t &net_conf)
     j.at("output_uv_channel").get_to(net_conf.output_uv_channel);
 }
 
+//------------------------ bayer_network_config_t ------------------------
+
+void to_json(nlohmann::json &j, const bayer_network_config_t &net_conf)
+{
+    j = nlohmann::json{
+        {"network_path", net_conf.network_path},
+        {"bayer_channel", net_conf.bayer_channel},
+        {"feedback_bayer_channel", net_conf.feedback_bayer_channel},
+        {"output_bayer_channel", net_conf.output_bayer_channel},
+    };
+}
+
+void from_json(const nlohmann::json &j, bayer_network_config_t &net_conf)
+{
+    j.at("network_path").get_to(net_conf.network_path);
+    j.at("bayer_channel").get_to(net_conf.bayer_channel);
+    j.at("feedback_bayer_channel").get_to(net_conf.feedback_bayer_channel);
+    j.at("output_bayer_channel").get_to(net_conf.output_bayer_channel);
+}
+
 //------------------------ denoise_config_t ------------------------
 
 void to_json(nlohmann::json &j, const denoise_config_t &d_conf)
 {
+    nlohmann::json network_json;
+    if (d_conf.bayer == true)
+    {
+        network_json = nlohmann::json{{"network", d_conf.bayer_network_config}};
+    }
+    else
+    {
+        network_json = nlohmann::json{{"network", d_conf.network_config}};
+    }
+
     j = nlohmann::json{
         {"denoise",
          {
              {"enabled", d_conf.enabled},
+             {"bayer", d_conf.bayer},
              {"sensor", d_conf.sensor},
              {"method", d_conf.denoising_quality},
              {"loopback-count", d_conf.loopback_count},
-             {"network", d_conf.network_config},
+             network_json,
          }},
     };
 }
@@ -1048,7 +1081,15 @@ void from_json(const nlohmann::json &j, denoise_config_t &d_conf)
     denoise.at("sensor").get_to(d_conf.sensor);
     denoise.at("method").get_to(d_conf.denoising_quality);
     denoise.at("loopback-count").get_to(d_conf.loopback_count);
-    denoise.at("network").get_to(d_conf.network_config);
+    d_conf.bayer = denoise.value("bayer", false);
+    if (d_conf.bayer == true)
+    {
+        denoise.at("network").get_to(d_conf.bayer_network_config);
+    }
+    else
+    {
+        denoise.at("network").get_to(d_conf.network_config);
+    }
 }
 
 //------------------------ vsm_config_t ------------------------
@@ -1095,6 +1136,7 @@ void from_json(const nlohmann::json &j, hdr_config_t &hdr_conf)
     const auto &hdr = j.at("hdr");
     hdr.at("enabled").get_to(hdr_conf.enabled);
     hdr.at("dol").get_to(hdr_conf.dol);
+    // these ratios values only true for 2 DOL. Its hard codded because we curremtly support only 2 DOL
     hdr_conf.ls_ratio = hdr.value("lsRatio", 16); // 1048576/(1<<16 = 65536) = 16
     hdr_conf.vs_ratio = hdr.value("vsRatio", 4);  // 1048576/(1<<18 = 262144) = 4
 }

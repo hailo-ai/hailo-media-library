@@ -862,6 +862,9 @@ static nlohmann::json multi_resize_config_schema = R"(
           "grayscale": {
             "type": "boolean"
           },
+          "keep_aspect_ratio": {
+            "type": "boolean"
+          },
           "resolutions": {
             "type": "array",
             "items": {
@@ -1430,6 +1433,9 @@ static nlohmann::json denoise_config_schema = R"(
           "enabled": {
             "type": "boolean"
           },
+          "bayer": {
+            "type": "boolean"
+          },
           "sensor": {
             "type": "string"
           },
@@ -1462,18 +1468,18 @@ static nlohmann::json denoise_config_schema = R"(
               },
               "output_uv_channel": {
                 "type": "string"
+              },
+              "bayer_channel": {
+                "type": "string"
+              },
+              "feedback_bayer_channel": {
+                "type": "string"
+              },
+              "output_bayer_channel": {
+                "type": "string"
               }
             },
-            "additionalProperties": false,
-            "required": [
-              "network_path",
-              "y_channel",
-              "uv_channel",
-              "feedback_y_channel",
-              "feedback_uv_channel",
-              "output_y_channel",
-              "output_uv_channel"
-            ]
+            "additionalProperties": false
           }
         },
         "additionalProperties": false,
@@ -1483,7 +1489,42 @@ static nlohmann::json denoise_config_schema = R"(
           "method",
           "loopback-count",
           "network"
-        ]
+        ],
+        "if": {
+          "properties": {
+            "bayer": {"const": true}
+          },
+          "required": [
+            "bayer"
+          ]
+        },
+        "then": {
+          "properties": {
+            "network": {
+              "required": [
+                "network_path",
+                "bayer_channel",
+                "feedback_bayer_channel",
+                "output_bayer_channel"
+              ]
+            }
+          }
+        },
+        "else": {
+          "properties": {
+            "network": {
+              "required": [
+                "network_path",
+                "y_channel",
+                "uv_channel",
+                "feedback_y_channel",
+                "feedback_uv_channel",
+                "output_y_channel",
+                "output_uv_channel"
+              ]
+            }
+          }
+        }
       }
     },
     "required": [

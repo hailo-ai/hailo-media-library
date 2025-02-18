@@ -106,8 +106,6 @@ imaging_inc_dirs = include_directories(
     is_system: true
 )
 
-imaging_hdr_dep = meson.get_compiler('c').find_library('libhdrlib', required: false, dirs: '/lib/')
-
 shared_library('gstmedialib',
     plugin_sources,
     cpp_args : common_args,

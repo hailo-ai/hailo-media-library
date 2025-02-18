@@ -18,7 +18,7 @@ HailortAsyncDenoise::~HailortAsyncDenoise()
     }
 }
 
-bool HailortAsyncDenoise::set_config(const feedback_network_config_t &network_config, const std::string &group_id,
+bool HailortAsyncDenoise::set_config(const denoise_config_t &denoise_config, const std::string &group_id,
                                      int scheduler_threshold, const std::chrono::milliseconds &scheduler_timeout,
                                      int batch_size)
 {
@@ -27,7 +27,6 @@ bool HailortAsyncDenoise::set_config(const feedback_network_config_t &network_co
     hailo_vdevice_params_t vdevice_params = {};
     hailo_init_vdevice_params(&vdevice_params);
     vdevice_params.group_id = group_id.c_str();
-
     auto vdevice_exp = hailort::VDevice::create(vdevice_params);
     if (!vdevice_exp)
     {
@@ -35,7 +34,13 @@ bool HailortAsyncDenoise::set_config(const feedback_network_config_t &network_co
         return false;
     }
 
-    auto infer_model_exp = vdevice_exp.value()->create_infer_model(network_config.network_path.c_str());
+    std::string network_path;
+    if (denoise_config.bayer)
+        network_path = denoise_config.bayer_network_config.network_path;
+    else
+        network_path = denoise_config.network_config.network_path;
+
+    auto infer_model_exp = vdevice_exp.value()->create_infer_model(network_path);
     if (!infer_model_exp)
     {
         LOGGER__ERROR("Failed to create infer model, status = {}", infer_model_exp.status());
@@ -44,10 +49,30 @@ bool HailortAsyncDenoise::set_config(const feedback_network_config_t &network_co
     infer_model_exp.value()->set_batch_size(batch_size);
 
     // input order
-    infer_model_exp.value()->input(network_config.y_channel)->set_format_order(HAILO_FORMAT_ORDER_NHCW);
-    infer_model_exp.value()->input(network_config.uv_channel)->set_format_order(HAILO_FORMAT_ORDER_NHWC);
-    infer_model_exp.value()->input(network_config.feedback_y_channel)->set_format_order(HAILO_FORMAT_ORDER_NHCW);
-    infer_model_exp.value()->input(network_config.feedback_uv_channel)->set_format_order(HAILO_FORMAT_ORDER_NHWC);
+    if (denoise_config.bayer)
+    {
+        infer_model_exp.value()
+            ->input(denoise_config.bayer_network_config.bayer_channel)
+            ->set_format_order(HAILO_FORMAT_ORDER_NHWC);
+        infer_model_exp.value()
+            ->input(denoise_config.bayer_network_config.feedback_bayer_channel)
+            ->set_format_order(HAILO_FORMAT_ORDER_NHWC);
+    }
+    else
+    {
+        infer_model_exp.value()
+            ->input(denoise_config.network_config.y_channel)
+            ->set_format_order(HAILO_FORMAT_ORDER_NHCW);
+        infer_model_exp.value()
+            ->input(denoise_config.network_config.uv_channel)
+            ->set_format_order(HAILO_FORMAT_ORDER_NHWC);
+        infer_model_exp.value()
+            ->input(denoise_config.network_config.feedback_y_channel)
+            ->set_format_order(HAILO_FORMAT_ORDER_NHCW);
+        infer_model_exp.value()
+            ->input(denoise_config.network_config.feedback_uv_channel)
+            ->set_format_order(HAILO_FORMAT_ORDER_NHWC);
+    }
 
     auto configured_infer_model_exp = infer_model_exp.value()->configure();
     if (!configured_infer_model_exp)
@@ -57,6 +82,7 @@ bool HailortAsyncDenoise::set_config(const feedback_network_config_t &network_co
     }
     configured_infer_model_exp.value().set_scheduler_threshold(scheduler_threshold);
     configured_infer_model_exp.value().set_scheduler_timeout(scheduler_timeout);
+    configured_infer_model_exp.value().set_scheduler_priority(HAILO_SCHEDULER_PRIORITY_MAX);
 
     auto bindings = configured_infer_model_exp.value().create_bindings();
     if (!bindings)
@@ -68,7 +94,7 @@ bool HailortAsyncDenoise::set_config(const feedback_network_config_t &network_co
     m_group_id = group_id;
     m_scheduler_threshold = scheduler_threshold;
     m_scheduler_timeout = scheduler_timeout;
-    m_network_config = network_config;
+    m_denoise_config = denoise_config;
 
     m_vdevice = vdevice_exp.release();
     m_infer_model = infer_model_exp.release();
@@ -132,15 +158,15 @@ bool HailortAsyncDenoise::set_input_buffer(int fd, const std::string &tensor_nam
     auto status = m_bindings.input(tensor_name)->set_dma_buffer(dma_buffer);
     if (HAILO_SUCCESS != status)
     {
-        LOGGER__ERROR("Failed to set infer input buffer, status = {}", status);
+        LOGGER__ERROR("Failed to set infer input buffer {}, status = {}", tensor_name, status);
         return false;
     }
 
     return true;
 }
 
-bool HailortAsyncDenoise::set_input_buffers(HailoMediaLibraryBufferPtr input_buffer,
-                                            HailoMediaLibraryBufferPtr loopback_buffer)
+bool HailortAsyncDenoise::set_post_isp_input_buffers(HailoMediaLibraryBufferPtr input_buffer,
+                                                     HailoMediaLibraryBufferPtr loopback_buffer)
 {
     int fd;
     fd = input_buffer->get_plane_fd(0);
@@ -149,7 +175,7 @@ bool HailortAsyncDenoise::set_input_buffers(HailoMediaLibraryBufferPtr input_buf
         LOGGER__ERROR("Failed to get file descriptor of input buffer plane 0, fd={}", fd);
         return false;
     }
-    if (!set_input_buffer(fd, m_network_config.y_channel))
+    if (!set_input_buffer(fd, m_denoise_config.network_config.y_channel))
     {
         return false;
     }
@@ -160,7 +186,7 @@ bool HailortAsyncDenoise::set_input_buffers(HailoMediaLibraryBufferPtr input_buf
         LOGGER__ERROR("Failed to get file descriptor of input buffer plane 1, fd={}", fd);
         return false;
     }
-    if (!set_input_buffer(fd, m_network_config.uv_channel))
+    if (!set_input_buffer(fd, m_denoise_config.network_config.uv_channel))
     {
         return false;
     }
@@ -171,7 +197,7 @@ bool HailortAsyncDenoise::set_input_buffers(HailoMediaLibraryBufferPtr input_buf
         LOGGER__ERROR("Failed to get file descriptor of loopback buffer plane 0, fd={}", fd);
         return false;
     }
-    if (!set_input_buffer(fd, m_network_config.feedback_y_channel))
+    if (!set_input_buffer(fd, m_denoise_config.network_config.feedback_y_channel))
     {
         return false;
     }
@@ -181,12 +207,50 @@ bool HailortAsyncDenoise::set_input_buffers(HailoMediaLibraryBufferPtr input_buf
         LOGGER__ERROR("Failed to get file descriptor of loopback buffer plane 1, fd={}", fd);
         return false;
     }
-    if (!set_input_buffer(fd, m_network_config.feedback_uv_channel))
+    if (!set_input_buffer(fd, m_denoise_config.network_config.feedback_uv_channel))
     {
         return false;
     }
 
     return true;
+}
+
+bool HailortAsyncDenoise::set_pre_isp_input_buffers(HailoMediaLibraryBufferPtr input_buffer,
+                                                    HailoMediaLibraryBufferPtr loopback_buffer)
+{
+    int fd;
+    fd = input_buffer->get_plane_fd(0);
+    if (fd < 0)
+    {
+        LOGGER__ERROR("Failed to get file descriptor of input buffer plane 0, fd={}", fd);
+        return false;
+    }
+    if (!set_input_buffer(fd, m_denoise_config.bayer_network_config.bayer_channel))
+    {
+        return false;
+    }
+
+    fd = loopback_buffer->get_plane_fd(0);
+    if (fd < 0)
+    {
+        LOGGER__ERROR("Failed to get file descriptor of loopback input buffer plane 0, fd={}", fd);
+        return false;
+    }
+    if (!set_input_buffer(fd, m_denoise_config.bayer_network_config.feedback_bayer_channel))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool HailortAsyncDenoise::set_input_buffers(HailoMediaLibraryBufferPtr input_buffer,
+                                            HailoMediaLibraryBufferPtr loopback_buffer)
+{
+    if (m_denoise_config.bayer)
+        return set_pre_isp_input_buffers(input_buffer, loopback_buffer);
+
+    return set_post_isp_input_buffers(input_buffer, loopback_buffer);
 }
 
 bool HailortAsyncDenoise::set_output_buffer(int fd, const std::string &tensor_name)
@@ -196,14 +260,14 @@ bool HailortAsyncDenoise::set_output_buffer(int fd, const std::string &tensor_na
     auto status = m_bindings.output(tensor_name)->set_dma_buffer(dma_buffer);
     if (HAILO_SUCCESS != status)
     {
-        LOGGER__ERROR("Failed to set infer input buffer, status = {}", status);
+        LOGGER__ERROR("Failed to set infer output buffer {}, status = {}", tensor_name, status);
         return false;
     }
 
     return true;
 }
 
-bool HailortAsyncDenoise::set_output_buffers(HailoMediaLibraryBufferPtr output_buffer)
+bool HailortAsyncDenoise::set_post_isp_output_buffers(HailoMediaLibraryBufferPtr output_buffer)
 {
     int fd;
     fd = output_buffer->get_plane_fd(0);
@@ -212,23 +276,48 @@ bool HailortAsyncDenoise::set_output_buffers(HailoMediaLibraryBufferPtr output_b
         LOGGER__ERROR("Failed to get file descriptor of output buffer plane 0, fd={}", fd);
         return false;
     }
-    if (!set_output_buffer(fd, m_network_config.output_y_channel))
+    if (!set_output_buffer(fd, m_denoise_config.network_config.output_y_channel))
     {
         return false;
     }
+
     fd = output_buffer->get_plane_fd(1);
     if (fd < 0)
     {
         LOGGER__ERROR("Failed to get file descriptor of output buffer plane 1, fd={}", fd);
         return false;
     }
-
-    if (!set_output_buffer(fd, m_network_config.output_uv_channel))
+    if (!set_output_buffer(fd, m_denoise_config.network_config.output_uv_channel))
     {
         return false;
     }
 
     return true;
+}
+
+bool HailortAsyncDenoise::set_pre_isp_output_buffers(HailoMediaLibraryBufferPtr output_buffer)
+{
+    int fd;
+    fd = output_buffer->get_plane_fd(0);
+    if (fd < 0)
+    {
+        LOGGER__ERROR("Failed to get file descriptor of output buffer plane 0, fd={}", fd);
+        return false;
+    }
+    if (!set_output_buffer(fd, m_denoise_config.bayer_network_config.output_bayer_channel))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool HailortAsyncDenoise::set_output_buffers(HailoMediaLibraryBufferPtr output_buffer)
+{
+    if (m_denoise_config.bayer)
+        return set_pre_isp_output_buffers(output_buffer);
+
+    return set_post_isp_output_buffers(output_buffer);
 }
 
 bool HailortAsyncDenoise::infer(HailoMediaLibraryBufferPtr output_buffer)

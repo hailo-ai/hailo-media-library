@@ -21,13 +21,12 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 /**
- * @file post_denoise_filter.hpp
- * @brief MediaLibrary  Post Denoise Filter module
+ * @file dsp_image_enhancement.hpp
+ * @brief MediaLibrary DSP Image Enhancement module
  **/
 
 #pragma once
 
-#include "media_library_logger.hpp"
 #include "dsp_utils.hpp"
 #include <mqueue.h>
 #include <functional>
@@ -39,7 +38,7 @@
  * @brief Denoise parameters recived from the ISP
  *
  */
-struct __attribute__((packed)) post_denoise_config_t
+struct __attribute__((packed)) isp_image_enhancement_params_t
 {
     bool enabled;
     bool auto_luma;
@@ -54,38 +53,42 @@ struct __attribute__((packed)) post_denoise_config_t
     float saturation;
 };
 
-class PostDenoiseFilter
+class DspImageEnhancement
 {
   public:
     using Histogram = uint32_t[256];
-    static std::pair<uint16_t, uint16_t> histogram_sample_step_for_frame(std::pair<size_t, size_t> frame_size);
+    static std::pair<uint16_t, uint16_t> histogram_sample_step_for_frame(std::pair<size_t, size_t> frame_size,
+                                                                         uint32_t sample_size = histogram_sample_size);
+    static std::pair<uint8_t, uint8_t> find_percentile_pixels(const Histogram &histogram, float percentile_low,
+                                                              float percentile_high);
 
-    PostDenoiseFilter();
-    ~PostDenoiseFilter();
-    dsp_image_enhancement_params_t get_dsp_denoise_params();
-    void set_dsp_denoise_params_from_histogram(const Histogram &histogram);
+    DspImageEnhancement();
+    ~DspImageEnhancement();
+    dsp_image_enhancement_params_t get_dsp_params();
+    void update_dsp_params_from_histogram(const Histogram &histogram);
     bool is_enabled();
     bool m_denoise_element_enabled;
 
   private:
+    // queue name from which the image enhancement parameters are read from the ISP
+    static constexpr char isp_data[] = "/post_denoise_data";
     static constexpr uint32_t histogram_sample_size = 10'000;
 
-    void read_denoise_params_from_isp();
-    void set_dsp_denoise_params_from_isp(const post_denoise_config_t &m_post_denoise_config);
-    std::pair<uint8_t, uint8_t> find_percentile_pixels(const Histogram &histogram);
+    void read_params_from_isp();
+    void update_dsp_params_from_isp();
     std::pair<float, int16_t> contrast_brightness_from_percentiles(uint8_t low_percentile_pixel,
                                                                    uint8_t high_percentile_pixel);
-    std::pair<float, float> contrast_brightness_lowpass_filter(float contrast, int16_t brightness);
+    void contrast_brightness_lowpass_filter(float contrast, int16_t brightness, float &new_contrast,
+                                            float &new_brightness);
 
     std::atomic<bool> m_enabled;
     std::atomic<bool> m_running;
-    post_denoise_config_t m_post_denoise_config;
-    dsp_image_enhancement_params_t m_denoise_params;
-    dsp_image_enhancement_histogram_t m_histogram_params;
-    // Denoise queue name from which the denoise parameters are read from the ISP[]
-    static constexpr char post_denoise_isp_data[] = "/post_denoise_data";
-    std::thread m_denoise_update_thread;
-    std::shared_mutex m_post_denoise_lock;
+    isp_image_enhancement_params_t m_isp_params;
+    dsp_image_enhancement_params_t m_dsp_params;
+    dsp_image_enhancement_histogram_t m_dsp_histogram_params;
+
+    std::thread m_isp_params_update_thread;
+    std::shared_mutex m_dsp_params_lock;
 
     // m_denoise_params is int, and since the weight of the brightness calculated from the histogram might be small,
     // little changes will be casted away and the brightness value won't change over time so we use an additional

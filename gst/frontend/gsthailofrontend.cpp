@@ -451,6 +451,8 @@ static void gst_hailofrontend_dispose(GObject *object)
     GstHailoFrontend *self = GST_HAILO_FRONTEND(object);
     GST_DEBUG_OBJECT(self, "dispose");
 
+    self->frontend_element_config = nullptr;
+
     G_OBJECT_CLASS(gst_hailofrontend_parent_class)->dispose(object);
 
     gst_hailofrontend_reset(self);

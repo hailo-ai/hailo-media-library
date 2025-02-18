@@ -392,6 +392,17 @@ template <typename T> void json_get_if_exists(const nlohmann::json &json, const 
     overlay_member = json.value(key, overlay_member);
 }
 
+template <typename T>
+void json_get_if_exists(const nlohmann::json &json, const std::string &key, T &overlay_member, T default_value)
+{
+    // If the key exists in the json object, assign the value to the overlay member
+    // Otherwise, set default value
+    overlay_member = json.value(key, default_value);
+}
+
+static const VerticalAlignment default_vertical_alignment = VerticalAlignment::create(0.0).value();
+static const HorizontalAlignment default_horizontal_alignment = HorizontalAlignment::create(0.0).value();
+
 void from_json(const nlohmann::json &json, ImageOverlay &overlay)
 {
     json.at("id").get_to(overlay.id);
@@ -403,8 +414,8 @@ void from_json(const nlohmann::json &json, ImageOverlay &overlay)
     json.at("z-index").get_to(overlay.z_index);
     json.at("angle").get_to(overlay.angle);
     json.at("rotation_policy").get_to(overlay.rotation_alignment_policy);
-    json_get_if_exists(json, "horizontal_alignment", overlay.horizontal_alignment);
-    json_get_if_exists(json, "vertical_alignment", overlay.vertical_alignment);
+    json_get_if_exists(json, "horizontal_alignment", overlay.horizontal_alignment, default_horizontal_alignment);
+    json_get_if_exists(json, "vertical_alignment", overlay.vertical_alignment, default_vertical_alignment);
 }
 
 void from_json(const nlohmann::json &json, TextOverlay &overlay)
@@ -427,8 +438,8 @@ void from_json(const nlohmann::json &json, TextOverlay &overlay)
     json_get_if_exists(json, "shadow_offset_y", overlay.shadow_offset_y);
     json_get_if_exists(json, "shadow_color", overlay.shadow_color);
     json_get_if_exists(json, "font_weight", overlay.font_weight);
-    json_get_if_exists(json, "horizontal_alignment", overlay.horizontal_alignment);
-    json_get_if_exists(json, "vertical_alignment", overlay.vertical_alignment);
+    json_get_if_exists(json, "horizontal_alignment", overlay.horizontal_alignment, default_horizontal_alignment);
+    json_get_if_exists(json, "vertical_alignment", overlay.vertical_alignment, default_vertical_alignment);
 }
 
 void from_json(const nlohmann::json &json, DateTimeOverlay &overlay)
@@ -451,8 +462,8 @@ void from_json(const nlohmann::json &json, DateTimeOverlay &overlay)
     json_get_if_exists(json, "shadow_offset_y", overlay.shadow_offset_y);
     json_get_if_exists(json, "shadow_color", overlay.shadow_color);
     json_get_if_exists(json, "font_weight", overlay.font_weight);
-    json_get_if_exists(json, "horizontal_alignment", overlay.horizontal_alignment);
-    json_get_if_exists(json, "vertical_alignment", overlay.vertical_alignment);
+    json_get_if_exists(json, "horizontal_alignment", overlay.horizontal_alignment, default_horizontal_alignment);
+    json_get_if_exists(json, "vertical_alignment", overlay.vertical_alignment, default_vertical_alignment);
 }
 
 void from_json(const nlohmann::json &json, CustomOverlay &overlay)
@@ -463,8 +474,8 @@ void from_json(const nlohmann::json &json, CustomOverlay &overlay)
     json.at("width").get_to(overlay.width);
     json.at("height").get_to(overlay.height);
     json.at("z-index").get_to(overlay.z_index);
-    json_get_if_exists(json, "horizontal_alignment", overlay.horizontal_alignment);
-    json_get_if_exists(json, "vertical_alignment", overlay.vertical_alignment);
+    json_get_if_exists(json, "horizontal_alignment", overlay.horizontal_alignment, default_horizontal_alignment);
+    json_get_if_exists(json, "vertical_alignment", overlay.vertical_alignment, default_vertical_alignment);
 }
 
 tl::expected<std::shared_ptr<Blender>, media_library_return> Blender::create()

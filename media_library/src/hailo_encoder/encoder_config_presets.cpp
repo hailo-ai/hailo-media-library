@@ -166,12 +166,23 @@ media_library_return EncoderConfigPresets::apply_preset(hailo_encoder_config_t &
         return status;
     }
 
-    apply_hrd_cpb_size(config, *preset);
-    apply_variation(config, *preset);
+    if (apply_hrd_cpb_size(config, *preset) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    if (apply_variation(config, *preset) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
 
     auto preset_bit_var_range = get_preset_bit_var_range(config, *preset);
-    apply_bit_var_range(config, preset_bit_var_range);
-    status = apply_tolerance_moving_bitrate(config, *preset, preset_bit_var_range);
+    if (!preset_bit_var_range.has_value())
+    {
+        return preset_bit_var_range.error();
+    }
+    apply_bit_var_range(config, preset_bit_var_range.value());
+    status = apply_tolerance_moving_bitrate(config, *preset, preset_bit_var_range.value());
     if (status != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         return status;
@@ -191,13 +202,22 @@ media_library_return EncoderConfigPresets::apply_padding(hailo_encoder_config_t 
                 "Padding is set to 'user' in the preset, but no padding value is provided in the configuration");
             return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
-        config.rate_control.padding = std::stoi(preset.padding);
+        try
+        {
+            config.rate_control.padding = std::stoi(preset.padding);
+        }
+        catch (const std::invalid_argument &e)
+        {
+            LOGGER__ERROR("Invalid padding value: {}", preset.padding);
+            return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
+        }
     }
 
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-void EncoderConfigPresets::apply_hrd_cpb_size(hailo_encoder_config_t &config, const encoder_preset_t &preset) const
+media_library_return EncoderConfigPresets::apply_hrd_cpb_size(hailo_encoder_config_t &config,
+                                                              const encoder_preset_t &preset) const
 {
     if (!config.rate_control.hrd_cpb_size.has_value())
     {
@@ -207,12 +227,23 @@ void EncoderConfigPresets::apply_hrd_cpb_size(hailo_encoder_config_t &config, co
         }
         else
         {
-            config.rate_control.hrd_cpb_size = std::stoi(preset.hrd_cpb_size);
+            try
+            {
+                config.rate_control.hrd_cpb_size = std::stoi(preset.hrd_cpb_size);
+            }
+            catch (const std::invalid_argument &e)
+            {
+                LOGGER__ERROR("Invalid hrd_cpb_size value: {}", preset.hrd_cpb_size);
+                return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
+            }
         }
     }
+
+    return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-void EncoderConfigPresets::apply_variation(hailo_encoder_config_t &config, const encoder_preset_t &preset) const
+media_library_return EncoderConfigPresets::apply_variation(hailo_encoder_config_t &config,
+                                                           const encoder_preset_t &preset) const
 {
     if (!config.rate_control.bitrate.variation.has_value())
     {
@@ -225,18 +256,25 @@ void EncoderConfigPresets::apply_variation(hailo_encoder_config_t &config, const
             config.rate_control.bitrate.variation = DEFAULT_CVBR_VARIATION;
         }
     }
+    return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-uint32_t EncoderConfigPresets::get_preset_bit_var_range(hailo_encoder_config_t &config,
-                                                        const encoder_preset_t &preset) const
+tl::expected<uint32_t, media_library_return> EncoderConfigPresets::get_preset_bit_var_range(
+    hailo_encoder_config_t &config, const encoder_preset_t &preset) const
 {
     if (preset.bit_var_range == AUTO_VALUE)
     {
         return config.rate_control.bitrate.variation.value() - 5;
     }
-    else
+
+    try
     {
         return std::stoi(preset.bit_var_range);
+    }
+    catch (const std::invalid_argument &e)
+    {
+        LOGGER__ERROR("Invalid bit_var_range value: {}", preset.bit_var_range);
+        return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR);
     }
 }
 
@@ -283,7 +321,15 @@ media_library_return EncoderConfigPresets::apply_tolerance_moving_bitrate(hailo_
         }
         else
         {
-            preset_bit_var_range = std::stoi(preset.bit_var_range);
+            try
+            {
+                config.rate_control.bitrate.tolerance_moving_bitrate = std::stoi(preset.tolerance_moving_bitrate);
+            }
+            catch (const std::invalid_argument &e)
+            {
+                LOGGER__ERROR("Invalid tolerance_moving_bitrate value: {}", preset.tolerance_moving_bitrate);
+                return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
+            }
         }
     }
 

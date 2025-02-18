@@ -61,6 +61,7 @@ class Encoder
     media_library_return init();
     media_library_return release();
     media_library_return dispose();
+    encoder_monitors get_monitors();
 
   private:
     class Impl;

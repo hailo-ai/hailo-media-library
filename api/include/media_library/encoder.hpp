@@ -193,6 +193,12 @@ class MediaLibraryEncoder
     float get_current_fps();
 
     /**
+     * @brief Get the encoder_monitors of the encoder
+     * @return encoder_monitors - the encoder_monitors of the encoder
+     */
+    encoder_monitors get_encoder_monitors();
+
+    /**
      * @brief Destructor for the encoder module
      */
     ~MediaLibraryEncoder() = default;
