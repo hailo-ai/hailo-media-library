@@ -51,15 +51,15 @@
 #include <thread>
 #include <condition_variable>
 
-#define ISP_SUBDEVICE_NAME "hailo-isp"
+#define MODULE_NAME LoggerType::Denoise
+
 #define IOCTL_WAIT_FOR_STREAM_START _IO('D', BASE_VIDIOC_PRIVATE + 3)
-#define ISPIOC_V4L2_SET_MCM_MODE _IOWR('I', BASE_VIDIOC_PRIVATE + 10, uint32_t)
 
 enum isp_mcm_mode
 {
     ISP_MCM_MODE_OFF = 0,
-    ISP_MCM_MODE_STITCHING, // default mode for MCM
-    ISP_MCM_MODE_INJECTION,
+    ISP_MCM_MODE_STITCHING = 1, // default mode for MCM
+    ISP_MCM_MODE_INJECTION = 2,
     ISP_MCM_MODE_MAX
 };
 
@@ -153,7 +153,7 @@ class MediaLibraryPreIspDenoise::Impl final
     media_library_return start_isp_thread();
     media_library_return stop_isp_thread();
     void wait_for_stream_start();
-    int set_isp_mcm_mode(uint32_t target_mcm_mode);
+    bool set_isp_mcm_mode(uint32_t target_mcm_mode);
     void queue_staging_buffer(HailoMediaLibraryBufferPtr buffer);
     HailoMediaLibraryBufferPtr dequeue_staging_buffer();
     void clear_staging_queue();
@@ -225,7 +225,7 @@ MediaLibraryPreIspDenoise::Impl::Impl()
 
 MediaLibraryPreIspDenoise::Impl::~Impl()
 {
-    LOGGER__DEBUG("Pre ISP Denoise - destructor");
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Pre ISP Denoise - destructor");
     stop_isp_thread();
     m_output_buffer_pool->for_each_buffer(
         [this](int fd, size_t size) { return m_hailort_denoise.unmap_buffer_to_hailort(fd, size); });
@@ -242,7 +242,7 @@ media_library_return MediaLibraryPreIspDenoise::Impl::decode_config_json_string(
         m_hailort_config_manager.config_string_to_struct<hailort_t>(config_string, hailort_configs);
     if (hailort_status != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to decode Hailort config from json string: {}", config_string);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to decode Hailort config from json string: {}", config_string);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -250,7 +250,7 @@ media_library_return MediaLibraryPreIspDenoise::Impl::decode_config_json_string(
         m_denoise_config_manager.config_string_to_struct<denoise_config_t>(config_string, denoise_configs);
     if (denoise_status != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to decode denoise config from json string: {}", config_string);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to decode denoise config from json string: {}", config_string);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     return MEDIA_LIBRARY_SUCCESS;
@@ -260,10 +260,10 @@ media_library_return MediaLibraryPreIspDenoise::Impl::configure(const std::strin
 {
     denoise_config_t denoise_configs;
     hailort_t hailort_configs;
-    LOGGER__INFO("Configuring denoise Decoding json string");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Configuring denoise Decoding json string");
     if (decode_config_json_string(denoise_configs, hailort_configs, config_string) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to decode json string: {}", config_string);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to decode json string: {}", config_string);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     return configure(denoise_configs, hailort_configs);
@@ -272,15 +272,15 @@ media_library_return MediaLibraryPreIspDenoise::Impl::configure(const std::strin
 media_library_return MediaLibraryPreIspDenoise::Impl::configure(const denoise_config_t &denoise_configs,
                                                                 const hailort_t &hailort_configs)
 {
-    LOGGER__INFO("Configuring pre ISP denoise");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Configuring pre ISP denoise");
     std::unique_lock<std::shared_mutex> lock(rw_lock);
 
     bool enabled_changed = denoise_common::pre_isp_enable_changed(m_denoise_configs, denoise_configs);
-    LOGGER__INFO("NOTE: Loopback limit configurations are only applied when denoise is enabled.");
+    LOGGER__MODULE__INFO(MODULE_NAME, "NOTE: Loopback limit configurations are only applied when denoise is enabled.");
 
     if (!enabled_changed && !denoise_configs.enabled)
     {
-        LOGGER__INFO("Pre ISP Denoise Remains disabled, skipping configuration");
+        LOGGER__MODULE__INFO(MODULE_NAME, "Pre ISP Denoise Remains disabled, skipping configuration");
         return MEDIA_LIBRARY_SUCCESS;
     }
 
@@ -290,7 +290,7 @@ media_library_return MediaLibraryPreIspDenoise::Impl::configure(const denoise_co
         if (!m_hailort_denoise.set_config(denoise_configs, hailort_configs.device_id, HAILORT_SCHEDULER_THRESHOLD,
                                           HAILORT_SCHEDULER_TIMEOUT, HAILORT_SCHEDULER_BATCH_SIZE))
         {
-            LOGGER__ERROR("Failed to init hailort");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init hailort");
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
     }
@@ -301,7 +301,7 @@ media_library_return MediaLibraryPreIspDenoise::Impl::configure(const denoise_co
         media_library_return ret = create_and_initialize_buffer_pools();
         if (ret != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__ERROR("Failed to allocate denoise buffer pool");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to allocate denoise buffer pool");
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
         m_allocator = std::make_shared<HDR::DMABufferAllocator>();
@@ -367,11 +367,12 @@ media_library_return MediaLibraryPreIspDenoise::Impl::configure(const denoise_co
 media_library_return MediaLibraryPreIspDenoise::Impl::create_and_initialize_buffer_pools()
 {
     // Create output buffer pool
-    LOGGER__DEBUG("Initalizing buffer pool named {} for output resolution: width {} height {} in buffers size of {}",
-                  BUFFER_POOL_NAME, BUFFER_POOL_BUFFER_WIDTH, BUFFER_POOL_BUFFER_HEIGHT, BUFFER_POOL_MAX_BUFFERS);
+    LOGGER__MODULE__DEBUG(
+        MODULE_NAME, "Initalizing buffer pool named {} for output resolution: width {} height {} in buffers size of {}",
+        BUFFER_POOL_NAME, BUFFER_POOL_BUFFER_WIDTH, BUFFER_POOL_BUFFER_HEIGHT, BUFFER_POOL_MAX_BUFFERS);
     if (m_output_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to init buffer pool");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init buffer pool");
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
@@ -435,10 +436,8 @@ media_library_return MediaLibraryPreIspDenoise::Impl::start_isp_thread()
     m_isp_thread_running = true;
     m_isp_thread = std::thread([this]() {
         // Set MCM to injection mode
-        int status = set_isp_mcm_mode(ISP_MCM_MODE_INJECTION);
-        if (status < 0)
+        if (!set_isp_mcm_mode(ISP_MCM_MODE_INJECTION))
         {
-            LOGGER__ERROR("Error: failed to set mcm mode, ret = {}", status);
             return;
         }
 
@@ -496,20 +495,14 @@ media_library_return MediaLibraryPreIspDenoise::Impl::stop_isp_thread()
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-int MediaLibraryPreIspDenoise::Impl::set_isp_mcm_mode(uint32_t target_mcm_mode)
+bool MediaLibraryPreIspDenoise::Impl::set_isp_mcm_mode(uint32_t target_mcm_mode)
 {
-    if (auto isp_path = isp_utils::find_subdevice_path(ISP_SUBDEVICE_NAME); !isp_path.empty())
+    if (!v4l2::ext_ctrl_set(v4l2::IspCtrl::MCM_MODE_SEL, target_mcm_mode))
     {
-        isp_utils::ctrl::v4l2Control v4l2_ctrl(isp_path);
-        if (!v4l2_ctrl.v4l2_ioctl_set(ISPIOC_V4L2_SET_MCM_MODE, target_mcm_mode))
-            LOGGER__WARN("Failed to set CSI_MODE_SEL for {} to {}", isp_path, target_mcm_mode);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set MCM_MODE_SEL to {}", target_mcm_mode);
+        return false;
     }
-    else
-    {
-        LOGGER__ERROR("Subdevice {} not found.", ISP_SUBDEVICE_NAME);
-        return -1;
-    }
-    return 0;
+    return true;
 }
 
 void MediaLibraryPreIspDenoise::Impl::hailo_buffer_from_isp_buffer(HDR::VideoBuffer *video_buffer,

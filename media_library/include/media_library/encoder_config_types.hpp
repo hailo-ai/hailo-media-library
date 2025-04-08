@@ -167,6 +167,7 @@ struct rate_control_config_t
 
 struct jpeg_encoder_config_t
 {
+    std::string config_path;
     input_config_t input_stream;
     uint32_t n_threads;
     uint32_t quality;
@@ -197,6 +198,7 @@ struct encoder_monitors_config_t
 
 struct hailo_encoder_config_t
 {
+    std::string config_path;
     input_config_t input_stream;
     output_config_t output_stream;
     gop_config_t gop;

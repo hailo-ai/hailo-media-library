@@ -145,7 +145,7 @@ static void gst_hailoh265enc_init(GstHailoH265Enc *hailoh265enc)
 {
     GstHailoEnc *hailoenc = GST_HAILO_ENC(hailoh265enc);
     GST_PAD_SET_ACCEPT_TEMPLATE(GST_VIDEO_ENCODER_SINK_PAD(hailoh265enc));
-    EncoderParams *enc_params = &(hailoenc->enc_params);
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
     SetDefaultParameters(enc_params, false);
 }
 
@@ -162,12 +162,12 @@ static void gst_hailoh265enc_get_property(GObject *object, guint prop_id, GValue
     {
     case PROP_PROFILE:
         GST_OBJECT_LOCK(hailoh265enc);
-        g_value_set_enum(value, (gint)hailoenc->enc_params.profile);
+        g_value_set_enum(value, (gint)hailoenc->params->enc_params.profile);
         GST_OBJECT_UNLOCK(hailoh265enc);
         break;
     case PROP_LEVEL:
         GST_OBJECT_LOCK(hailoh265enc);
-        g_value_set_enum(value, (gint)hailoenc->enc_params.level);
+        g_value_set_enum(value, (gint)hailoenc->params->enc_params.level);
         GST_OBJECT_UNLOCK(hailoh265enc);
         break;
     default:
@@ -185,12 +185,12 @@ static void gst_hailoh265enc_set_property(GObject *object, guint prop_id, const 
     {
     case PROP_PROFILE:
         GST_OBJECT_LOCK(hailoh265enc);
-        hailoenc->enc_params.profile = g_value_get_enum(value);
+        hailoenc->params->enc_params.profile = g_value_get_enum(value);
         GST_OBJECT_UNLOCK(hailoh265enc);
         break;
     case PROP_LEVEL:
         GST_OBJECT_LOCK(hailoh265enc);
-        hailoenc->enc_params.level = g_value_get_enum(value);
+        hailoenc->params->enc_params.level = g_value_get_enum(value);
         GST_OBJECT_UNLOCK(hailoh265enc);
         break;
     default:

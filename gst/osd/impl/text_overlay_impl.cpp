@@ -26,6 +26,8 @@
 #include <opencv2/core/utils/filesystem.hpp>
 #include <opencv2/freetype.hpp>
 
+#define MODULE_NAME LoggerType::Osd
+
 TextOverlayImpl::TextOverlayImpl(const osd::TextOverlay &_overlay, media_library_return &status)
     : TextOverlayImpl(static_cast<const osd::BaseTextOverlay &>(_overlay), status)
 {
@@ -73,7 +75,7 @@ TextOverlayImpl::TextOverlayImpl(const osd::BaseTextOverlay &_overlay, media_lib
         auto shadow_text = SimpleTextOverlayImpl::create(shadow_overlay, extra_size, shadow_text_position);
         if (!shadow_text)
         {
-            LOGGER__ERROR("Failed to create shadow text overlay");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create shadow text overlay");
             return;
         }
         m_shadow_text = shadow_text.value();
@@ -86,7 +88,7 @@ TextOverlayImpl::TextOverlayImpl(const osd::BaseTextOverlay &_overlay, media_lib
         auto background = BackgroundTextOverlayImpl::create(overlay);
         if (!background)
         {
-            LOGGER__ERROR("Failed to create background text overlay");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create background text overlay");
             return;
         }
 
@@ -97,7 +99,7 @@ TextOverlayImpl::TextOverlayImpl(const osd::BaseTextOverlay &_overlay, media_lib
     auto foreground_text = SimpleTextOverlayImpl::create(overlay, extra_size, foreground_text_position);
     if (!foreground_text)
     {
-        LOGGER__ERROR("Failed to create foreground text overlay");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create foreground text overlay");
         return;
     }
     m_foreground_text = foreground_text.value();

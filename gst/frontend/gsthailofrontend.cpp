@@ -42,7 +42,6 @@ static GstPad *gst_hailofrontend_request_new_pad(GstElement *element, GstPadTemp
 static void gst_hailofrontend_release_pad(GstElement *element, GstPad *pad);
 static gboolean gst_hailofrontend_link_elements(GstElement *element);
 static void gst_hailofrontend_dispose(GObject *object);
-static void gst_hailofrontend_reset(GstHailoFrontend *self);
 
 enum
 {
@@ -128,60 +127,59 @@ static void gst_hailofrontend_class_init(GstHailoFrontendClass *klass)
 
 static void gst_hailofrontend_init(GstHailoFrontend *hailofrontend)
 {
-    // Default values
-    hailofrontend->config_file_path = NULL;
-    hailofrontend->m_elements_linked = FALSE;
+    hailofrontend->params = new GstHailoFrontendParams();
 
     // Prepare internal elements
     // image freeze
-    hailofrontend->m_image_freeze = gst_element_factory_make("hailoimagefreeze", NULL);
-    if (nullptr == hailofrontend->m_image_freeze)
+    hailofrontend->params->m_image_freeze = gst_element_factory_make("hailoimagefreeze", NULL);
+    if (nullptr == hailofrontend->params->m_image_freeze)
     {
         GST_ELEMENT_ERROR(hailofrontend, RESOURCE, FAILED, ("Failed creating image freeze element in bin!"), (NULL));
     }
 
-    hailofrontend->m_freeze_mresize_queue = gst_hailofrontend_init_queue(hailofrontend, false);
+    hailofrontend->params->m_freeze_mresize_queue = gst_hailofrontend_init_queue(hailofrontend, false);
 
     // denoise
-    hailofrontend->m_denoise = gst_element_factory_make("hailodenoise", NULL);
-    if (nullptr == hailofrontend->m_denoise)
+    hailofrontend->params->m_denoise = gst_element_factory_make("hailodenoise", NULL);
+    if (nullptr == hailofrontend->params->m_denoise)
     {
         GST_ELEMENT_ERROR(hailofrontend, RESOURCE, FAILED, ("Failed creating hailodenoise element in bin!"), (NULL));
     }
 
     // queue between denoise and dis_dewarp
-    hailofrontend->m_denoise_dis_queue = gst_hailofrontend_init_queue(hailofrontend, false);
+    hailofrontend->params->m_denoise_dis_queue = gst_hailofrontend_init_queue(hailofrontend, false);
 
     // dis_dewarp
-    hailofrontend->m_dis_dewarp = gst_element_factory_make("hailodewarp", NULL);
-    if (nullptr == hailofrontend->m_dis_dewarp)
+    hailofrontend->params->m_dis_dewarp = gst_element_factory_make("hailodewarp", NULL);
+    if (nullptr == hailofrontend->params->m_dis_dewarp)
     {
         GST_ELEMENT_ERROR(hailofrontend, RESOURCE, FAILED, ("Failed creating hailodewarp element in bin!"), (NULL));
     }
 
     // queue between dewarp and multi_resize
-    hailofrontend->m_dewarp_mresize_queue = gst_hailofrontend_init_queue(hailofrontend, false);
+    hailofrontend->params->m_dewarp_mresize_queue = gst_hailofrontend_init_queue(hailofrontend, false);
 
     // multi_resize
-    hailofrontend->m_multi_resize = gst_element_factory_make("hailomultiresize", NULL);
-    if (nullptr == hailofrontend->m_multi_resize)
+    hailofrontend->params->m_multi_resize = gst_element_factory_make("hailomultiresize", NULL);
+    if (nullptr == hailofrontend->params->m_multi_resize)
     {
         GST_ELEMENT_ERROR(hailofrontend, RESOURCE, FAILED, ("Failed creating hailomultiresize element in bin!"),
                           (NULL));
     }
 
     // Add elements and pads in the bin
-    gst_bin_add_many(GST_BIN(hailofrontend), hailofrontend->m_denoise, hailofrontend->m_denoise_dis_queue,
-                     hailofrontend->m_dis_dewarp, hailofrontend->m_dewarp_mresize_queue, hailofrontend->m_image_freeze,
-                     hailofrontend->m_freeze_mresize_queue, hailofrontend->m_multi_resize, NULL);
+    gst_bin_add_many(GST_BIN(hailofrontend), hailofrontend->params->m_denoise,
+                     hailofrontend->params->m_denoise_dis_queue, hailofrontend->params->m_dis_dewarp,
+                     hailofrontend->params->m_dewarp_mresize_queue, hailofrontend->params->m_image_freeze,
+                     hailofrontend->params->m_freeze_mresize_queue, hailofrontend->params->m_multi_resize, NULL);
 
     // Get the connecting pad
-    GstPad *pad = gst_element_get_static_pad(hailofrontend->m_denoise, "sink");
+    GstPad *pad = gst_element_get_static_pad(hailofrontend->params->m_denoise, "sink");
     // Create a ghostpad and connect it to the bin
     GstPadTemplate *pad_tmpl = gst_static_pad_template_get(&sink_template);
-    hailofrontend->sinkpad = gst_ghost_pad_new_from_template("sink", pad, pad_tmpl);
-    gst_pad_set_active(hailofrontend->sinkpad, TRUE);
-    gst_element_add_pad(GST_ELEMENT(hailofrontend), hailofrontend->sinkpad);
+    hailofrontend->params->sinkpad = gst_ghost_pad_new_from_template("sink", pad, pad_tmpl);
+    gst_pad_set_active(hailofrontend->params->sinkpad, TRUE);
+    gst_element_add_pad(GST_ELEMENT(hailofrontend), hailofrontend->params->sinkpad);
 
     // Cleanup
     gst_object_unref(pad_tmpl);
@@ -217,52 +215,51 @@ void gst_hailofrontend_set_property(GObject *object, guint property_id, const GV
     {
     // Handle property assignments here
     case PROP_CONFIG_FILE_PATH: {
-        G_VALUE_REPLACE_STRING(hailofrontend->config_file_path, value);
-        GST_DEBUG_OBJECT(hailofrontend, "config_file_path: %s", hailofrontend->config_file_path);
+        hailofrontend->params->config_file_path = glib_cpp::get_string_from_gvalue(value);
+        GST_DEBUG_OBJECT(hailofrontend, "config_file_path: %s", hailofrontend->params->config_file_path.c_str());
 
         // set params for sub elements here
-        g_object_set(hailofrontend->m_denoise, "config-file-path", g_value_get_string(value), NULL);
-        g_object_set(hailofrontend->m_dis_dewarp, "config-file-path", g_value_get_string(value), NULL);
-        g_object_set(hailofrontend->m_multi_resize, "config-file-path", g_value_get_string(value), NULL);
+        g_object_set(hailofrontend->params->m_denoise, "config-file-path", g_value_get_string(value), NULL);
+        g_object_set(hailofrontend->params->m_dis_dewarp, "config-file-path", g_value_get_string(value), NULL);
+        g_object_set(hailofrontend->params->m_multi_resize, "config-file-path", g_value_get_string(value), NULL);
         break;
     }
     case PROP_CONFIG_STRING: {
-        gchar *config_string = g_value_dup_string(value);
-        GST_DEBUG_OBJECT(hailofrontend, "config-string: %s", config_string);
+        std::string config_string = glib_cpp::get_string_from_gvalue(value);
+        GST_DEBUG_OBJECT(hailofrontend, "config-string: %s", config_string.c_str());
 
         // set params for sub elements here
-        g_object_set(hailofrontend->m_denoise, "config-string", config_string, NULL);
-        g_object_set(hailofrontend->m_dis_dewarp, "config-string", config_string, NULL);
-        g_object_set(hailofrontend->m_multi_resize, "config-string", config_string, NULL);
-        g_free(config_string);
+        g_object_set(hailofrontend->params->m_denoise, "config-string", config_string.c_str(), NULL);
+        g_object_set(hailofrontend->params->m_dis_dewarp, "config-string", config_string.c_str(), NULL);
+        g_object_set(hailofrontend->params->m_multi_resize, "config-string", config_string.c_str(), NULL);
         break;
     }
     case PROP_CONFIG: {
         // Set the config for the sub elements
         frontend_element_config_t *config = static_cast<frontend_element_config_t *>(g_value_get_pointer(value));
-        g_object_set(hailofrontend->m_denoise, "config", &(config->denoise_config), NULL);
-        g_object_set(hailofrontend->m_dis_dewarp, "config", &(config->ldc_config), NULL);
-        g_object_set(hailofrontend->m_multi_resize, "config", &(config->multi_resize_config), NULL);
+        g_object_set(hailofrontend->params->m_denoise, "config", &(config->denoise_config), NULL);
+        g_object_set(hailofrontend->params->m_dis_dewarp, "config", &(config->ldc_config), NULL);
+        g_object_set(hailofrontend->params->m_multi_resize, "config", &(config->multi_resize_config), NULL);
 
         break;
     }
     case PROP_DEWARP_CONFIG: {
         ldc_config_t *config = static_cast<ldc_config_t *>(g_value_get_pointer(value));
-        g_object_set(hailofrontend->m_dis_dewarp, "config", config, NULL);
+        g_object_set(hailofrontend->params->m_dis_dewarp, "config", config, NULL);
         break;
     }
     case PROP_DENOISE_CONFIG: {
         denoise_config_t *config = static_cast<denoise_config_t *>(g_value_get_pointer(value));
-        g_object_set(hailofrontend->m_denoise, "config", config, NULL);
+        g_object_set(hailofrontend->params->m_denoise, "config", config, NULL);
         break;
     }
     case PROP_MULTI_RESIZE_CONFIG: {
         multi_resize_config_t *config = static_cast<multi_resize_config_t *>(g_value_get_pointer(value));
-        g_object_set(hailofrontend->m_multi_resize, "config", config, NULL);
+        g_object_set(hailofrontend->params->m_multi_resize, "config", config, NULL);
         break;
     }
     case PROP_FREEZE: {
-        g_object_set(hailofrontend->m_image_freeze, "freeze", g_value_get_boolean(value), NULL);
+        g_object_set(hailofrontend->params->m_image_freeze, "freeze", g_value_get_boolean(value), NULL);
         break;
     }
     default:
@@ -279,16 +276,16 @@ void gst_hailofrontend_get_property(GObject *object, guint property_id, GValue *
     {
     // Handle property retrievals here
     case PROP_CONFIG_FILE_PATH: {
-        g_value_set_string(value, hailofrontend->config_file_path);
+        g_value_set_string(value, hailofrontend->params->config_file_path.c_str());
         break;
     }
     case PROP_CONFIG_STRING: {
-        g_value_set_string(value, hailofrontend->config_string.c_str());
+        g_value_set_string(value, hailofrontend->params->config_string.c_str());
         break;
     }
     case PROP_PRIVACY_MASK: {
         gpointer blender;
-        g_object_get(hailofrontend->m_multi_resize, "privacy-mask", &blender, NULL);
+        g_object_get(hailofrontend->params->m_multi_resize, "privacy-mask", &blender, NULL);
         g_value_set_pointer(value, blender);
         break;
     }
@@ -302,43 +299,41 @@ void gst_hailofrontend_get_property(GObject *object, guint property_id, GValue *
         gpointer dewarp_gvalue = nullptr;
         gpointer multi_resize_gvalue = nullptr;
 
-        g_object_get(hailofrontend->m_dis_dewarp, "config", &dewarp_gvalue, NULL);
+        g_object_get(hailofrontend->params->m_dis_dewarp, "config", &dewarp_gvalue, NULL);
         ldc_config = *reinterpret_cast<ldc_config_t *>(dewarp_gvalue);
 
-        g_object_get(hailofrontend->m_denoise, "config", &denoise_gvalue, NULL);
+        g_object_get(hailofrontend->params->m_denoise, "config", &denoise_gvalue, NULL);
         denoise_config = *reinterpret_cast<denoise_config_t *>(denoise_gvalue);
 
-        g_object_get(hailofrontend->m_multi_resize, "config", &multi_resize_gvalue, NULL);
+        g_object_get(hailofrontend->params->m_multi_resize, "config", &multi_resize_gvalue, NULL);
         multi_resize_config = *reinterpret_cast<multi_resize_config_t *>(multi_resize_gvalue);
 
-        hailofrontend->frontend_element_config = std::make_shared<frontend_element_config_t>();
-        hailofrontend->frontend_element_config->ldc_config = ldc_config;
-        hailofrontend->frontend_element_config->denoise_config = denoise_config;
-        hailofrontend->frontend_element_config->multi_resize_config = multi_resize_config;
+        hailofrontend->params->frontend_element_config =
+            frontend_element_config_t(ldc_config, denoise_config, multi_resize_config);
 
-        g_value_set_pointer(value, hailofrontend->frontend_element_config.get());
+        g_value_set_pointer(value, &hailofrontend->params->frontend_element_config);
         break;
     }
     case PROP_DEWARP_CONFIG: {
         gpointer ptr_value;
-        g_object_get(hailofrontend->m_dis_dewarp, "config", &ptr_value, NULL);
+        g_object_get(hailofrontend->params->m_dis_dewarp, "config", &ptr_value, NULL);
         g_value_set_pointer(value, ptr_value);
         break;
     }
     case PROP_DENOISE_CONFIG: {
         gpointer ptr_value;
-        g_object_get(hailofrontend->m_denoise, "config", &ptr_value, NULL);
+        g_object_get(hailofrontend->params->m_denoise, "config", &ptr_value, NULL);
         g_value_set_pointer(value, ptr_value);
         break;
     }
     case PROP_MULTI_RESIZE_CONFIG: {
         gpointer ptr_value;
-        g_object_get(hailofrontend->m_multi_resize, "config", &ptr_value, NULL);
+        g_object_get(hailofrontend->params->m_multi_resize, "config", &ptr_value, NULL);
         g_value_set_pointer(value, ptr_value);
         break;
     }
     case PROP_FREEZE: {
-        g_object_get(hailofrontend->m_image_freeze, "freeze", &value, NULL);
+        g_object_get(hailofrontend->params->m_image_freeze, "freeze", &value, NULL);
         break;
     }
     default:
@@ -358,7 +353,7 @@ static GstStateChangeReturn gst_hailofrontend_change_state(GstElement *element, 
     case GST_STATE_CHANGE_NULL_TO_READY: {
         GST_DEBUG_OBJECT(self, "GST_STATE_CHANGE_NULL_TO_READY");
         gst_hailofrontend_link_elements(GST_ELEMENT(self));
-        if (self->m_elements_linked == FALSE)
+        if (self->params->m_elements_linked == FALSE)
         {
             GST_ERROR_OBJECT(self, "Elements are not linked!");
             return GST_STATE_CHANGE_FAILURE;
@@ -380,7 +375,7 @@ static GstPad *gst_hailofrontend_request_new_pad(GstElement *element, GstPadTemp
     GST_DEBUG_OBJECT(self, "Frontend request new pad name: %s", name);
 
     // Get the source pad from GstHailoMultiResize that you want to expose
-    GstPad *multi_resize_srcpad = gst_element_request_pad(self->m_multi_resize, templ, name, caps);
+    GstPad *multi_resize_srcpad = gst_element_request_pad(self->params->m_multi_resize, templ, name, caps);
     GST_DEBUG_OBJECT(self, "Frontend requested multi_resize_srcpad: %s", GST_PAD_NAME(multi_resize_srcpad));
 
     // Create a new ghost pad and target GstHailoMultiResize source pad
@@ -406,9 +401,7 @@ static GstPad *gst_hailofrontend_request_new_pad(GstElement *element, GstPadTemp
 static void gst_hailofrontend_release_pad(GstElement *element, GstPad *pad)
 {
     GstHailoFrontend *self = GST_HAILO_FRONTEND(element);
-    gchar *name = gst_pad_get_name(pad);
-    GST_DEBUG_OBJECT(self, "Release pad: %s", name);
-    g_free(name);
+    GST_DEBUG_OBJECT(self, "Release pad: %s", glib_cpp::get_name(pad).c_str());
 
     GST_OBJECT_LOCK(self);
 
@@ -416,7 +409,7 @@ static void gst_hailofrontend_release_pad(GstElement *element, GstPad *pad)
     GstPad *multi_resize_srcpad = gst_ghost_pad_get_target(GST_GHOST_PAD(pad));
 
     // Release the source pad in GstHailoMultiResize
-    gst_element_release_request_pad(self->m_multi_resize, multi_resize_srcpad);
+    gst_element_release_request_pad(self->params->m_multi_resize, multi_resize_srcpad);
 
     // Remove the ghost pad from GstHailoFrontend
     gst_element_remove_pad(element, pad);
@@ -430,41 +423,33 @@ static void gst_hailofrontend_release_pad(GstElement *element, GstPad *pad)
 static gboolean gst_hailofrontend_link_elements(GstElement *element)
 {
     GstHailoFrontend *self = GST_HAILO_FRONTEND(element);
-    if (self->m_elements_linked)
+    if (self->params->m_elements_linked)
         return TRUE;
 
     // Link the elements
-    self->m_elements_linked = gst_element_link_many(self->m_denoise, self->m_denoise_dis_queue, self->m_dis_dewarp,
-                                                    self->m_dewarp_mresize_queue, self->m_image_freeze,
-                                                    self->m_freeze_mresize_queue, self->m_multi_resize, NULL);
+    self->params->m_elements_linked =
+        gst_element_link_many(self->params->m_denoise, self->params->m_denoise_dis_queue, self->params->m_dis_dewarp,
+                              self->params->m_dewarp_mresize_queue, self->params->m_image_freeze,
+                              self->params->m_freeze_mresize_queue, self->params->m_multi_resize, NULL);
 
-    if (!self->m_elements_linked)
+    if (!self->params->m_elements_linked)
     {
         GST_ERROR_OBJECT(self, "Failed to link elements in bin!");
     }
 
-    return self->m_elements_linked;
+    return self->params->m_elements_linked;
 }
 
 static void gst_hailofrontend_dispose(GObject *object)
 {
     GstHailoFrontend *self = GST_HAILO_FRONTEND(object);
     GST_DEBUG_OBJECT(self, "dispose");
-
-    self->frontend_element_config = nullptr;
-
-    G_OBJECT_CLASS(gst_hailofrontend_parent_class)->dispose(object);
-
-    gst_hailofrontend_reset(self);
-}
-
-static void gst_hailofrontend_reset(GstHailoFrontend *self)
-{
-    GST_DEBUG_OBJECT(self, "reset");
-    if (self->sinkpad != NULL)
+    if (self->params != nullptr)
     {
-        self->sinkpad = NULL;
+        delete self->params;
+        self->params = nullptr;
     }
 
+    G_OBJECT_CLASS(gst_hailofrontend_parent_class)->dispose(object);
     // gst_hailofrontend_release_pad will be called automatically for each srcpad
 }

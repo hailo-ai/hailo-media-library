@@ -27,11 +27,13 @@
 #include "encoder_internal.hpp"
 #include "encoder_gop_config.hpp"
 
+#define MODULE_NAME LoggerType::Encoder
+
 int Encoder::Impl::gopConfig::ParseGopConfigLine(GopPicConfig &pic_cfg)
 {
     if (m_gop_cfg->size >= MAX_GOP_PIC_CONFIG_NUM)
     {
-        LOGGER__ERROR("GOP Config: Error, Gop size is out of range\n");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "GOP Config: Error, Gop size is out of range\n");
         return -1;
     }
     VCEncGopPicConfig *cfg = &(m_gop_cfg->pGopPicCfg[m_gop_cfg->size++]);

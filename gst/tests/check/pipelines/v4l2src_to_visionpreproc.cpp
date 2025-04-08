@@ -1,5 +1,9 @@
 #include "hailo_v4l2/hailo_v4l2.h"
 #include "hailo_v4l2/hailo_v4l2_meta.h"
+
+#define FMT_HEADER_ONLY
+#include <fmt/format.h>
+
 #include <gst/check/check.h>
 #include <gst/check/gstcheck.h>
 #include <gst/gst.h>
@@ -16,15 +20,13 @@ static GstElement *create_v4l2_pipeline(std::string video_device, std::string fo
                                         guint num_buffers)
 {
     GstElement *pipeline;
-    gchar *pipe_desc = g_strdup_printf(
-        "v4l2src device=%s io-mode=mmap num-buffers=%d ! video/x-raw, format=%s, width=%d, height=%d  ! \
-                        queue max-size-buffers=5 name=queue ! \
-                        hailovisionpreproc name=visionpreproc config-file-path=%s ! \
-                        fakesink name=fakesink",
-        video_device.c_str(), num_buffers, format.c_str(), width, height, CONFIG_JSON_FILE_PATH);
+    std::string pipe_desc =
+        fmt::format("v4l2src device={} io-mode=mmap num-buffers={} ! video/x-raw, format={} , width={}, height={} ! "
+                    "queue max-size-buffers=5 name=queue ! hailovisionpreproc name=visionpreproc config-file-path={} ! "
+                    "fakesink name=fakesink",
+                    video_device, num_buffers, format, width, height, CONFIG_JSON_FILE_PATH);
 
-    pipeline = gst_parse_launch(pipe_desc, NULL);
-    g_free(pipe_desc);
+    pipeline = gst_parse_launch(pipe_desc.c_str(), NULL);
     return pipeline;
 }
 

@@ -39,11 +39,15 @@
 #include <tl/expected.hpp>
 #include <vector>
 #include <shared_mutex>
+#include "media_library/v4l2_ctrl.hpp"
+#include "media_library/isp_utils.hpp"
 
 #define HAILO15_ISP_CID_LSC_BASE (V4L2_CID_USER_BASE + 0x3200)
 #define HAILO15_ISP_CID_LSC_OPTICAL_ZOOM (HAILO15_ISP_CID_LSC_BASE + 0x0009)
 
 #define EIS_NUM_FRAMES_PULL_INTEGRATION_TIME (120)
+
+#define MODULE_NAME LoggerType::Dewarp
 
 class MediaLibraryDewarp::Impl final
 {
@@ -75,7 +79,7 @@ class MediaLibraryDewarp::Impl final
     input_video_config_t get_input_video_config();
 
     // get the output video configurations object
-    output_resolution_t get_output_video_config();
+    output_resolution_t get_application_input_streams_config();
 
     // set magnification level of optical zoom
     media_library_return set_optical_zoom(float magnification);
@@ -165,9 +169,9 @@ input_video_config_t MediaLibraryDewarp::get_input_video_config()
     return m_impl->get_input_video_config();
 }
 
-output_resolution_t MediaLibraryDewarp::get_output_video_config()
+output_resolution_t MediaLibraryDewarp::get_application_input_streams_config()
 {
-    return m_impl->get_output_video_config();
+    return m_impl->get_application_input_streams_config();
 }
 
 media_library_return MediaLibraryDewarp::set_optical_zoom(float magnification)
@@ -213,7 +217,7 @@ MediaLibraryDewarp::Impl::Impl(media_library_return &status, std::string config_
     m_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_LDC);
     if (decode_config_json_string(m_ldc_configs, config_string) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to decode json string");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to decode json string");
         status = MEDIA_LIBRARY_INVALID_ARGUMENT;
         return;
     }
@@ -221,7 +225,7 @@ MediaLibraryDewarp::Impl::Impl(media_library_return &status, std::string config_
     dsp_status dsp_ret = dsp_utils::acquire_device();
     if (dsp_ret != DSP_SUCCESS)
     {
-        LOGGER__ERROR("Failed to acquire DSP device, status: {}", dsp_ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to acquire DSP device, status: {}", dsp_ret);
         status = MEDIA_LIBRARY_OUT_OF_RESOURCES;
         return;
     }
@@ -229,7 +233,7 @@ MediaLibraryDewarp::Impl::Impl(media_library_return &status, std::string config_
     m_dewarp_mesh_ctx = std::make_unique<LdcMeshContext>(m_ldc_configs);
     if (configure(m_ldc_configs) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to configure dewarp");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure dewarp");
         status = MEDIA_LIBRARY_CONFIGURATION_ERROR;
         return;
     }
@@ -243,7 +247,7 @@ MediaLibraryDewarp::Impl::~Impl()
     dsp_status status = dsp_utils::release_device();
     if (status != DSP_SUCCESS)
     {
-        LOGGER__ERROR("Failed to release DSP device, status: {}", status);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to release DSP device, status: {}", status);
     }
 }
 
@@ -256,10 +260,10 @@ media_library_return MediaLibraryDewarp::Impl::decode_config_json_string(ldc_con
 media_library_return MediaLibraryDewarp::Impl::configure(std::string config_string)
 {
     ldc_config_t ldc_configs;
-    LOGGER__INFO("Configuring dewarp Decoding json string");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Configuring dewarp Decoding json string");
     if (decode_config_json_string(ldc_configs, config_string) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to decode json string: {}", config_string);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to decode json string: {}", config_string);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     return configure(ldc_configs);
@@ -281,6 +285,8 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
     bool do_flip_rotate_changed = !m_configured || do_flip_rotate != prev_do_flip_rotate;
     bool flip_changed = !m_configured || ldc_configs.flip_config != prev_flip_config;
     bool rot_changed = !m_configured || ldc_configs.rotation_config != prev_rot_config;
+
+    m_ldc_configs.update_flip_rotate(ldc_configs);
 
     lock.unlock();
 
@@ -308,45 +314,47 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
           ldc_configs.check_ops_enabled_changed(
               m_ldc_configs))) // everything is disabled and nothing is previously enabled
     {
-        LOGGER__INFO("All dewarp operations are disabled, skipping configuration");
+        LOGGER__MODULE__INFO(MODULE_NAME, "All dewarp operations are disabled, skipping configuration");
         return MEDIA_LIBRARY_SUCCESS;
     }
 
     if (ldc_configs.dis_config.enabled && ldc_configs.eis_config.enabled)
     {
-        LOGGER__ERROR("Both EIS and DIS are enabled, only one can run at a time!"
-                      "Disable one of them for the pipeline to work. Aborting...");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Both EIS and DIS are enabled, only one can run at a time!"
+                                           "Disable one of them for the pipeline to work. Aborting...");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
-    LOGGER__INFO("Configuring dewarp");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Configuring dewarp");
 
-    auto prev_out_config = m_ldc_configs.output_video_config;
+    auto prev_out_config = m_ldc_configs.application_input_streams_config;
     if (ldc_configs.dis_config.enabled && ldc_configs.dis_config.camera_fov_factor == 1)
     {
-        LOGGER__WARNING("DIS is enabled with camera_fov_factor = 1, this may cause EIS to be redundant");
+        LOGGER__MODULE__WARNING(MODULE_NAME,
+                                "DIS is enabled with camera_fov_factor = 1, this may cause EIS to be redundant");
     }
 
     // update if requested
     media_library_return ret = m_ldc_configs.update(ldc_configs);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to update dewarp configurations (prohibited) {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to update dewarp configurations (prohibited) {}", ret);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
     // skip mesh context configure if caps not set yet
-    if (m_ldc_configs.output_video_config.dimensions.destination_width == 0 ||
-        m_ldc_configs.output_video_config.dimensions.destination_height == 0)
+    if (m_ldc_configs.application_input_streams_config.dimensions.destination_width == 0 ||
+        m_ldc_configs.application_input_streams_config.dimensions.destination_height == 0)
     {
-        LOGGER__INFO("Skipping dewarp mesh configuration since output_video_config not set yet");
+        LOGGER__MODULE__INFO(MODULE_NAME,
+                             "Skipping dewarp mesh configuration since application_input_streams_config not set yet");
         return MEDIA_LIBRARY_SUCCESS;
     }
 
     ret = m_dewarp_mesh_ctx->configure(m_ldc_configs);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to configure dewarp mesh context, err: {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure dewarp mesh context, err: {}", ret);
         return ret;
     }
 
@@ -356,12 +364,14 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
         return ret;
 
     // if output config has changed, call callback
-    bool out_changed = !m_ldc_configs.output_video_config.dimensions_equal(prev_out_config);
+    bool out_changed = !m_ldc_configs.application_input_streams_config.dimensions_equal(prev_out_config);
 
     if (!m_ldc_configs.gyro_config.enabled && m_ldc_configs.eis_config.enabled)
     {
-        LOGGER__ERROR("EIS is enabled, but Gyro is not! This means that currently EIS correction will not be applied."
-                      "Both Gyro and EIS must be enabled for the correction to be applied.");
+        LOGGER__MODULE__ERROR(
+            MODULE_NAME,
+            "EIS is enabled, but Gyro is not! This means that currently EIS correction will not be applied."
+            "Both Gyro and EIS must be enabled for the correction to be applied.");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -377,7 +387,7 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
     {
         if (out_changed && callbacks.on_output_resolution_change)
         {
-            (*callbacks.on_output_resolution_change)(m_ldc_configs.output_video_config);
+            (*callbacks.on_output_resolution_change)(m_ldc_configs.application_input_streams_config);
         }
     }
     return MEDIA_LIBRARY_SUCCESS;
@@ -386,29 +396,32 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
 media_library_return MediaLibraryDewarp::Impl::create_and_initialize_buffer_pools()
 {
     uint width, height;
-    width = m_ldc_configs.output_video_config.dimensions.destination_width;
-    height = m_ldc_configs.output_video_config.dimensions.destination_height;
+    width = m_ldc_configs.application_input_streams_config.dimensions.destination_width;
+    height = m_ldc_configs.application_input_streams_config.dimensions.destination_height;
     std::string name = "dewarp_output";
 
     if (m_output_buffer_pool != nullptr && width == m_output_buffer_pool->get_width() &&
         height == m_output_buffer_pool->get_height())
     {
-        LOGGER__DEBUG("Buffer pool already exists, skipping creation");
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Buffer pool already exists, skipping creation");
         return MEDIA_LIBRARY_SUCCESS;
     }
 
     auto bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width(width);
     // Forcing output video buffer pool to be max 5 buffers.
-    m_ldc_configs.output_video_config.pool_max_buffers = 5;
-    LOGGER__INFO("Creating buffer pool named {} for output resolution: width {} height {} in buffers size of {} and "
-                 "bytes per line {}",
-                 name, width, height, m_ldc_configs.output_video_config.pool_max_buffers, bytes_per_line);
-    m_output_buffer_pool = std::make_shared<MediaLibraryBufferPool>(
-        width, height, m_ldc_configs.input_video_config.format,
-        (uint)m_ldc_configs.output_video_config.pool_max_buffers, HAILO_MEMORY_TYPE_DMABUF, bytes_per_line, name);
+    m_ldc_configs.application_input_streams_config.pool_max_buffers = 5;
+    LOGGER__MODULE__INFO(
+        MODULE_NAME,
+        "Creating buffer pool named {} for output resolution: width {} height {} in buffers size of {} and "
+        "bytes per line {}",
+        name, width, height, m_ldc_configs.application_input_streams_config.pool_max_buffers, bytes_per_line);
+    m_output_buffer_pool =
+        std::make_shared<MediaLibraryBufferPool>(width, height, m_ldc_configs.input_video_config.format,
+                                                 (uint)m_ldc_configs.application_input_streams_config.pool_max_buffers,
+                                                 HAILO_MEMORY_TYPE_DMABUF, bytes_per_line, name);
     if (m_output_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to init buffer pool");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init buffer pool");
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
@@ -422,8 +435,8 @@ media_library_return MediaLibraryDewarp::Impl::perform_angular_dis_dewarp(
 
     float cur_angles_sum = *(angular_dis_params->dsp_filter_angle->cur_angles_sum);
     float cur_traj = *(angular_dis_params->dsp_filter_angle->cur_traj);
-    LOGGER__DEBUG("Perform Angular dewarp previous alpha = {} cur angles sum = {} cur traj = {}",
-                  angular_dis_params->dsp_filter_angle->alpha, cur_angles_sum, cur_traj);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Perform Angular dewarp previous alpha = {} cur angles sum = {} cur traj = {}",
+                          angular_dis_params->dsp_filter_angle->alpha, cur_angles_sum, cur_traj);
 
     dsp_filter_angle_t filter_angle_ptr = {.maximum_theta = angular_dis_params->dsp_filter_angle->maximum_theta,
                                            .alpha = angular_dis_params->dsp_filter_angle->alpha,
@@ -482,8 +495,8 @@ media_library_return MediaLibraryDewarp::Impl::perform_dewarp(HailoMediaLibraryB
 
     // Perform dewarp
     dsp_dewarp_mesh_t *mesh = m_dewarp_mesh_ctx->get();
-    LOGGER__TRACE("Performing dewarp with mesh (w={}, h={}) interpolation type {}", mesh->mesh_width, mesh->mesh_height,
-                  m_ldc_configs.dewarp_config.interpolation_type);
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Performing dewarp with mesh (w={}, h={}) interpolation type {}",
+                          mesh->mesh_width, mesh->mesh_height, m_ldc_configs.dewarp_config.interpolation_type);
     clock_gettime(CLOCK_MONOTONIC, &start_dewarp);
 
     if (m_ldc_configs.dis_config.angular_dis_config.enabled)
@@ -504,7 +517,7 @@ media_library_return MediaLibraryDewarp::Impl::perform_dewarp(HailoMediaLibraryB
 
     clock_gettime(CLOCK_MONOTONIC, &end_dewarp);
     [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_dewarp, start_dewarp);
-    LOGGER__TRACE("perform_dsp_dewarp took {} milliseconds ({} fps)", ms, (1000 / ms));
+    LOGGER__MODULE__TRACE(MODULE_NAME, "perform_dsp_dewarp took {} milliseconds ({} fps)", ms, (1000 / ms));
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -514,7 +527,7 @@ void MediaLibraryDewarp::Impl::stamp_time_and_log_fps(timespec &start_handle, ti
     clock_gettime(CLOCK_MONOTONIC, &end_handle);
     long ms = (long)media_library_difftimespec_ms(end_handle, start_handle);
     uint framerate = 1000 / ms;
-    LOGGER__DEBUG("dewarp handle_frame took {} milliseconds ({} fps)", ms, framerate);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "dewarp handle_frame took {} milliseconds ({} fps)", ms, framerate);
 }
 
 void MediaLibraryDewarp::Impl::increase_frame_counter()
@@ -530,13 +543,13 @@ media_library_return MediaLibraryDewarp::Impl::validate_input_frame(HailoMediaLi
 
     if (input_res != *input_image)
     {
-        LOGGER__ERROR("Invalid input frame width {} input frame height {}", input_image->width, input_image->height);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Invalid input frame width {} input frame height {}", input_image->width,
+                              input_image->height);
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
     return MEDIA_LIBRARY_SUCCESS;
 }
-
 media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBufferPtr input_frame,
                                                             HailoMediaLibraryBufferPtr output_frame)
 {
@@ -561,8 +574,9 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBuf
            input_frame->isp_ae_fps == HAILO_ISP_AE_FPS_DEFAULT_VALUE)) ||
         (input_frame->isp_ae_average_luma < m_ldc_configs.dis_config.average_luminance_threshold))
     {
-        LOGGER__INFO("Resetting VSM  - reason could be ae converged {} ae fps {} or ae luminance {}",
-                     input_frame->isp_ae_converged, input_frame->isp_ae_fps, input_frame->isp_ae_average_luma);
+        LOGGER__MODULE__INFO(MODULE_NAME,
+                             "Resetting VSM  - reason could be ae converged {} ae fps {} or ae luminance {}",
+                             input_frame->isp_ae_converged, input_frame->isp_ae_fps, input_frame->isp_ae_average_luma);
         input_frame->vsm.dx = HAILO_VSM_DEFAULT_VALUE;
         input_frame->vsm.dy = HAILO_VSM_DEFAULT_VALUE;
     }
@@ -570,7 +584,7 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBuf
     // Update mesh context if dis is enabled and vsm has changed
     else if (m_ldc_configs.dis_config.enabled)
     {
-        LOGGER__DEBUG("Updating vsm to dx {} dy {}", input_frame->vsm.dx, input_frame->vsm.dy);
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Updating vsm to dx {} dy {}", input_frame->vsm.dx, input_frame->vsm.dy);
         m_dewarp_mesh_ctx->on_frame_vsm_update(input_frame->vsm);
     }
 
@@ -584,15 +598,19 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBuf
             m_curr_ae_integration_time = input_frame->isp_ae_integration_time;
             if (m_curr_ae_integration_time == 0)
             {
-                LOGGER__WARNING("EIS: Integration time 0 received!");
+                LOGGER__MODULE__WARNING(MODULE_NAME, "EIS: Integration time 0 received!");
             }
         }
-        media_lib_ret = m_dewarp_mesh_ctx->on_frame_eis_update(
-            input_frame->isp_timestamp_ns, m_curr_ae_integration_time * 1000, m_ldc_configs.eis_config.enabled,
-            (uint32_t)(input_frame->isp_ae_fps / 1000));
-        if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
-            return media_lib_ret;
-        m_curr_ae_integration_time_counter++;
+        ++m_curr_ae_integration_time_counter;
+
+        if (m_ldc_configs.eis_config.enabled)
+        {
+            media_lib_ret =
+                m_dewarp_mesh_ctx->on_frame_eis_update(input_frame->isp_timestamp_ns, m_curr_ae_integration_time * 1000,
+                                                       input_frame->isp_ae_fps, m_ldc_configs.eis_config.enabled);
+            if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
+                return media_lib_ret;
+        }
     }
 
     // Update last vsm
@@ -624,10 +642,10 @@ input_video_config_t MediaLibraryDewarp::Impl::get_input_video_config()
     return m_ldc_configs.input_video_config;
 }
 
-output_resolution_t MediaLibraryDewarp::Impl::get_output_video_config()
+output_resolution_t MediaLibraryDewarp::Impl::get_application_input_streams_config()
 {
     std::unique_lock<std::shared_mutex> lock(rw_lock);
-    return m_ldc_configs.output_video_config;
+    return m_ldc_configs.application_input_streams_config;
 }
 
 media_library_return MediaLibraryDewarp::Impl::set_optical_zoom(float magnification)
@@ -636,7 +654,7 @@ media_library_return MediaLibraryDewarp::Impl::set_optical_zoom(float magnificat
 
     if (!m_ldc_configs.optical_zoom_config.enabled)
     {
-        LOGGER__ERROR("optical zoom is disabled in configuration");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "optical zoom is disabled in configuration");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -649,13 +667,13 @@ media_library_return MediaLibraryDewarp::Impl::set_optical_zoom(float magnificat
         ctrl.value = static_cast<int>(magnification * 100);
         if (ioctl(m_video_fd, VIDIOC_S_CTRL, &ctrl))
         {
-            LOGGER__ERROR("Could not update v4l2-ctl about new optical zoom");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Could not update v4l2-ctl about new optical zoom");
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
     }
     else
     {
-        LOGGER__WARNING("video fd is not initialized, skipping v4l2-ctl update");
+        LOGGER__MODULE__WARNING(MODULE_NAME, "video fd is not initialized, skipping v4l2-ctl update");
     }
 
     return MEDIA_LIBRARY_SUCCESS;
@@ -669,9 +687,9 @@ media_library_return MediaLibraryDewarp::Impl::set_input_video_config(uint32_t w
     m_ldc_configs.input_video_config.resolution.framerate = framerate;
     m_ldc_configs.input_video_config.format = format;
 
-    m_ldc_configs.output_video_config.dimensions.destination_width = width;
-    m_ldc_configs.output_video_config.dimensions.destination_height = height;
-    m_ldc_configs.output_video_config.framerate = framerate;
+    m_ldc_configs.application_input_streams_config.dimensions.destination_width = width;
+    m_ldc_configs.application_input_streams_config.dimensions.destination_height = height;
+    m_ldc_configs.application_input_streams_config.framerate = framerate;
 
     if (m_ldc_configs.check_ops_enabled())
     {

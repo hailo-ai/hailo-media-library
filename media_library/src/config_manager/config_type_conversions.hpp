@@ -28,6 +28,9 @@
 #include "media_library_logger.hpp"
 #include "encoder_config.hpp"
 
+using json = nlohmann::json;
+#define MODULE_NAME LoggerType::Config
+
 #define MEDIALIB_JSON_SERIALIZE_ENUM(ENUM_TYPE, ...)                                                                   \
     template <typename BasicJsonType> inline void to_json(BasicJsonType &j, const ENUM_TYPE &e)                        \
     {                                                                                                                  \
@@ -39,7 +42,7 @@
             });                                                                                                        \
         if (it == std::end(m))                                                                                         \
         {                                                                                                              \
-            LOGGER__ERROR("Unknown enum value received for " #ENUM_TYPE);                                              \
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Unknown enum value received for " #ENUM_TYPE);                         \
             throw std::invalid_argument("Unknown enum value received for " #ENUM_TYPE);                                \
         }                                                                                                              \
         j = it->second;                                                                                                \
@@ -53,7 +56,7 @@
             [&j](const std::pair<ENUM_TYPE, BasicJsonType> &ej_pair) -> bool { return ej_pair.second == j; });         \
         if (it == std::end(m))                                                                                         \
         {                                                                                                              \
-            LOGGER__ERROR("Unknown enum value received for " #ENUM_TYPE);                                              \
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Unknown enum value received for " #ENUM_TYPE);                         \
             throw std::invalid_argument("Unknown enum value received for " #ENUM_TYPE);                                \
         }                                                                                                              \
         e = it->first;                                                                                                 \
@@ -617,15 +620,13 @@ void from_json(const nlohmann::json &j, encoder_monitors_config_t &monitors_conf
 void to_json(nlohmann::json &j, const hailo_encoder_config_t &enc_conf)
 {
     j = nlohmann::json{{"encoding",
-                        {"input_stream", enc_conf.input_stream},
-                        {
-                            "hailo_encoder",
-                            {"config", {"output_stream", enc_conf.output_stream}},
-                            {"gop_config", enc_conf.gop},
-                            {"coding_cotnrol", enc_conf.coding_control},
-                            {"rate_control", enc_conf.rate_control},
-                            {"monitors_control", enc_conf.monitors_control},
-                        }}};
+                        {{"input_stream", enc_conf.input_stream},
+                         {"hailo_encoder",
+                          {{"config", {{"output_stream", enc_conf.output_stream}}},
+                           {"gop_config", enc_conf.gop},
+                           {"coding_control", enc_conf.coding_control},
+                           {"rate_control", enc_conf.rate_control},
+                           {"monitors_control", enc_conf.monitors_control}}}}}};
 }
 
 void from_json(const nlohmann::json &j, hailo_encoder_config_t &enc_conf)
@@ -641,8 +642,8 @@ void from_json(const nlohmann::json &j, hailo_encoder_config_t &enc_conf)
 void to_json(nlohmann::json &j, const jpeg_encoder_config_t &enc_conf)
 {
     j = nlohmann::json{{"encoding",
-                        {"input_stream", enc_conf.input_stream},
-                        {"jpeg_encoder", {"n_threads", enc_conf.n_threads}, {"quality", enc_conf.quality}}}};
+                        {{"input_stream", enc_conf.input_stream},
+                         {"jpeg_encoder", {{"n_threads", enc_conf.n_threads}, {"quality", enc_conf.quality}}}}}};
 }
 
 void from_json(const nlohmann::json &j, jpeg_encoder_config_t &enc_conf)
@@ -764,8 +765,11 @@ void to_json(nlohmann::json &j, const output_resolution_t &out_res)
         {"framerate", out_res.framerate},
         {"width", out_res.dimensions.destination_width},
         {"height", out_res.dimensions.destination_height},
-        {"pool_max_buffers", out_res.pool_max_buffers},
     };
+    if (out_res.pool_max_buffers != 0)
+    {
+        j["pool_max_buffers"] = out_res.pool_max_buffers;
+    }
 }
 
 void from_json(const nlohmann::json &j, output_resolution_t &out_res)
@@ -773,30 +777,30 @@ void from_json(const nlohmann::json &j, output_resolution_t &out_res)
     j.at("framerate").get_to(out_res.framerate);
     j.at("height").get_to(out_res.dimensions.destination_height);
     j.at("width").get_to(out_res.dimensions.destination_width);
+    out_res.keep_aspect_ratio =
+        j.value("keep_aspect_ratio", false);                   // not a mandatory property, if not set, default to false
     out_res.pool_max_buffers = j.value("pool_max_buffers", 0); // not a mandatory property for input video
     out_res.dimensions.perform_crop = false;
 }
 
-//------------------------ output_video_config_t ------------------------
+//------------------------ application_input_streams_config_t ------------------------
 
-void to_json(nlohmann::json &j, const output_video_config_t &out_conf)
+void to_json(nlohmann::json &j, const application_input_streams_config_t &out_conf)
 {
     j = nlohmann::json{
         {"method", out_conf.interpolation_type},
         {"format", out_conf.format},
         {"resolutions", out_conf.resolutions},
         {"grayscale", out_conf.grayscale},
-        {"keep_aspect_ratio", out_conf.keep_aspect_ratio},
     };
 }
 
-void from_json(const nlohmann::json &j, output_video_config_t &out_conf)
+void from_json(const nlohmann::json &j, application_input_streams_config_t &out_conf)
 {
     j.at("method").get_to(out_conf.interpolation_type);
     j.at("format").get_to(out_conf.format);
     j.at("resolutions").get_to(out_conf.resolutions);
     j.at("grayscale").get_to(out_conf.grayscale);
-    out_conf.keep_aspect_ratio = j.value("keep_aspect_ratio", false);
 }
 
 //------------------------ input_video_config_t ------------------------
@@ -848,7 +852,7 @@ void to_json(nlohmann::json &j, const multi_resize_config_t &mresize_conf)
     // Although multi_resize_config_t has an input_video_config member, it is
     // not to be set/changed from json. It is set by the application.
     j = nlohmann::json{
-        {"output_video", mresize_conf.output_video_config},
+        {"application_input_streams", mresize_conf.application_input_streams_config},
         {"digital_zoom", mresize_conf.digital_zoom_config},
         {"rotation", mresize_conf.rotation_config},
         {"motion_detection", mresize_conf.motion_detection_config},
@@ -859,7 +863,7 @@ void from_json(const nlohmann::json &j, multi_resize_config_t &mresize_conf)
 {
     // Although multi_resize_config_t has an input_video_config member, it is
     // not to be set/changed from json. It is set by the application.
-    j.at("output_video").get_to(mresize_conf.output_video_config);
+    j.at("application_input_streams").get_to(mresize_conf.application_input_streams_config);
     j.at("digital_zoom").get_to(mresize_conf.digital_zoom_config);
     j.at("rotation").get_to(mresize_conf.rotation_config);
     j.at("motion_detection").get_to(mresize_conf.motion_detection_config);
@@ -868,16 +872,15 @@ void from_json(const nlohmann::json &j, multi_resize_config_t &mresize_conf)
 //------------------------ eis_config_t ------------------------
 void to_json(nlohmann::json &j, const eis_config_t &eis_conf)
 {
-    j = nlohmann::json{
-        {"enabled", eis_conf.enabled},
-        {"stabilize", eis_conf.stabilize},
-        {"eis_config_path", eis_conf.eis_config_path},
-        {"window_size", eis_conf.window_size},
-        {"rotational_smoothing_coefficient", eis_conf.rotational_smoothing_coefficient},
-        {"iir_hpf_coefficient", eis_conf.iir_hpf_coefficient},
-        {"camera_fov_factor", eis_conf.camera_fov_factor},
-        {"line_readout_time", eis_conf.line_readout_time},
-    };
+    j = nlohmann::json{{"enabled", eis_conf.enabled},
+                       {"stabilize", eis_conf.stabilize},
+                       {"eis_config_path", eis_conf.eis_config_path},
+                       {"window_size", eis_conf.window_size},
+                       {"rotational_smoothing_coefficient", eis_conf.rotational_smoothing_coefficient},
+                       {"iir_hpf_coefficient", eis_conf.iir_hpf_coefficient},
+                       {"camera_fov_factor", eis_conf.camera_fov_factor},
+                       {"line_readout_time", eis_conf.line_readout_time},
+                       {"hdr_exposure_ratio", eis_conf.hdr_exposure_ratio}};
 }
 
 void from_json(const nlohmann::json &j, eis_config_t &eis_conf)
@@ -890,6 +893,7 @@ void from_json(const nlohmann::json &j, eis_config_t &eis_conf)
     j.at("iir_hpf_coefficient").get_to(eis_conf.iir_hpf_coefficient);
     j.at("camera_fov_factor").get_to(eis_conf.camera_fov_factor);
     j.at("line_readout_time").get_to(eis_conf.line_readout_time);
+    j.at("hdr_exposure_ratio").get_to(eis_conf.hdr_exposure_ratio);
 }
 
 //------------------------ gyro_config_t ------------------------
@@ -915,7 +919,7 @@ void from_json(const nlohmann::json &j, gyro_config_t &gyro_conf)
 
 void to_json(nlohmann::json &j, const ldc_config_t &ldc_conf)
 {
-    // Although ldc_config_t has an output_video_config member, it is
+    // Although ldc_config_t has an application_input_streams_config member, it is
     // not to be set/changed from json. It is set by the application.
     j = nlohmann::json{
         {"dewarp", ldc_conf.dewarp_config},
@@ -930,7 +934,7 @@ void to_json(nlohmann::json &j, const ldc_config_t &ldc_conf)
 
 void from_json(const nlohmann::json &j, ldc_config_t &ldc_conf)
 {
-    // Although ldc_config_t has an output_video_config member, it is
+    // Although ldc_config_t has an application_input_streams_config member, it is
     // not to be set/changed from json. It is set by the application.
     j.at("dewarp").get_to(ldc_conf.dewarp_config);
     j.at("dis").get_to(ldc_conf.dis_config);
@@ -939,6 +943,13 @@ void from_json(const nlohmann::json &j, ldc_config_t &ldc_conf)
     j.at("optical_zoom").get_to(ldc_conf.optical_zoom_config);
     j.at("rotation").get_to(ldc_conf.rotation_config);
     j.at("flip").get_to(ldc_conf.flip_config);
+
+    ldc_conf.eis_config.num_exposures = 1;
+    if (j.count("hdr") == 0)
+        return;
+    if (!j.at("hdr").at("enabled").get<bool>())
+        return;
+    ldc_conf.eis_config.num_exposures = j.at("hdr").at("dol").get<uint8_t>();
 }
 
 //------------------------ isp_t ------------------------
@@ -1054,24 +1065,20 @@ void to_json(nlohmann::json &j, const denoise_config_t &d_conf)
     nlohmann::json network_json;
     if (d_conf.bayer == true)
     {
-        network_json = nlohmann::json{{"network", d_conf.bayer_network_config}};
+        network_json = d_conf.bayer_network_config;
     }
     else
     {
-        network_json = nlohmann::json{{"network", d_conf.network_config}};
+        network_json = d_conf.network_config;
     }
 
-    j = nlohmann::json{
-        {"denoise",
-         {
-             {"enabled", d_conf.enabled},
-             {"bayer", d_conf.bayer},
-             {"sensor", d_conf.sensor},
-             {"method", d_conf.denoising_quality},
-             {"loopback-count", d_conf.loopback_count},
-             network_json,
-         }},
-    };
+    j = nlohmann::json{{"denoise",
+                        {{"enabled", d_conf.enabled},
+                         {"bayer", d_conf.bayer},
+                         {"sensor", d_conf.sensor},
+                         {"method", d_conf.denoising_quality},
+                         {"loopback-count", d_conf.loopback_count},
+                         {"network", network_json}}}};
 }
 
 void from_json(const nlohmann::json &j, denoise_config_t &d_conf)
@@ -1140,3 +1147,129 @@ void from_json(const nlohmann::json &j, hdr_config_t &hdr_conf)
     hdr_conf.ls_ratio = hdr.value("lsRatio", 16); // 1048576/(1<<16 = 65536) = 16
     hdr_conf.vs_ratio = hdr.value("vsRatio", 4);  // 1048576/(1<<18 = 262144) = 4
 }
+
+//------------------------ isp_config_files_t ------------------------
+
+void to_json(nlohmann::json &j, const isp_config_files_t &isp_conf)
+{
+    j = nlohmann::json{
+        {"isp_config_files",
+         {
+             {"3a_config_path", isp_conf.aaa_config_path},
+             {"sensor_entry", isp_conf.sensor_entry_path},
+         }},
+    };
+}
+
+void from_json(const nlohmann::json &j, isp_config_files_t &isp_conf)
+{
+    const auto &isp = j.at("isp_config_files");
+    isp.at("3a_config_path").get_to(isp_conf.aaa_config_path);
+    isp.at("sensor_entry").get_to(isp_conf.sensor_entry_path);
+}
+
+// Define serialization functions
+
+void to_json(json &j, const OverrideParameters &p)
+{
+    j = json{{"override_file", p.override_file}, {"discard_on_profile_change", p.discard_on_profile_change}};
+}
+
+void from_json(const json &j, OverrideParameters &p)
+{
+    j.at("override_file").get_to(p.override_file);
+    j.at("discard_on_profile_change").get_to(p.discard_on_profile_change);
+}
+
+void to_json(json &j, const profile_t &p)
+{
+    j = json{{"name", p.name}, {"config_file", p.config_file}};
+}
+
+void from_json(const json &j, profile_t &p)
+{
+    j.at("name").get_to(p.name);
+    j.at("config_file").get_to(p.config_file);
+}
+
+void to_json(json &j, const medialib_config_t &m)
+{
+    j = json{{"default_profile", m.default_profile}, {"profiles", m.profiles}};
+}
+
+void from_json(const json &j, medialib_config_t &m)
+{
+    j.at("default_profile").get_to(m.default_profile);
+    j.at("profiles").get_to(m.profiles);
+}
+
+//------------------------ codec_config_t ------------------------
+void to_json(nlohmann::json &j, const codec_config_t &codec_conf)
+{
+    j = nlohmann::json{
+        {"stream_id", codec_conf.stream_id},
+        {"config_path", codec_conf.config_path},
+    };
+}
+
+void from_json(const nlohmann::json &j, codec_config_t &codec_conf)
+{
+    j.at("stream_id").get_to(codec_conf.stream_id);
+    j.at("config_path").get_to(codec_conf.config_path);
+}
+
+//------------------------ profile_config_t ------------------------
+
+void to_json(json &j, const profile_config_t &profile_conf)
+{
+    j = json{
+        {"application_input_streams", profile_conf.multi_resize_config},
+        {"ldc", profile_conf.ldc_config},
+        {"hailort", profile_conf.hailort_config},
+        {"isp", profile_conf.isp_config},
+        {"hdr", profile_conf.hdr_config},
+        {"denoise", profile_conf.denoise_config},
+        {"input_video", profile_conf.input_config},
+        {"codec_configs", profile_conf.codec_configs},
+        {"isp_config_files", profile_conf.isp_config_files},
+    };
+}
+
+void from_json(const nlohmann::json &j, profile_config_t &profile_conf)
+{
+    j.get_to(profile_conf.multi_resize_config);
+    j.get_to(profile_conf.ldc_config);
+    j.get_to(profile_conf.hailort_config);
+    j.get_to(profile_conf.isp_config);
+    j.get_to(profile_conf.hdr_config);
+    j.get_to(profile_conf.denoise_config);
+    j.get_to(profile_conf.input_config);
+    j.at("encoded_output_streams").get_to(profile_conf.codec_configs);
+    j.get_to(profile_conf.isp_config_files);
+}
+
+// ------------------------ frontend_config_t --------------------------------
+
+void to_json(json &j, const frontend_config_t &f_conf)
+{
+    j = json{};
+    j.update(f_conf.input_config);
+    j.update(f_conf.ldc_config);
+    j.update(f_conf.denoise_config);
+    j.update(f_conf.multi_resize_config);
+    j.update(f_conf.hdr_config);
+    j.update(f_conf.hailort_config);
+    j.update(f_conf.isp_config);
+}
+
+void from_json(const json &j, frontend_config_t &f_conf)
+{
+    j.get_to(f_conf.input_config);
+    j.get_to(f_conf.ldc_config);
+    j.get_to(f_conf.denoise_config);
+    j.get_to(f_conf.multi_resize_config);
+    j.get_to(f_conf.hdr_config);
+    j.get_to(f_conf.hailort_config);
+    j.get_to(f_conf.isp_config);
+}
+#undef MODULE_NAME

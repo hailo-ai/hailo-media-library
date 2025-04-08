@@ -23,119 +23,125 @@
 #include "media_library_logger.hpp"
 #include "common.hpp"
 #include "env_vars.hpp"
+#include "spdlog/cfg/env.h"
+#include "spdlog/cfg/helpers-inl.h"
 
 #include <filesystem>
 #include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
 
-#define HOME_DIR ("/home/root")
-
-#define MAX_LOG_FILE_SIZE (1024 * 1024) // 1MB
-
 #define MEDIALIB_NAME ("hailo_media_library")
 #define MEDIALIB_LOGGER_FILENAME ("medialib.log")
-#define MEDIALIB_MAX_NUMBER_OF_LOG_FILES (1) // There will be 2 log files - 1 spare
-#define MEDIALIB_CONSOLE_LOGGER_PATTERN                                                                                \
-    ("[%Y-%m-%d %X.%e] [%P] [%t] [%n] [%^%l%$] [%s:%#] [%!] %v") // Console
-                                                                 // logger will
-                                                                 // print:
-                                                                 // [timestamp]
-                                                                 // [PID] [TID]
-                                                                 // [MediaLib]
-                                                                 // [log level]
-                                                                 // [source
-                                                                 // file:line
-                                                                 // number]
-                                                                 // [function
-                                                                 // name] msg
-#define MEDIALIB_MAIN_FILE_LOGGER_PATTERN                                                                              \
-    ("[%Y-%m-%d %X.%e] [%P] [%t] [%n] [%l] [%s:%#] [%!] %v") // File logger will
-                                                             // print:
-                                                             // [timestamp]
-                                                             // [PID] [TID]
-                                                             // [MediaLib] [log
-                                                             // level] [source
-                                                             // file:line
-                                                             // number]
-                                                             // [function name]
-                                                             // msg
-#define MEDIALIB_LOCAL_FILE_LOGGER_PATTERN                                                                             \
-    ("[%Y-%m-%d %X.%e] [%t] [%n] [%l] [%s:%#] [%!] %v") // File logger will
-                                                        // print: [timestamp]
-                                                        // [TID] [MediaLib] [log
-                                                        // level] [source
-                                                        // file:line number]
-                                                        // [function name] msg
+#define MEDIALIB_MAX_NUMBER_OF_LOG_FILES (0) // Do not create more log files
+#define DEFAULT_FILE_LEVEL (spdlog::level::level_enum::info)
+#define DEFAULT_CONSOLE_LEVEL (spdlog::level::level_enum::err)
 
-#define PERIODIC_FLUSH_INTERVAL_IN_SECONDS (5)
+#define MEDIALIB_LOGGER_PATTERN ("[%Y-%m-%d %X.%e] [%P] [%t] [hailo_media_library] [%n] [%^%l%$] [%s:%#] [%!] %v")
+/* Logger format:
+   [timestamp]           - Date and time with microseconds
+   [PID]                 - Process ID
+   [TID]                 - Thread ID
+   [hailo_media_library]
+   [module]              - Name of logger module (hailo_media_library if not provided)
+   [log level]           - Log severity level (e.g., info, error)
+   [source:line]         - Source file and line number
+   [function]            - Function name
+   [message]             - Log message content */
 
 #define PATH_SEPARATOR "/"
 
-std::string MediaLibLoggerSetup::parse_log_path(const char *log_path)
+std::unordered_map<LoggerType, std::string> LoggerManager::logger_names = {
+    {LoggerType::Default, MEDIALIB_NAME},
+    {LoggerType::Api, "api"},
+    {LoggerType::Resize, "resize"},
+    {LoggerType::Dewarp, "dewarp"},
+    {LoggerType::PrivacyMask, "privacy_mask"},
+    {LoggerType::Encoder, "encoder"},
+    {LoggerType::BufferPool, "buffer_pool"},
+    {LoggerType::Dis, "dis"},
+    {LoggerType::Eis, "eis"},
+    {LoggerType::Dsp, "dsp"},
+    {LoggerType::Isp, "isp"},
+    {LoggerType::Denoise, "denoise"},
+    {LoggerType::Osd, "osd"},
+    {LoggerType::Config, "config"},
+    {LoggerType::LdcMesh, "ldc_mesh"},
+    {LoggerType::MotionDetection, "motion_detection"}};
+
+std::unordered_map<LoggerType, std::shared_ptr<spdlog::logger>> LoggerManager::loggers = {};
+
+namespace media_lib_logger_setup
 {
-    if ((nullptr == log_path) || (std::strlen(log_path) == 0))
+
+static std::unordered_map<std::string, spdlog::level::level_enum> get_levels_from_env(
+    const char *var, const std::string &default_level_name, spdlog::level::level_enum default_level)
+{
+    std::unordered_map<std::string, spdlog::level::level_enum> levels = {{default_level_name, default_level}};
+    auto env_val = get_env_variable<std::string>(var);
+
+    if (!env_val.has_value())
+    {
+        return levels;
+    }
+
+    std::string logger_string_config = env_val.value();
+    if (logger_string_config.empty())
+    {
+        return levels;
+    }
+
+    auto key_vals = spdlog::cfg::helpers::extract_key_vals_(logger_string_config);
+
+    for (auto &name_level : key_vals)
+    {
+        auto &logger_name = name_level.first;
+        auto level_name = spdlog::cfg::helpers::to_lower_(name_level.second);
+        auto level = spdlog::level::from_str(level_name);
+        // ignore unrecognized level names
+        if (level == spdlog::level::off && level_name != "off")
+        {
+            continue;
+        }
+        if (logger_name.empty()) // no logger name indicates default level
+        {
+            levels[default_level_name] = level;
+        }
+        else
+        {
+            levels[logger_name] = level;
+        }
+    }
+
+    return levels;
+}
+
+static std::string get_log_dir_path()
+{
+    std::string log_path = "";
+    auto log_path_expected = get_env_variable<std::string>(MEDIALIB_LOGGER_PATH_ENV_VAR);
+
+    if (log_path_expected.has_value())
+    {
+        log_path = log_path_expected.value();
+    }
+
+    if (log_path == "")
     {
         return ".";
     }
 
-    std::string log_path_str(log_path);
-    if (log_path_str == "NONE")
+    if (log_path == "NONE")
     {
         return "";
     }
 
-    return log_path_str;
+    return log_path;
 }
 
-std::string MediaLibLoggerSetup::get_log_path()
-{
-    std::string log_path_str = "";
-    auto log_path_expected = get_env_variable(MEDIALIB_LOGGER_PATH_ENV_VAR);
-
-    if (log_path_expected.has_value())
-    {
-        log_path_str = log_path_expected.value();
-    }
-
-    return parse_log_path(log_path_str.c_str());
-}
-
-std::string MediaLibLoggerSetup::get_main_log_path(std::string logger_name)
-{
-    std::string local_log_path = get_log_path();
-    if (local_log_path.length() == 0)
-    {
-        return "";
-    }
-
-    const auto hailo_dir_path = std::string(HOME_DIR) + std::string(PATH_SEPARATOR) + std::string(".hailo");
-    const auto full_path = hailo_dir_path + std::string(PATH_SEPARATOR) + logger_name;
-    bool success;
-    if (!std::filesystem::exists(hailo_dir_path))
-    {
-        success = std::filesystem::create_directory(hailo_dir_path);
-        if (!success)
-        {
-            std::cerr << "Cannot create directory at path " << hailo_dir_path << std::endl;
-            return "";
-        }
-    }
-    if (!std::filesystem::exists(full_path))
-    {
-        success = std::filesystem::create_directory(full_path);
-        if (!success)
-        {
-            std::cerr << "Cannot create directory at path " << full_path << std::endl;
-            return "";
-        }
-    }
-
-    return full_path;
-}
-
-std::shared_ptr<spdlog::sinks::sink> MediaLibLoggerSetup::create_file_sink(const std::string &dir_path,
-                                                                           const std::string &filename, bool rotate)
+static std::shared_ptr<spdlog::sinks::sink> create_file_sink(const std::string &dir_path, const std::string &filename,
+                                                             bool rotate, std::size_t max_file_size,
+                                                             spdlog::level::level_enum file_level)
 {
     if ("" == dir_path)
     {
@@ -158,130 +164,147 @@ std::shared_ptr<spdlog::sinks::sink> MediaLibLoggerSetup::create_file_sink(const
     }
 
     const auto file_path = dir_path + PATH_SEPARATOR + filename;
+    std::shared_ptr<spdlog::sinks::sink> file_sink;
 
     if (rotate)
     {
-        return make_shared_nothrow<spdlog::sinks::rotating_file_sink_mt>(file_path, MAX_LOG_FILE_SIZE,
-                                                                         MEDIALIB_MAX_NUMBER_OF_LOG_FILES);
+        file_sink = make_shared_nothrow<spdlog::sinks::rotating_file_sink_mt>(file_path, max_file_size,
+                                                                              MEDIALIB_MAX_NUMBER_OF_LOG_FILES);
+    }
+    else
+    {
+        file_sink = make_shared_nothrow<spdlog::sinks::basic_file_sink_mt>(file_path);
     }
 
-    return make_shared_nothrow<spdlog::sinks::basic_file_sink_mt>(file_path);
+    if (nullptr == file_sink)
+    {
+        return nullptr;
+    }
+
+    file_sink->set_level(file_level);
+
+    return file_sink;
 }
 
-MediaLibLoggerSetup::MediaLibLoggerSetup(spdlog::level::level_enum console_level, spdlog::level::level_enum file_level,
-                                         spdlog::level::level_enum flush_level)
-    : MediaLibLoggerSetup(console_level, file_level, flush_level, MEDIALIB_NAME, MEDIALIB_LOGGER_FILENAME, true)
+static std::shared_ptr<spdlog::sinks::sink> create_console_sink(spdlog::level::level_enum console_level)
 {
+    auto console_sink = make_shared_nothrow<spdlog::sinks::stderr_color_sink_mt>();
+    if (nullptr == console_sink)
+    {
+        return nullptr;
+    }
+
+    console_sink->set_level(console_level);
+    return console_sink;
 }
 
-MediaLibLoggerSetup::MediaLibLoggerSetup(spdlog::level::level_enum console_level, spdlog::level::level_enum file_level,
-                                         spdlog::level::level_enum flush_level, std::string logger_name,
-                                         std::string file_name, bool set_default_logger)
-    : m_console_sink(make_shared_nothrow<spdlog::sinks::stderr_color_sink_mt>()),
-      m_main_log_file_sink(create_file_sink(get_main_log_path(logger_name), file_name, true)),
-      m_local_log_file_sink(create_file_sink(get_log_path(), file_name, true))
+void media_lib_logger_setup()
 {
-    if ((nullptr == m_console_sink) || (nullptr == m_main_log_file_sink) || (nullptr == m_local_log_file_sink))
+    std::string default_level_name = LoggerManager::logger_names[LoggerType::Default];
+    auto file_levels = get_levels_from_env(MEDIALIB_LOGGER_LEVEL_ENV_VAR, default_level_name, DEFAULT_FILE_LEVEL);
+    auto console_levels =
+        get_levels_from_env(MEDIALIB_LOGGER_CONSOLE_ENV_VAR, default_level_name, DEFAULT_CONSOLE_LEVEL);
+
+    bool rotate = DEFAULT_ROTATE;
+    auto rotate_env_val = get_env_variable<bool>(MEDIALIB_LOGGER_ROTATE_ENV_VAR);
+    if (rotate_env_val.has_value())
+    {
+        rotate = rotate_env_val.value();
+    }
+
+    std::size_t max_file_size = DEFAULT_MAX_LOG_FILE_SIZE;
+    auto file_size_env_val = get_env_variable<std::size_t>(MEDIALIB_LOGGER_FILE_SIZE_ENV_VAR);
+    if (file_size_env_val.has_value())
+    {
+        max_file_size = file_size_env_val.value();
+    }
+
+    for (auto &logger_name : LoggerManager::logger_names)
+    {
+        auto logger_type = logger_name.first;
+        auto logger_str = logger_name.second;
+
+        // get level for file sinks
+        spdlog::level::level_enum file_level = file_levels[default_level_name];
+        if (file_levels.count(logger_str) != 0)
+        {
+            file_level = file_levels[logger_str];
+        }
+
+        // get level for console sink
+        spdlog::level::level_enum console_level = console_levels[default_level_name];
+        if (console_levels.count(logger_str) != 0)
+        {
+            console_level = console_levels[logger_str];
+        }
+
+        auto logger = create_logger(logger_str, file_level, console_level, MEDIALIB_LOGGER_FILENAME,
+                                    MEDIALIB_LOGGER_PATTERN, rotate, max_file_size);
+        if (logger == nullptr)
+        {
+            throw std::runtime_error("Failed to create logger");
+        }
+
+        LoggerManager::loggers[logger_type] = std::move(logger);
+    }
+}
+
+std::shared_ptr<spdlog::logger> create_logger(std::string logger_str, spdlog::level::level_enum file_level,
+                                              spdlog::level::level_enum console_level, const char *file_name,
+                                              const std::string &pattern, bool rotate, std::size_t max_file_size)
+{
+    auto log_file_sink = create_file_sink(get_log_dir_path(), file_name, rotate, max_file_size, file_level);
+    auto console_sink = create_console_sink(console_level);
+
+    if ((nullptr == log_file_sink) || (nullptr == console_sink))
     {
         std::cerr << "Allocating memory on heap for logger sinks has failed! "
                      "Please check if this host has enough memory. Writing to "
                      "log will result in a SEGFAULT!"
                   << std::endl;
-        return;
+        return nullptr;
     }
 
-    m_main_log_file_sink->set_pattern(MEDIALIB_MAIN_FILE_LOGGER_PATTERN);
-    m_local_log_file_sink->set_pattern(MEDIALIB_LOCAL_FILE_LOGGER_PATTERN);
-    m_console_sink->set_pattern(MEDIALIB_CONSOLE_LOGGER_PATTERN);
-    spdlog::sinks_init_list sink_list = {m_console_sink, m_main_log_file_sink, m_local_log_file_sink};
-    m_medialib_logger = make_shared_nothrow<spdlog::logger>(logger_name, sink_list.begin(), sink_list.end());
-    if (nullptr == m_medialib_logger)
+    // create logger
+    spdlog::sinks_init_list logger_sinks = {log_file_sink, console_sink};
+    auto logger = make_shared_nothrow<spdlog::logger>(logger_str, logger_sinks.begin(), logger_sinks.end());
+    if (nullptr == logger)
     {
         std::cerr << "Allocating memory on heap for MediaLib logger has "
                      "failed! Please check if this host has enough memory. "
                      "Writing to log will result in a SEGFAULT!"
                   << std::endl;
-        return;
+        return nullptr;
     }
-
-    set_levels(console_level, file_level, flush_level);
-    if (set_default_logger)
-        spdlog::set_default_logger(m_medialib_logger);
+    auto min_level = std::min(file_level, console_level);
+    logger->flush_on(min_level);
+    logger->set_level(min_level);
+    logger->set_pattern(pattern);
+    return logger;
 }
-
-void MediaLibLoggerSetup::set_levels(spdlog::level::level_enum console_level, spdlog::level::level_enum file_level,
-                                     spdlog::level::level_enum flush_level)
-{
-    m_console_sink->set_level(console_level);
-    m_main_log_file_sink->set_level(file_level);
-    m_local_log_file_sink->set_level(file_level);
-
-    bool flush_every_print = is_env_variable_on(MEDIALIB_LOGGER_FLUSH_EVERY_PRINT_ENV_VAR);
-    if (flush_every_print)
-    {
-        m_medialib_logger->flush_on(spdlog::level::debug);
-        std::cerr << "MediaLib warning: Flushing log file on every print. May "
-                     "reduce MediaLib performance!"
-                  << std::endl;
-    }
-    else
-    {
-        m_medialib_logger->flush_on(flush_level);
-    }
-
-    auto min_level = std::min({console_level, file_level, flush_level});
-    m_medialib_logger->set_level(min_level);
-    spdlog::flush_every(std::chrono::seconds(PERIODIC_FLUSH_INTERVAL_IN_SECONDS));
-}
+} // namespace media_lib_logger_setup
 
 spdlog::level::level_enum get_level(const char *log_level_c_str, spdlog::level::level_enum default_level)
 {
-    std::string log_level;
     if (log_level_c_str == nullptr)
-        log_level = "";
-    else
-        log_level = std::string(log_level_c_str);
-
-    if (log_level == "trace")
-        return spdlog::level::level_enum::trace;
-    else if (log_level == "debug")
-        return spdlog::level::level_enum::debug;
-    else if (log_level == "info")
-        return spdlog::level::level_enum::info;
-    else if (log_level == "warn")
-        return spdlog::level::level_enum::warn;
-    else if (log_level == "error")
-        return spdlog::level::level_enum::err;
-    else if (log_level == "critical")
-        return spdlog::level::level_enum::critical;
-    else if (log_level == "off")
-        return spdlog::level::level_enum::off;
-    else
+    {
         return default_level;
+    }
+
+    std::string level_str(log_level_c_str);
+
+    auto level_name = spdlog::cfg::helpers::to_lower_(level_str);
+    auto level = spdlog::level::from_str(level_name);
+    // use default for unrecognized level names
+    if (level == spdlog::level::off && level_name != "off")
+    {
+        return default_level;
+    }
+    return level;
 }
 
-COMPAT__INITIALIZER(libmedialib_initialize_logger) // this is a macro that calls the function
-                                                   // below on library load (before program
-                                                   // starts)
+// this is a macro that calls the function below on library load (before program starts)
+COMPAT__INITIALIZER(libmedialib_initialize_logger)
 {
-    std::string log_level_file_str = "";
-    auto log_level_file_expected = get_env_variable(MEDIALIB_LOGGER_LEVEL_ENV_VAR);
-
-    if (log_level_file_expected.has_value())
-    {
-        log_level_file_str = log_level_file_expected.value();
-    }
-
-    std::string log_level_console_str = "";
-    auto log_level_console_expected = get_env_variable(MEDIALIB_LOGGER_CONSOLE_ENV_VAR);
-
-    if (log_level_console_expected.has_value())
-    {
-        log_level_console_str = log_level_console_expected.value();
-    }
-
-    auto spdlog_file_level = get_level(log_level_file_str.c_str(), spdlog::level::level_enum::info);
-    auto spdlog_console_level = get_level(log_level_console_str.c_str(), spdlog::level::level_enum::err);
-
-    MediaLibLoggerSetup(spdlog_console_level, spdlog_file_level, spdlog_file_level);
+    media_lib_logger_setup::media_lib_logger_setup();
 }

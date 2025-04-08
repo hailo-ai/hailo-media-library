@@ -66,11 +66,22 @@ struct polygon
     std::vector<vertex> vertices;
 };
 using PolygonPtr = std::shared_ptr<polygon>;
+using BlurRadius = size_t;
 
+enum class PrivacyMaskType
+{
+    COLOR,
+    BLUR
+};
 struct privacy_mask_data_t
 {
     HailoMediaLibraryBufferPtr bitmask;
-    yuv_color_t color;
+    PrivacyMaskType type;
+    union {
+        yuv_color_t color;
+        BlurRadius blur_radius;
+    };
+
     roi_t rois[MAX_NUM_OF_PRIVACY_MASKS];
     uint rois_count;
 

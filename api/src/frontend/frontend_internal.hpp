@@ -3,6 +3,7 @@
 #include "media_library/frontend.hpp"
 #include "media_library/media_library_types.hpp"
 #include "media_library/privacy_mask.hpp"
+#include "gstmedialibcommon.hpp"
 #include <gst/gst.h>
 #include <gst/app/gstappsink.h>
 #include <gst/app/gstappsrc.h>
@@ -35,6 +36,7 @@ class MediaLibraryFrontend::Impl final
 
     PrivacyMaskBlenderPtr get_privacy_mask_blender();
     std::unordered_map<output_stream_id_t, float> get_output_streams_current_fps();
+    gboolean on_bus_call(GstMessage *msg);
 
   private:
     static void fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps,
@@ -52,18 +54,24 @@ class MediaLibraryFrontend::Impl final
     }
     static GstFlowReturn new_sample(GstAppSink *appsink, gpointer user_data)
     {
-        gchar *name = gst_element_get_name(GST_ELEMENT(appsink));
+        auto name = glib_cpp::get_name(GST_ELEMENT(appsink));
         MediaLibraryFrontend::Impl *fe = static_cast<MediaLibraryFrontend::Impl *>(user_data);
         GstFlowReturn ret = fe->on_new_sample(name, appsink);
-        g_free(name);
         return ret;
+    }
+    static gboolean bus_call(GstBus *, GstMessage *msg, gpointer user_data)
+    {
+        MediaLibraryFrontend::Impl *fe = static_cast<MediaLibraryFrontend::Impl *>(user_data);
+        return fe->on_bus_call(msg);
     }
 
     bool set_gst_callbacks(GstElement *pipeline, frontend_src_element_t source_type,
                            std::vector<frontend_output_stream_t> &output_streams);
     std::string create_pipeline_string(const std::string &frontend_json_config, frontend_src_element_t source_type,
+                                       uint16_t input_width, uint16_t input_height,
                                        const std::vector<frontend_output_stream_t> &output_streams);
     bool init_pipeline(const std::string &frontend_json_config, frontend_src_element_t source_type,
+                       uint16_t input_width, uint16_t input_height,
                        std::vector<frontend_output_stream_t> &output_streams);
     void deinit_pipeline();
 
@@ -71,6 +79,7 @@ class MediaLibraryFrontend::Impl final
         const nlohmann::json &output_streams_json);
     static nlohmann::json get_output_streams_json(const std::string &validated_json_config);
     static frontend_src_element_t get_input_stream_type(const std::string &validated_json_config);
+    static std::pair<uint16_t, uint16_t> get_input_resolution(const std::string &validated_json_config);
     static constexpr const char *DEFAULT_INPUT_STREAM_TYPE = "V4L2SRC";
     bool is_config_change_allowed(nlohmann::json old_output_streams_config, nlohmann::json new_output_streams_config,
                                   frontend_src_element_t new_config_input_stream_type);

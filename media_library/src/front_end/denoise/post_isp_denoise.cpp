@@ -47,6 +47,8 @@
 #include <thread>
 #include <condition_variable>
 
+#define MODULE_NAME LoggerType::Denoise
+
 class MediaLibraryPostIspDenoise::Impl final
 {
   public:
@@ -214,7 +216,7 @@ MediaLibraryPostIspDenoise::Impl::Impl()
 
 MediaLibraryPostIspDenoise::Impl::~Impl()
 {
-    LOGGER__DEBUG("Denoise - destructor");
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Denoise - destructor");
     m_flushing = true;
     m_inference_callback_condvar.notify_one();
     m_loopback_condvar.notify_one();
@@ -236,14 +238,15 @@ media_library_return MediaLibraryPostIspDenoise::Impl::decode_config_json_string
         m_hailort_config_manager.config_string_to_struct<hailort_t>(config_string, hailort_configs);
     if (hailort_status != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to decode Hailort config from json string: {}", config_string);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to decode Hailort config from json string: {}", config_string);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
+    m_hailort_configs = hailort_configs;
     media_library_return denoise_status =
         m_denoise_config_manager.config_string_to_struct<denoise_config_t>(config_string, denoise_configs);
     if (denoise_status != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to decode denoise config from json string: {}", config_string);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to decode denoise config from json string: {}", config_string);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     return MEDIA_LIBRARY_SUCCESS;
@@ -253,10 +256,10 @@ media_library_return MediaLibraryPostIspDenoise::Impl::configure(const std::stri
 {
     denoise_config_t denoise_configs;
     hailort_t hailort_configs;
-    LOGGER__INFO("Configuring denoise Decoding json string");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Configuring denoise Decoding json string");
     if (decode_config_json_string(denoise_configs, hailort_configs, config_string) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to decode json string: {}", config_string);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to decode json string: {}", config_string);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     return configure(denoise_configs, hailort_configs);
@@ -265,15 +268,15 @@ media_library_return MediaLibraryPostIspDenoise::Impl::configure(const std::stri
 media_library_return MediaLibraryPostIspDenoise::Impl::configure(const denoise_config_t &denoise_configs,
                                                                  const hailort_t &hailort_configs)
 {
-    LOGGER__INFO("Configuring post ISP denoise");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Configuring post ISP denoise");
     std::unique_lock<std::shared_mutex> lock(rw_lock);
 
     bool enabled_changed = denoise_common::post_isp_enable_changed(m_denoise_configs, denoise_configs);
-    LOGGER__INFO("NOTE: Loopback limit configurations are only applied when denoise is enabled.");
+    LOGGER__MODULE__INFO(MODULE_NAME, "NOTE: Loopback limit configurations are only applied when denoise is enabled.");
 
     if (!enabled_changed && !denoise_configs.enabled)
     {
-        LOGGER__INFO("Post ISP Denoise Remains disabled, skipping configuration");
+        LOGGER__MODULE__INFO(MODULE_NAME, "Post ISP Denoise Remains disabled, skipping configuration");
         return MEDIA_LIBRARY_SUCCESS;
     }
 
@@ -283,7 +286,7 @@ media_library_return MediaLibraryPostIspDenoise::Impl::configure(const denoise_c
         if (!m_hailort_denoise.set_config(denoise_configs, hailort_configs.device_id, HAILORT_SCHEDULER_THRESHOLD,
                                           HAILORT_SCHEDULER_TIMEOUT, HAILORT_SCHEDULER_BATCH_SIZE))
         {
-            LOGGER__ERROR("Failed to init hailort");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init hailort");
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
     }
@@ -294,7 +297,7 @@ media_library_return MediaLibraryPostIspDenoise::Impl::configure(const denoise_c
         media_library_return ret = create_and_initialize_buffer_pools();
         if (ret != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__ERROR("Failed to allocate denoise buffer pool");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to allocate denoise buffer pool");
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
         m_loop_counter = 0;
@@ -308,7 +311,7 @@ media_library_return MediaLibraryPostIspDenoise::Impl::configure(const denoise_c
     // check if disabling
     if (denoise_common::post_isp_disabled(m_denoise_configs, denoise_configs))
     {
-        LOGGER__DEBUG("Post ISP Denoise disable requested, starting flushing");
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Post ISP Denoise disable requested, starting flushing");
         m_flushing = true;
         // notify all queues that we are flushing
         m_inference_callback_condvar.notify_one();
@@ -350,7 +353,7 @@ media_library_return MediaLibraryPostIspDenoise::Impl::configure(const denoise_c
         {
             return MEDIA_LIBRARY_ERROR;
         }
-        LOGGER__DEBUG("Post ISP Denoise disabled, buffer pool is free");
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Post ISP Denoise disabled, buffer pool is free");
     }
 
     m_denoise_configs = denoise_configs;
@@ -362,11 +365,12 @@ media_library_return MediaLibraryPostIspDenoise::Impl::configure(const denoise_c
 media_library_return MediaLibraryPostIspDenoise::Impl::create_and_initialize_buffer_pools()
 {
     // Create output buffer pool
-    LOGGER__DEBUG("Initalizing buffer pool named {} for output resolution: width {} height {} in buffers size of {}",
-                  BUFFER_POOL_NAME, BUFFER_POOL_BUFFER_WIDTH, BUFFER_POOL_BUFFER_HEIGHT, BUFFER_POOL_MAX_BUFFERS);
+    LOGGER__MODULE__DEBUG(
+        MODULE_NAME, "Initalizing buffer pool named {} for output resolution: width {} height {} in buffers size of {}",
+        BUFFER_POOL_NAME, BUFFER_POOL_BUFFER_WIDTH, BUFFER_POOL_BUFFER_HEIGHT, BUFFER_POOL_MAX_BUFFERS);
     if (m_output_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to init buffer pool");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init buffer pool");
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
@@ -382,7 +386,7 @@ void MediaLibraryPostIspDenoise::Impl::stamp_time_and_log_fps(timespec &start_ha
     clock_gettime(CLOCK_MONOTONIC, &end_handle);
     long ms = (long)media_library_difftimespec_ms(end_handle, start_handle);
     uint framerate = 1000 / ms;
-    LOGGER__DEBUG("denoise handle_frame took {} milliseconds ({} fps)", ms, framerate);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "denoise handle_frame took {} milliseconds ({} fps)", ms, framerate);
 }
 
 /**
@@ -410,7 +414,7 @@ media_library_return MediaLibraryPostIspDenoise::Impl::perform_initial_batch(Hai
 {
     if (!m_hailort_denoise.process(input_buffer, input_buffer, output_buffer))
     {
-        LOGGER__ERROR("Failed to process denoise, during initial batch");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to process denoise, during initial batch");
         return MEDIA_LIBRARY_ERROR;
     }
 
@@ -462,7 +466,7 @@ media_library_return MediaLibraryPostIspDenoise::Impl::perform_subsequent_batche
         {
             return MEDIA_LIBRARY_SUCCESS;
         }
-        LOGGER__ERROR("loopback buffer is null");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "loopback buffer is null");
         return MEDIA_LIBRARY_ERROR;
     }
 
@@ -470,7 +474,7 @@ media_library_return MediaLibraryPostIspDenoise::Impl::perform_subsequent_batche
 
     if (!m_hailort_denoise.process(input_buffer, loopback_buffer, output_buffer))
     {
-        LOGGER__ERROR("Failed to process denoise");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to process denoise");
         return MEDIA_LIBRARY_ERROR;
     }
 
@@ -491,7 +495,7 @@ media_library_return MediaLibraryPostIspDenoise::Impl::perform_denoise(HailoMedi
     // Acquire buffer for denoise output
     if (m_output_buffer_pool->acquire_buffer(output_buffer) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("failed to acquire buffer for denoise output");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "failed to acquire buffer for denoise output");
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
@@ -499,7 +503,7 @@ media_library_return MediaLibraryPostIspDenoise::Impl::perform_denoise(HailoMedi
     if (input_buffer == nullptr || output_buffer == nullptr)
     {
         // log: input or output buffer is null
-        LOGGER__ERROR("input or output buffer is null");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "input or output buffer is null");
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
@@ -516,7 +520,7 @@ media_library_return MediaLibraryPostIspDenoise::Impl::handle_frame(HailoMediaLi
 {
     if (!is_enabled())
     {
-        LOGGER__INFO("Denoise is disabled - skipping handle_frame");
+        LOGGER__MODULE__INFO(MODULE_NAME, "Denoise is disabled - skipping handle_frame");
         return MEDIA_LIBRARY_UNINITIALIZED;
     }
 
@@ -580,7 +584,8 @@ void MediaLibraryPostIspDenoise::Impl::inference_callback_thread()
             {
                 return;
             }
-            LOGGER__ERROR("denoise.cpp inference_callback_thread output_buffer is null and not flushing");
+            LOGGER__MODULE__ERROR(MODULE_NAME,
+                                  "denoise.cpp inference_callback_thread output_buffer is null and not flushing");
             return;
         }
         // Call observing callbacks in case configuration changed

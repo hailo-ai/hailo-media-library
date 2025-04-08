@@ -28,7 +28,7 @@
 #define _DIS_INTERFACE_TYPES_H_
 
 #include "dis_math.h"
-#include "dis_common.h"
+#include "media_library/dis_common.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <memory>

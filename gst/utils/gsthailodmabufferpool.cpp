@@ -33,28 +33,26 @@ static void gst_hailo_dma_buffer_pool_dispose(GObject *object)
     GstHailoDmaBufferPool *pool = GST_HAILO_DMA_BUFFER_POOL(object);
     GST_INFO_OBJECT(pool, "Hailo dma-buf buffer pool dispose");
 
-    if (pool->memory_allocator)
+    if (pool->params != nullptr)
     {
-        gst_object_unref(pool->memory_allocator);
-        GstHailoDmaHeapControl::decrease_ref_count_dma_ctrl();
-        pool->memory_allocator = NULL;
+        delete pool->params;
+        pool->params = nullptr;
     }
 }
 
 static void gst_hailo_dma_buffer_pool_init(GstHailoDmaBufferPool *pool)
 {
     GST_INFO_OBJECT(pool, "New Hailo dma-buf buffer pool");
-    gchar *name = g_strdup("hailo_allocator");
-    pool->memory_allocator = GST_HAILO_DMABUF_ALLOCATOR(g_object_new(GST_TYPE_HAILO_DMABUF_ALLOCATOR, NULL));
+    pool->params = new GstHailoDmaBufferPoolParams();
+    pool->params->memory_allocator = GST_HAILO_DMABUF_ALLOCATOR(g_object_new(GST_TYPE_HAILO_DMABUF_ALLOCATOR, NULL));
     GstHailoDmaHeapControl::increase_ref_count_dma_ctrl();
-    g_free(name);
 }
 
 GstBufferPool *gst_hailo_dma_buffer_pool_new(guint padding)
 {
     GstHailoDmaBufferPool *pool = GST_HAILO_DMA_BUFFER_POOL(g_object_new(GST_TYPE_HAILO_DMA_BUFFER_POOL, NULL));
-    pool->padding = padding;
-    pool->config = NULL;
+    pool->params->padding = padding;
+    pool->params->config = NULL;
     return GST_BUFFER_POOL_CAST(pool);
 }
 
@@ -66,11 +64,11 @@ static GstFlowReturn gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool,
     GstCaps *caps = NULL;
 
     // Get the size and caps of a buffer from the config of the pool
-    if (!hailo_dmabuf_pool->config)
+    if (!hailo_dmabuf_pool->params->config)
     {
-        hailo_dmabuf_pool->config = gst_buffer_pool_get_config(pool);
+        hailo_dmabuf_pool->params->config = gst_buffer_pool_get_config(pool);
     }
-    gst_buffer_pool_config_get_params(hailo_dmabuf_pool->config, &caps, &buffer_size, NULL, NULL);
+    gst_buffer_pool_config_get_params(hailo_dmabuf_pool->params->config, &caps, &buffer_size, NULL, NULL);
     if (caps == NULL)
     {
         GST_ERROR_OBJECT(hailo_dmabuf_pool, "Failed to get caps from buffer pool config");
@@ -93,12 +91,12 @@ static GstFlowReturn gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool,
             return GST_FLOW_ERROR;
         }
         GST_INFO_OBJECT(hailo_dmabuf_pool, "Allocating buffer of size %d with padding %d", buffer_size,
-                        hailo_dmabuf_pool->padding);
+                        hailo_dmabuf_pool->params->padding);
 
         GstAllocationParams alloc_params = {
             (GstMemoryFlags)(GST_MEMORY_FLAG_ZERO_PREFIXED | GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS), ALIGNMENT, 0,
-            hailo_dmabuf_pool->padding, 0};
-        *output_buffer_ptr = gst_buffer_new_allocate((GstAllocator *)hailo_dmabuf_pool->memory_allocator,
+            hailo_dmabuf_pool->params->padding, 0};
+        *output_buffer_ptr = gst_buffer_new_allocate((GstAllocator *)hailo_dmabuf_pool->params->memory_allocator,
                                                      (size_t)buffer_size, &alloc_params);
 
         if (!*output_buffer_ptr)
@@ -113,7 +111,7 @@ static GstFlowReturn gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool,
         *output_buffer_ptr = gst_buffer_new();
         GstAllocationParams alloc_params = {
             (GstMemoryFlags)(GST_MEMORY_FLAG_ZERO_PREFIXED | GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS), ALIGNMENT, 0,
-            hailo_dmabuf_pool->padding, 0};
+            hailo_dmabuf_pool->params->padding, 0};
 
         for (int i = 0; i < 2; i++)
         {
@@ -122,10 +120,10 @@ static GstFlowReturn gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool,
             if (i == 1)
                 channel_size /= 2;
             GST_DEBUG_OBJECT(hailo_dmabuf_pool, "Allocating plane %d buffer of size %ld with padding %d", i,
-                             channel_size, hailo_dmabuf_pool->padding);
+                             channel_size, hailo_dmabuf_pool->params->padding);
 
-            GstMemory *mem =
-                gst_allocator_alloc((GstAllocator *)hailo_dmabuf_pool->memory_allocator, channel_size, &alloc_params);
+            GstMemory *mem = gst_allocator_alloc((GstAllocator *)hailo_dmabuf_pool->params->memory_allocator,
+                                                 channel_size, &alloc_params);
             GST_DEBUG_OBJECT(hailo_dmabuf_pool, "Successfully allocated plane %d buffer of size %ld at address %p", i,
                              channel_size, mem);
             gst_buffer_insert_memory(*output_buffer_ptr, -1, mem); // Insert the memory into the buffer at the end
@@ -147,6 +145,7 @@ static GstFlowReturn gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool,
 static void gst_hailo_dma_buffer_pool_free_buffer(GstBufferPool *pool, GstBuffer *buffer)
 {
     GstHailoDmaBufferPool *hailo_dmabuf_pool = GST_HAILO_DMA_BUFFER_POOL(pool);
-    GST_DEBUG_OBJECT(hailo_dmabuf_pool, "Freeing buffer %p with padding %d", buffer, hailo_dmabuf_pool->padding);
+    GST_DEBUG_OBJECT(hailo_dmabuf_pool, "Freeing buffer %p with padding %d", buffer,
+                     hailo_dmabuf_pool->params->padding);
     gst_buffer_unref(buffer);
 }

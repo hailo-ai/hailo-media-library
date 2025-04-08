@@ -131,9 +131,9 @@ class MediaLibraryMultiResize
     /**
      * @brief get the output video configurations object
      *
-     * @return output_video_config_t - output video configurations
+     * @return application_input_streams_config_t - output video configurations
      */
-    output_video_config_t get_output_video_config();
+    application_input_streams_config_t get_application_input_streams_config();
 
     /**
      * @brief set the input video configurations object

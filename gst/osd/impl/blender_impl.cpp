@@ -31,12 +31,14 @@
 #include "text_overlay_impl.hpp"
 #include "datetime_overlay_impl.hpp"
 
+#define MODULE_NAME LoggerType::Osd
+
 mat_dims internal_calculate_text_size(const std::string &label, const std::string &font_path, int font_size,
                                       int line_thickness)
 {
     if (!cv::utils::fs::exists(font_path))
     {
-        LOGGER__ERROR("Error: file {} does not exist", font_path);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: file {} does not exist", font_path);
         return {0, 0, 0};
     }
 
@@ -89,7 +91,7 @@ media_library_return Blender::Impl::configure(const std::string &config)
     auto ret = m_config_manager->validate_configuration(clean_config);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to validate configuration: {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to validate configuration: {}", ret);
         status = MEDIA_LIBRARY_CONFIGURATION_ERROR;
         return status;
     }
@@ -152,7 +154,7 @@ Blender::Impl::Impl(const std::string &config, media_library_return &status)
     if (dsp_result != DSP_SUCCESS)
     {
         status = MEDIA_LIBRARY_DSP_OPERATION_ERROR;
-        LOGGER__ERROR("Accuire DSP device failed with status code {}", status);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Accuire DSP device failed with status code {}", status);
         return;
     }
     status = configure(config);
@@ -166,7 +168,7 @@ Blender::Impl::~Impl()
     dsp_status dsp_result = dsp_utils::release_device();
     if (dsp_result != DSP_SUCCESS)
     {
-        LOGGER__ERROR("Release DSP device failed with status code {}", dsp_result);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Release DSP device failed with status code {}", dsp_result);
     }
 }
 
@@ -178,7 +180,7 @@ std::shared_future<media_library_return> Blender::Impl::add_overlay_async(const 
                           auto overlay_expected = overlay_result.get();
                           if (!overlay_expected.has_value())
                           {
-                              LOGGER__ERROR("Failed to create datetime overlay {}", overlay.id);
+                              LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create datetime overlay {}", overlay.id);
                               return overlay_expected.error();
                           }
 
@@ -195,7 +197,7 @@ std::shared_future<media_library_return> Blender::Impl::add_overlay_async(const 
                           auto overlay_expected = overlay_result.get();
                           if (!overlay_expected.has_value())
                           {
-                              LOGGER__ERROR("Failed to create image overlay {}", overlay.id);
+                              LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create image overlay {}", overlay.id);
                               return overlay_expected.error();
                           }
 
@@ -212,7 +214,7 @@ std::shared_future<media_library_return> Blender::Impl::add_overlay_async(const 
                           auto overlay_expected = overlay_result.get();
                           if (!overlay_expected.has_value())
                           {
-                              LOGGER__ERROR("Failed to create text overlay {}", overlay.id);
+                              LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create text overlay {}", overlay.id);
                               return overlay_expected.error();
                           }
 
@@ -226,7 +228,7 @@ media_library_return Blender::Impl::add_overlay(const ImageOverlay &overlay)
     auto overlay_expected = ImageOverlayImpl::create(overlay);
     if (!overlay_expected.has_value())
     {
-        LOGGER__ERROR("Failed to create image overlay {}", overlay.id);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create image overlay {}", overlay.id);
         return overlay_expected.error();
     }
 
@@ -238,7 +240,7 @@ media_library_return Blender::Impl::add_overlay(const TextOverlay &overlay)
     auto overlay_expected = TextOverlayImpl::create(overlay);
     if (!overlay_expected.has_value())
     {
-        LOGGER__ERROR("Failed to create text overlay {}", overlay.id);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create text overlay {}", overlay.id);
         return overlay_expected.error();
     }
 
@@ -250,7 +252,7 @@ media_library_return Blender::Impl::add_overlay(const DateTimeOverlay &overlay)
     auto overlay_expected = DateTimeOverlayImpl::create(overlay);
     if (!overlay_expected.has_value())
     {
-        LOGGER__ERROR("Failed to create datetime overlay {}", overlay.id);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create datetime overlay {}", overlay.id);
         return overlay_expected.error();
     }
 
@@ -262,14 +264,14 @@ media_library_return Blender::Impl::add_overlay(const CustomOverlay &overlay)
     auto overlay_expected = CustomOverlayImpl::create(overlay);
     if (!overlay_expected.has_value())
     {
-        LOGGER__ERROR("Failed to create custom overlay {}", overlay.id);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create custom overlay {}", overlay.id);
         return overlay_expected.error();
     }
 
     // allocate the custom overlay buffer
     if (!m_frame_size_set)
     {
-        LOGGER__ERROR("Frame size is not set");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Frame size is not set");
         return MEDIA_LIBRARY_UNINITIALIZED;
     }
 
@@ -277,7 +279,7 @@ media_library_return Blender::Impl::add_overlay(const CustomOverlay &overlay)
 
     if (!create_dsp_overlay_expected.has_value())
     {
-        LOGGER__ERROR("Failed to create custom overlay {}", overlay.id);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create custom overlay {}", overlay.id);
         return create_dsp_overlay_expected.error();
     }
     return add_overlay(overlay_expected.value());
@@ -288,7 +290,7 @@ media_library_return Blender::Impl::set_overlay_enabled(const std::string &id, b
     std::unique_lock lock(m_mutex);
     if (!m_overlays.contains(id))
     {
-        LOGGER__ERROR("No overlay with id {}", id);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "No overlay with id {}", id);
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
@@ -300,7 +302,7 @@ media_library_return Blender::Impl::add_overlay(const OverlayImplPtr overlay)
 {
     if (m_overlays.contains(overlay->get_id()))
     {
-        LOGGER__ERROR("Overlay with id {} already exists", overlay->get_id());
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Overlay with id {} already exists", overlay->get_id());
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
@@ -322,23 +324,23 @@ media_library_return Blender::Impl::add_overlay_internal(const OverlayImplPtr ov
 {
     if (m_overlays.contains(overlay->get_id()))
     {
-        LOGGER__ERROR("Overlay with id {} already exists", overlay->get_id());
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Overlay with id {} already exists", overlay->get_id());
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
-    LOGGER__DEBUG("Inserting overlay with id {}", overlay->get_id());
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Inserting overlay with id {}", overlay->get_id());
 
     auto result1 = m_overlays.insert({overlay->get_id(), overlay});
     if (!result1.second)
     {
-        LOGGER__ERROR("Failed to insert overlay with id {}", overlay->get_id());
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to insert overlay with id {}", overlay->get_id());
         return MEDIA_LIBRARY_ERROR;
     }
 
     auto result2 = m_prioritized_overlays.insert(overlay);
     if (!result2.second)
     {
-        LOGGER__ERROR("Failed to insert overlay with id {}", overlay->get_id());
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to insert overlay with id {}", overlay->get_id());
         m_overlays.erase(overlay->get_id());
         return MEDIA_LIBRARY_ERROR;
     }
@@ -350,7 +352,7 @@ media_library_return Blender::Impl::remove_overlay(const std::string &id)
 {
     if (!m_overlays.contains(id))
     {
-        LOGGER__ERROR("No overlay with id {}", id);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "No overlay with id {}", id);
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
@@ -363,11 +365,11 @@ media_library_return Blender::Impl::remove_overlay_internal(const std::string &i
 {
     if (!m_overlays.contains(id))
     {
-        LOGGER__ERROR("No overlay with id {}", id);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "No overlay with id {}", id);
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
-    LOGGER__DEBUG("Removing overlay with id {}", id);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Removing overlay with id {}", id);
 
     m_prioritized_overlays.erase(m_overlays[id]->get_priority_iterator());
     m_overlays.erase(id);
@@ -397,7 +399,7 @@ std::shared_future<media_library_return> Blender::Impl::set_overlay_async(const 
         auto overlay_expected = overlay_result.get();
         if (!overlay_expected.has_value())
         {
-            LOGGER__ERROR("Failed to set ImageOverlay {}", overlay.id);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set ImageOverlay {}", overlay.id);
             return overlay_expected.error();
         }
 
@@ -413,7 +415,7 @@ std::shared_future<media_library_return> Blender::Impl::set_overlay_async(const 
                           auto overlay_expected = overlay_result.get();
                           if (!overlay_expected.has_value())
                           {
-                              LOGGER__ERROR("Failed to set TextOverlay {}", overlay.id);
+                              LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set TextOverlay {}", overlay.id);
                               return overlay_expected.error();
                           }
 
@@ -430,7 +432,7 @@ std::shared_future<media_library_return> Blender::Impl::set_overlay_async(const 
                           auto overlay_expected = overlay_result.get();
                           if (!overlay_expected.has_value())
                           {
-                              LOGGER__ERROR("Failed to set DateTimeOverlay {}", overlay.id);
+                              LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set DateTimeOverlay {}", overlay.id);
                               return overlay_expected.error();
                           }
 
@@ -444,7 +446,7 @@ media_library_return Blender::Impl::set_overlay(const ImageOverlay &overlay)
     auto overlay_expected = ImageOverlayImpl::create(overlay);
     if (!overlay_expected.has_value())
     {
-        LOGGER__ERROR("Failed to set text overlay {}", overlay.id);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set text overlay {}", overlay.id);
         return overlay_expected.error();
     }
 
@@ -456,7 +458,7 @@ media_library_return Blender::Impl::set_overlay(const TextOverlay &overlay)
     auto overlay_expected = TextOverlayImpl::create(overlay);
     if (!overlay_expected.has_value())
     {
-        LOGGER__ERROR("Failed to set text overlay {}", overlay.id);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set text overlay {}", overlay.id);
         return overlay_expected.error();
     }
 
@@ -468,7 +470,7 @@ media_library_return Blender::Impl::set_overlay(const DateTimeOverlay &overlay)
     auto overlay_expected = DateTimeOverlayImpl::create(overlay);
     if (!overlay_expected.has_value())
     {
-        LOGGER__ERROR("Failed to set datettime overlay {}", overlay.id);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set datettime overlay {}", overlay.id);
         return overlay_expected.error();
     }
 
@@ -480,7 +482,7 @@ media_library_return Blender::Impl::set_overlay(const CustomOverlay &overlay)
     auto overlay_expected = CustomOverlayImpl::create(overlay);
     if (!overlay_expected.has_value())
     {
-        LOGGER__ERROR("Failed to set custom overlay {}", overlay.id);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set custom overlay {}", overlay.id);
         return overlay_expected.error();
     }
 
@@ -491,7 +493,7 @@ media_library_return Blender::Impl::set_overlay(const OverlayImplPtr overlay)
 {
     if (!m_overlays.contains(overlay->get_id()))
     {
-        LOGGER__ERROR("No overlay with id {}", overlay->get_id());
+        LOGGER__MODULE__ERROR(MODULE_NAME, "No overlay with id {}", overlay->get_id());
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
@@ -507,7 +509,7 @@ media_library_return Blender::Impl::set_overlay(const OverlayImplPtr overlay)
     std::unique_lock lock(m_mutex);
     if (remove_overlay_internal(overlay->get_id()) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to remove overlay with id {}", overlay->get_id());
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to remove overlay with id {}", overlay->get_id());
         return MEDIA_LIBRARY_ERROR;
     }
 
@@ -531,7 +533,8 @@ media_library_return Blender::Impl::blend(HailoMediaLibraryBufferPtr &input_buff
         auto dsp_overlays_expected = overlay->get_dsp_overlays();
         if (!dsp_overlays_expected.has_value())
         {
-            LOGGER__ERROR("Failed to get DSP compatible overlays ({})", dsp_overlays_expected.error());
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get DSP compatible overlays ({})",
+                                  dsp_overlays_expected.error());
             return dsp_overlays_expected.error();
         }
         auto dsp_overlays = dsp_overlays_expected.value();
@@ -546,7 +549,7 @@ media_library_return Blender::Impl::blend(HailoMediaLibraryBufferPtr &input_buff
         dsp_overlay.y_offset -= dsp_overlay.y_offset % 2;
     }
 
-    LOGGER__DEBUG("Blending {} overlays", all_overlays_to_blend.size());
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Blending {} overlays", all_overlays_to_blend.size());
 
     // Perform blending for all overlays
     for (unsigned int i = 0; i < all_overlays_to_blend.size(); i += dsp_utils::max_blend_overlays)
@@ -566,7 +569,7 @@ media_library_return Blender::Impl::blend(HailoMediaLibraryBufferPtr &input_buff
 
         if (status != DSP_SUCCESS)
         {
-            LOGGER__ERROR("DSP blend failed with {}", status);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "DSP blend failed with {}", status);
             return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
         }
     }
@@ -580,13 +583,13 @@ media_library_return Blender::Impl::set_frame_size(int frame_width, int frame_he
 
     if (frame_width < 1 || frame_height < 1)
     {
-        LOGGER__ERROR("Frame size is invalid ({}x{})", frame_width, frame_height);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Frame size is invalid ({}x{})", frame_width, frame_height);
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
     if (m_frame_width == frame_width && m_frame_height == frame_height)
     {
-        LOGGER__DEBUG("Frame size is already set to {}x{}", frame_width, frame_height);
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Frame size is already set to {}x{}", frame_width, frame_height);
         return MEDIA_LIBRARY_SUCCESS;
     }
 
@@ -602,7 +605,7 @@ media_library_return Blender::Impl::set_frame_size(int frame_width, int frame_he
         auto overlays_expected = overlay->create_dsp_overlays(frame_width, frame_height);
         if (!overlays_expected.has_value())
         {
-            LOGGER__ERROR("Failed to prepare overlays ({})", overlays_expected.error());
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to prepare overlays ({})", overlays_expected.error());
             return overlays_expected.error();
         }
     }

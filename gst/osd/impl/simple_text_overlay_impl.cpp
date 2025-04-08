@@ -33,6 +33,8 @@
 
 #include <algorithm>
 
+#define MODULE_NAME LoggerType::Osd
+
 #define INT_FROM_26_6_ROUND(x) (static_cast<int>(((x) + (1 << 5)) >> 6))
 
 #define INT_FROM_26_6_FLOOR(x) (static_cast<int>((x) >> 6))
@@ -56,7 +58,7 @@ SimpleTextOverlayImpl::SimpleTextOverlayImpl(const osd::BaseTextOverlay &overlay
 {
     if (!cv::utils::fs::exists(m_font_path))
     {
-        LOGGER__ERROR("Error: file {} does not exist", m_font_path);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: file {} does not exist", m_font_path);
         status = MEDIA_LIBRARY_INVALID_ARGUMENT;
         return;
     }
@@ -65,7 +67,7 @@ SimpleTextOverlayImpl::SimpleTextOverlayImpl(const osd::BaseTextOverlay &overlay
     FT_Error ret = FT_Init_FreeType(&library);
     if (ret)
     {
-        LOGGER__ERROR("Error: FT_Init_FreeType() failed with {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: FT_Init_FreeType() failed with {}", ret);
         status = MEDIA_LIBRARY_FREETYPE_ERROR;
         return;
     }
@@ -75,7 +77,7 @@ SimpleTextOverlayImpl::SimpleTextOverlayImpl(const osd::BaseTextOverlay &overlay
     ret = FT_New_Face(m_ft_library.get(), m_font_path.c_str(), 0, &face);
     if (ret)
     {
-        LOGGER__ERROR("Error: FT_New_Face() failed with {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: FT_New_Face() failed with {}", ret);
         status = MEDIA_LIBRARY_FREETYPE_ERROR;
         return;
     }
@@ -84,7 +86,7 @@ SimpleTextOverlayImpl::SimpleTextOverlayImpl(const osd::BaseTextOverlay &overlay
     m_hb_font.reset(hb_ft_font_create(m_ft_face.get(), nullptr));
     if (m_hb_font.get() == nullptr)
     {
-        LOGGER__ERROR("Error: hb_ft_font_create() failed");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: hb_ft_font_create() failed");
         status = MEDIA_LIBRARY_FREETYPE_ERROR;
         return;
     }
@@ -92,7 +94,7 @@ SimpleTextOverlayImpl::SimpleTextOverlayImpl(const osd::BaseTextOverlay &overlay
     m_hb_buffer.reset(hb_buffer_create());
     if (m_hb_buffer.get() == nullptr)
     {
-        LOGGER__ERROR("Error: hb_buffer_create() failed");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: hb_buffer_create() failed");
         status = MEDIA_LIBRARY_FREETYPE_ERROR;
     }
 
@@ -102,7 +104,7 @@ SimpleTextOverlayImpl::SimpleTextOverlayImpl(const osd::BaseTextOverlay &overlay
         ret = FT_Stroker_New(m_ft_library.get(), &stroker);
         if (ret)
         {
-            LOGGER__ERROR("Error: FT_Stroker_New() failed with {}", ret);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Error: FT_Stroker_New() failed with {}", ret);
             status = MEDIA_LIBRARY_FREETYPE_ERROR;
             return;
         }
@@ -156,7 +158,8 @@ media_library_return SimpleTextOverlayImpl::create_text_m_mat(int frame_width, i
     auto text_size_baseline_expected = get_text_size_baseline(frame_width, frame_height);
     if (!text_size_baseline_expected)
     {
-        LOGGER__ERROR("Error: get_text_size_baseline() failed with {}", text_size_baseline_expected.error());
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: get_text_size_baseline() failed with {}",
+                              text_size_baseline_expected.error());
         return text_size_baseline_expected.error();
     }
     cv::Size text_size = text_size_baseline_expected.value().first;
@@ -174,7 +177,7 @@ media_library_return SimpleTextOverlayImpl::create_text_m_mat(int frame_width, i
     auto status = put_text(m_image_mat, text_position);
     if (status != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Error: put_text() failed with {}", status);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: put_text() failed with {}", status);
         return status;
     }
 
@@ -188,14 +191,14 @@ tl::expected<size_baseline, media_library_return> SimpleTextOverlayImpl::get_tex
     FT_Error ret = FT_Set_Pixel_Sizes(m_ft_face.get(), m_font_size, m_font_size);
     if (ret)
     {
-        LOGGER__ERROR("Error: FT_Set_Pixel_Sizes() failed with {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: FT_Set_Pixel_Sizes() failed with {}", ret);
         return tl::make_unexpected(MEDIA_LIBRARY_FREETYPE_ERROR);
     }
 
     m_hb_buffer.reset(hb_buffer_create());
     if (m_hb_buffer.get() == nullptr)
     {
-        LOGGER__ERROR("Error: hb_buffer_create() failed");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: hb_buffer_create() failed");
         return tl::make_unexpected(MEDIA_LIBRARY_FREETYPE_ERROR);
     }
 
@@ -209,7 +212,7 @@ tl::expected<size_baseline, media_library_return> SimpleTextOverlayImpl::get_tex
     hb_glyph_info_t *glyph_info = hb_buffer_get_glyph_infos(m_hb_buffer.get(), &glyph_count);
     if (!glyph_info)
     {
-        LOGGER__ERROR("Error: hb_buffer_get_glyph_infos() failed");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: hb_buffer_get_glyph_infos() failed");
         return tl::make_unexpected(MEDIA_LIBRARY_FREETYPE_ERROR);
     }
 
@@ -222,7 +225,7 @@ tl::expected<size_baseline, media_library_return> SimpleTextOverlayImpl::get_tex
         ret = FT_Load_Glyph(m_ft_face.get(), glyph_info[i].codepoint, 0);
         if (ret)
         {
-            LOGGER__ERROR("Error: FT_Load_Glyph() failed with {}", ret);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Error: FT_Load_Glyph() failed with {}", ret);
             return tl::make_unexpected(MEDIA_LIBRARY_FREETYPE_ERROR);
         }
 
@@ -250,7 +253,7 @@ tl::expected<size_baseline, media_library_return> SimpleTextOverlayImpl::get_tex
         ret = FT_Outline_Get_BBox(&outline, &bbox);
         if (ret)
         {
-            LOGGER__ERROR("Error: FT_Outline_Get_BBox() failed with {}", ret);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Error: FT_Outline_Get_BBox() failed with {}", ret);
             return tl::make_unexpected(MEDIA_LIBRARY_FREETYPE_ERROR);
         }
 
@@ -315,7 +318,7 @@ media_library_return SimpleTextOverlayImpl::put_text(cv::Mat dst, cv::Point org)
     hb_glyph_info_t *glyph_info = hb_buffer_get_glyph_infos(m_hb_buffer.get(), &glyph_count);
     if (!glyph_info)
     {
-        LOGGER__ERROR("Error: hb_buffer_get_glyph_infos() failed");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: hb_buffer_get_glyph_infos() failed");
         return MEDIA_LIBRARY_FREETYPE_ERROR;
     }
 
@@ -324,7 +327,7 @@ media_library_return SimpleTextOverlayImpl::put_text(cv::Mat dst, cv::Point org)
         FT_Error ret = FT_Load_Glyph(m_ft_face.get(), glyph_info[i].codepoint, 0);
         if (ret)
         {
-            LOGGER__ERROR("Error: FT_Load_Glyph() failed with {}", ret);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Error: FT_Load_Glyph() failed with {}", ret);
             return MEDIA_LIBRARY_FREETYPE_ERROR;
         }
 
@@ -348,7 +351,7 @@ media_library_return SimpleTextOverlayImpl::put_text(cv::Mat dst, cv::Point org)
             ret = FT_Get_Glyph(m_ft_face->glyph, &glyph);
             if (ret)
             {
-                LOGGER__ERROR("Error: FT_Get_Glyph() failed with {}", ret);
+                LOGGER__MODULE__ERROR(MODULE_NAME, "Error: FT_Get_Glyph() failed with {}", ret);
                 return MEDIA_LIBRARY_FREETYPE_ERROR;
             }
             ft_glyph.reset(&glyph);
@@ -356,14 +359,14 @@ media_library_return SimpleTextOverlayImpl::put_text(cv::Mat dst, cv::Point org)
             ret = FT_Glyph_StrokeBorder(ft_glyph.get(), m_ft_stroker.get(), false, true);
             if (ret)
             {
-                LOGGER__ERROR("Error: FT_Glyph_StrokeBorder() failed with {}", ret);
+                LOGGER__MODULE__ERROR(MODULE_NAME, "Error: FT_Glyph_StrokeBorder() failed with {}", ret);
                 return MEDIA_LIBRARY_FREETYPE_ERROR;
             }
 
             ret = FT_Glyph_To_Bitmap(ft_glyph.get(), FT_RENDER_MODE_NORMAL, 0, true);
             if (ret)
             {
-                LOGGER__ERROR("Error: FT_Glyph_To_Bitmap() failed with {}", ret);
+                LOGGER__MODULE__ERROR(MODULE_NAME, "Error: FT_Glyph_To_Bitmap() failed with {}", ret);
                 return MEDIA_LIBRARY_FREETYPE_ERROR;
             }
 
@@ -375,7 +378,7 @@ media_library_return SimpleTextOverlayImpl::put_text(cv::Mat dst, cv::Point org)
         ret = FT_Render_Glyph(m_ft_face->glyph, FT_RENDER_MODE_NORMAL);
         if (ret)
         {
-            LOGGER__ERROR("Error: FT_Render_Glyph() failed with {}", ret);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Error: FT_Render_Glyph() failed with {}", ret);
             return MEDIA_LIBRARY_FREETYPE_ERROR;
         }
 

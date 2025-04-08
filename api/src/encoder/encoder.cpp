@@ -27,6 +27,7 @@
 #include "buffer_utils.hpp"
 #include "encoder_internal.hpp"
 #include "gsthailobuffermeta.hpp"
+#include "gstmedialibcommon.hpp"
 #include "media_library/media_library_types.hpp"
 #include <algorithm>
 #include <iostream>
@@ -35,6 +36,8 @@
 
 #define ENCODER_QUEUE_NAME "encoder_q"
 #define PRINT_FPS true
+
+#define MODULE_NAME LoggerType::Api
 
 tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>, media_library_return> MediaLibraryEncoder::Impl::create(
     std::string name)
@@ -50,7 +53,7 @@ tl::expected<std::shared_ptr<MediaLibraryEncoder::Impl>, media_library_return> M
 
 media_library_return MediaLibraryEncoder::Impl::init_buffer_pool(const InputParams &input_params)
 {
-    LOGGER__INFO("Initializing encoder buffer pool");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Initializing encoder buffer pool");
     std::string name = "jpeg_encoder";
     uint frame_width = input_params.width;
     uint frame_height = input_params.height;
@@ -59,10 +62,11 @@ media_library_return MediaLibraryEncoder::Impl::init_buffer_pool(const InputPara
                                                              HAILO_MEMORY_TYPE_DMABUF, name);
     if (m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to initialize buffer pool");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to initialize buffer pool");
         return media_library_return::MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
-    LOGGER__INFO("Buffer pool initialized successfully with frame size {}x{}", frame_width, frame_height);
+    LOGGER__MODULE__INFO(MODULE_NAME, "Buffer pool initialized successfully with frame size {}x{}", frame_width,
+                         frame_height);
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -123,14 +127,14 @@ media_library_return MediaLibraryEncoder::Impl::start()
     }
     if (m_json_config_str.empty())
     {
-        LOGGER__ERROR("set_config() must be called before start()");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "set_config() must be called before start()");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
     GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE)
     {
-        LOGGER__ERROR("Failed to start encoder pipeline");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to start encoder pipeline");
         return MEDIA_LIBRARY_ERROR;
     }
 
@@ -139,7 +143,7 @@ media_library_return MediaLibraryEncoder::Impl::start()
     GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
     if (encoder_bin == nullptr)
     {
-        LOGGER__ERROR("Failed to get encoder bin");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get encoder bin");
         return MEDIA_LIBRARY_ERROR;
     }
     gpointer value = nullptr;
@@ -157,15 +161,35 @@ media_library_return MediaLibraryEncoder::Impl::stop()
     {
         return MEDIA_LIBRARY_SUCCESS;
     }
+
     gboolean ret = gst_element_send_event(m_pipeline, gst_event_new_eos());
     if (!ret)
     {
-        LOGGER__ERROR("Failed to stop the encoder pipeline");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to stop the encoder pipeline");
         return MEDIA_LIBRARY_ERROR;
     }
 
-    gst_element_set_state(m_pipeline, GST_STATE_NULL);
-    g_main_loop_quit(m_main_loop);
+    // Wait for pipeline to stop
+    auto start_time = std::chrono::steady_clock::now();
+    std::chrono::seconds timeout(1);
+    bool passed_timeout = false;
+    while (is_started() && !passed_timeout)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        passed_timeout = (std::chrono::steady_clock::now() - start_time) >= timeout;
+    };
+
+    if (passed_timeout)
+    {
+        LOGGER__MODULE__WARN(MODULE_NAME, "Sending EOS did not stop pipeline, stopping manually");
+        gst_element_set_state(m_pipeline, GST_STATE_NULL);
+        g_main_loop_quit(m_main_loop);
+    }
+
+    GstBus *bus = gst_element_get_bus(m_pipeline);
+    gst_bus_remove_watch(bus);
+    gst_object_unref(bus);
+
     g_main_context_wakeup(m_main_context);
     if (m_main_loop_thread->joinable())
     {
@@ -204,7 +228,7 @@ std::string MediaLibraryEncoder::Impl::create_pipeline_string(const std::string 
         "text-overlay=false sync=false video-sink=\"appsink wait-on-eos=false max-buffers=1 qos=false "
         "name=encoder_sink\"";
 
-    LOGGER__INFO("Pipeline: gst-launch-1.0 {}", pipeline);
+    LOGGER__MODULE__INFO(MODULE_NAME, "Pipeline: gst-launch-1.0 {}", pipeline);
 
     return pipeline;
 }
@@ -219,9 +243,8 @@ void MediaLibraryEncoder::Impl::on_fps_measurement(GstElement *fpsdisplaysink, g
 {
     if (PRINT_FPS)
     {
-        gchar *name = gst_element_get_name(fpsdisplaysink);
+        auto name = glib_cpp::get_name(fpsdisplaysink);
         std::cout << name << ", DROP RATE: " << droprate << " FPS: " << fps << " AVG_FPS: " << avgfps << std::endl;
-        g_free(name);
     }
 }
 
@@ -234,20 +257,18 @@ void MediaLibraryEncoder::Impl::on_fps_measurement(GstElement *fpsdisplaysink, g
 static void on_queue_overrun(GstElement *queue, gpointer)
 {
     static uint8_t encoder_count = 0;
-    gchar *queue_name = gst_element_get_name(queue);
-    if (strcmp(queue_name, ENCODER_QUEUE_NAME) == 0)
+    auto queue_name = glib_cpp::get_name(queue);
+    if (queue_name == ENCODER_QUEUE_NAME)
     {
         // print every 10th time
         if (encoder_count++ != 10)
         {
-            g_free(queue_name);
             return;
         }
         encoder_count = 0;
     }
 
-    GST_DEBUG_OBJECT(queue, "queue overrun detected %s", queue_name);
-    g_free(queue_name);
+    GST_DEBUG_OBJECT(queue, "queue overrun detected %s", queue_name.c_str());
 }
 
 /**
@@ -266,7 +287,7 @@ bool MediaLibraryEncoder::Impl::set_gst_callbacks(GstElement *pipeline)
     GstElement *fpssink = gst_bin_get_by_name(GST_BIN(pipeline), gst_element_name);
     if (fpssink == nullptr)
     {
-        LOGGER__ERROR("Could not find gst element {}", gst_element_name);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Could not find gst element {}", gst_element_name);
         return false;
     }
 
@@ -275,7 +296,7 @@ bool MediaLibraryEncoder::Impl::set_gst_callbacks(GstElement *pipeline)
     if (appsink == nullptr)
     {
         gst_object_unref(fpssink);
-        LOGGER__ERROR("Could not find gst element {}", gst_element_name);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Could not find gst element {}", gst_element_name);
         return false;
     }
 
@@ -285,7 +306,7 @@ bool MediaLibraryEncoder::Impl::set_gst_callbacks(GstElement *pipeline)
     {
         gst_object_unref(appsink);
         gst_object_unref(fpssink);
-        LOGGER__ERROR("Could not find gst element {}", gst_element_name);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Could not find gst element {}", gst_element_name);
         return false;
     }
 
@@ -308,25 +329,14 @@ gboolean MediaLibraryEncoder::Impl::on_bus_call(GstMessage *msg)
     switch (GST_MESSAGE_TYPE(msg))
     {
     case GST_MESSAGE_EOS: {
-        // TODO: EOS never received
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
         g_main_loop_quit(m_main_loop);
-        g_main_context_wakeup(m_main_context);
-        if (m_main_loop_thread->joinable())
-        {
-            m_main_loop_thread->join();
-        }
         break;
     }
     case GST_MESSAGE_ERROR: {
-        gchar *debug;
-        GError *err;
-
-        gst_message_parse_error(msg, &err, &debug);
-        LOGGER__ERROR("Received an error message from the pipeline: {}", err->message);
-        g_error_free(err);
-        LOGGER__DEBUG("Error debug info: {}", (debug) ? debug : "none");
-        g_free(debug);
+        glib_cpp::t_error_message err = glib_cpp::parse_error(msg);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Received an error message from the pipeline: {}", err.message);
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Error debug info: {}", err.debug_info);
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
         g_main_loop_quit(m_main_loop);
         break;
@@ -343,25 +353,25 @@ media_library_return MediaLibraryEncoder::Impl::force_keyframe()
     GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
     if (encoder_bin == nullptr)
     {
-        LOGGER__ERROR("Got null encoder bin element in get_config");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Got null encoder bin element in get_config");
         gst_object_unref(encoder_bin);
         return MEDIA_LIBRARY_ERROR;
     }
 
-    LOGGER__INFO("Force Keyframe requested from Encoder API");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Force Keyframe requested from Encoder API");
     GstEvent *event = gst_video_event_new_downstream_force_key_unit(GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE,
                                                                     GST_CLOCK_TIME_NONE, TRUE, 1);
     GstPad *sinkpad = gst_element_get_static_pad(encoder_bin, "sink");
     if (!gst_pad_send_event(sinkpad, event))
     {
-        LOGGER__ERROR("Failed to send force key unit event to encoder");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to send force key unit event to encoder");
         ret = MEDIA_LIBRARY_ERROR;
     }
 
     gst_object_unref(sinkpad);
     gst_object_unref(encoder_bin);
 
-    LOGGER__DEBUG("Force Keyframe sent to encoder");
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Force Keyframe sent to encoder");
     return ret;
 }
 
@@ -448,7 +458,7 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
         HailoMediaLibraryBufferPtr hailo_buffer = std::make_shared<hailo_media_library_buffer>();
         if (m_buffer_pool->acquire_buffer(hailo_buffer) != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__ERROR("Failed to acquire buffer");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to acquire buffer");
             return GST_FLOW_ERROR;
         }
         hailo_buffer->sync_start();
@@ -515,22 +525,24 @@ std::shared_ptr<osd::Blender> MediaLibraryEncoder::get_blender()
 bool MediaLibraryEncoder::Impl::init_pipeline(const std::string &encoder_json_config, const InputParams &input_params,
                                               EncoderType encoder_type)
 {
-    LOGGER__INFO("Initializing encoder gst pipeline");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Initializing encoder gst pipeline");
     GstElement *pipeline =
         gst_parse_launch(create_pipeline_string(encoder_json_config, input_params, encoder_type).c_str(), NULL);
     if (pipeline == nullptr)
     {
-        LOGGER__ERROR("Failed to create pipeline");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create pipeline");
         return false;
     }
 
-    gst_bus_add_watch(gst_element_get_bus(pipeline), (GstBusFunc)bus_call, this);
+    GstBus *bus = gst_element_get_bus(pipeline);
+    gst_bus_add_watch(bus, (GstBusFunc)bus_call, this);
+    gst_object_unref(bus);
 
     const gchar *gst_element_name = "encoder_src";
     GstElement *appsrc = gst_bin_get_by_name(GST_BIN(pipeline), gst_element_name);
     if (appsrc == nullptr)
     {
-        LOGGER__ERROR("Could not find gst element {}", gst_element_name);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Could not find gst element {}", gst_element_name);
         gst_object_unref(pipeline);
         return false;
     }
@@ -564,7 +576,7 @@ bool MediaLibraryEncoder::Impl::init_pipeline(const std::string &encoder_json_co
 
 void MediaLibraryEncoder::Impl::deinit_pipeline()
 {
-    LOGGER__INFO("Cleaning encoder gst pipeline");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Cleaning encoder gst pipeline");
     stop();
     if (m_appsrc_caps != nullptr)
     {
@@ -598,11 +610,11 @@ bool MediaLibraryEncoder::Impl::is_started()
 
 media_library_return MediaLibraryEncoder::Impl::set_config(const std::string &json_config_str)
 {
-    LOGGER__INFO("Configuring encoder using json config");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Configuring encoder using json config");
 
     if (m_config_manager.validate_configuration(json_config_str) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Validation of encoder json config failed");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Validation of encoder json config failed");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -621,8 +633,9 @@ media_library_return MediaLibraryEncoder::Impl::set_config(const std::string &js
                                            (new_input_params.height != m_input_params.height);
     if (!m_json_config_str.empty() && does_unsupported_runtime_change) // require replacing working pipeline
     {
-        LOGGER__ERROR("Failed to set config: unsupported runtime change detected. Encoder type, width, or height "
-                      "cannot be modified after initial configuration.");
+        LOGGER__MODULE__ERROR(
+            MODULE_NAME, "Failed to set config: unsupported runtime change detected. Encoder type, width, or height "
+                         "cannot be modified after initial configuration.");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     if (m_json_config_str.empty())
@@ -638,7 +651,7 @@ media_library_return MediaLibraryEncoder::Impl::set_config(const std::string &js
         auto encoderbinsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
         if (encoderbinsrc == nullptr)
         {
-            LOGGER__ERROR("Failed to get encoderbinsrc");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get encoderbinsrc");
             return MEDIA_LIBRARY_UNINITIALIZED;
         }
 
@@ -655,7 +668,7 @@ media_library_return MediaLibraryEncoder::Impl::set_config(const std::string &js
     m_appsrc_caps =
         gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, new_input_params.format.c_str(), "width",
                             G_TYPE_INT, new_input_params.width, "height", G_TYPE_INT, new_input_params.height,
-                            "framerate", GST_TYPE_FRACTION, new_input_params.framerate, 1, NULL),
+                            "framerate", GST_TYPE_FRACTION, new_input_params.framerate, 1, NULL);
     g_object_set(G_OBJECT(m_appsrc), "caps", m_appsrc_caps, NULL);
 
     m_input_params = new_input_params;
@@ -683,14 +696,14 @@ media_library_return MediaLibraryEncoder::Impl::set_config(const encoder_config_
         m_appsrc_caps =
             gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, m_input_params.format.c_str(), "width",
                                 G_TYPE_INT, m_input_params.width, "height", G_TYPE_INT, m_input_params.height,
-                                "framerate", GST_TYPE_FRACTION, m_input_params.framerate, 1, NULL),
+                                "framerate", GST_TYPE_FRACTION, m_input_params.framerate, 1, NULL);
         g_object_set(G_OBJECT(m_appsrc), "caps", m_appsrc_caps, NULL);
     }
 
     GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
     if (encoder_bin == nullptr)
     {
-        LOGGER__ERROR("Got null encoder bin element in set_config");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Got null encoder bin element in set_config");
         return MEDIA_LIBRARY_ERROR;
     }
 
@@ -711,7 +724,7 @@ encoder_config_t MediaLibraryEncoder::Impl::get_config()
     GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
     if (encoder_bin == nullptr)
     {
-        LOGGER__ERROR("Got null encoder bin element in get_config");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Got null encoder bin element in get_config");
         return config;
     }
     gpointer value = nullptr;
@@ -727,7 +740,7 @@ encoder_config_t MediaLibraryEncoder::Impl::get_user_config()
     GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
     if (encoder_bin == nullptr)
     {
-        LOGGER__ERROR("Got null encoder bin element in get_user_config");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Got null encoder bin element in get_user_config");
         return config;
     }
     gpointer value = nullptr;
@@ -788,7 +801,7 @@ encoder_monitors MediaLibraryEncoder::Impl::get_encoder_monitors()
     GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
     if (encoder_bin == nullptr)
     {
-        LOGGER__ERROR("Got null encoder bin element in get_encoder_monitors");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Got null encoder bin element in get_encoder_monitors");
         return monitors;
     }
     gpointer value = nullptr;

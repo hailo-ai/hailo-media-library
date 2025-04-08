@@ -107,12 +107,20 @@ class PrivacyMaskBlender : public std::enable_shared_from_this<PrivacyMaskBlende
     media_library_return remove_privacy_mask(const std::string &id);
 
     /**
-     * @brief Set color
+     * @brief Change privacy mask to color mode and set color
      *
      * @param color - color to set
      * @return media_library_return - error code
      */
     media_library_return set_color(const rgb_color_t &color);
+
+    /**
+     * @brief Change privacy mask to blur mode and set blur radius
+     *
+     * @param radius - blur radius affecting the intensity of the blur. Must be an even number between 2 and 64
+     * @return media_library_return - error code
+     */
+    media_library_return set_blur_radius(size_t radius);
 
     /**
      * @brief Set rotation
@@ -126,16 +134,25 @@ class PrivacyMaskBlender : public std::enable_shared_from_this<PrivacyMaskBlende
      * @brief Blend privacy masks
      * calculate the quantized bitmask representing the all privacy masks combined
      *
-     * @return tl::expected<PrivacyMaskDataPtr, media_library_return> containing the bitmask and relevant metadata
+     * @return tl::expected<PrivacyMaskDataPtr, media_library_return> containing the bitmask and relevant metadata.
      */
     tl::expected<PrivacyMaskDataPtr, media_library_return> blend();
 
     /**
      * @brief Get color
      *
-     * @return tl::expected<rgb_color_t, media_library_return> - text_color color
+     * @return tl::expected<rgb_color_t, media_library_return> - the color if the privacy mask is in color mode, else
+     * MEDIA_LIBRARY_ERROR
      */
     tl::expected<rgb_color_t, media_library_return> get_color();
+
+    /**
+     * @brief Get blur radius
+     *
+     * @return tl::expected<size_t, media_library_return> - the blur radius if the privacy mask is in blur mode, else
+     * MEDIA_LIBRARY_ERROR
+     */
+    tl::expected<size_t, media_library_return> get_blur_radius();
 
     /**
      * @brief Get frame size (width, height)
@@ -162,12 +179,15 @@ class PrivacyMaskBlender : public std::enable_shared_from_this<PrivacyMaskBlende
 
   private:
     std::vector<PolygonPtr> m_privacy_masks;
-    rgb_color_t m_color;
+
+    PrivacyMaskType m_privacy_mask_type;
+    std::optional<rgb_color_t> m_color;
+    std::optional<BlurRadius> m_blur_radius;
     uint m_frame_width;
     uint m_frame_height;
     rotation_angle_t m_rotation;
     MediaLibraryBufferPoolPtr m_buffer_pool;
-    std::shared_ptr<std::mutex> m_privacy_mask_mutex;
+    std::mutex m_privacy_mask_mutex;
     PrivacyMaskDataPtr m_latest_privacy_mask_data;
     bool m_update_required;
     media_library_return init_buffer_pool();

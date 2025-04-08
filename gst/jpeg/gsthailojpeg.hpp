@@ -5,6 +5,7 @@
 #include <gst/gst.h>
 #include <vector>
 #include <memory>
+#include <jpeglib.h>
 #include "media_library/encoder_config.hpp"
 
 G_BEGIN_DECLS
@@ -15,24 +16,33 @@ G_BEGIN_DECLS
 #define GST_IS_HAILOJPEGENC(obj) (G_TYPE_CHECK_INSTANCE_TYPE((obj), GST_TYPE_HAILOJPEGENC))
 #define GST_IS_HAILOJPEGENC_CLASS(obj) (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILOJPEGENC))
 
-struct GstHailoJpegEnc
+static constexpr uint DEFAULT_NUM_OF_THREADS = 1;
+static constexpr uint64_t DEFAULT_MIN_FORCE_KEY_UNIT_INTERVAL = 0;
+static constexpr int JPEG_DEFAULT_QUALITY = 85;
+static constexpr int JPEG_DEFAULT_IDCT_METHOD = JDCT_FASTEST;
+
+typedef struct _GstHailoJpegEncParams
 {
-    GstBin parent;
     std::string config;
     std::string config_path;
     std::unique_ptr<EncoderConfig> encoder_config;
-    std::shared_ptr<encoder_config_t> encoder_user_config;
-    uint num_of_threads;
-    GstPad *srcpad;
-    GstPad *sinkpad;
-    GstElement *m_roundrobin;
-    GstElement *m_hailoroundrobin;
+    encoder_config_t encoder_user_config;
+    uint num_of_threads = DEFAULT_NUM_OF_THREADS;
+    GstPad *srcpad = nullptr;
+    GstPad *sinkpad = nullptr;
+    GstElement *m_roundrobin = nullptr;
+    GstElement *m_hailoroundrobin = nullptr;
     std::vector<GstElement *> m_jpegencs;
     std::vector<GstElement *> m_queues;
-    guint64 jpegenc_min_force_key_unit_interval;
-    gint jpeg_quality;
-    gint jpeg_idct_method;
-    gboolean use_gpdma;
+    uint64_t jpegenc_min_force_key_unit_interval = DEFAULT_MIN_FORCE_KEY_UNIT_INTERVAL;
+    int jpeg_quality = JPEG_DEFAULT_QUALITY;
+    int jpeg_idct_method = JPEG_DEFAULT_IDCT_METHOD;
+} GstHailoJpegEncParams;
+
+struct GstHailoJpegEnc
+{
+    GstBin parent;
+    GstHailoJpegEncParams *params = nullptr;
 };
 
 struct GstHailoJpegEncClass

@@ -21,7 +21,9 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #pragma once
-#include <spdlog/fmt/ostr.h>
+#include <spdlog/spdlog.h>
+#include <spdlog/fmt/ostr.h> // https://github.com/gabime/spdlog/issues/1638#issuecomment-668483705
+#include "media_library_logger.hpp"
 
 // Makes sure during compilation time that all strings in LOGGER__X macros are
 // not in printf format, but in fmtlib format.
@@ -45,17 +47,24 @@ constexpr bool string_not_printf_format(char const *str)
 #define ASSERT_NOT_PRINTF_FORMAT(fmt, ...)                                                                             \
     static_assert(string_not_printf_format(fmt), "Error - Log string is in printf format and not in fmtlib format!")
 
-#define LOGGER_TO_SPDLOG(level, ...)                                                                                   \
+#define LOGGER_TO_SPDLOG(module, level, ...)                                                                           \
     do                                                                                                                 \
     {                                                                                                                  \
         EXPAND(ASSERT_NOT_PRINTF_FORMAT(__VA_ARGS__));                                                                 \
-        level(__VA_ARGS__);                                                                                            \
+        SPDLOG_LOGGER_CALL(LoggerManager::get_logger(module), level, __VA_ARGS__);                                     \
     } while (0) // NOLINT: clang complains about this code never executing
 
-#define LOGGER__TRACE(...) LOGGER_TO_SPDLOG(SPDLOG_TRACE, __VA_ARGS__)
-#define LOGGER__DEBUG(...) LOGGER_TO_SPDLOG(SPDLOG_DEBUG, __VA_ARGS__)
-#define LOGGER__INFO(...) LOGGER_TO_SPDLOG(SPDLOG_INFO, __VA_ARGS__)
-#define LOGGER__WARN(...) LOGGER_TO_SPDLOG(SPDLOG_WARN, __VA_ARGS__)
+#define LOGGER__MODULE__TRACE(module, ...) LOGGER_TO_SPDLOG(module, spdlog::level::trace, __VA_ARGS__)
+#define LOGGER__TRACE(...) LOGGER__MODULE__TRACE(LoggerType::Default, __VA_ARGS__)
+#define LOGGER__MODULE__DEBUG(module, ...) LOGGER_TO_SPDLOG(module, spdlog::level::debug, __VA_ARGS__)
+#define LOGGER__DEBUG(...) LOGGER__MODULE__DEBUG(LoggerType::Default, __VA_ARGS__)
+#define LOGGER__MODULE__INFO(module, ...) LOGGER_TO_SPDLOG(module, spdlog::level::info, __VA_ARGS__)
+#define LOGGER__INFO(...) LOGGER__MODULE__INFO(LoggerType::Default, __VA_ARGS__)
+#define LOGGER__MODULE__WARN(module, ...) LOGGER_TO_SPDLOG(module, spdlog::level::warn, __VA_ARGS__)
+#define LOGGER__WARN(...) LOGGER__MODULE__WARN(LoggerType::Default, __VA_ARGS__)
 #define LOGGER__WARNING LOGGER__WARN
-#define LOGGER__ERROR(...) LOGGER_TO_SPDLOG(SPDLOG_ERROR, __VA_ARGS__)
-#define LOGGER__CRITICAL(...) LOGGER_TO_SPDLOG(SPDLOG_CRITICAL, __VA_ARGS__)
+#define LOGGER__MODULE__WARNING LOGGER__MODULE__WARN
+#define LOGGER__MODULE__ERROR(module, ...) LOGGER_TO_SPDLOG(module, spdlog::level::err, __VA_ARGS__)
+#define LOGGER__ERROR(...) LOGGER__MODULE__ERROR(LoggerType::Default, __VA_ARGS__)
+#define LOGGER__MODULE__CRITICAL(module, ...) LOGGER_TO_SPDLOG(module, spdlog::level::critical, __VA_ARGS__)
+#define LOGGER__CRITICAL(...) LOGGER__MODULE__CRITICAL(LoggerType::Default, __VA_ARGS__)

@@ -56,7 +56,6 @@ static GstFlowReturn gst_hailo_dewarp_chain(GstPad *pad, GstObject *parent, GstB
 static gboolean gst_hailo_dewarp_sink_query(GstPad *pad, GstObject *parent, GstQuery *query);
 static void gst_hailo_dewarp_dispose(GObject *object);
 static void gst_hailo_dewarp_finalize(GObject *object);
-static void gst_hailo_dewarp_reset(GstHailoDewarp *self);
 
 static gboolean gst_hailo_handle_caps_query(GstHailoDewarp *self, GstPad *pad, GstQuery *query);
 static gboolean gst_hailo_dewarp_sink_event(GstPad *pad, GstObject *parent, GstEvent *event);
@@ -114,19 +113,18 @@ static void gst_hailo_dewarp_class_init(GstHailoDewarpClass *klass)
 static void gst_hailo_dewarp_init(GstHailoDewarp *dewarp)
 {
     GST_DEBUG_OBJECT(dewarp, "init");
-    dewarp->config_file_path = NULL;
-    dewarp->medialib_dewarp = NULL;
+    dewarp->params = new GstHailoDewarpParams();
 
-    dewarp->sinkpad = gst_pad_new_from_static_template(&sink_template, "sink");
-    dewarp->srcpad = gst_pad_new_from_static_template(&src_template, "src");
+    dewarp->params->sinkpad = gst_pad_new_from_static_template(&sink_template, "sink");
+    dewarp->params->srcpad = gst_pad_new_from_static_template(&src_template, "src");
 
-    gst_pad_set_chain_function(dewarp->sinkpad, GST_DEBUG_FUNCPTR(gst_hailo_dewarp_chain));
-    gst_pad_set_query_function(dewarp->sinkpad, GST_DEBUG_FUNCPTR(gst_hailo_dewarp_sink_query));
-    gst_pad_set_event_function(dewarp->sinkpad, GST_DEBUG_FUNCPTR(gst_hailo_dewarp_sink_event));
+    gst_pad_set_chain_function(dewarp->params->sinkpad, GST_DEBUG_FUNCPTR(gst_hailo_dewarp_chain));
+    gst_pad_set_query_function(dewarp->params->sinkpad, GST_DEBUG_FUNCPTR(gst_hailo_dewarp_sink_query));
+    gst_pad_set_event_function(dewarp->params->sinkpad, GST_DEBUG_FUNCPTR(gst_hailo_dewarp_sink_event));
 
-    GST_PAD_SET_PROXY_CAPS(dewarp->sinkpad);
-    gst_element_add_pad(GST_ELEMENT(dewarp), dewarp->sinkpad);
-    gst_element_add_pad(GST_ELEMENT(dewarp), dewarp->srcpad);
+    GST_PAD_SET_PROXY_CAPS(dewarp->params->sinkpad);
+    gst_element_add_pad(GST_ELEMENT(dewarp), dewarp->params->sinkpad);
+    gst_element_add_pad(GST_ELEMENT(dewarp), dewarp->params->srcpad);
 }
 
 static GstFlowReturn gst_hailo_dewarp_push_output_frame(GstHailoDewarp *self, HailoMediaLibraryBufferPtr output_frame,
@@ -141,18 +139,20 @@ static GstFlowReturn gst_hailo_dewarp_push_output_frame(GstHailoDewarp *self, Ha
         return ret;
     }
 
-    if (GST_PAD_IS_FLUSHING(self->srcpad))
+    if (GST_PAD_IS_FLUSHING(self->params->srcpad))
     {
-        GST_WARNING_OBJECT(self, "Srcpad %s is flushing, Not sending frame", gst_pad_get_name(self->srcpad));
+        GST_WARNING_OBJECT(self, "Srcpad %s is flushing, Not sending frame",
+                           glib_cpp::get_name(self->params->srcpad).c_str());
         return ret;
     }
 
     // Get caps from srcpad
-    GstCaps *caps = gst_pad_get_current_caps(self->srcpad);
+    GstCaps *caps = gst_pad_get_current_caps(self->params->srcpad);
 
     if (!caps)
     {
-        GST_ERROR_OBJECT(self, "Failed to get caps from srcpad name %s", gst_pad_get_name(self->srcpad));
+        GST_ERROR_OBJECT(self, "Failed to get caps from srcpad name %s",
+                         glib_cpp::get_name(self->params->srcpad).c_str());
         ret = GST_FLOW_ERROR;
         return ret;
     }
@@ -167,11 +167,11 @@ static GstFlowReturn gst_hailo_dewarp_push_output_frame(GstHailoDewarp *self, Ha
         return ret;
     }
 
-    GST_DEBUG_OBJECT(self, "Pushing buffer to srcpad name %s", gst_pad_get_name(self->srcpad));
+    GST_DEBUG_OBJECT(self, "Pushing buffer to srcpad name %s", glib_cpp::get_name(self->params->srcpad).c_str());
     gst_outbuf->pts = GST_BUFFER_PTS(buffer);
     gst_outbuf->offset = GST_BUFFER_OFFSET(buffer);
     gst_outbuf->duration = GST_BUFFER_DURATION(buffer);
-    gst_pad_push(self->srcpad, gst_outbuf);
+    gst_pad_push(self->params->srcpad, gst_outbuf);
 
     return ret;
 }
@@ -185,15 +185,15 @@ static GstFlowReturn gst_hailo_dewarp_chain(GstPad *pad, GstObject *parent, GstB
     GST_DEBUG_OBJECT(self, "Chain - Received buffer from sinkpad");
 
     // If Dewarp disbled, just push the buffer to srcpad
-    if (!self->medialib_dewarp->get_ldc_configs().check_ops_enabled(true))
+    if (!self->params->medialib_dewarp->get_ldc_configs().check_ops_enabled(true))
     {
         GST_DEBUG_OBJECT(self, "Dewarp operations are disabled, pushing buffer to srcpad");
-        gst_pad_push(self->srcpad, buffer);
+        gst_pad_push(self->params->srcpad, buffer);
         return ret;
     }
 
     // If DIS is enabled
-    if (self->medialib_dewarp->get_ldc_configs().dis_config.enabled)
+    if (self->params->medialib_dewarp->get_ldc_configs().dis_config.enabled)
     {
         // Get the vsm from the buffer
         meta = reinterpret_cast<GstHailoV4l2Meta *>(
@@ -223,7 +223,7 @@ static GstFlowReturn gst_hailo_dewarp_chain(GstPad *pad, GstObject *parent, GstB
     gst_caps_unref(input_caps);
 
     HailoMediaLibraryBufferPtr output_frame_ptr = std::make_shared<hailo_media_library_buffer>();
-    media_library_return media_lib_ret = self->medialib_dewarp->handle_frame(input_frame_ptr, output_frame_ptr);
+    media_library_return media_lib_ret = self->params->medialib_dewarp->handle_frame(input_frame_ptr, output_frame_ptr);
 
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
     {
@@ -249,7 +249,7 @@ static GstCaps *gst_hailo_create_caps_from_output_config(GstHailoDewarp *self, o
         framerate = 1;
 
     // Format does not change from input to output
-    input_video_config_t input_config = self->medialib_dewarp->get_input_video_config();
+    input_video_config_t input_config = self->params->medialib_dewarp->get_input_video_config();
     HailoFormat image_format = input_config.format;
     std::string format = "";
     switch (image_format)
@@ -286,7 +286,7 @@ static gboolean gst_hailo_set_srcpad_caps(GstHailoDewarp *self, GstPad *srcpad, 
 {
     GstCaps *caps_result, *outcaps, *query_caps = NULL;
     gboolean ret = TRUE;
-    gchar *pad_name = gst_pad_get_name(srcpad);
+    auto pad_name = glib_cpp::get_name(srcpad);
 
     query_caps = gst_hailo_create_caps_from_output_config(self, output_res);
 
@@ -302,7 +302,7 @@ static gboolean gst_hailo_set_srcpad_caps(GstHailoDewarp *self, GstPad *srcpad, 
     if (gst_caps_is_empty(outcaps) || !gst_caps_is_fixed(outcaps))
     {
         GST_ERROR_OBJECT(self, "Caps event - set caps is not possible, Failed to match required caps with srcpad %s",
-                         pad_name);
+                         pad_name.c_str());
         ret = FALSE;
     }
     else
@@ -312,12 +312,11 @@ static gboolean gst_hailo_set_srcpad_caps(GstHailoDewarp *self, GstPad *srcpad, 
 
         if (!srcpad_set_caps_result)
         {
-            GST_ERROR_OBJECT(self, "Failed to set caps on srcpad %s", pad_name);
+            GST_ERROR_OBJECT(self, "Failed to set caps on srcpad %s", pad_name.c_str());
             ret = FALSE;
         }
     }
 
-    g_free(pad_name);
     gst_caps_unref(query_caps);
     gst_caps_unref(outcaps);
     return ret;
@@ -340,9 +339,9 @@ static tl::expected<HailoFormat, media_library_return> gstchar_format_to__format
 static gboolean gst_hailo_handle_caps_event(GstHailoDewarp *self, GstCaps *caps)
 {
     gboolean ret = TRUE;
-    if (self->medialib_dewarp == nullptr)
+    if (self->params->medialib_dewarp == nullptr)
     {
-        GST_ERROR_OBJECT(self, "self->medialib_dewarp nullptr at time of caps query");
+        GST_ERROR_OBJECT(self, "self->params->medialib_dewarp nullptr at time of caps query");
         return FALSE;
     }
 
@@ -362,16 +361,16 @@ static gboolean gst_hailo_handle_caps_event(GstHailoDewarp *self, GstCaps *caps)
     }
 
     media_library_return config_status =
-        self->medialib_dewarp->set_input_video_config(width, height, numerator / denominator, format.value());
+        self->params->medialib_dewarp->set_input_video_config(width, height, numerator / denominator, format.value());
     if (config_status != MEDIA_LIBRARY_SUCCESS)
     {
         GST_ERROR_OBJECT(self, "Media library Dewarp could not accept sink caps, failed on error %d", config_status);
         ret = FALSE;
     }
 
-    output_resolution_t output_config = self->medialib_dewarp->get_output_video_config();
+    output_resolution_t output_config = self->params->medialib_dewarp->get_application_input_streams_config();
 
-    ret = gst_hailo_set_srcpad_caps(self, self->srcpad, output_config);
+    ret = gst_hailo_set_srcpad_caps(self, self->params->srcpad, output_config);
     if (!ret)
         return FALSE;
 
@@ -408,7 +407,7 @@ static gboolean intersect_peer_srcpad_caps(GstHailoDewarp *self, GstPad *sinkpad
 {
     GstCaps *query_caps, *intersect_caps, *peercaps;
     gboolean ret = TRUE;
-    gchar *pad_name = gst_pad_get_name(srcpad);
+    auto pad_name = glib_cpp::get_name(srcpad);
 
     query_caps = gst_hailo_create_caps_from_output_config(self, output_res);
 
@@ -425,14 +424,13 @@ static gboolean intersect_peer_srcpad_caps(GstHailoDewarp *self, GstPad *sinkpad
     {
         GST_ERROR_OBJECT(
             self, "Failed to intersect caps - with srcpad %s and requested width %ld height %ld and framerate %d",
-            pad_name, output_res.dimensions.destination_width, output_res.dimensions.destination_height,
+            pad_name.c_str(), output_res.dimensions.destination_width, output_res.dimensions.destination_height,
             output_res.framerate);
         ret = FALSE;
     }
 
     if (peercaps)
         gst_caps_unref(peercaps);
-    g_free(pad_name);
     gst_caps_unref(intersect_caps);
     gst_caps_unref(query_caps);
     return ret;
@@ -443,9 +441,8 @@ static gboolean gst_hailo_handle_caps_query(GstHailoDewarp *self, GstPad *pad, G
     // get pad name and direction
     GstPadDirection pad_direction = gst_pad_get_direction(pad);
 
-    gchar *pad_name = gst_pad_get_name(pad);
-    GST_DEBUG_OBJECT(pad, "Received caps query from sinkpad name %s direction %d", pad_name, pad_direction);
-    g_free(pad_name);
+    auto pad_name = glib_cpp::get_name(pad);
+    GST_DEBUG_OBJECT(pad, "Received caps query from sinkpad name %s direction %d", pad_name.c_str(), pad_direction);
     GstCaps *caps_result, *allowed_caps, *qcaps;
     /* we should report the supported caps here which are all */
     allowed_caps = gst_pad_get_pad_template_caps(pad);
@@ -464,13 +461,13 @@ static gboolean gst_hailo_handle_caps_query(GstHailoDewarp *self, GstPad *pad, G
     }
 
     GST_DEBUG_OBJECT(pad, "allowed template  %" GST_PTR_FORMAT, caps_result);
-    if (self->medialib_dewarp == nullptr)
+    if (self->params->medialib_dewarp == nullptr)
     {
-        GST_ERROR_OBJECT(pad, "self->medialib_dewarp nullptr at time of caps query");
+        GST_ERROR_OBJECT(pad, "self->params->medialib_dewarp nullptr at time of caps query");
         return FALSE;
     }
-    output_resolution_t output_config = self->medialib_dewarp->get_output_video_config();
-    if (!intersect_peer_srcpad_caps(self, pad, self->srcpad, output_config))
+    output_resolution_t output_config = self->params->medialib_dewarp->get_application_input_streams_config();
+    if (!intersect_peer_srcpad_caps(self, pad, self->params->srcpad, output_config))
     {
         gst_caps_unref(caps_result);
         return FALSE;
@@ -522,18 +519,7 @@ static void gst_hailo_dewarp_finalize(GObject *object)
 {
     GstHailoDewarp *self = GST_HAILO_DEWARP(object);
     GST_DEBUG_OBJECT(self, "finalize");
-    if (self->config_file_path)
-    {
-        g_free(self->config_file_path);
-        self->config_file_path = NULL;
-    }
 
-    if (self->medialib_dewarp)
-    {
-        self->medialib_dewarp.reset();
-        self->medialib_dewarp = NULL;
-    }
-    self->dewarp_config = nullptr;
     G_OBJECT_CLASS(parent_class)->finalize(object);
 }
 
@@ -541,90 +527,66 @@ static void gst_hailo_dewarp_dispose(GObject *object)
 {
     GstHailoDewarp *self = GST_HAILO_DEWARP(object);
     GST_DEBUG_OBJECT(self, "dispose");
-
-    gst_hailo_dewarp_reset(self);
+    if (self->params != nullptr)
+    {
+        delete self->params;
+        self->params = nullptr;
+    }
 
     G_OBJECT_CLASS(parent_class)->dispose(object);
-}
-
-static void gst_hailo_dewarp_reset_properties(GstHailoDewarp *self)
-{
-    if (self->config_file_path)
-    {
-        g_free(self->config_file_path);
-        self->config_file_path = NULL;
-    }
-    if (self->config_string)
-    {
-        g_free(self->config_string);
-        self->config_string = NULL;
-    }
-}
-
-static void gst_hailo_dewarp_reset(GstHailoDewarp *self)
-{
-    GST_DEBUG_OBJECT(self, "reset");
-    if (self->sinkpad != NULL)
-    {
-        self->sinkpad = NULL;
-    }
-    gst_hailo_dewarp_reset_properties(self);
-    self->medialib_dewarp.reset();
 }
 
 static void gst_hailo_dewarp_set_property(GObject *object, guint property_id, const GValue *value, GParamSpec *pspec)
 {
     GstHailoDewarp *self = GST_HAILO_DEWARP(object);
 
-    gst_hailo_dewarp_reset_properties(self);
-
     switch (property_id)
     {
     // Handle property assignments here
     case PROP_CONFIG_FILE_PATH: {
-        G_VALUE_REPLACE_STRING(self->config_file_path, value);
-        GST_DEBUG_OBJECT(self, "config_file_path: %s", self->config_file_path);
-        std::string config_string = gstmedialibcommon::read_json_string_from_file(self->config_file_path);
-        if (self->medialib_dewarp == nullptr)
+        self->params->config_file_path = glib_cpp::get_string_from_gvalue(value);
+        GST_DEBUG_OBJECT(self, "config_file_path: %s", self->params->config_file_path.c_str());
+        std::string config_string = gstmedialibcommon::read_json_string_from_file(self->params->config_file_path);
+        if (self->params->medialib_dewarp == nullptr)
         {
             gst_hailo_dewarp_create(self, config_string);
         }
         else
         {
-            media_library_return config_status = self->medialib_dewarp->configure(config_string);
+            media_library_return config_status = self->params->medialib_dewarp->configure(config_string);
             if (config_status != MEDIA_LIBRARY_SUCCESS)
                 GST_ERROR_OBJECT(self, "configuration error: %d", config_status);
         }
         break;
     }
     case PROP_CONFIG_STRING: {
-        G_VALUE_REPLACE_STRING(self->config_string, value);
-        std::string config_string = std::string(self->config_string);
+        self->params->config_string = glib_cpp::get_string_from_gvalue(value);
+        std::string config_string = self->params->config_string;
         gstmedialibcommon::strip_string_syntax(config_string);
 
-        if (self->medialib_dewarp == nullptr)
+        if (self->params->medialib_dewarp == nullptr)
         {
             gst_hailo_dewarp_create(self, config_string);
         }
         else
         {
-            media_library_return config_status = self->medialib_dewarp->configure(config_string);
+            media_library_return config_status = self->params->medialib_dewarp->configure(config_string);
             if (config_status != MEDIA_LIBRARY_SUCCESS)
                 GST_ERROR_OBJECT(self, "configuration error: %d", config_status);
         }
         break;
     }
     case PROP_CONFIG: {
-        if (self->medialib_dewarp)
+        if (self->params->medialib_dewarp)
         {
             ldc_config_t *dewarp_config = static_cast<ldc_config_t *>(g_value_get_pointer(value));
-            if (self->medialib_dewarp->configure(*dewarp_config) != MEDIA_LIBRARY_SUCCESS)
+            if (self->params->medialib_dewarp->configure(*dewarp_config) != MEDIA_LIBRARY_SUCCESS)
             {
                 GST_ERROR_OBJECT(self, "Failed to configure dewarp with ldc_config_t object");
             }
             else
             {
-                self->dewarp_config = std::make_shared<ldc_config_t>(*dewarp_config);
+                self->params->dewarp_config = *dewarp_config;
             }
         }
 
@@ -644,23 +606,23 @@ static void gst_hailo_dewarp_get_property(GObject *object, guint property_id, GV
     {
     // Handle property retrievals here
     case PROP_CONFIG_FILE_PATH: {
-        g_value_set_string(value, self->config_file_path);
+        g_value_set_string(value, self->params->config_file_path.c_str());
         break;
     }
     case PROP_CONFIG_STRING: {
-        g_value_set_string(value, self->config_string);
+        g_value_set_string(value, self->params->config_string.c_str());
         break;
     }
     case PROP_CONFIG: {
-        if (self->medialib_dewarp != nullptr)
+        if (self->params->medialib_dewarp != nullptr)
         {
-            self->dewarp_config = std::make_shared<ldc_config_t>(self->medialib_dewarp->get_ldc_configs());
+            self->params->dewarp_config = self->params->medialib_dewarp->get_ldc_configs();
         }
         else
         {
-            self->dewarp_config = std::make_shared<ldc_config_t>();
+            self->params->dewarp_config = ldc_config_t();
         }
-        g_value_set_pointer(value, self->dewarp_config.get());
+        g_value_set_pointer(value, &self->params->dewarp_config);
         break;
     }
     default:
@@ -677,13 +639,13 @@ static gboolean gst_hailo_dewarp_create(GstHailoDewarp *self, std::string config
         GST_ERROR_OBJECT(self, "Dewarp configuration error: %d", dewarp.error());
         throw std::runtime_error("Dewarp failed to configure, check config file.");
     }
-    self->medialib_dewarp = dewarp.value();
+    self->params->medialib_dewarp = dewarp.value();
 
     // set event callbacks
     MediaLibraryDewarp::callbacks_t callbacks;
     callbacks.on_output_resolution_change = std::make_optional([self](output_resolution_t &output_res) {
         // initialize caps negotiation to be passed downstream
-        auto ret = gst_hailo_set_srcpad_caps(self, self->srcpad, output_res);
+        auto ret = gst_hailo_set_srcpad_caps(self, self->params->srcpad, output_res);
         if (!ret)
             GST_ERROR_OBJECT(self, "Failed to set srcpad caps after output resolution change callback was called");
         else
@@ -694,7 +656,8 @@ static gboolean gst_hailo_dewarp_create(GstHailoDewarp *self, std::string config
         // create a custom gstreamer event that notifies wether multi resize should do flip and rotate
         GstStructure *structure = gst_structure_new(DO_FLIP_ROTATE_EVENT_NAME, DO_FLIP_ROTATE_PROP_NAME, G_TYPE_BOOLEAN,
                                                     (gboolean)do_flip_rotate, NULL);
-        auto ret = gst_pad_push_event(self->srcpad, gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM, structure));
+        auto ret =
+            gst_pad_push_event(self->params->srcpad, gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM, structure));
 
         if (!ret)
             GST_ERROR_OBJECT(
@@ -708,7 +671,8 @@ static gboolean gst_hailo_dewarp_create(GstHailoDewarp *self, std::string config
         // create a custom gstreamer event that notifies of flip direction changes
         GstStructure *structure =
             gst_structure_new(FLIP_EVENT_NAME, FLIP_EVENT_PROP_NAME, G_TYPE_UINT, (guint)flip, NULL);
-        auto ret = gst_pad_push_event(self->srcpad, gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM, structure));
+        auto ret =
+            gst_pad_push_event(self->params->srcpad, gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM, structure));
 
         if (!ret)
             GST_ERROR_OBJECT(self, "Failed to push flip event to srcpad after flip change callback was called");
@@ -719,7 +683,8 @@ static gboolean gst_hailo_dewarp_create(GstHailoDewarp *self, std::string config
         // create a custom gstreamer event that notifies of rotation angle changes
         GstStructure *structure =
             gst_structure_new(ROTATION_EVENT_NAME, ROTATION_EVENT_PROP_NAME, G_TYPE_UINT, (guint)rotation, NULL);
-        auto ret = gst_pad_push_event(self->srcpad, gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM, structure));
+        auto ret =
+            gst_pad_push_event(self->params->srcpad, gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM, structure));
 
         if (!ret)
             GST_ERROR_OBJECT(self, "Failed to push rotation event to srcpad after rotation change callback was called");
@@ -728,7 +693,7 @@ static gboolean gst_hailo_dewarp_create(GstHailoDewarp *self, std::string config
                             rotation);
     });
 
-    self->medialib_dewarp->observe(callbacks);
+    self->params->medialib_dewarp->observe(callbacks);
 
     return TRUE;
 }

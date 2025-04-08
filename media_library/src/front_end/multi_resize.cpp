@@ -43,10 +43,13 @@
 #include <vector>
 #include <shared_mutex>
 #include <optional>
+
+#define MODULE_NAME LoggerType::Resize
+
 #define MAKE_EVEN(value) ((value) % 2 != 0 ? (value) + 1 : (value))
 #define MAX_NUM_OF_OUTPUTS 8
 #define GET_NUM_OF_OUTPUTS(multi_resize_config)                                                                        \
-    ((multi_resize_config.output_video_config.resolutions.size()) +                                                    \
+    ((multi_resize_config.application_input_streams_config.resolutions.size()) +                                       \
      (multi_resize_config.motion_detection_config.enabled ? 1 : 0))
 
 struct timestamp_metadata
@@ -83,7 +86,7 @@ class MediaLibraryMultiResize::Impl final
     multi_resize_config_t get_multi_resize_configs();
 
     // get the output video configurations object
-    output_video_config_t get_output_video_config();
+    application_input_streams_config_t get_application_input_streams_config();
 
     // set the input video configurations object
     media_library_return set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate);
@@ -131,7 +134,6 @@ class MediaLibraryMultiResize::Impl final
     std::vector<MediaLibraryBufferPoolPtr> m_buffer_pools;
     // Timestamps in ms.
     std::vector<timestamp_metadata> m_timestamps;
-    bool m_strict_framerate = true;
     // read/write lock for configuration manipulation/reading
     std::shared_mutex rw_lock;
     uint32_t m_max_buffer_pool_size;
@@ -192,9 +194,9 @@ multi_resize_config_t MediaLibraryMultiResize::get_multi_resize_configs()
     return m_impl->get_multi_resize_configs();
 }
 
-output_video_config_t MediaLibraryMultiResize::get_output_video_config()
+application_input_streams_config_t MediaLibraryMultiResize::get_application_input_streams_config()
 {
-    return m_impl->get_output_video_config();
+    return m_impl->get_application_input_streams_config();
 }
 
 PrivacyMaskBlenderPtr MediaLibraryMultiResize::get_privacy_mask_blender()
@@ -256,10 +258,10 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
     m_frame_counter = 0;
     m_buffer_pools.reserve(MAX_NUM_OF_OUTPUTS);
     m_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_MULTI_RESIZE);
-    m_multi_resize_config.output_video_config.resolutions.reserve(MAX_NUM_OF_OUTPUTS);
+    m_multi_resize_config.application_input_streams_config.resolutions.reserve(MAX_NUM_OF_OUTPUTS);
     if (decode_config_json_string(m_multi_resize_config, config_string) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to decode json string");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to decode json string");
         status = MEDIA_LIBRARY_INVALID_ARGUMENT;
         return;
     }
@@ -267,7 +269,7 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
     dsp_status dsp_ret = dsp_utils::acquire_device();
     if (dsp_ret != DSP_SUCCESS)
     {
-        LOGGER__ERROR("Failed to acquire DSP device, status: {}", dsp_ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to acquire DSP device, status: {}", dsp_ret);
         status = MEDIA_LIBRARY_OUT_OF_RESOURCES;
         return;
     }
@@ -281,7 +283,7 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
     m_multi_resize_config.rotation_config.angle = ROTATION_ANGLE_0;
     if (configure(mresize_config) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to configure multi-resize");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure multi-resize");
         status = MEDIA_LIBRARY_CONFIGURATION_ERROR;
         return;
     }
@@ -294,7 +296,7 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
     }
     else
     {
-        LOGGER__ERROR("Failed to create privacy mask blender");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create privacy mask blender");
         status = blender_expected.error();
     }
 
@@ -304,11 +306,11 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
 MediaLibraryMultiResize::Impl::~Impl()
 {
 
-    m_multi_resize_config.output_video_config.resolutions.clear();
+    m_multi_resize_config.application_input_streams_config.resolutions.clear();
     dsp_status status = dsp_utils::release_device();
     if (status != DSP_SUCCESS)
     {
-        LOGGER__ERROR("Failed to release DSP device, status: {}", status);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to release DSP device, status: {}", status);
     }
 }
 
@@ -323,7 +325,7 @@ media_library_return MediaLibraryMultiResize::Impl::configure(std::string config
     multi_resize_config_t mresize_config;
     if (decode_config_json_string(mresize_config, config_string) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to decode json string: {}", config_string);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to decode json string: {}", config_string);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     return configure(mresize_config);
@@ -333,12 +335,13 @@ media_library_return MediaLibraryMultiResize::Impl::validate_configurations(mult
 {
     // Make sure that the output fps of each stream is divided by the input fps with no reminder
     output_resolution_t &input_res = mresize_config.input_video_config;
-    for (output_resolution_t &output_res : mresize_config.output_video_config.resolutions)
+    for (output_resolution_t &output_res : mresize_config.application_input_streams_config.resolutions)
     {
         if (output_res.framerate != 0 && input_res.framerate % output_res.framerate != 0)
         {
-            LOGGER__ERROR("Invalid output framerate {} - must be a divider of the input framerate {}",
-                          output_res.framerate, input_res.framerate);
+            LOGGER__MODULE__ERROR(MODULE_NAME,
+                                  "Invalid output framerate {} - must be a divider of the input framerate {}",
+                                  output_res.framerate, input_res.framerate);
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
     }
@@ -355,7 +358,7 @@ media_library_return MediaLibraryMultiResize::Impl::set_do_flip_rotate(bool do_f
 
 media_library_return MediaLibraryMultiResize::Impl::set_output_flip(flip_direction_t direction)
 {
-    LOGGER__INFO("Setting output flip from {} to {}", m_flip_config.direction, direction);
+    LOGGER__MODULE__INFO(MODULE_NAME, "Setting output flip from {} to {}", m_flip_config.direction, direction);
     flip_config_t new_flip = {true, direction};
     std::unique_lock<std::shared_mutex> lock(rw_lock);
     m_flip_config = new_flip;
@@ -368,10 +371,12 @@ media_library_return MediaLibraryMultiResize::Impl::set_output_rotation(rotation
     rotation_config_t &current_rotation = m_multi_resize_config.rotation_config;
     if (current_rotation == new_rotation)
     {
-        LOGGER__INFO("Output rotation is already set to {}", current_rotation.angle);
+        LOGGER__MODULE__INFO(MODULE_NAME, "Output rotation is already set to {}", current_rotation.angle);
         return MEDIA_LIBRARY_SUCCESS;
     }
-    LOGGER__INFO("Setting output rotation from {} to {}", current_rotation.angle, new_rotation.angle);
+
+    LOGGER__MODULE__INFO(MODULE_NAME, "Setting output rotation from {} to {}", current_rotation.angle,
+                         new_rotation.angle);
 
     std::unique_lock<std::shared_mutex> lock(rw_lock);
 
@@ -382,14 +387,14 @@ media_library_return MediaLibraryMultiResize::Impl::set_output_rotation(rotation
         return output_res_expected.error();
     }
     output_resolution_t &output_res = output_res_expected.value().get();
-    LOGGER__DEBUG("Output rotation dims are now width {} height {}", output_res.dimensions.destination_width,
-                  output_res.dimensions.destination_height);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Output rotation dims are now width {} height {}",
+                          output_res.dimensions.destination_width, output_res.dimensions.destination_height);
 
     // recreate buffer pools if needed
     media_library_return ret = create_and_initialize_buffer_pools();
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to recreate buffer pool after setting output rotation");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to recreate buffer pool after setting output rotation");
         return ret;
     }
 
@@ -398,7 +403,7 @@ media_library_return MediaLibraryMultiResize::Impl::set_output_rotation(rotation
     for (auto &callbacks : m_callbacks)
     {
         if (callbacks.on_output_resolutions_change)
-            callbacks.on_output_resolutions_change(m_multi_resize_config.output_video_config.resolutions);
+            callbacks.on_output_resolutions_change(m_multi_resize_config.application_input_streams_config.resolutions);
     }
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -415,18 +420,18 @@ media_library_return MediaLibraryMultiResize::Impl::configure(multi_resize_confi
     auto ret = validate_configurations(mresize_config);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to configure multi-resize {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure multi-resize {}", ret);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
-    LOGGER__INFO("Configuring multi-resize with new configurations");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Configuring multi-resize with new configurations");
     std::unique_lock<std::shared_mutex> lock(rw_lock);
 
     // Create and initialize buffer pools
     ret = m_multi_resize_config.update(mresize_config);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to update multi-resize configurations (prohibited) {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to update multi-resize configurations (prohibited) {}", ret);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -439,6 +444,7 @@ media_library_return MediaLibraryMultiResize::Impl::configure(multi_resize_confi
     if (ret != MEDIA_LIBRARY_SUCCESS)
         return ret;
 
+    m_timestamps.clear();
     for (uint8_t i = 0; i < m_buffer_pools.size(); i++)
     {
         m_timestamps.push_back({0, 0});
@@ -454,7 +460,7 @@ media_library_return MediaLibraryMultiResize::Impl::configure_internal(multi_res
     media_library_return ret = m_multi_resize_config.update(mresize_config);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to update multi-resize configurations (prohibited) {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to update multi-resize configurations (prohibited) {}", ret);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -505,20 +511,22 @@ media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer
         if (!first && m_buffer_pools[i] != nullptr && width == m_buffer_pools[i]->get_width() &&
             height == m_buffer_pools[i]->get_height())
         {
-            LOGGER__DEBUG("Buffer pool already exists, skipping creation");
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "Buffer pool already exists, skipping creation");
             return MEDIA_LIBRARY_SUCCESS;
         }
 
         auto bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width(width);
-        LOGGER__INFO("Creating buffer pool named {} for output resolution: width {} height {} in buffers size of {} "
-                     "and bytes per line {}",
-                     name, width, height, output_res.pool_max_buffers, bytes_per_line);
+        LOGGER__MODULE__INFO(
+            MODULE_NAME,
+            "Creating buffer pool named {} for output resolution: width {} height {} in buffers size of {} "
+            "and bytes per line {}",
+            name, width, height, output_res.pool_max_buffers, bytes_per_line);
         MediaLibraryBufferPoolPtr buffer_pool = std::make_shared<MediaLibraryBufferPool>(
-            width, height, m_multi_resize_config.output_video_config.format, output_res.pool_max_buffers,
+            width, height, m_multi_resize_config.application_input_streams_config.format, output_res.pool_max_buffers,
             HAILO_MEMORY_TYPE_DMABUF, bytes_per_line, name);
         if (buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__ERROR("Failed to init buffer pool");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init buffer pool");
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
         if (first)
@@ -530,7 +538,7 @@ media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer
             m_buffer_pools[i] = buffer_pool;
         }
     }
-    LOGGER__DEBUG("multi-resize holding {} buffer pools", m_buffer_pools.size());
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "multi-resize holding {} buffer pools", m_buffer_pools.size());
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -574,8 +582,9 @@ bool MediaLibraryMultiResize::Impl::should_push_frame_logic(uint32_t output_fram
 {
     if (output_framerate == 0)
     {
-        LOGGER__DEBUG("Skipping current frame because output framerate is 0, no need to acquire buffer {}",
-                      output_index);
+        LOGGER__MODULE__DEBUG(MODULE_NAME,
+                              "Skipping current frame because output framerate is 0, no need to acquire buffer {}",
+                              output_index);
         return false;
     }
 
@@ -602,8 +611,8 @@ bool MediaLibraryMultiResize::Impl::should_push_frame_logic(uint32_t output_fram
 
     if (m_timestamps[output_index].accumulated_diff >= expected_frame_latency)
     {
-        LOGGER__DEBUG("Should push frame, accumulated diff is {} and expected frame latency is {}",
-                      m_timestamps[output_index].accumulated_diff, expected_frame_latency);
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Should push frame, accumulated diff is {} and expected frame latency is {}",
+                              m_timestamps[output_index].accumulated_diff, expected_frame_latency);
         m_timestamps[output_index].accumulated_diff -= expected_frame_latency;
         return true;
     }
@@ -633,25 +642,26 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(
         output_resolution_t &output_res = output_res_expected.value().get();
         bool should_acquire_buffer = should_push_frame_logic(output_res.framerate, i, input_buffer->isp_timestamp_ns);
 
-        LOGGER__DEBUG("Acquiring buffer {}, target framerate is {}", i, output_res.framerate);
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Acquiring buffer {}, target framerate is {}", i, output_res.framerate);
         if (!should_acquire_buffer)
         {
-            LOGGER__DEBUG("Skipping current frame [framerate {}], no need to acquire buffer {}, counter is {}",
-                          output_res.framerate, i, m_frame_counter);
+            LOGGER__MODULE__DEBUG(MODULE_NAME,
+                                  "Skipping current frame [framerate {}], no need to acquire buffer {}, counter is {}",
+                                  output_res.framerate, i, m_frame_counter);
             buffers.emplace_back(buffer);
             continue;
         }
 
         if (m_buffer_pools[i]->acquire_buffer(buffer) != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__WARNING("Failed to acquire buffer, skipping buffer");
+            LOGGER__MODULE__WARNING(MODULE_NAME, "Failed to acquire buffer, skipping buffer");
             buffers.emplace_back(buffer);
             continue;
         }
 
         buffer->copy_metadata_from(input_buffer);
         buffers.emplace_back(buffer);
-        LOGGER__DEBUG("buffer acquired successfully");
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "buffer acquired successfully");
     }
 
     return MEDIA_LIBRARY_SUCCESS;
@@ -690,7 +700,7 @@ static std::pair<size_t, size_t> adjust_to_aspect_ratio(size_t src_width, size_t
  */
 static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::vector<hailo_dsp_buffer_data_t> &outputs,
                                                                          const dsp_roi_t &input_roi,
-                                                                         bool keep_aspect_ratio)
+                                                                         multi_resize_config_t &multi_resize_config)
 {
     std::vector<dsp_crop_resize_params_t> params;
 
@@ -699,8 +709,11 @@ static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::ve
         return a.properties.width >= b.properties.width;
     });
 
-    for (auto &output : outputs)
+    for (size_t output_idx = 0; output_idx < outputs.size(); output_idx++)
     {
+        auto &output = outputs[output_idx];
+        bool keep_aspect_ratio =
+            multi_resize_config.get_output_resolution_by_index(output_idx).value().get().keep_aspect_ratio;
         // Try to find a suitable crop_resize_param for the current output
         bool found = false;
         for (auto &crop_resize_param : params)
@@ -738,6 +751,7 @@ static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::ve
             {
                 crop_resize_param.dst[i] = &output.properties;
                 found = true;
+                crop_resize_param.keep_aspect_ratio[i] = keep_aspect_ratio;
                 break;
             }
 
@@ -749,7 +763,7 @@ static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::ve
         {
             dsp_crop_resize_params_t new_param = {};
             new_param.dst[0] = &output.properties;
-            new_param.keep_aspect_ratio = keep_aspect_ratio;
+            new_param.keep_aspect_ratio[0] = keep_aspect_ratio;
             params.push_back(new_param);
         }
     }
@@ -759,10 +773,18 @@ static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::ve
 
 tl::expected<dsp_roi_t, media_library_return> MediaLibraryMultiResize::Impl::get_input_roi()
 {
+    auto input_width = m_multi_resize_config.input_video_config.dimensions.destination_width;
+    auto input_height = m_multi_resize_config.input_video_config.dimensions.destination_height;
+    if (m_do_flip_rotate && (m_multi_resize_config.rotation_config.effective_value() == ROTATION_ANGLE_90 ||
+                             m_multi_resize_config.rotation_config.effective_value() == ROTATION_ANGLE_270))
+    {
+        std::swap(input_width, input_height);
+    }
+
     uint start_x = 0;
     uint start_y = 0;
-    uint end_x = m_multi_resize_config.input_video_config.dimensions.destination_width;
-    uint end_y = m_multi_resize_config.input_video_config.dimensions.destination_height;
+    uint end_x = input_width;
+    uint end_y = input_height;
 
     if (m_multi_resize_config.digital_zoom_config.enabled)
     {
@@ -786,21 +808,21 @@ tl::expected<dsp_roi_t, media_library_return> MediaLibraryMultiResize::Impl::get
             end_y = MAKE_EVEN(start_y + digital_zoom_roi.height);
 
             // Validate digital zoom ROI values with the input frame dimensions
-            if (end_x > m_multi_resize_config.input_video_config.dimensions.destination_width)
+            if (end_x > input_width)
             {
-                LOGGER__ERROR(
+                LOGGER__MODULE__ERROR(
+                    MODULE_NAME,
                     "Invalid digital zoom ROI. X ({}) and width ({}) coordinates exceed input frame width ({})",
-                    start_x, digital_zoom_roi.width,
-                    m_multi_resize_config.input_video_config.dimensions.destination_width);
+                    start_x, digital_zoom_roi.width, input_width);
                 return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
             }
 
-            if (end_y > m_multi_resize_config.input_video_config.dimensions.destination_height)
+            if (end_y > input_height)
             {
-                LOGGER__ERROR(
+                LOGGER__MODULE__ERROR(
+                    MODULE_NAME,
                     "Invalid digital zoom ROI. Y ({}) and height ({}) coordinates exceed input frame height ({})",
-                    start_y, digital_zoom_roi.height,
-                    m_multi_resize_config.input_video_config.dimensions.destination_height);
+                    start_y, digital_zoom_roi.height, input_height);
                 return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
             }
         }
@@ -828,8 +850,9 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
     size_t num_of_output_resolutions = GET_NUM_OF_OUTPUTS(m_multi_resize_config);
     if (num_of_output_resolutions != output_frames_size)
     {
-        LOGGER__ERROR("Number of output resolutions ({}) does not match number of output frames ({})",
-                      num_of_output_resolutions, output_frames_size);
+        LOGGER__MODULE__ERROR(MODULE_NAME,
+                              "Number of output resolutions ({}) does not match number of output frames ({})",
+                              num_of_output_resolutions, output_frames_size);
         return MEDIA_LIBRARY_ERROR;
     }
 
@@ -850,8 +873,8 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
         // TODO: Handle cases where its nullptr
         if (output_frames[i]->buffer_data == nullptr)
         {
-            LOGGER__DEBUG("Skipping resize for output frame {} to match target framerate ({})", i,
-                          output_res.framerate);
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "Skipping resize for output frame {} to match target framerate ({})", i,
+                                  output_res.framerate);
             continue;
         }
 
@@ -860,21 +883,23 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
 
         if (output_res != *output_frame)
         {
-            LOGGER__ERROR("Invalid output frame width {} output frame height {}", output_frame->width,
-                          output_frame->height);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Invalid output frame width {} output frame height {}",
+                                  output_frame->width, output_frame->height);
             return MEDIA_LIBRARY_ERROR;
         }
 
-        LOGGER__DEBUG("Multi resize output frame ({}) - y_ptr = {}, uv_ptr = {}. dims: width = {}, output frame height "
-                      "= {}, y plane fd = {}",
-                      i, fmt::ptr(output_frame->planes[0].userptr), fmt::ptr(output_frame->planes[1].userptr),
-                      output_frame->width, output_frame->height, output_frame->planes[0].fd);
+        LOGGER__MODULE__DEBUG(
+            MODULE_NAME,
+            "Multi resize output frame ({}) - y_ptr = {}, uv_ptr = {}. dims: width = {}, output frame height "
+            "= {}, y plane fd = {}",
+            i, fmt::ptr(output_frame->planes[0].userptr), fmt::ptr(output_frame->planes[1].userptr),
+            output_frame->width, output_frame->height, output_frame->planes[0].fd);
         num_bufs_to_resize++;
     }
 
     if (num_bufs_to_resize == 0)
     {
-        LOGGER__DEBUG("No need to perform multi resize");
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "No need to perform multi resize");
         return MEDIA_LIBRARY_SUCCESS;
     }
 
@@ -884,14 +909,13 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
         return input_roi.error();
     }
 
-    auto crop_resize_params = split_to_crop_resize_params(output_dsp_buffers, input_roi.value(),
-                                                          m_multi_resize_config.output_video_config.keep_aspect_ratio);
+    auto crop_resize_params = split_to_crop_resize_params(output_dsp_buffers, input_roi.value(), m_multi_resize_config);
 
     dsp_multi_crop_resize_params_t multi_crop_resize_params = {
         .src = &dsp_buffer_data.properties,
         .crop_resize_params = crop_resize_params.data(),
         .crop_resize_params_count = crop_resize_params.size(),
-        .interpolation = m_multi_resize_config.output_video_config.interpolation_type,
+        .interpolation = m_multi_resize_config.application_input_streams_config.interpolation_type,
     };
 
     // Apply the input ROI to all crop_resize_params
@@ -904,7 +928,7 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
     auto blender_expected = m_privacy_mask_blender->blend();
     if (!blender_expected.has_value())
     {
-        LOGGER__ERROR("Failed to blend privacy mask");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to blend privacy mask");
         return MEDIA_LIBRARY_ERROR;
     }
 
@@ -921,9 +945,18 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
         dsp_rois.resize(privacy_mask_data->rois_count);
 
         dsp_privacy_mask->bitmask = (uint8_t *)privacy_mask_data->bitmask->get_plane_ptr(0);
-        dsp_privacy_mask->y_color = privacy_mask_data->color.y;
-        dsp_privacy_mask->u_color = privacy_mask_data->color.u;
-        dsp_privacy_mask->v_color = privacy_mask_data->color.v;
+        if (privacy_mask_data->type == PrivacyMaskType::COLOR)
+        {
+            dsp_privacy_mask->color.y = privacy_mask_data->color.y;
+            dsp_privacy_mask->color.u = privacy_mask_data->color.u;
+            dsp_privacy_mask->color.v = privacy_mask_data->color.v;
+            dsp_privacy_mask->type = DSP_PRIVACY_MASK_COLOR;
+        }
+        else
+        {
+            dsp_privacy_mask->type = DSP_PRIVACY_MASK_BLUR;
+            dsp_privacy_mask->blur_radius = privacy_mask_data->blur_radius;
+        }
         dsp_privacy_mask->rois = dsp_rois.data();
         dsp_privacy_mask->rois_count = privacy_mask_data->rois_count;
 
@@ -943,6 +976,18 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
         dsp_image_enhancement_params =
             std::make_optional<dsp_image_enhancement_params_t>(m_dsp_image_enhancement->get_dsp_params());
 
+        LOGGER__MODULE__DEBUG(
+            LoggerType::Resize,
+            "Image enhancement params: "
+            "contrast {} brightness {} saturation_u_a {} saturation_u_b {} saturation_v_a {} saturation_v_b {} "
+            "blur level {} "
+            "sharpness level {} amount {} threshold {}",
+            dsp_image_enhancement_params->color.contrast, dsp_image_enhancement_params->color.brightness,
+            dsp_image_enhancement_params->color.saturation_u_a, dsp_image_enhancement_params->color.saturation_u_b,
+            dsp_image_enhancement_params->color.saturation_v_a, dsp_image_enhancement_params->color.saturation_v_b,
+            dsp_image_enhancement_params->blur.level, dsp_image_enhancement_params->sharpness.level,
+            dsp_image_enhancement_params->sharpness.amount, dsp_image_enhancement_params->sharpness.threshold);
+
         if (dsp_image_enhancement_params->histogram_params)
         {
             auto frame_size =
@@ -950,35 +995,21 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
             auto [x_sample_step, y_sample_step] = DspImageEnhancement::histogram_sample_step_for_frame(frame_size);
             dsp_image_enhancement_params->histogram_params->x_sample_step = x_sample_step;
             dsp_image_enhancement_params->histogram_params->y_sample_step = y_sample_step;
-            LOGGER__DEBUG(
-                "Image enhancement params: sharpness {} contrast {} brightness {} saturation_u_a {} saturation_u_b {} "
-                "saturation_v_a {} saturation_v_b {} histogram x_sample_step {} y_sample_step {} ",
-                dsp_image_enhancement_params->sharpness, dsp_image_enhancement_params->contrast,
-                dsp_image_enhancement_params->brightness, dsp_image_enhancement_params->saturation_u_a,
-                dsp_image_enhancement_params->saturation_u_b, dsp_image_enhancement_params->saturation_v_a,
-                dsp_image_enhancement_params->saturation_v_b,
-                dsp_image_enhancement_params->histogram_params->x_sample_step,
-                dsp_image_enhancement_params->histogram_params->y_sample_step);
-        }
-        else
-        {
-            LOGGER__DEBUG(
-                "Image enhancement params: sharpness {} contrast {} brightness {} saturation_u_a {} saturation_u_b {} "
-                "saturation_v_a {} saturation_v_b {}",
-                dsp_image_enhancement_params->sharpness, dsp_image_enhancement_params->contrast,
-                dsp_image_enhancement_params->brightness, dsp_image_enhancement_params->saturation_u_a,
-                dsp_image_enhancement_params->saturation_u_b, dsp_image_enhancement_params->saturation_v_a,
-                dsp_image_enhancement_params->saturation_v_b);
+            LOGGER__MODULE__DEBUG(MODULE_NAME,
+                                  "Image enhancement histogram params: "
+                                  "histogram x_sample_step {} y_sample_step {} ",
+                                  dsp_image_enhancement_params->histogram_params->x_sample_step,
+                                  dsp_image_enhancement_params->histogram_params->y_sample_step);
         }
     }
 
-    LOGGER__DEBUG("Performing multi resize on the DSP with digital zoom ROI: start_x {} start_y {} end_x {} end_y "
-                  "{} and {} privacy masks and post denoise filter",
-                  input_roi->start_x, input_roi->start_y, input_roi->end_x, input_roi->end_y,
-                  privacy_mask_data->rois_count);
+    LOGGER__MODULE__DEBUG(
+        MODULE_NAME,
+        "Performing multi resize on the DSP with digital zoom ROI: start_x {} start_y {} end_x {} end_y "
+        "{} and {} privacy masks and post denoise filter",
+        input_roi->start_x, input_roi->start_y, input_roi->end_x, input_roi->end_y, privacy_mask_data->rois_count);
 
-    // enable only for flip horizontal and vertical (no 90 degree rotation for now)
-    // and only if not already done in dewarp
+    // enable only if not already done in dewarp
     std::optional<dsp_flip_rotate_params_t> dsp_flip_rotate_params;
     if (m_do_flip_rotate)
     {
@@ -998,7 +1029,7 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
 
     clock_gettime(CLOCK_MONOTONIC, &end_resize);
     [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_resize, start_resize);
-    LOGGER__TRACE("perform_multi_resize took {} milliseconds ({} fps)", ms, 1000 / ms);
+    LOGGER__MODULE__TRACE(MODULE_NAME, "perform_multi_resize took {} milliseconds ({} fps)", ms, 1000 / ms);
 
     if (ret != DSP_SUCCESS)
         return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
@@ -1018,7 +1049,7 @@ void MediaLibraryMultiResize::Impl::stamp_time_and_log_fps(timespec &start_handl
     clock_gettime(CLOCK_MONOTONIC, &end_handle);
     long ms = (long)media_library_difftimespec_ms(end_handle, start_handle);
     uint framerate = 1000 / ms;
-    LOGGER__DEBUG("multi-resize handle_frame took {} milliseconds ({} fps)", ms, framerate);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "multi-resize handle_frame took {} milliseconds ({} fps)", ms, framerate);
 }
 
 void MediaLibraryMultiResize::Impl::increase_frame_counter()
@@ -1033,17 +1064,17 @@ media_library_return MediaLibraryMultiResize::Impl::validate_output_frames(
     // Check if vector of output buffers is not empty
     if (!output_frames.empty())
     {
-        LOGGER__ERROR("output_frames vector is not empty - an empty vector is required");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "output_frames vector is not empty - an empty vector is required");
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
     // Check that caps match between incoming frames and output frames?
 
-    if (m_multi_resize_config.output_video_config.grayscale)
+    if (m_multi_resize_config.application_input_streams_config.grayscale)
     {
-        if (m_multi_resize_config.output_video_config.format != HAILO_FORMAT_NV12)
+        if (m_multi_resize_config.application_input_streams_config.format != HAILO_FORMAT_NV12)
         {
-            LOGGER__ERROR("Saturating to grayscale is enabled only for NV12 format");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Saturating to grayscale is enabled only for NV12 format");
             return MEDIA_LIBRARY_INVALID_ARGUMENT;
         }
     }
@@ -1074,7 +1105,7 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(HailoMediaLibra
     }
 
     // Handle grayscaling
-    if (m_multi_resize_config.output_video_config.grayscale)
+    if (m_multi_resize_config.application_input_streams_config.grayscale)
     {
         // Saturate UV plane to value of 128 - to get a grayscale image
         if (input_frame->is_dmabuf())
@@ -1115,10 +1146,10 @@ multi_resize_config_t MediaLibraryMultiResize::Impl::get_multi_resize_configs()
     return m_multi_resize_config;
 }
 
-output_video_config_t MediaLibraryMultiResize::Impl::get_output_video_config()
+application_input_streams_config_t MediaLibraryMultiResize::Impl::get_application_input_streams_config()
 {
     std::shared_lock<std::shared_mutex> lock(rw_lock);
-    return m_multi_resize_config.output_video_config;
+    return m_multi_resize_config.application_input_streams_config;
 }
 
 PrivacyMaskBlenderPtr MediaLibraryMultiResize::Impl::get_privacy_mask_blender()
@@ -1139,7 +1170,7 @@ media_library_return MediaLibraryMultiResize::Impl::set_input_video_config(uint3
                                                m_multi_resize_config.input_video_config.dimensions.destination_height);
     if (blender_config_status != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to set privacy mask blender frame size");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set privacy mask blender frame size");
         return blender_config_status;
     }
 

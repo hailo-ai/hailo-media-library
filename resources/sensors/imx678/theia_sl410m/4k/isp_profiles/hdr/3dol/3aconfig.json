@@ -155,6 +155,48 @@
             ]
         },
         {
+            "classname" : "ACprocPost",
+            "forcecreate" : true,
+            "enable" : false,
+            "disable" : true,
+            "auto_luma": true,
+            "tables" : [
+                {
+                    "hdr" : false,
+                    "gains" : [1, 25, 50, 100, 200],
+                    "blur" : [0, 0, 0, 0, 0],
+                    "sharpness_level" : [0, 0, 0, 0, 0],
+                    "sharpness_amount" : [0, 0, 0, 0, 0],
+                    "sharpness_threshold" : [0, 0, 0, 0, 0],
+                    "manual_contrast" : [1.0, 1.0, 1.2, 1.2, 1.2],
+                    "manual_brightness" : [0, 0, -50, -50, -50],
+                    "auto_percentile_low": [2.0, 2.0, 2.0, 2.0, 2.0],
+                    "auto_percentile_high": [99.9, 99.9, 99.9, 99.9, 99.9],
+                    "auto_target_low": [5, 5, 5, 5, 5],
+                    "auto_target_high": [248, 248, 248, 248, 248],
+                    "auto_low_pass_filter_alpha": [0.95, 0.95, 0.95, 0.95, 0.95],
+                    "saturation" : [1, 1, 1, 1, 1]
+                    
+                },
+                {
+                    "hdr" : true,
+                    "gains" : [1, 25, 50, 100, 200],
+                    "blur" : [0, 0, 0, 0, 0],
+                    "sharpness_level" : [0, 0, 0, 0, 0],
+                    "sharpness_amount" : [0, 0, 0, 0, 0],
+                    "sharpness_threshold" : [0, 0, 0, 0, 0],
+                    "manual_contrast" : [1.0, 1.0, 1.2, 1.2, 1.2],
+                    "manual_brightness" : [0, 0, -50, -50, -50],
+                    "auto_percentile_low": [2.0, 2.0, 2.0, 2.0, 2.0],
+                    "auto_percentile_high": [99.9, 99.9, 99.9, 99.9, 99.9],
+                    "auto_target_low": [5, 5, 5, 5, 5],
+                    "auto_target_high": [248, 248, 248, 248, 248],
+                    "auto_low_pass_filter_alpha": [0.95, 0.95, 0.95, 0.95, 0.95],
+                    "saturation" : [1, 1, 1, 1, 1]
+                }
+            ]
+        },
+        {
             "classname" : "Aeev1",
             "forcecreate" : true,
             "enable" : true,

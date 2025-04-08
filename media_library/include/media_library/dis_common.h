@@ -191,11 +191,11 @@ struct dis_config_t
 
     /**
      * Diagonal FoV factor of output camera. The difference between input and output FOV, (horizontal, vertical
-     * and diagonal) is the room for stabilization. Note the relation betwen aspect ratio and H,V,DFOV ratios:
+     * and diagonal) is the room for stabilization. Note the relation between aspect ratio and H,V,DFOV ratios:
      * - for fisheye camera:
-     * HFOV / VFOV / DFOV = width / hight / diagonal
+     * HFOV / VFOV / DFOV = width / height / diagonal
      * - for pinhole camera:
-     * tan(HFOV/2) / tan(VFOV/2) / tan(DFOV/2) = width / hight / diagonal
+     * tan(HFOV/2) / tan(VFOV/2) / tan(DFOV/2) = width / height / diagonal
      * Set to 1 to let DIS calculate and use the maximum possible FOV at the given input camera model and output
      * aspect ratio.
      * FoV factor here is multiplied by the maximum possible FoV, allowing more stabilization by decreasing it.

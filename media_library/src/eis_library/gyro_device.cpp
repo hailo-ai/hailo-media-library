@@ -6,7 +6,10 @@
 #include <fstream>
 #include <thread>
 #include <iomanip>
+#include "media_library/v4l2_ctrl.hpp"
+#include "media_library/isp_utils.hpp"
 
+#define MODULE_NAME LoggerType::Eis
 #define DEVICE_CLK_TIMESTAMP "monotonic_raw"
 
 #define IIO_CTX_TIMEOUT_MS (100)
@@ -51,6 +54,7 @@ static ssize_t rd_sample_demux(const struct iio_channel *chn, void *sample, size
         {
             samples_vector->erase(samples_vector->begin());
         }
+
         samples_vector->emplace_back(gyro_sampled);
         memset(&gyro_sampled, 0, sizeof(gyro_sampled));
     }
@@ -87,7 +91,7 @@ void GyroDevice::dump_rec_samples(const std::string &file_path)
     uint32_t idx = 0;
     if (!file.is_open())
     {
-        LOGGER__ERROR("Unable to open file {}", file_path.c_str());
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Unable to open file {}", file_path.c_str());
         return;
     }
 
@@ -122,7 +126,7 @@ void GyroDevice::dump_rec_samples(const std::string &file_path)
         usleep(100000); // 100 msec delay
     }
 
-    LOGGER__INFO("Finished writing samples to file {}", file_path.c_str());
+    LOGGER__MODULE__INFO(MODULE_NAME, "Finished writing samples to file {}", file_path.c_str());
 
     file.close();
 }
@@ -139,7 +143,6 @@ bool GyroDevice::get_closest_vsync_sample(uint64_t frame_timestamp, std::vector<
         if (it->vx % 2 != 0)
             it_closest = it;
     }
-
     /* Return true if a VSYNC sample was found */
     return it_closest != m_vector_samples.end();
 }
@@ -191,13 +194,13 @@ std::vector<gyro_sample_t> GyroDevice::get_gyro_samples_for_frame_isp_timestamp(
 static void handle_sig(int)
 {
     if (gyroApi->stopRunning())
-        LOGGER__INFO("Notify process to finish...");
+        LOGGER__MODULE__INFO(MODULE_NAME, "Notify process to finish...");
 }
 
 static void enable_all_channels(struct iio_device *iio_dev)
 {
     unsigned int i, nb_channels = iio_device_get_channels_count(iio_dev);
-    LOGGER__INFO("Enable all Gyro channels");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Enable all Gyro channels");
     for (i = 0; i < nb_channels; i++)
         iio_channel_enable(iio_device_get_channel(iio_dev, i));
 }
@@ -206,11 +209,11 @@ static void disable_all_channels(struct iio_device *iio_dev)
 {
     if (!iio_dev)
     {
-        LOGGER__ERROR("Received uninitialized Gyro device!");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Received uninitialized Gyro device!");
         return;
     }
     unsigned int i, nb_channels = iio_device_get_channels_count(iio_dev);
-    LOGGER__INFO("Disabling all Gyro channels");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Disabling all Gyro channels");
     for (i = 0; i < nb_channels; i++)
         iio_channel_disable(iio_device_get_channel(iio_dev, i));
 }
@@ -222,8 +225,8 @@ const char *GyroDevice::device_name_get()
 
 void GyroDevice::shutdown()
 {
-    LOGGER__INFO("Gyro shutdown started...");
-    LOGGER__INFO("Destroying buffer");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Gyro shutdown started...");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Destroying buffer");
     if (m_iio_device_data.buf)
     {
         iio_buffer_destroy(m_iio_device_data.buf);
@@ -235,13 +238,13 @@ void GyroDevice::shutdown()
         m_iio_dev = nullptr;
     }
 
-    LOGGER__INFO("Destroying ctx");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Destroying ctx");
     if (m_ctx)
     {
         iio_context_destroy(m_ctx);
         m_ctx = nullptr;
     }
-    LOGGER__INFO("Gyro shutdown succeeded!");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Gyro shutdown succeeded!");
 }
 
 gyro_status_t GyroDevice::exists()
@@ -252,7 +255,7 @@ gyro_status_t GyroDevice::exists()
         m_ctx = iio_create_local_context();
         if (!m_ctx)
         {
-            LOGGER__ERROR("Unable to create IIO context");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Unable to create IIO context");
             return GYRO_STATUS_IIO_CONTEXT_FAILURE;
         }
     }
@@ -260,7 +263,7 @@ gyro_status_t GyroDevice::exists()
     m_iio_dev = iio_context_find_device(m_ctx, m_iio_device_data.name.c_str());
     if (!m_iio_dev)
     {
-        LOGGER__INFO("Device {} not found", m_iio_device_data.name.c_str());
+        LOGGER__MODULE__INFO(MODULE_NAME, "Device {} not found", m_iio_device_data.name.c_str());
         return GYRO_STATUS_DEVICE_INTERACTION_FAILURE;
     }
     m_iio_dev = NULL;
@@ -279,14 +282,14 @@ gyro_status_t GyroDevice::start()
     m_ctx = iio_create_local_context();
     if (!m_ctx)
     {
-        LOGGER__ERROR("Unable to create IIO context");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Unable to create IIO context");
         return GYRO_STATUS_IIO_CONTEXT_FAILURE;
     }
 
     rc = iio_context_set_timeout(m_ctx, IIO_CTX_TIMEOUT_MS);
     if (rc)
     {
-        LOGGER__ERROR("set timeout failed, err: {}", rc);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "set timeout failed, err: {}", rc);
         iio_context_destroy(m_ctx);
         return GYRO_STATUS_IIO_CONTEXT_FAILURE;
     }
@@ -294,7 +297,7 @@ gyro_status_t GyroDevice::start()
     gyro_status_t status = prepare_device();
     if (status != GYRO_STATUS_SUCCESS)
     {
-        LOGGER__ERROR("Failed to prepare device, err: {}", status);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to prepare device, err: {}", status);
         iio_context_destroy(m_ctx);
         return status;
     }
@@ -312,19 +315,19 @@ gyro_status_t GyroDevice::device_attr_wr_str(const char *attr, const char *str_v
 {
     if (iio_device_find_attr(m_iio_dev, attr) == nullptr)
     {
-        LOGGER__ERROR("Attribute '{}' not found on device.", attr);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Attribute '{}' not found on device.", attr);
         return GYRO_STATUS_DEVICE_INTERACTION_FAILURE;
     }
 
     ssize_t rc = iio_device_attr_write(m_iio_dev, attr, str_val);
     if (rc < 0)
     {
-        LOGGER__ERROR("Failed to write attribute '{}={}' to device '{}', error code: {}", attr, str_val,
-                      device_name_get(), rc);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to write attribute '{}={}' to device '{}', error code: {}", attr,
+                              str_val, device_name_get(), rc);
         return GYRO_STATUS_DEVICE_INTERACTION_FAILURE;
     }
 
-    LOGGER__INFO("Successfully set attribute '{}' to '{}'.", attr, str_val);
+    LOGGER__MODULE__INFO(MODULE_NAME, "Successfully set attribute '{}' to '{}'.", attr, str_val);
     return GYRO_STATUS_SUCCESS;
 }
 
@@ -333,12 +336,12 @@ gyro_status_t GyroDevice::device_buffer_attr_wr_str(const char *attr, const char
     ssize_t rc = iio_device_buffer_attr_write(m_iio_dev, attr, str_val);
     if (rc < 0)
     {
-        LOGGER__ERROR("Failed to write buffer attribute '{}={}' to device '{}', error code: {}", attr, str_val,
-                      device_name_get(), rc);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to write buffer attribute '{}={}' to device '{}', error code: {}",
+                              attr, str_val, device_name_get(), rc);
         return GYRO_STATUS_DEVICE_INTERACTION_FAILURE;
     }
 
-    LOGGER__INFO("Successfully set buffer attribute '{}' to '{}'.", attr, str_val);
+    LOGGER__MODULE__INFO(MODULE_NAME, "Successfully set buffer attribute '{}' to '{}'.", attr, str_val);
     return GYRO_STATUS_SUCCESS;
 }
 
@@ -346,18 +349,18 @@ gyro_status_t GyroDevice::channel_attr_wr_str(struct iio_channel *chn, const cha
 {
     if (iio_channel_find_attr(chn, attr) == nullptr)
     {
-        LOGGER__ERROR("Attribute '{}' not found on channel.", attr);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Attribute '{}' not found on channel.", attr);
         return GYRO_STATUS_CHAN_INTERACTION_FAILURE;
     }
 
     ssize_t rc = iio_channel_attr_write(chn, attr, str_val);
     if (rc < 0)
     {
-        LOGGER__ERROR("Failed to write attr[{}]={}, rc = {}", attr, str_val, rc);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to write attr[{}]={}, rc = {}", attr, str_val, rc);
         return GYRO_STATUS_CHAN_INTERACTION_FAILURE;
     }
 
-    LOGGER__INFO("Successfully set attribute '{}' to '{}'.", attr, str_val);
+    LOGGER__MODULE__INFO(MODULE_NAME, "Successfully set attribute '{}' to '{}'.", attr, str_val);
     return GYRO_STATUS_SUCCESS;
 }
 
@@ -365,7 +368,7 @@ gyro_status_t GyroDevice::device_cfg_set()
 {
     if (!m_iio_dev)
     {
-        LOGGER__ERROR("Received uninitialized Gyro device!");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Received uninitialized Gyro device!");
         return GYRO_STATUS_ILLEGAL_STATE;
     }
 
@@ -373,7 +376,8 @@ gyro_status_t GyroDevice::device_cfg_set()
         gyro_status_t status = device_buffer_attr_wr_str(attr, value);
         if (status != GYRO_STATUS_SUCCESS)
         {
-            LOGGER__ERROR("Failed to set {}={} for Gyro buffer device, error code: {}", attr, value, status);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set {}={} for Gyro buffer device, error code: {}", attr,
+                                  value, status);
         }
         return status;
     };
@@ -382,7 +386,8 @@ gyro_status_t GyroDevice::device_cfg_set()
         gyro_status_t status = device_attr_wr_str(attr, value);
         if (status != GYRO_STATUS_SUCCESS)
         {
-            LOGGER__ERROR("Failed to set {}={} for Gyro device, error code: {}", attr, value, status);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set {}={} for Gyro device, error code: {}", attr, value,
+                                  status);
         }
         return status;
     };
@@ -402,7 +407,8 @@ void GyroDevice::show_device_info()
     unsigned int nb_channels = iio_device_get_channels_count(m_iio_dev);
     unsigned int nb_attrs = iio_device_get_attrs_count(m_iio_dev);
 
-    LOGGER__DEBUG("{} has: {} channels, {} attributes", m_iio_device_data.name.c_str(), nb_channels, nb_attrs);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "{} has: {} channels, {} attributes", m_iio_device_data.name.c_str(),
+                          nb_channels, nb_attrs);
 
     for (unsigned int j = 0; j < nb_channels && j < MAX_CHANNEL_ID; j++)
     {
@@ -411,9 +417,9 @@ void GyroDevice::show_device_info()
         {
             enum iio_chan_type chan_type = iio_channel_get_type(channel);
 
-            LOGGER__DEBUG("{}/channel[{}]={}({}): attrs={}, ctrl={}", m_iio_device_data.name.c_str(), j,
-                          iio_channel_get_id(channel), chan_type, iio_channel_get_attrs_count(channel),
-                          iio_channel_is_enabled(channel) ? "on" : "off");
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "{}/channel[{}]={}({}): attrs={}, ctrl={}",
+                                  m_iio_device_data.name.c_str(), j, iio_channel_get_id(channel), chan_type,
+                                  iio_channel_get_attrs_count(channel), iio_channel_is_enabled(channel) ? "on" : "off");
         }
     }
 }
@@ -424,8 +430,8 @@ void GyroDevice::prepare_device_data()
     m_iio_device_data.nb_attrs = iio_device_get_attrs_count(m_iio_dev);
     iio_device_set_data(m_iio_dev, &m_iio_device_data);
 
-    LOGGER__DEBUG("{} has: {} channels, {} attributes", m_iio_device_data.name.c_str(), m_iio_device_data.nb_channels,
-                  m_iio_device_data.nb_attrs);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "{} has: {} channels, {} attributes", m_iio_device_data.name.c_str(),
+                          m_iio_device_data.nb_channels, m_iio_device_data.nb_attrs);
 }
 
 gyro_status_t GyroDevice::prepare_channel_data()
@@ -438,9 +444,9 @@ gyro_status_t GyroDevice::prepare_channel_data()
         {
             enum iio_chan_type chan_type = iio_channel_get_type(channel);
 
-            LOGGER__DEBUG("{}/channel[{}]={}({}): attrs={}, ctrl={}", m_iio_device_data.name.c_str(), j,
-                          iio_channel_get_id(channel), chan_type, iio_channel_get_attrs_count(channel),
-                          iio_channel_is_enabled(channel) ? "on" : "off");
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "{}/channel[{}]={}({}): attrs={}, ctrl={}",
+                                  m_iio_device_data.name.c_str(), j, iio_channel_get_id(channel), chan_type,
+                                  iio_channel_get_attrs_count(channel), iio_channel_is_enabled(channel) ? "on" : "off");
 
             if (chan_type == IIO_ANGL_VEL)
             {
@@ -448,7 +454,8 @@ gyro_status_t GyroDevice::prepare_channel_data()
                     channel_attr_wr_str(channel, "scale", (std::stringstream() << m_gyro_scale).str().c_str());
                 if (status != GYRO_STATUS_SUCCESS)
                 {
-                    LOGGER__ERROR("Failed to set scale for channel[{}], error code: {}", j, status);
+                    LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set scale for channel[{}], error code: {}", j,
+                                          status);
                     return status;
                 }
             }
@@ -465,10 +472,11 @@ gyro_status_t GyroDevice::prepare_device()
     m_iio_dev = iio_context_find_device(m_ctx, m_iio_device_data.name.c_str());
     if (!m_iio_dev)
     {
-        LOGGER__ERROR("Gyro device {} not found! Make sure the device is connected and "
-                      "sensor_name in the configuration file matches the gyro device name "
-                      "(the one displayed in iio_info).",
-                      m_iio_device_data.name.c_str());
+        LOGGER__MODULE__ERROR(MODULE_NAME,
+                              "Gyro device {} not found! Make sure the device is connected and "
+                              "sensor_name in the configuration file matches the gyro device name "
+                              "(the one displayed in iio_info).",
+                              m_iio_device_data.name.c_str());
         m_iio_dev = NULL;
         return GYRO_STATUS_IIO_CONTEXT_FAILURE;
     }
@@ -476,7 +484,7 @@ gyro_status_t GyroDevice::prepare_device()
     status = device_cfg_set();
     if (status != GYRO_STATUS_SUCCESS)
     {
-        LOGGER__ERROR("Failed to configure Gyro device {}.", m_iio_device_data.name.c_str());
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure Gyro device {}.", m_iio_device_data.name.c_str());
         m_iio_dev = NULL;
         return status;
     }
@@ -485,7 +493,7 @@ gyro_status_t GyroDevice::prepare_device()
     status = prepare_channel_data();
     if (status != GYRO_STATUS_SUCCESS)
     {
-        LOGGER__ERROR("Failed to prepare channel data, err: {}.", status);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to prepare channel data, err: {}.", status);
         m_iio_dev = NULL;
         return status;
     }
@@ -495,14 +503,14 @@ gyro_status_t GyroDevice::prepare_device()
     m_iio_device_data.buf = iio_device_create_buffer(m_iio_dev, FIFO_BUF_SIZE, false);
     if (!m_iio_device_data.buf)
     {
-        LOGGER__ERROR("Unable to create IIO buffer for device {}", m_iio_device_data.name.c_str());
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Unable to create IIO buffer for device {}", m_iio_device_data.name.c_str());
         m_iio_dev = NULL;
         return GYRO_STATUS_IIO_CONTEXT_FAILURE;
     }
 
     if (!iio_buffer_start(m_iio_device_data.buf))
     {
-        LOGGER__ERROR("Unable to start IIO buffer for device {}", m_iio_device_data.name.c_str());
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Unable to start IIO buffer for device {}", m_iio_device_data.name.c_str());
         m_iio_dev = NULL;
         return GYRO_STATUS_IIO_CONTEXT_FAILURE;
     }
@@ -515,7 +523,7 @@ gyro_status_t GyroDevice::configure()
     gyro_status_t rc = start();
     if (rc != GYRO_STATUS_SUCCESS)
     {
-        LOGGER__ERROR("Failed to configure Gyro device. err: {}", rc);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure Gyro device. err: {}", rc);
         return rc;
     }
 
@@ -530,11 +538,11 @@ gyro_status_t GyroDevice::run()
 
     if (!m_ctx)
     {
-        LOGGER__ERROR("Gyro device not initialized and run called!");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Gyro device not initialized and run called!");
         return GYRO_STATUS_ILLEGAL_STATE;
     }
 
-    LOGGER__INFO("Gyro device {} started running...", m_iio_device_data.name.c_str());
+    LOGGER__MODULE__INFO(MODULE_NAME, "Gyro device {} started running...", m_iio_device_data.name.c_str());
     while (!m_stopRunning)
     {
         for (int i = 0; i < max_tries && !m_stopRunning; i++)
@@ -542,12 +550,13 @@ gyro_status_t GyroDevice::run()
             ssize_t nbytes = iio_buffer_refill(m_iio_device_data.buf);
             if (nbytes < 0 && !m_stopRunning)
             {
-                LOGGER__WARNING("Could not refill buffer for device {}, rc = {}, restarting device",
-                                m_iio_device_data.name.c_str(), nbytes);
+                LOGGER__MODULE__WARNING(MODULE_NAME,
+                                        "Could not refill buffer for device {}, rc = {}, restarting device",
+                                        m_iio_device_data.name.c_str(), nbytes);
                 rc = restart();
                 if (rc != GYRO_STATUS_SUCCESS)
                 {
-                    LOGGER__ERROR("Failed to restart Gyro device. err: {}", rc);
+                    LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to restart Gyro device. err: {}", rc);
                     return rc;
                 }
                 break;
@@ -592,7 +601,7 @@ int main(int argc, char *argv[])
     gyro_status_t status = gyroApi->configure();
     if (status != GYRO_STATUS_SUCCESS)
     {
-        LOGGER__ERROR("Failed to configure GyroDev, status: {}", status);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure GyroDev, status: {}", status);
         return EXIT_FAILURE;
     }
     set_handler(SIGINT, &handle_sig);
@@ -605,7 +614,7 @@ int main(int argc, char *argv[])
     status = gyroApi->run();
     if (status != GYRO_STATUS_SUCCESS)
     {
-        LOGGER__ERROR("Failed to run GyroDev, status: {}", status);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to run GyroDev, status: {}", status);
         return EXIT_FAILURE;
     }
     gyroThread.join();

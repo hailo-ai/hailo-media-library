@@ -11,11 +11,11 @@ enum HailoMemoryType
 
 enum HailoFormat
 {
-    /** Grayscale format. One plane, each pixel is 8bit */
+    /** Grayscale format. One plane, each pixel is 8-bit */
     HAILO_FORMAT_GRAY8,
 
     /**
-     * RGB (packed) format. One plane, each color component is 8bit \n
+     * RGB (packed) format. One plane, each color component is 8-bit \n
      * @code
      * +--+--+--+ +--+--+--+
      * |R0|G0|B0| |R1|G1|B1|
@@ -25,7 +25,7 @@ enum HailoFormat
     HAILO_FORMAT_RGB,
 
     /**
-     * NV12 Format - semiplanar 4:2:0 YUV with interleaved UV plane. Each component is 8bit \n
+     * NV12 Format - semiplanar 4:2:0 YUV with interleaved UV plane. Each component is 8-bit \n
      * For NV12 format, the dimensions of the image, both width and height, need to be even numbers \n
      * First plane (Y plane): \n
      * @code
@@ -43,14 +43,14 @@ enum HailoFormat
     HAILO_FORMAT_NV12,
 
     /**
-     * A420 Format - planar 4:4:2:0 AYUV. Each component is 8bit \n
+     * A420 Format - planar 4:4:2:0 AYUV. Each component is 8-bit \n
      * For A420 format, the dimensions of the image, both width and height, need to be even numbers \n
      * Four planes in the following order: Y plane, U plane, V plane, Alpha plane
      */
     HAILO_FORMAT_A420,
 
     /**
-     * ARGB - RGB with alpha channel first (packed) format. One plane, each color component is 8bit \n
+     * ARGB - RGB with alpha channel first (packed) format. One plane, each color component is 8-bit \n
      * @code
      * +--+--+--+--+ +--+--+--+--+
      * |A0|R0|G0|B0| |A1|R1|G1|B1| ...

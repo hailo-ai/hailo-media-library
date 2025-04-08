@@ -1,6 +1,7 @@
 #include "buffer_utils.hpp"
 #include "media_library/encoder.hpp"
 #include "media_library/frontend.hpp"
+#include "media_library/utils.hpp"
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -42,21 +43,6 @@ void write_encoded_data(HailoMediaLibraryBufferPtr buffer, uint32_t size, std::o
     }
     output_file.write(data, size);
 #endif
-}
-
-std::string read_string_from_file(const char *file_path)
-{
-    std::ifstream file_to_read;
-    file_to_read.open(file_path);
-    if (!file_to_read.is_open())
-    {
-        std::cout << "Trying Read config from file: " << file_path << std::endl;
-        throw std::runtime_error("config path is not valid");
-    }
-    std::string file_string((std::istreambuf_iterator<char>(file_to_read)), std::istreambuf_iterator<char>());
-    file_to_read.close();
-    std::cout << "Read config from file: " << file_path << std::endl;
-    return file_string;
 }
 
 void delete_output_file(std::string output_file)
@@ -257,6 +243,10 @@ cleanup_exit:
     {
         entry.second.close();
     }
+
+    media_lib->frontend = nullptr;
+    media_lib->encoders.clear();
+    media_lib->output_files.clear();
 
     return 0;
 }

@@ -2,7 +2,8 @@
 #include <vector>
 #include <stdexcept>
 #include <opencv2/opencv.hpp>
-#include "eis_types.hpp"
+#include "media_library/eis_types.hpp"
+#include "media_library/isp_utils.hpp"
 
 /* The time after which we want to reset the EIS (10 minutes: 60 seconds * 10) */
 #define EIS_RESET_TIME (60 * 10)
@@ -13,6 +14,9 @@
 /* The threshold we consider to be "close enough" to the identity
     matrix, is used when periodically resetting EIS */
 #define EIS_RESET_ANGLES_THRESHOLD (0.1 * (CV_PI / 180.0))
+
+/* number of frames it takes the HPF to converge and avoid bias*/
+#define IIR_CONVERGENCE_COUNT 60
 
 template <typename T> class CircularBuffer
 {
@@ -157,12 +161,14 @@ class EIS
     unbiased_gyro_sample_t m_last_sample = unbiased_gyro_sample_t(0, 0, 0, 0);
     cv::Vec3d m_cur_angle = cv::Vec3d(0.0, 0.0, 0.0);
     cv::Vec3d m_prev_angle = cv::Vec3d(0.0, 0.0, 0.0);
+    uint32_t m_iir_convergence_count = IIR_CONVERGENCE_COUNT;
+    uint64_t m_latest_time = 0;
 
   public:
     size_t m_frame_count;
 
     EIS(const std::string &config_filename, uint32_t window_size, uint32_t sample_rate);
-    ~EIS() {};
+    ~EIS();
 
     cv::Mat smooth(const cv::Mat &current_orientation, double rotational_smoothing_coefficient);
     cv::Mat integrate_rotations(uint64_t last_threshold_timestamp, uint64_t curr_threshold_timestamp,
@@ -172,11 +178,18 @@ class EIS
     void remove_bias(const std::vector<gyro_sample_t> &gyro_records,
                      std::vector<unbiased_gyro_sample_t> &unbiased_records, double gyro_scale,
                      double iir_hpf_coefficient);
-
+    bool converged();
     std::vector<cv::Mat> get_rolling_shutter_rotations(
         const std::vector<std::pair<uint64_t, cv::Mat>> &rotations_buffer, int grid_height,
-        uint64_t middle_exposure_time_of_first_row, uint64_t frame_readout_time);
+        uint64_t middle_exposure_time_of_first_row, std::vector<uint64_t> frame_readout_times);
 
     bool check_periodic_reset(std::vector<cv::Mat> &rolling_shutter_rotations, uint32_t curr_fps);
-    void reset_history();
+    void reset_history(bool reset_hpf = true);
+
+    /*
+     * Calculate the timestamp of the middle exposure line
+     * according to the sensor parameters and last XVS.
+     */
+    uint64_t get_middle_exposure_timestamp(uint64_t timestamp, isp_utils::isp_hdr_sensor_params_t &hdr_sensor_params,
+                                           float t, uint64_t &threshold_timestamp);
 };

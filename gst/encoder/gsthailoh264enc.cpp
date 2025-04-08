@@ -151,7 +151,7 @@ static void gst_hailoh264enc_class_init(GstHailoH264EncClass *klass)
 static void gst_hailoh264enc_init(GstHailoH264Enc *hailoh264enc)
 {
     GstHailoEnc *hailoenc = GST_HAILO_ENC(hailoh264enc);
-    EncoderParams *enc_params = &(hailoenc->enc_params);
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
     GST_PAD_SET_ACCEPT_TEMPLATE(GST_VIDEO_ENCODER_SINK_PAD(hailoenc));
     SetDefaultParameters(enc_params, true);
 }
@@ -169,12 +169,12 @@ static void gst_hailoh264enc_get_property(GObject *object, guint prop_id, GValue
     {
     case PROP_PROFILE:
         GST_OBJECT_LOCK(hailoh264enc);
-        g_value_set_enum(value, (gint)hailoenc->enc_params.profile);
+        g_value_set_enum(value, (gint)hailoenc->params->enc_params.profile);
         GST_OBJECT_UNLOCK(hailoh264enc);
         break;
     case PROP_LEVEL:
         GST_OBJECT_LOCK(hailoh264enc);
-        g_value_set_enum(value, (gint)hailoenc->enc_params.level);
+        g_value_set_enum(value, (gint)hailoenc->params->enc_params.level);
         GST_OBJECT_UNLOCK(hailoh264enc);
         break;
     default:
@@ -192,12 +192,12 @@ static void gst_hailoh264enc_set_property(GObject *object, guint prop_id, const 
     {
     case PROP_PROFILE:
         GST_OBJECT_LOCK(hailoh264enc);
-        hailoenc->enc_params.profile = g_value_get_enum(value);
+        hailoenc->params->enc_params.profile = g_value_get_enum(value);
         GST_OBJECT_UNLOCK(hailoh264enc);
         break;
     case PROP_LEVEL:
         GST_OBJECT_LOCK(hailoh264enc);
-        hailoenc->enc_params.level = g_value_get_enum(value);
+        hailoenc->params->enc_params.level = g_value_get_enum(value);
         GST_OBJECT_UNLOCK(hailoh264enc);
         break;
     default:

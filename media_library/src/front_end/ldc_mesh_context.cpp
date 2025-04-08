@@ -13,7 +13,13 @@
 #include <algorithm>
 #include <vector>
 #include <opencv2/opencv.hpp>
+#include "isp_utils.hpp"
+#include "v4l2_ctrl.hpp"
+#include "common.hpp"
+#include <tl/expected.hpp>
+#include <iomanip>
 
+#define MODULE_NAME LoggerType::LdcMesh
 #define CALIBRATION_VECOTR_SIZE 1024
 #define DEFAULT_ALPHA 0.1f
 
@@ -23,8 +29,9 @@ std::mutex global_mtx;
 
 LdcMeshContext::LdcMeshContext(ldc_config_t &config) : m_ldc_configs(config)
 {
-    if (!config.check_ops_enabled(true) || config.output_video_config.dimensions.destination_width == 0 ||
-        config.output_video_config.dimensions.destination_height == 0)
+    m_v4l2_ctrl_repo = std::make_shared<v4l2::v4l2ControlRepository>(CTRL_REPOSITORY_TTL_MS, true);
+    if (!config.check_ops_enabled(true) || config.application_input_streams_config.dimensions.destination_width == 0 ||
+        config.application_input_streams_config.dimensions.destination_height == 0)
         return;
 
     configure(config);
@@ -69,7 +76,7 @@ LdcMeshContext::~LdcMeshContext()
         result = free_dis_context();
         if (result != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__ERROR("failed releasing ldc mesh context on error {}", result);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "failed releasing ldc mesh context on error {}", result);
         }
     }
 
@@ -81,7 +88,7 @@ LdcMeshContext::~LdcMeshContext()
             result = DmaMemoryAllocator::get_instance().free_dma_buffer(m_dewarp_mesh.mesh_table);
             if (result != MEDIA_LIBRARY_SUCCESS)
             {
-                LOGGER__ERROR("failed releasing mesh dsp buffer on error {}", result);
+                LOGGER__MODULE__ERROR(MODULE_NAME, "failed releasing mesh dsp buffer on error {}", result);
             }
         }
 
@@ -94,7 +101,8 @@ LdcMeshContext::~LdcMeshContext()
                     DmaMemoryAllocator::get_instance().free_dma_buffer((void *)m_angular_dis_params->cur_columns_sum);
                 if (result != MEDIA_LIBRARY_SUCCESS)
                 {
-                    LOGGER__ERROR("failed releasing angular dis columns buffer on error {}", result);
+                    LOGGER__MODULE__ERROR(MODULE_NAME, "failed releasing angular dis columns buffer on error {}",
+                                          result);
                 }
             }
 
@@ -104,7 +112,7 @@ LdcMeshContext::~LdcMeshContext()
                 result = DmaMemoryAllocator::get_instance().free_dma_buffer((void *)m_angular_dis_params->cur_rows_sum);
                 if (result != MEDIA_LIBRARY_SUCCESS)
                 {
-                    LOGGER__ERROR("failed releasing angular dis rows buffer on error {}", result);
+                    LOGGER__MODULE__ERROR(MODULE_NAME, "failed releasing angular dis rows buffer on error {}", result);
                 }
             }
         }
@@ -115,7 +123,7 @@ LdcMeshContext::~LdcMeshContext()
     {
         if (!m_ldc_configs.gyro_config.enabled)
         {
-            LOGGER__WARNING("Gyro was not enabled, but it was initialized");
+            LOGGER__MODULE__WARNING(MODULE_NAME, "Gyro was not enabled, but it was initialized");
         }
         kill_gyro_thread();
         m_gyro_initialized = false;
@@ -127,7 +135,7 @@ media_library_return LdcMeshContext::read_vsm_config()
     std::ifstream file(LDC_VSM_CONFIG);
     if (!file.is_open())
     {
-        LOGGER__ERROR("read_vsm_config failed, could not open file {}", LDC_VSM_CONFIG);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "read_vsm_config failed, could not open file {}", LDC_VSM_CONFIG);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -144,7 +152,7 @@ tl::expected<dis_calibration_t, media_library_return> LdcMeshContext::read_calib
     std::ifstream file(name);
     if (!file.is_open())
     {
-        LOGGER__ERROR("read_calibration_file failed, could not open file {}", name);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "read_calibration_file failed, could not open file {}", name);
         return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
     }
 
@@ -174,12 +182,13 @@ tl::expected<dis_calibration_t, media_library_return> LdcMeshContext::read_calib
     calib.theta2radius.push_back(atof(row.c_str()));
     if (file.eof())
     {
-        LOGGER__ERROR("read_calibration_file failed, invalid data");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "read_calibration_file failed, invalid data");
         return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
     }
     if (calib.theta2radius[0] != 0)
     {
-        LOGGER__ERROR("Improper calibration file theta2radius[0] must be 0, but it is {}", calib.theta2radius[0]);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Improper calibration file theta2radius[0] must be 0, but it is {}",
+                              calib.theta2radius[0]);
         return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
     }
 
@@ -190,12 +199,14 @@ tl::expected<dis_calibration_t, media_library_return> LdcMeshContext::read_calib
 
         if (calib.theta2radius[i] <= 0)
         {
-            LOGGER__ERROR("theta2radius[{}] contain positive radii. is {}", i, calib.theta2radius[i]);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "theta2radius[{}] contain positive radii. is {}", i,
+                                  calib.theta2radius[i]);
             return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
         }
         if (calib.theta2radius[i] < calib.theta2radius[i - 1])
         {
-            LOGGER__ERROR(
+            LOGGER__MODULE__ERROR(
+                MODULE_NAME,
                 "Improper calibration file theta2radius[{}] must be monotonically increasing, but it is not ({})", i,
                 calib.theta2radius[i]);
             return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
@@ -329,13 +340,13 @@ media_library_return LdcMeshContext::initialize_dis_context()
     status = read_vsm_config();
     if (status != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("dewarp mesh initialization failed when reading vsm_config");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "dewarp mesh initialization failed when reading vsm_config");
         return status;
     }
     auto expected_calib = read_calibration_file(m_ldc_configs.dewarp_config.sensor_calib_path.c_str());
     if (!expected_calib.has_value())
     {
-        LOGGER__ERROR("dewarp mesh initialization failed when reading calib_file");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "dewarp mesh initialization failed when reading calib_file");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     auto calib = expected_calib.value();
@@ -350,7 +361,7 @@ media_library_return LdcMeshContext::initialize_dis_context()
 
     if (m_ldc_configs.eis_config.enabled && m_ldc_configs.gyro_config.enabled)
     {
-        LOGGER__INFO("[EIS] EIS enabled");
+        LOGGER__MODULE__INFO(MODULE_NAME, "[EIS] EIS enabled");
         camera_fov_factor = m_ldc_configs.eis_config.camera_fov_factor;
         if (eis_prev_enabled == false)
         {
@@ -372,7 +383,7 @@ media_library_return LdcMeshContext::initialize_dis_context()
     /* Initiliase EIS only once and in the case it is enabled */
     if (m_ldc_configs.gyro_config.enabled && gyroApi == nullptr)
     {
-        LOGGER__INFO("[EIS] Gyro enabled - starting Gyro thread");
+        LOGGER__MODULE__INFO(MODULE_NAME, "[EIS] Gyro enabled - starting Gyro thread");
         sigset_t set, oldset;
         gyroApi = std::make_unique<GyroDevice>(m_ldc_configs.gyro_config.sensor_name,
                                                m_ldc_configs.gyro_config.sensor_frequency,
@@ -380,7 +391,7 @@ media_library_return LdcMeshContext::initialize_dis_context()
 
         if (gyroApi->configure() != GYRO_STATUS_SUCCESS)
         {
-            LOGGER__ERROR("Failed to configure GyroDevice.");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure GyroDevice.");
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
 
@@ -405,7 +416,7 @@ media_library_return LdcMeshContext::initialize_dis_context()
                             m_ldc_configs.eis_config.enabled, &dewarp_mesh);
     if (ret != DIS_OK)
     {
-        LOGGER__ERROR("dewarp mesh initialization failed on error {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "dewarp mesh initialization failed on error {}", ret);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -420,7 +431,7 @@ media_library_return LdcMeshContext::free_dis_context()
     RetCodes ret = dis_deinit(&m_dis_ctx);
     if (ret != DIS_OK)
     {
-        LOGGER__ERROR("dewarp mesh free failed on error {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "dewarp mesh free failed on error {}", ret);
         return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
     }
     return MEDIA_LIBRARY_SUCCESS;
@@ -472,9 +483,10 @@ media_library_return LdcMeshContext::initialize_angular_dis()
             (window_width * sizeof(uint16_t)), (void **)&m_angular_dis_params->cur_columns_sum);
         if (result != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__ERROR("angular dis buffer initialization failed in the buffer allocation process (tried to "
-                          "allocate buffer in size of {})",
-                          window_width * sizeof(uint16_t));
+            LOGGER__MODULE__ERROR(MODULE_NAME,
+                                  "angular dis buffer initialization failed in the buffer allocation process (tried to "
+                                  "allocate buffer in size of {})",
+                                  window_width * sizeof(uint16_t));
             return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
         }
 
@@ -482,9 +494,10 @@ media_library_return LdcMeshContext::initialize_angular_dis()
                                                                         (void **)&m_angular_dis_params->cur_rows_sum);
         if (result != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__ERROR("angular dis buffer initialization failed in the buffer allocation process (tried to "
-                          "allocate buffer in size of {})",
-                          window_height * sizeof(uint16_t));
+            LOGGER__MODULE__ERROR(MODULE_NAME,
+                                  "angular dis buffer initialization failed in the buffer allocation process (tried to "
+                                  "allocate buffer in size of {})",
+                                  window_height * sizeof(uint16_t));
             return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
         }
     }
@@ -508,7 +521,7 @@ media_library_return LdcMeshContext::initialize_dewarp_mesh()
     DmaMemoryAllocator::get_instance().dmabuf_sync_end((void *)m_dewarp_mesh.mesh_table);
     if (ret != DIS_OK)
     {
-        LOGGER__ERROR("Failed to generate mesh, status: {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to generate mesh, status: {}", ret);
         return MEDIA_LIBRARY_ERROR;
     }
 
@@ -516,7 +529,7 @@ media_library_return LdcMeshContext::initialize_dewarp_mesh()
     m_dewarp_mesh.mesh_width = mesh.mesh_width;
     m_dewarp_mesh.mesh_height = mesh.mesh_height;
 
-    LOGGER__INFO("generated base dewarp mesh grid {}x{}", mesh.mesh_width, mesh.mesh_height);
+    LOGGER__MODULE__INFO(MODULE_NAME, "generated base dewarp mesh grid {}x{}", mesh.mesh_width, mesh.mesh_height);
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -539,7 +552,7 @@ media_library_return LdcMeshContext::configure(ldc_config_t &ldc_configs)
         m_magnification = m_ldc_configs.optical_zoom_config.magnification;
         m_angular_dis_params = std::make_shared<angular_dis_params_t>();
 
-        LOGGER__INFO("Initiazing dewarp mesh context");
+        LOGGER__MODULE__INFO(MODULE_NAME, "Initiazing dewarp mesh context");
         ret = initialize_dis_context();
         if (ret != MEDIA_LIBRARY_SUCCESS)
             return ret;
@@ -551,9 +564,11 @@ media_library_return LdcMeshContext::configure(ldc_config_t &ldc_configs)
             DmaMemoryAllocator::get_instance().allocate_dma_buffer(mesh_size, (void **)&m_dewarp_mesh.mesh_table);
         if (result != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__ERROR("dewarp mesh initialization failed in the buffer allocation process (tried to allocate "
-                          "buffer in size of {})",
-                          mesh_size);
+            LOGGER__MODULE__ERROR(
+                MODULE_NAME,
+                "dewarp mesh initialization failed in the buffer allocation process (tried to allocate "
+                "buffer in size of {})",
+                mesh_size);
             return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
         }
     }
@@ -592,12 +607,12 @@ media_library_return LdcMeshContext::configure(ldc_config_t &ldc_configs)
     if (!prev_eis_stabilize && m_ldc_configs.eis_config.stabilize && m_eis_ptr != nullptr)
     {
         /* We dynamically switched from EIS disabled to enabled, reset EIS data */
-        LOGGER__INFO("EIS (stabilize) was disabled and now enabled, resetting EIS data");
-        m_eis_ptr->reset_history();
+        LOGGER__MODULE__INFO(MODULE_NAME, "EIS (stabilize) was disabled and now enabled, resetting EIS data");
+        m_eis_ptr->reset_history(false);
     }
 
     m_is_initialized = true;
-    LOGGER__INFO("Dewarp mesh init done.");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Dewarp mesh init done.");
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -623,7 +638,7 @@ media_library_return LdcMeshContext::on_frame_vsm_update(struct hailo15_vsm &vsm
     std::unique_lock<std::shared_mutex> lock(m_mutex);
 
     // Update dewarp mesh with the VSM data to perform DIS
-    LOGGER__DEBUG("Updating mesh with VSM");
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Updating mesh with VSM");
     DewarpT mesh = {(int)m_dewarp_mesh.mesh_width, (int)m_dewarp_mesh.mesh_height, (int *)m_dewarp_mesh.mesh_table};
 
     flip_direction_t flip_dir = FLIP_DIRECTION_NONE;
@@ -640,7 +655,7 @@ media_library_return LdcMeshContext::on_frame_vsm_update(struct hailo15_vsm &vsm
     DmaMemoryAllocator::get_instance().dmabuf_sync_end((void *)m_dewarp_mesh.mesh_table);
     if (ret != DIS_OK)
     {
-        LOGGER__ERROR("Failed to update mesh with VSM, status: {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to update mesh with VSM, status: {}", ret);
         return MEDIA_LIBRARY_ERROR;
     }
 
@@ -650,74 +665,85 @@ media_library_return LdcMeshContext::on_frame_vsm_update(struct hailo15_vsm &vsm
 
     if (update_isp_vsm(vsm) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to update mesh with VSM, status: {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to update mesh with VSM, status: {}", ret);
         return MEDIA_LIBRARY_ERROR;
     }
 
     return MEDIA_LIBRARY_SUCCESS;
 }
+static std::vector<gyro_sample_t> get_gyro_samples(GyroDevice *gyroApi, EIS *eisApi,
+                                                   uint64_t curr_frame_isp_timestamp_ns, uint64_t integration_time,
+                                                   isp_utils::isp_hdr_sensor_params_t &hdr_sensor_params,
+                                                   uint64_t *threshold_timestamp, uint64_t *middle_exposure_timestamp,
+                                                   float exposures_ratio)
+{
+    std::vector<gyro_sample_t>::iterator closest_vsync_sample;
+    bool found_vsync_sample = gyroApi->get_closest_vsync_sample(curr_frame_isp_timestamp_ns, closest_vsync_sample);
+
+    std::vector<gyro_sample_t> gyro_samples;
+    uint64_t timestamp = found_vsync_sample ? (*closest_vsync_sample).timestamp_ns : curr_frame_isp_timestamp_ns;
+
+    (void)integration_time;
+    *middle_exposure_timestamp =
+        eisApi->get_middle_exposure_timestamp(timestamp, hdr_sensor_params, exposures_ratio, *threshold_timestamp);
+
+    if (found_vsync_sample)
+    {
+        gyro_samples = gyroApi->get_gyro_samples_for_frame_vsync(closest_vsync_sample, *threshold_timestamp);
+    }
+    else
+    {
+        gyro_samples = gyroApi->get_gyro_samples_for_frame_isp_timestamp(*threshold_timestamp);
+    }
+
+    return gyro_samples;
+}
 
 media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp_timestamp_ns,
-                                                         uint64_t integration_time, bool enabled, uint32_t curr_fps)
+                                                         uint64_t curr_frame_integration_time, uint32_t curr_fps,
+                                                         bool enabled)
 {
     if (!m_gyro_initialized)
     {
-        LOGGER__ERROR("on_frame_eis_update called with uninitialized gyro!");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "on_frame_eis_update called with uninitialized gyro!");
         return MEDIA_LIBRARY_ERROR;
     }
+
+    auto isp_params_expected = isp_utils::get_hdr_isp_params(
+        m_ldc_configs.eis_config.num_exposures, m_ldc_configs.eis_config.line_readout_time, m_v4l2_ctrl_repo);
+    if (!isp_params_expected.has_value())
+    {
+        LOGGER__ERROR("Failed to get ISP params for EIS");
+        return isp_params_expected.error();
+    }
+    auto isp_params = isp_params_expected.value();
 
     // if last time is more than 100 ms ago, reset_history
     if (m_last_eis_update_time != std::time(nullptr) &&
         std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) - m_last_eis_update_time > 100)
     {
-        m_eis_ptr->reset_history();
+        m_eis_ptr->reset_history(false);
     }
     m_last_eis_update_time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 
     std::vector<unbiased_gyro_sample_t> unbiased_gyro_samples;
     DewarpT grid = {(int)m_dewarp_mesh.mesh_width, (int)m_dewarp_mesh.mesh_height, (int *)m_dewarp_mesh.mesh_table};
 
-    flip_direction_t flip_dir = FLIP_DIRECTION_NONE;
-    rotation_angle_t rotation_angle = ROTATION_ANGLE_0;
-    if (m_ldc_configs.flip_config.enabled)
-        flip_dir = m_ldc_configs.flip_config.direction;
-    if (m_ldc_configs.rotation_config.enabled)
-        rotation_angle = m_ldc_configs.rotation_config.angle;
-    FlipMirrorRot flip_mirror_rot = get_flip_value(flip_dir, rotation_angle);
-
-    /* TODO: Maybe this parameter is to be dynamically changed? */
-    uint64_t num_of_readout_lines = 2160;
-    uint64_t readout_time = num_of_readout_lines * m_ldc_configs.eis_config.line_readout_time;
+    FlipMirrorRot flip_mirror_rot =
+        get_flip_value(m_ldc_configs.flip_config.enabled ? m_ldc_configs.flip_config.direction : FLIP_DIRECTION_NONE,
+                       m_ldc_configs.rotation_config.enabled ? m_ldc_configs.rotation_config.angle : ROTATION_ANGLE_0);
 
     std::vector<std::pair<uint64_t, cv::Mat>> current_orientations = {{0, cv::Mat::eye(3, 3, CV_64F)}};
     std::vector<cv::Mat> rolling_shutter_rotations(m_dewarp_mesh.mesh_height, cv::Mat::eye(3, 3, CV_32F));
 
-    std::vector<gyro_sample_t>::iterator closest_vsync_sample;
-    bool found_vsync_sample = gyroApi->get_closest_vsync_sample(curr_frame_isp_timestamp_ns, closest_vsync_sample);
+    /* WORKAROUND to ISP issue where the frame timestamp has an offset*/
+    if (m_ldc_configs.eis_config.num_exposures > 1)
+        curr_frame_isp_timestamp_ns += 33000000;
 
     uint64_t threshold_timestamp, middle_exposure_timestamp;
-    std::vector<gyro_sample_t> gyro_samples;
-
-    if (found_vsync_sample)
-    {
-        middle_exposure_timestamp = (*closest_vsync_sample).timestamp_ns - (integration_time / 2);
-        /* Previous odd VSYNC - (integration_time / 2) + readout_time */
-        threshold_timestamp = middle_exposure_timestamp + readout_time;
-        gyro_samples = gyroApi->get_gyro_samples_for_frame_vsync(closest_vsync_sample, threshold_timestamp);
-    }
-    else
-    {
-        /* No gyro sample with VSYNC found, try finding samples with ISP timestamp */
-        LOGGER__WARNING("No gyro samples with VSYNC found for the current frame, trying with ISP timestamp...");
-        middle_exposure_timestamp = curr_frame_isp_timestamp_ns - (integration_time / 2) - readout_time;
-        threshold_timestamp = middle_exposure_timestamp + readout_time;
-        gyro_samples = gyroApi->get_gyro_samples_for_frame_isp_timestamp(threshold_timestamp);
-    }
-
-    // if stabilize is false, set middle_exposure_timestamp to 0, this will cause EIS to return the identity matrix
-    // instead of an actual rotation matrix this will cause no EIS to be applied
-    if (!m_ldc_configs.eis_config.stabilize)
-        middle_exposure_timestamp = 0;
+    auto gyro_samples = get_gyro_samples(gyroApi.get(), m_eis_ptr.get(), curr_frame_isp_timestamp_ns,
+                                         curr_frame_integration_time, isp_params, &threshold_timestamp,
+                                         &middle_exposure_timestamp, m_ldc_configs.eis_config.hdr_exposure_ratio);
 
     if ((m_last_threshold_timestamp == 0) || (!enabled))
     {
@@ -731,23 +757,28 @@ media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp
     if (gyro_samples.size() <= 1)
     {
         /* If no gyro samples were found (at all) for any reason, perform dewarp with no correction */
-        LOGGER__WARNING("No gyro samples found for the current frame (at all)!");
-        m_eis_ptr->reset_history();
+        LOGGER__MODULE__WARNING(MODULE_NAME, "No gyro samples found for the current frame (at all)!");
+        m_eis_ptr->reset_history(false);
         m_last_threshold_timestamp = threshold_timestamp;
         goto generate_grid;
     }
 
     m_eis_ptr->remove_bias(gyro_samples, unbiased_gyro_samples, m_ldc_configs.gyro_config.gyro_scale,
                            m_ldc_configs.eis_config.iir_hpf_coefficient);
+    if (!m_eis_ptr->converged() || !m_ldc_configs.eis_config.stabilize)
+    {
+        /* If the gyro samples did not converge or stabilization is paused, perform dewarp with no correction */
+        LOGGER__DEBUG("Gyro HPF is not converged yet, skipping EIS");
+        m_last_threshold_timestamp = threshold_timestamp;
+        goto generate_grid;
+    }
     current_orientations = m_eis_ptr->integrate_rotations_rolling_shutter(unbiased_gyro_samples);
     if ((!current_orientations.empty()) && (current_orientations[0].first != 0))
     {
         rolling_shutter_rotations = m_eis_ptr->get_rolling_shutter_rotations(
-            current_orientations, m_dewarp_mesh.mesh_height, middle_exposure_timestamp, readout_time);
+            current_orientations, m_dewarp_mesh.mesh_height, middle_exposure_timestamp, isp_params.rhs_times);
     }
     m_last_threshold_timestamp = threshold_timestamp;
-    // cv::Mat smooth_orientation = m_eis_ptr->smooth(current_orientation,
-    // m_ldc_configs.eis_config.rotational_smoothing_coefficient);
 
 generate_grid:
     /* A safety mechanism to remove any unwanted side effects that were gathered
@@ -758,7 +789,7 @@ generate_grid:
 
         if (reset_needed)
         {
-            m_eis_ptr->reset_history();
+            m_eis_ptr->reset_history(false);
             m_last_threshold_timestamp = 0;
         }
     }

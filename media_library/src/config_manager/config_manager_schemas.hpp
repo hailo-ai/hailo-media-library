@@ -149,22 +149,10 @@ static nlohmann::json encoding_config_schema = R"(
                   },
                   "level": {
                     "type": "string"
-                  },
-                  "bit_depth_luma": {
-                    "type": "integer"
-                  },
-                  "bit_depth_chroma": {
-                    "type": "integer"
-                  },
-                  "stream_type": {
-                    "type": "string"
                   }
                 },
                 "required": [
-                  "codec",
-                  "bit_depth_luma",
-                  "bit_depth_chroma",
-                  "stream_type"
+                  "codec"
                 ],
                 "additionalProperties": false,
                 "if": {
@@ -837,20 +825,17 @@ static nlohmann::json osd_config_schema = R"(
         "additionalProperties": false
       }
     },
-    "required": [
-      "osd"
-    ],
     "additionalProperties": true
   }
   )"_json;
 
-static nlohmann::json multi_resize_config_schema = R"(
+static nlohmann::json multi_resize_application_input_streams_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for multi-resize configuration",
     "type": "object",
     "properties": {
-      "output_video": {
+      "application_input_streams": {
         "type": "object",
         "properties": {
           "method": {
@@ -860,9 +845,6 @@ static nlohmann::json multi_resize_config_schema = R"(
             "type": "string"
           },
           "grayscale": {
-            "type": "boolean"
-          },
-          "keep_aspect_ratio": {
             "type": "boolean"
           },
           "resolutions": {
@@ -881,6 +863,9 @@ static nlohmann::json multi_resize_config_schema = R"(
                 },
                 "pool_max_buffers": {
                   "type": "number"
+                },
+                "keep_aspect_ratio": {
+                  "type": "boolean"
                 }
               },
               "additionalProperties": false,
@@ -899,7 +884,17 @@ static nlohmann::json multi_resize_config_schema = R"(
           "format",
           "resolutions"
         ]
-      },
+      }
+    }
+  }
+  )"_json;
+
+static nlohmann::json multi_resize_digital_zoom_config_schema = R"(
+  {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Digital Zoom Configuration",
+    "type": "object",
+    "properties": {
       "digital_zoom": {
         "type": "object",
         "properties": {
@@ -944,7 +939,20 @@ static nlohmann::json multi_resize_config_schema = R"(
           "magnification",
           "roi"
         ]
-      },
+      }
+    },
+    "required": [
+      "digital_zoom"
+    ]
+  }
+  )"_json;
+
+static nlohmann::json multi_resize_motion_detection_config_schema = R"(
+  {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Motion Detection Configuration",
+    "type": "object",
+    "properties": {
       "motion_detection": {
         "type": "object",
         "properties": {
@@ -988,7 +996,7 @@ static nlohmann::json multi_resize_config_schema = R"(
                 "type": "number"
               },
               "pool_max_buffers": {
-                  "type": "number"
+                "type": "number"
               }
             },
             "additionalProperties": false,
@@ -999,7 +1007,7 @@ static nlohmann::json multi_resize_config_schema = R"(
             ]
           },
           "threshold": {
-            "type": "number", 
+            "type": "number",
             "minimum": 0,
             "maximum": 1
           },
@@ -1016,320 +1024,257 @@ static nlohmann::json multi_resize_config_schema = R"(
           "sensitivity_level"
         ]
       }
-    },
-    "required": [
-      "output_video",
-      "digital_zoom",
-      "motion_detection"
-    ]
+    }
   }
   )"_json;
 
-static nlohmann::json ldc_config_schema = R"(
-  {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "title": "Media Library schema for LDC configuration",
-    "type": "object",
-    "properties": {
-      "dewarp": {
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "color_interpolation": {
-            "type": "string"
-          },
-          "sensor_calib_path": {
-            "type": "string"
-          },
-          "camera_type": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "enabled",
-          "color_interpolation",
-          "sensor_calib_path",
-          "camera_type"
-        ]
+nlohmann::json multi_resize_config_schema = {
+    {"allOf",
+     {multi_resize_application_input_streams_config_schema, multi_resize_motion_detection_config_schema,
+      multi_resize_digital_zoom_config_schema}}};
+
+static nlohmann::json ldc_dewarp_config_schema = R"(
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Dewarp Configuration",
+  "type": "object",
+  "properties": {
+    "dewarp": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "color_interpolation": { "type": "string" },
+        "sensor_calib_path": { "type": "string" },
+        "camera_type": { "type": "string" }
       },
-      "dis": {
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "minimun_coefficient_filter": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1
-          },
-          "decrement_coefficient_threshold": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1
-          },
-          "increment_coefficient_threshold": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1
-          },
-          "running_average_coefficient": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1
-          },
-          "std_multiplier": {
-            "type": "number",
-            "exclusiveMinimum": 0
-          },
-          "black_corners_correction_enabled": {
-            "type": "boolean"
-          },
-          "black_corners_threshold": {
-            "type": "number"
-          },
-          "average_luminance_threshold": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 255
-          },
-          "camera_fov_factor": {
-            "type": "number",
-            "minimum": 0.1,
-            "maximum": 1
-          },
-          "angular_dis": {
-            "type": "object",
-            "properties": {
-              "enabled": {
-                "type": "boolean"
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "color_interpolation",
+        "sensor_calib_path",
+        "camera_type"
+      ]
+    }
+  },
+  "required": ["dewarp"]
+}
+)"_json;
+
+static nlohmann::json ldc_dis_config_schema = R"(
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DIS Configuration",
+  "type": "object",
+  "properties": {
+    "dis": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minimun_coefficient_filter": { "type": "number", "minimum": 0, "maximum": 1 },
+        "decrement_coefficient_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "increment_coefficient_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "running_average_coefficient": { "type": "number", "minimum": 0, "maximum": 1 },
+        "std_multiplier": { "type": "number", "exclusiveMinimum": 0 },
+        "black_corners_correction_enabled": { "type": "boolean" },
+        "black_corners_threshold": { "type": "number" },
+        "average_luminance_threshold": { "type": "number", "minimum": 0, "maximum": 255 },
+        "camera_fov_factor": { "type": "number", "minimum": 0.1, "maximum": 1 },
+        "angular_dis": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "vsm": {
+              "type": "object",
+              "properties": {
+                "hoffset": { "type": "number" },
+                "voffset": { "type": "number" },
+                "width": { "type": "number" },
+                "height": { "type": "number" },
+                "max_displacement": { "type": "number" }
               },
-              "vsm": {
-                "type": "object",
-                "properties": {
-                  "hoffset": {
-                    "type": "number"
-                  },
-                  "voffset": {
-                    "type": "number"
-                  },
-                  "width": {
-                    "type": "number"
-                  },
-                  "height": {
-                    "type": "number"
-                  },
-                  "max_displacement": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "hoffset",
-                  "voffset",
-                  "width",
-                  "height",
-                  "max_displacement"
-                ]
-              }
-            },
-            "required": [
-              "enabled",
-              "vsm"
-            ]
+              "required": [
+                "hoffset", "voffset", "width", "height", "max_displacement"
+              ]
+            }
           },
-          "debug": {
-            "type": "object",
-            "properties": {
-              "generate_resize_grid": {
-                "type": "boolean"
-              },
-              "fix_stabilization": {
-                "type": "boolean"
-              },
-              "fix_stabilization_longitude": {
-                "type": "number"
-              },
-              "fix_stabilization_latitude": {
-                "type": "number"
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "generate_resize_grid",
-              "fix_stabilization",
-              "fix_stabilization_longitude",
-              "fix_stabilization_latitude"
-            ]
-          }
+          "required": ["enabled", "vsm"]
         },
-        "additionalProperties": false,
-        "required": [
-          "enabled",
-          "minimun_coefficient_filter",
-          "decrement_coefficient_threshold",
-          "increment_coefficient_threshold",
-          "running_average_coefficient",
-          "std_multiplier",
-          "black_corners_correction_enabled",
-          "black_corners_threshold",
-          "average_luminance_threshold",
-          "camera_fov_factor",
-          "angular_dis",
-          "debug"
-        ]
+        "debug": {
+          "type": "object",
+          "properties": {
+            "generate_resize_grid": { "type": "boolean" },
+            "fix_stabilization": { "type": "boolean" },
+            "fix_stabilization_longitude": { "type": "number" },
+            "fix_stabilization_latitude": { "type": "number" }
+          },
+          "additionalProperties": false,
+          "required": [
+            "generate_resize_grid",
+            "fix_stabilization",
+            "fix_stabilization_longitude",
+            "fix_stabilization_latitude"
+          ]
+        }
       },
-      "eis": {
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "stabilize": {
-            "type": "boolean"
-          },
-          "eis_config_path": {
-            "type": "string"
-          },
-          "window_size": {
-            "type": "number"
-          },
-          "rotational_smoothing_coefficient": {
-            "type": "number"
-          },
-          "iir_hpf_coefficient": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1
-          },
-          "camera_fov_factor": {
-            "type": "number",
-            "minimum": 0.1,
-            "maximum": 1
-          },
-          "line_readout_time": {
-            "type": "number"
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "enabled",
-          "eis_config_path",
-          "window_size",
-          "rotational_smoothing_coefficient",
-          "iir_hpf_coefficient",
-          "camera_fov_factor",
-          "line_readout_time"
-        ]
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "minimun_coefficient_filter",
+        "decrement_coefficient_threshold",
+        "increment_coefficient_threshold",
+        "running_average_coefficient",
+        "std_multiplier",
+        "black_corners_correction_enabled",
+        "black_corners_threshold",
+        "average_luminance_threshold",
+        "camera_fov_factor",
+        "angular_dis",
+        "debug"
+      ]
+    }
+  },
+  "required": ["dis"]
+}
+)"_json;
+
+static nlohmann::json ldc_eis_config_schema = R"(
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EIS Configuration",
+  "type": "object",
+  "properties": {
+    "eis": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "stabilize": { "type": "boolean" },
+        "eis_config_path": { "type": "string" },
+        "window_size": { "type": "number" },
+        "rotational_smoothing_coefficient": { "type": "number" },
+        "iir_hpf_coefficient": { "type": "number", "minimum": 0, "maximum": 1 },
+        "camera_fov_factor": { "type": "number", "minimum": 0.1, "maximum": 1 },
+        "line_readout_time": { "type": "number" },
+        "hdr_exposure_ratio": { "type": "number" }
       },
-      "gyro": {
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "sensor_name": {
-            "type": "string"
-          },
-          "sensor_frequency": {
-            "type": "string"
-          },
-          "scale": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "enabled",
-          "sensor_name",
-          "sensor_frequency",
-          "scale"
-        ]
+      "additionalProperties": false,
+      "required": [
+        "enabled", "eis_config_path", "window_size",
+        "rotational_smoothing_coefficient", "iir_hpf_coefficient",
+        "camera_fov_factor", "line_readout_time", "hdr_exposure_ratio"
+      ]
+    }
+  },
+  "required": ["eis"]
+}
+)"_json;
+
+static nlohmann::json ldc_gyro_config_schema = R"(
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Gyro Configuration",
+  "type": "object",
+  "properties": {
+    "gyro": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "sensor_name": { "type": "string" },
+        "sensor_frequency": { "type": "string" },
+        "scale": { "type": "number", "minimum": 0, "maximum": 1 }
       },
-      "gmv": {
-        "type": "object",
-        "properties": {
-          "source": {
-            "type": "string"
-          },
-          "frequency": {
-            "type": "number"
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "source",
-          "frequency"
-        ]
+      "additionalProperties": false,
+      "required": ["enabled", "sensor_name", "sensor_frequency", "scale"]
+    }
+  },
+  "required": ["gyro"]
+}
+)"_json;
+
+static nlohmann::json ldc_gmv_config_schema = R"(
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GMV Configuration",
+  "type": "object",
+  "properties": {
+    "gmv": {
+      "type": "object",
+      "properties": {
+        "source": { "type": "string" },
+        "frequency": { "type": "number" }
       },
-      "optical_zoom": {
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "magnification": {
-            "type": "number"
-          },
-          "max_dewarping_magnification": {
-            "type": "number"
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "magnification",
-          "enabled"
-        ]
+      "additionalProperties": false,
+      "required": ["source", "frequency"]
+    }
+  },
+  "required": ["gmv"]
+}
+)"_json;
+
+static nlohmann::json ldc_optical_zoom_config_schema = R"(
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Optical Zoom Configuration",
+  "type": "object",
+  "properties": {
+    "optical_zoom": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "magnification": { "type": "number" },
+        "max_dewarping_magnification": { "type": "number" }
       },
-      "rotation": {
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "angle": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "enabled",
-          "angle"
-        ]
+      "additionalProperties": false,
+      "required": ["magnification", "enabled"]
+    }
+  },
+  "required": ["optical_zoom"]
+}
+)"_json;
+
+static nlohmann::json ldc_rotation_config_schema = R"(
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Rotation Configuration",
+  "type": "object",
+  "properties": {
+    "rotation": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "angle": { "type": "string" }
       },
-      "flip": {
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "direction": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "enabled",
-          "direction"
-        ]
-      }
-    },
-    "required": [
-      "dewarp",
-      "dis",
-      "eis",
-      "gyro",
-      "gmv",
-      "optical_zoom",
-      "rotation",
-      "flip"
-    ]
-  }
-  )"_json;
+      "additionalProperties": false,
+      "required": ["enabled", "angle"]
+    }
+  },
+  "required": ["rotation"]
+}
+)"_json;
+
+static nlohmann::json ldc_flip_config_schema = R"(
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Flip Configuration",
+  "type": "object",
+  "properties": {
+    "flip": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "direction": { "type": "string" }
+      },
+      "additionalProperties": false,
+      "required": ["enabled", "direction"]
+    }
+  },
+  "required": ["flip"]
+}
+)"_json;
+
+nlohmann::json ldc_config_schema = {
+    {"allOf",
+     {ldc_dewarp_config_schema, ldc_dis_config_schema, ldc_eis_config_schema, ldc_gyro_config_schema,
+      ldc_optical_zoom_config_schema, ldc_rotation_config_schema, ldc_flip_config_schema}}};
 
 static nlohmann::json hailort_config_schema = R"(
   {
@@ -1639,5 +1584,77 @@ static nlohmann::json frontend_config_schema = {
       denoise_config_schema, input_video_config_schema}}};
 
 static nlohmann::json encoder_config_schema = {{"allOf", {encoding_config_schema, osd_config_schema}}};
+
+static nlohmann::json medialib_config_schema = R"(
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "default_profile": { "type": "string" },
+    "profiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "config_file": { "type": "string" }
+        },
+        "required": ["name", "config_file"]
+      }
+    }
+  },
+  "required": [
+    "default_profile", "profiles"
+  ]
+}
+)"_json;
+
+static nlohmann::json codec_configs_schema = R"(
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "encoded_output_streams": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "stream_id": { "type": "string" },
+          "config_path": { "type": "string" }
+        },
+        "required": ["stream_id", "config_path"]
+      }
+    }
+  },
+  "required": [
+    "encoded_output_streams"
+  ]
+}
+)"_json;
+
+static nlohmann::json isp_config_files_schema = R"(
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "isp_config_files": {
+      "type": "object",
+      "properties": {
+        "3a_config_path": { "type": "string" },
+        "sensor_entry": { "type": "string" }
+      },
+      "required": ["3a_config_path", "sensor_entry"]
+    }
+  },
+  "required": [
+    "isp_config_files"
+  ]
+}
+)"_json;
+
+static nlohmann::json profile_config_schema = {
+    {"allOf",
+     {multi_resize_config_schema, ldc_config_schema, hailort_config_schema, isp_config_schema, hdr_config_schema,
+      denoise_config_schema, input_video_config_schema, codec_configs_schema, isp_config_files_schema}}};
 
 } // namespace config_schemas

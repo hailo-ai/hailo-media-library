@@ -1,102 +1,135 @@
 #include "v4l2_ctrl.hpp"
 
-#define IOCTL_TRIES_COUNT 3
-#define IOCTL_CLEAR(x) memset(&(x), 0, sizeof(x))
+#include <cstdint>
+#include <cstring>
+#include <optional>
+#include <filesystem>
+#include <fstream>
+#include <type_traits>
 
-template bool isp_utils::ctrl::v4l2Control::v4l2_ctrl_set<unsigned short>(isp_utils::ctrl::v4l2_ctrl_id,
-                                                                          unsigned short);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ctrl_set<short>(isp_utils::ctrl::v4l2_ctrl_id, short);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ctrl_set<int>(isp_utils::ctrl::v4l2_ctrl_id, int);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_set<unsigned short>(isp_utils::ctrl::v4l2_ctrl_id,
-                                                                              unsigned short);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_set<unsigned int>(isp_utils::ctrl::v4l2_ctrl_id,
-                                                                            unsigned int);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_set<short>(isp_utils::ctrl::v4l2_ctrl_id, short);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_set<int>(isp_utils::ctrl::v4l2_ctrl_id, int);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_set<bool>(isp_utils::ctrl::v4l2_ctrl_id, bool);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_set_array<int *>(isp_utils::ctrl::v4l2_ctrl_id, int *);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_set2<unsigned short>(isp_utils::ctrl::v4l2_ctrl_id,
-                                                                               unsigned short &);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_set2<int>(isp_utils::ctrl::v4l2_ctrl_id, int &);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_set2<bool>(isp_utils::ctrl::v4l2_ctrl_id, bool &);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ctrl_get<unsigned short>(isp_utils::ctrl::v4l2_ctrl_id,
-                                                                          unsigned short &);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ctrl_get<unsigned int>(isp_utils::ctrl::v4l2_ctrl_id, unsigned int &);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ctrl_get<int>(isp_utils::ctrl::v4l2_ctrl_id, int &);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ctrl_get<short>(isp_utils::ctrl::v4l2_ctrl_id, short &);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_get<unsigned int>(isp_utils::ctrl::v4l2_ctrl_id,
-                                                                            unsigned int &);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ext_ctrl_get<unsigned short>(isp_utils::ctrl::v4l2_ctrl_id,
-                                                                              unsigned short &);
-template bool isp_utils::ctrl::v4l2Control::v4l2_ioctl_set<unsigned int>(unsigned long, unsigned int &);
+#include "media_library_logger.hpp"
 
-std::unordered_map<isp_utils::ctrl::v4l2_ctrl_id, std::string> isp_utils::ctrl::v4l2Control::m_ctrl_id_to_name = {
-    {V4L2_CTRL_POWERLINE_FREQUENCY, "isp_ae_flicker_period"},
-    {V4L2_CTRL_SHARPNESS_DOWN, "isp_ee_y_gain_down"},
-    {V4L2_CTRL_SHARPNESS_UP, "isp_ee_y_gain_up"},
-    {V4L2_CTRL_BRIGHTNESS, "isp_cproc_brightness"},
-    {V4L2_CTRL_CONTRAST, "isp_cproc_contrast"},
-    {V4L2_CTRL_SATURATION, "isp_cproc_saturation"},
-    {V4L2_CTRL_EE_ENABLE, "isp_ee_enable"},
-    {V4L2_CTRL_AE_ENABLE, "isp_ae_enable"},
-    {V4L2_CTRL_AE_GAIN, "isp_ae_gain"},
-    {V4L2_CTRL_AE_INTEGRATION_TIME, "isp_ae_integration_time"},
-    {V4L2_CTRL_WDR_CONTRAST, "isp_wdr_contrast"},
-    {V4L2_CTRL_AWB_MODE, "isp_awb_mode"},
-    {V4L2_CTRL_AWB_ILLUM_INDEX, "isp_awb_illum_index"},
-    {V4l2_CTRL_CSI_MODE_SEL, "mode_sel"},
-    {V4l2_CTRL_IMX_WDR, "Wide Dynamic Range"},
-    {V4l2_CTRL_SET_HDR_RATIOS, "isp_hdr_ratio"}};
+#define MODULE_NAME LoggerType::Isp
+#define IMX_BASE_ADDRESS (V4L2_CID_USER_BASE + 0x2000)
 
-namespace isp_utils
+namespace v4l2
 {
-namespace ctrl
-{
-uint32_t v4l2Control::get_id(v4l2_ctrl_id id)
-{
-    if (m_ctrl_id_to_id.find(id) == m_ctrl_id_to_id.end())
-    {
-        m_ctrl_id_to_id[id] = v4l2_get_ctrl_id(m_ctrl_id_to_name[id]);
-    }
-    return m_ctrl_id_to_id[id];
-}
+constexpr size_t MAX_IOCTL_TRIES = 3;
 
-int v4l2Control::xioctl(unsigned long request, void *arg)
+const std::unordered_map<Video0Ctrl, std::pair<std::string, uint32_t>> m_video0_ctrl_to_key = {
+    {Video0Ctrl::POWERLINE_FREQUENCY, {"isp_ae_flicker_period", 0}},
+    {Video0Ctrl::SHARPNESS_DOWN, {"isp_ee_y_gain_down", 0}},
+    {Video0Ctrl::SHARPNESS_UP, {"isp_ee_y_gain_up", 0}},
+    {Video0Ctrl::BRIGHTNESS, {"isp_cproc_brightness", 0}},
+    {Video0Ctrl::CONTRAST, {"isp_cproc_contrast", 0}},
+    {Video0Ctrl::SATURATION, {"isp_cproc_saturation", 0}},
+    {Video0Ctrl::EE_ENABLE, {"isp_ee_enable", 0}},
+    {Video0Ctrl::AE_ENABLE, {"isp_ae_enable", 0}},
+    {Video0Ctrl::AE_GAIN, {"isp_ae_gain", 0}},
+    {Video0Ctrl::AE_INTEGRATION_TIME, {"isp_ae_integration_time", 0}},
+    {Video0Ctrl::WDR_CONTRAST, {"isp_wdr_contrast", 0}},
+    {Video0Ctrl::AWB_MODE, {"isp_awb_mode", 0}},
+    {Video0Ctrl::AWB_ILLUM_INDEX, {"isp_awb_illum_index", 0}},
+    {Video0Ctrl::HDR_RATIOS, {"isp_hdr_ratio", 0}},
+    {Video0Ctrl::HDR_FORWARD_TIMESTAMPS, {"timestamp_mode", _IOW('D', BASE_VIDIOC_PRIVATE + 5, bool)}},
+};
+
+const std::unordered_map<ImxCtrl, std::pair<std::string, uint32_t>> m_imx_ctrl_to_key = {
+    {ImxCtrl::IMX_WDR, {"Wide Dynamic Range", 0}},
+    {ImxCtrl::SHUTTER_TIMING_LONG, {"shutter_timing_long", 0}},
+    {ImxCtrl::SHUTTER_TIMING_SHORT, {"shutter_timing_short", 0}},
+    {ImxCtrl::SHUTTER_TIMING_VERY_SHORT, {"shutter_timing_very_short", 0}},
+    {ImxCtrl::READOUT_TIMING_SHORT, {"readout_timing_short", 0}},
+    {ImxCtrl::READOUT_TIMING_VERY_SHORT, {"readout_timing_very_short", 0}},
+    {ImxCtrl::VERTICAL_SPAN, {"vertical_span", 0}},
+    {ImxCtrl::HORIZONTAL_SPAN, {"horizontal_span", 0}},
+    // {ImxCtrl::VERTICAL_SPAN, {"vertical_span", _IOWR('I', IMX_BASE_ADDRESS + 10, uint32_t)}},
+    // {ImxCtrl::HORIZONTAL_SPAN, {"horizontal_span", _IOWR('I', IMX_BASE_ADDRESS + 11, uint32_t)}},
+};
+
+const std::unordered_map<CsiCtrl, std::pair<std::string, uint32_t>> m_csi_ctrl_to_key = {
+    {CsiCtrl::CSI_MODE_SEL, {"mode_sel", 0}},
+};
+
+const std::unordered_map<IspCtrl, uint32_t> m_isp_ctrl_to_key = {
+    {IspCtrl::MCM_MODE_SEL, _IOWR('I', BASE_VIDIOC_PRIVATE + 10, uint32_t)},
+};
+
+bool xioctl(int fd, unsigned long request, void *arg)
 {
     int r;
-    int tries = IOCTL_TRIES_COUNT;
-
+    int tries = MAX_IOCTL_TRIES;
     do
     {
-        r = ioctl(m_fd, request, arg);
+        r = ioctl(fd, request, arg);
 
         if (r == -1)
         {
-            std::cout << "ioctl failed: " << strerror(errno) << std::endl;
+            LOGGER__MODULE__WARN(MODULE_NAME, "ioctl failed: {}", strerror(errno));
         }
     } while (--tries > 0 && r == -1 && EINTR == errno);
 
-    return r;
+    return r == 0;
 }
 
-uint v4l2Control::v4l2_get_ctrl_id(const std::string &v4l2_ctrl_name)
+std::optional<std::string> find_subdevice_path(const std::string &subdevice_name)
 {
-    int ret = 0;
+    for (const auto &entry : std::filesystem::directory_iterator("/sys/class/video4linux/"))
+    {
+        if (entry.path().filename().string().find("v4l-subdev") != std::string::npos)
+        {
+            std::ifstream name_file(entry.path() / "name");
+            std::string name;
+            name_file >> name;
+            if (name.find(subdevice_name) != std::string::npos)
+            {
+                return "/dev/" + entry.path().filename().string();
+            }
+        }
+    }
+
+    LOGGER__MODULE__WARN(MODULE_NAME, "Subdevice {} not found", subdevice_name);
+    return std::nullopt;
+}
+
+std::optional<std::filesystem::path> device_to_path(Device device)
+{
+    switch (device)
+    {
+    case Device::VIDEO0: {
+        return "/dev/video0";
+    }
+    case Device::IMX: {
+        return find_subdevice_path("imx");
+    }
+    case Device::CSI: {
+        return find_subdevice_path("csi");
+    }
+    case Device::ISP: {
+        return find_subdevice_path("hailo-isp");
+    }
+    default:
+        return std::nullopt;
+    }
+}
+
+std::optional<uint32_t> get_ctrl_id(int fd, const std::string &ctrl_name)
+{
     uint id = 0;
     const unsigned next_flag = V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND;
     struct v4l2_query_ext_ctrl qctrl;
-    IOCTL_CLEAR(qctrl);
+    ioctl_clear(qctrl);
     qctrl.id = next_flag;
     while (true)
     {
-        ret = ioctl(m_fd, VIDIOC_QUERY_EXT_CTRL, &qctrl);
-
+        int ret = ioctl(fd, VIDIOC_QUERY_EXT_CTRL, &qctrl);
         if (ret < 0)
         {
-            ret = 0;
-            break;
+            printf("ret: %d, bad ctrl: %s fd: %d qctrl id: %u errno: %s\n", ret, ctrl_name.c_str(), fd, qctrl.id,
+                   strerror(errno));
+            return std::nullopt;
         }
-        if (0 == strcmp(qctrl.name, v4l2_ctrl_name.c_str()))
+        if (0 == strcmp(qctrl.name, ctrl_name.c_str()))
         {
             id = qctrl.id;
             break;
@@ -108,178 +141,60 @@ uint v4l2Control::v4l2_get_ctrl_id(const std::string &v4l2_ctrl_name)
     return id;
 }
 
-v4l2Control::v4l2Control(std::string device) : m_device(device)
+std::optional<uint32_t> get_ctrl_id(int fd, Video0Ctrl ctrl)
 {
-    m_fd = open(device.c_str(), O_RDWR | O_NONBLOCK, 0);
-    if (m_fd == -1)
+    std::pair<std::string, uint32_t> ctrl_data = m_video0_ctrl_to_key.at(ctrl);
+    if (ctrl_data.second != 0)
     {
-        std::cout << "Cannot open device " << device << std::endl;
-        throw std::runtime_error("Cannot open device " + device);
+        return ctrl_data.second;
     }
+
+    std::string ctrl_name = ctrl_data.first;
+    return get_ctrl_id(fd, ctrl_name);
 }
 
-v4l2Control::~v4l2Control()
+std::optional<uint32_t> get_ctrl_id(int fd, ImxCtrl ctrl)
 {
-    close(m_fd);
+    std::pair<std::string, uint32_t> ctrl_data = m_imx_ctrl_to_key.at(ctrl);
+    if (ctrl_data.second != 0)
+    {
+        return ctrl_data.second;
+    }
+    std::string ctrl_name = ctrl_data.first;
+    std::optional<uint32_t> id = get_ctrl_id(fd, ctrl_name);
+    return id;
 }
 
-template <typename T> bool v4l2Control::v4l2_ctrl_set(v4l2_ctrl_id id, T val)
+std::optional<uint32_t> get_ctrl_id(int fd, CsiCtrl ctrl)
 {
-    struct v4l2_control ctrl;
-    IOCTL_CLEAR(ctrl);
+    std::pair<std::string, uint32_t> ctrl_data = m_csi_ctrl_to_key.at(ctrl);
+    if (ctrl_data.second != 0)
+    {
+        return ctrl_data.second;
+    }
 
-    ctrl.id = static_cast<uint32_t>(get_id(id));
-    ctrl.value = val;
-    return xioctl(VIDIOC_S_CTRL, &ctrl) != -1;
+    std::string ctrl_name = ctrl_data.first;
+    return get_ctrl_id(fd, ctrl_name);
 }
 
-template <typename T> bool v4l2Control::v4l2_ctrl_get(v4l2_ctrl_id id, T &val)
+std::optional<uint32_t> get_ctrl_id(int, IspCtrl ctrl)
 {
-    struct v4l2_control ctrl;
-    IOCTL_CLEAR(ctrl);
-
-    ctrl.id = static_cast<uint32_t>(get_id(id));
-    if (xioctl(VIDIOC_G_CTRL, &ctrl) == -1)
-    {
-        return false;
-    }
-    val = ctrl.value;
-
-    return true;
+    return m_isp_ctrl_to_key.at(ctrl);
 }
 
-template <typename T> bool v4l2Control::v4l2_ext_ctrl_set(v4l2_ctrl_id id, T val)
+std::optional<FdWithDtor> get_device_fd(Device device)
 {
-    struct v4l2_ext_control ctrl;
-    struct v4l2_ext_controls ctrls;
-    struct v4l2_query_ext_ctrl qctrl;
-    IOCTL_CLEAR(ctrl);
-    IOCTL_CLEAR(ctrls);
-    IOCTL_CLEAR(qctrl);
-
-    qctrl.id = static_cast<uint32_t>(get_id(id));
-    if (xioctl(VIDIOC_QUERY_EXT_CTRL, &qctrl) == -1)
+    auto device_path = device_to_path(device);
+    if (!device_path.has_value())
     {
-        return false;
+        return std::nullopt;
     }
-
-    ctrl.id = qctrl.id;
-    ctrl.size = qctrl.elem_size * qctrl.elems;
-    ctrl.value = val;
-    ctrls.count = 1;
-    ctrls.controls = &ctrl;
-    ctrls.which = V4L2_CTRL_ID2WHICH(ctrl.id);
-
-    if (xioctl(VIDIOC_S_EXT_CTRLS, &ctrls) == -1)
+    int fd = open(device_path->c_str(), O_RDWR | O_NONBLOCK, 0);
+    if (fd == -1)
     {
-        return false;
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to open device {}", static_cast<int>(device));
+        return std::nullopt;
     }
-
-    // TODO: Bring me back
-    // free(ctrl.ptr);
-
-    return true;
+    return std::make_optional<FdWithDtor>(std::make_shared<fd_with_dtor_t>(fd));
 }
-
-template <typename T> bool v4l2Control::v4l2_ext_ctrl_set_array(v4l2_ctrl_id id, T val)
-{
-    struct v4l2_ext_control ctrl;
-    struct v4l2_ext_controls ctrls;
-    struct v4l2_query_ext_ctrl qctrl;
-    IOCTL_CLEAR(ctrl);
-    IOCTL_CLEAR(ctrls);
-    IOCTL_CLEAR(qctrl);
-
-    qctrl.id = static_cast<uint32_t>(get_id(id));
-    if (xioctl(VIDIOC_QUERY_EXT_CTRL, &qctrl) == -1)
-    {
-        return false;
-    }
-
-    ctrl.id = qctrl.id;
-    ctrl.size = qctrl.elem_size * qctrl.elems;
-    ctrl.ptr = val;
-    ctrls.count = 1;
-    ctrls.controls = &ctrl;
-    ctrls.which = V4L2_CTRL_ID2WHICH(ctrl.id);
-
-    if (xioctl(VIDIOC_S_EXT_CTRLS, &ctrls) == -1)
-    {
-        return false;
-    }
-
-    // TODO: Bring me back
-    // free(ctrl.ptr);
-
-    return true;
-}
-
-template <typename T> bool v4l2Control::v4l2_ext_ctrl_set2(v4l2_ctrl_id id, T &val)
-{
-    struct v4l2_ext_control ctrl;
-    struct v4l2_ext_controls ctrls;
-    struct v4l2_query_ext_ctrl qctrl;
-    IOCTL_CLEAR(ctrl);
-    IOCTL_CLEAR(ctrls);
-    IOCTL_CLEAR(qctrl);
-
-    qctrl.id = static_cast<uint32_t>(get_id(id));
-    if (xioctl(VIDIOC_QUERY_EXT_CTRL, &qctrl) == -1)
-    {
-        return false;
-    }
-
-    ctrl.id = qctrl.id;
-    ctrl.size = sizeof(val);
-    ctrl.ptr = &val;
-    ctrls.count = 1;
-    ctrls.controls = &ctrl;
-    ctrls.which = V4L2_CTRL_ID2WHICH(ctrl.id);
-
-    if (xioctl(VIDIOC_S_EXT_CTRLS, &ctrls) == -1)
-    {
-        return false;
-    }
-
-    // TODO: Bring me back
-    // free(ctrl.ptr);
-
-    return true;
-}
-
-template <typename T> bool v4l2Control::v4l2_ext_ctrl_get(v4l2_ctrl_id id, T &val)
-{
-    struct v4l2_ext_control ctrl;
-    struct v4l2_ext_controls ctrls;
-    struct v4l2_query_ext_ctrl qctrl;
-    IOCTL_CLEAR(ctrl);
-    IOCTL_CLEAR(ctrls);
-    IOCTL_CLEAR(qctrl);
-
-    qctrl.id = static_cast<uint32_t>(get_id(id));
-    if (xioctl(VIDIOC_QUERY_EXT_CTRL, &qctrl) == -1)
-    {
-        return false;
-    }
-    ctrl.id = qctrl.id;
-    ctrl.size = qctrl.elem_size * qctrl.elems;
-    ctrl.ptr = malloc(ctrl.size);
-    ctrls.count = 1;
-    ctrls.controls = &ctrl;
-    ctrls.which = V4L2_CTRL_ID2WHICH(ctrl.id);
-
-    if (xioctl(VIDIOC_G_EXT_CTRLS, &ctrls) == -1)
-    {
-        return false;
-    }
-    val = *(T *)ctrl.ptr;
-    free(ctrl.ptr);
-    return true;
-}
-
-template <typename T> bool v4l2Control::v4l2_ioctl_set(unsigned long request, T &val)
-{
-    return xioctl(request, &val) != -1;
-}
-} // namespace ctrl
-} // namespace isp_utils
+} // namespace v4l2

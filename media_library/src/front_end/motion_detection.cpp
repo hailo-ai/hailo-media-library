@@ -17,6 +17,8 @@
 #include <vector>
 #include <shared_mutex>
 
+#define MODULE_NAME LoggerType::MotionDetection
+
 MotionDetection::MotionDetection()
 {
     m_motion_detection_config = {};
@@ -44,17 +46,18 @@ media_library_return MotionDetection::allocate_motion_detection(uint32_t max_buf
             m_motion_detection_config.resolution.dimensions.destination_height &&
         max_buffer_pool_size == m_motion_detection_buffer_pool->get_size())
     {
-        LOGGER__DEBUG("Buffer pool already exists, skipping creation");
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Buffer pool already exists, skipping creation");
         return MEDIA_LIBRARY_SUCCESS;
     }
     std::string name = "motion_detection_bitmask";
     auto bytes_per_line =
         dsp_utils::get_dsp_desired_stride_from_width(m_motion_detection_config.resolution.dimensions.destination_width);
-    LOGGER__INFO("Creating buffer pool named {} for output resolution: width {} height {} in buffers size of {} and "
-                 "bytes per line {}",
-                 name, m_motion_detection_config.resolution.dimensions.destination_width,
-                 m_motion_detection_config.resolution.dimensions.destination_height, max_buffer_pool_size,
-                 bytes_per_line);
+    LOGGER__MODULE__INFO(
+        MODULE_NAME,
+        "Creating buffer pool named {} for output resolution: width {} height {} in buffers size of {} and "
+        "bytes per line {}",
+        name, m_motion_detection_config.resolution.dimensions.destination_width,
+        m_motion_detection_config.resolution.dimensions.destination_height, max_buffer_pool_size, bytes_per_line);
     MediaLibraryBufferPoolPtr buffer_pool = std::make_shared<MediaLibraryBufferPool>(
         m_motion_detection_config.resolution.dimensions.destination_width,
         m_motion_detection_config.resolution.dimensions.destination_height, HAILO_FORMAT_GRAY8, max_buffer_pool_size,
@@ -62,7 +65,7 @@ media_library_return MotionDetection::allocate_motion_detection(uint32_t max_buf
 
     if (buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to init buffer pool");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init buffer pool");
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
     m_motion_detection_buffer_pool = buffer_pool;
@@ -90,7 +93,7 @@ media_library_return MotionDetection::perform_motion_detection(std::vector<Hailo
     HailoMediaLibraryBufferPtr bitmask_buffer = allocate_bitmask_buffer();
     if (bitmask_buffer == nullptr)
     {
-        LOGGER__ERROR("Failed to acquire buffer for motion detection");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to acquire buffer for motion detection");
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
@@ -164,7 +167,7 @@ bool MotionDetection::detect_motion() const
 
     if (motion_detected)
     {
-        LOGGER__TRACE("Motion detected");
+        LOGGER__MODULE__TRACE(MODULE_NAME, "Motion detected");
     }
 
     return motion_detected;
@@ -189,5 +192,5 @@ void MotionDetection::update_previous_frame(const HailoMediaLibraryBufferPtr &cu
 void MotionDetection::log_execution_time(const timespec &start, const timespec &end) const
 {
     [[maybe_unused]] long ms = static_cast<long>(media_library_difftimespec_ms(end, start));
-    LOGGER__TRACE("perform_motion_detection took {} milliseconds ({} fps)", ms, 1000 / ms);
+    LOGGER__MODULE__TRACE(MODULE_NAME, "perform_motion_detection took {} milliseconds ({} fps)", ms, 1000 / ms);
 }

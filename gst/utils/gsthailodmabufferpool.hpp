@@ -16,14 +16,30 @@ G_BEGIN_DECLS
 #define GST_IS_HAILO_DMA_BUFFER_POOL_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILO_DMA_BUFFER_POOL))
 
 typedef struct _GstHailoDmaBufferPool GstHailoDmaBufferPool;
+typedef struct _GstHailoDmaBufferPoolParams GstHailoDmaBufferPoolParams;
 typedef struct _GstHailoDmaBufferPoolClass GstHailoDmaBufferPoolClass;
+
+struct _GstHailoDmaBufferPoolParams
+{
+    guint padding;
+    GstStructure *config = nullptr;
+    GstHailoDmabufAllocator *memory_allocator = nullptr;
+
+    ~_GstHailoDmaBufferPoolParams()
+    {
+        if (memory_allocator)
+        {
+            gst_object_unref(memory_allocator);
+            GstHailoDmaHeapControl::decrease_ref_count_dma_ctrl();
+            memory_allocator = NULL;
+        }
+    }
+};
 
 struct _GstHailoDmaBufferPool
 {
     GstBufferPool parent;
-    guint padding;
-    GstStructure *config;
-    GstHailoDmabufAllocator *memory_allocator;
+    GstHailoDmaBufferPoolParams *params = nullptr;
 };
 
 struct _GstHailoDmaBufferPoolClass

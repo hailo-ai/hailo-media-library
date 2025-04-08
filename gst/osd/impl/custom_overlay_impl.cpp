@@ -25,6 +25,8 @@
 #include "buffer_utils/buffer_utils.hpp"
 #include "media_library/media_library_logger.hpp"
 
+#define MODULE_NAME LoggerType::Osd
+
 CustomOverlayImpl::CustomOverlayImpl(const osd::CustomOverlay &overlay, media_library_return &status)
     : OverlayImpl(overlay.id, overlay.x, overlay.y, overlay.width, overlay.height, overlay.z_index, overlay.angle,
                   overlay.rotation_alignment_policy, false, overlay.horizontal_alignment, overlay.vertical_alignment)
@@ -55,13 +57,13 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Custom
 {
     if (!get_enabled())
     {
-        LOGGER__ERROR("overlay not ready to blend");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "overlay not ready to blend");
         return tl::make_unexpected(MEDIA_LIBRARY_UNINITIALIZED);
     }
 
     if (m_medialib_buffer == nullptr)
     {
-        LOGGER__ERROR("Error: buffer is uninitialized");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: buffer is uninitialized");
         return tl::make_unexpected(MEDIA_LIBRARY_UNINITIALIZED);
     }
 
@@ -97,7 +99,7 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Custom
     }
     else
     {
-        LOGGER__ERROR("Error: invalid format {}", m_format);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: invalid format {}", m_format);
         return tl::make_unexpected(MEDIA_LIBRARY_INVALID_ARGUMENT);
     }
 
@@ -110,14 +112,14 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Custom
 
     if (m_medialib_buffer != nullptr)
     {
-        LOGGER__ERROR("Error: m_medialib_buffer is not nullptr");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: m_medialib_buffer is not nullptr");
         m_medialib_buffer.reset();
     }
 
     m_medialib_buffer = std::make_shared<hailo_media_library_buffer>();
     if (!create_hailo_buffer_from_video_frame(&dest_frame, m_medialib_buffer))
     {
-        LOGGER__ERROR("Error: failed to create hailo buffer from video frame");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: failed to create hailo buffer from video frame");
         return tl::make_unexpected(MEDIA_LIBRARY_INVALID_ARGUMENT);
     }
 

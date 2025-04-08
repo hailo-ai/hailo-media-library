@@ -1,21 +1,22 @@
 {
-    "output_video": {
+    "application_input_streams": {
         "method": "INTERPOLATION_TYPE_BILINEAR",
         "format": "IMAGE_FORMAT_NV12",
         "grayscale": false,
-        "keep_aspect_ratio": false,
         "resolutions": [
             {
                 "width": 3840,
                 "height": 2160,
                 "framerate": 30,
-                "pool_max_buffers": 20
+                "pool_max_buffers": 20,
+                "keep_aspect_ratio": false
             },
             {
                 "width": 1280,
                 "height": 720,
                 "framerate": 30,
-                "pool_max_buffers": 20
+                "pool_max_buffers": 20,
+                "keep_aspect_ratio": false
             }
         ]
     },
@@ -71,22 +72,6 @@
             "width": 2800,
             "height": 1800
         }
-    },
-    "motion_detection": {
-        "enabled": false,
-        "resolution": {
-            "width": 640,
-            "height": 480,
-            "framerate": 30
-        },
-        "roi": {
-            "x": 200,
-            "y": 200,
-            "width": 640,
-            "height": 480
-        },
-        "sensitivity_level": "MEDIUM",
-        "threshold": 0.5
     },
     "motion_detection": {
         "enabled": false,

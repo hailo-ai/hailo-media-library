@@ -28,7 +28,7 @@
 #define _DIS_INTERFACE_H_
 
 #include "dewarp.h"
-#include "dis_common.h"
+#include "media_library/dis_common.h"
 #include "interface_types.h"
 
 #include <opencv2/opencv.hpp>

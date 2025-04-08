@@ -43,13 +43,16 @@ struct __attribute__((packed)) isp_image_enhancement_params_t
     bool enabled;
     bool auto_luma;
     float manual_contrast;
-    int32_t manual_brightness;
+    int16_t manual_brightness;
     float auto_percentile_low;
     float auto_percentile_high;
     uint8_t auto_target_low;
     uint8_t auto_target_high;
     float auto_low_pass_filter_alpha;
-    uint32_t sharpness;
+    uint8_t blur_level;
+    uint8_t sharpness_level;
+    float sharpness_amount;
+    uint8_t sharpness_threshold;
     float saturation;
 };
 

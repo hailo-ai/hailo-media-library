@@ -16,14 +16,28 @@ G_BEGIN_DECLS
 #define GST_IS_HAILO_DSP_BUFFER_POOL_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILO_DSP_BUFFER_POOL))
 
 typedef struct _GstHailoDspBufferPool GstHailoDspBufferPool;
+typedef struct _GstHailoDspBufferPoolParams GstHailoDspBufferPoolParams;
 typedef struct _GstHailoDspBufferPoolClass GstHailoDspBufferPoolClass;
+
+struct _GstHailoDspBufferPoolParams
+{
+    guint padding;
+    GstStructure *config = nullptr;
+    DmaMemoryAllocator *memory_allocator = nullptr;
+
+    ~_GstHailoDspBufferPoolParams()
+    {
+        if (config)
+        {
+            gst_structure_free(config);
+        }
+    }
+};
 
 struct _GstHailoDspBufferPool
 {
     GstBufferPool parent;
-    guint padding;
-    GstStructure *config;
-    DmaMemoryAllocator *memory_allocator;
+    GstHailoDspBufferPoolParams *params = nullptr;
 };
 
 struct _GstHailoDspBufferPoolClass

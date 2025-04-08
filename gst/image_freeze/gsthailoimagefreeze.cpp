@@ -86,26 +86,29 @@ static void gst_hailo_image_freeze_class_init(GstHailoImageFreezeClass *klass)
 static void gst_hailo_image_freeze_init(GstHailoImageFreeze *image_freeze)
 {
     GST_DEBUG_OBJECT(image_freeze, "init");
+    image_freeze->params = new GstHailoImageFreezeParams();
 
-    image_freeze->sinkpad = gst_pad_new_from_static_template(&sink_template, "sink");
-    image_freeze->srcpad = gst_pad_new_from_static_template(&src_template, "src");
+    image_freeze->params->sinkpad = gst_pad_new_from_static_template(&sink_template, "sink");
+    image_freeze->params->srcpad = gst_pad_new_from_static_template(&src_template, "src");
 
-    gst_pad_set_chain_function(image_freeze->sinkpad, GST_DEBUG_FUNCPTR(gst_hailo_image_freeze_chain));
-    gst_pad_set_event_function(image_freeze->sinkpad, GST_DEBUG_FUNCPTR(gst_hailo_image_freeze_sink_event));
+    gst_pad_set_chain_function(image_freeze->params->sinkpad, GST_DEBUG_FUNCPTR(gst_hailo_image_freeze_chain));
+    gst_pad_set_event_function(image_freeze->params->sinkpad, GST_DEBUG_FUNCPTR(gst_hailo_image_freeze_sink_event));
 
-    GST_PAD_SET_PROXY_CAPS(image_freeze->sinkpad);
-    gst_element_add_pad(GST_ELEMENT(image_freeze), image_freeze->sinkpad);
-    gst_element_add_pad(GST_ELEMENT(image_freeze), image_freeze->srcpad);
-
-    image_freeze->m_freeze = FALSE;
+    GST_PAD_SET_PROXY_CAPS(image_freeze->params->sinkpad);
+    gst_element_add_pad(GST_ELEMENT(image_freeze), image_freeze->params->sinkpad);
+    gst_element_add_pad(GST_ELEMENT(image_freeze), image_freeze->params->srcpad);
 }
 
 static void gst_hailo_image_freeze_dispose(GObject *object)
 {
     GstHailoImageFreeze *self = GST_HAILO_IMAGE_FREEZE(object);
     GST_DEBUG_OBJECT(self, "dispose");
-    self->frozen_buffer = nullptr;
-    self->m_buffer_pool = nullptr;
+    if (self->params != nullptr)
+    {
+        delete self->params;
+        self->params = nullptr;
+    }
+
     G_OBJECT_CLASS(parent_class)->dispose(object);
 }
 
@@ -118,8 +121,8 @@ static void gst_hailo_image_freeze_set_property(GObject *object, guint property_
     {
     case PROP_FREEZE: {
         GST_INFO_OBJECT(self, "Setting freeze property to %d and freeing old frame", g_value_get_boolean(value));
-        self->frozen_buffer = nullptr; // reset current frame
-        self->m_freeze = g_value_get_boolean(value);
+        self->params->frozen_buffer = nullptr; // reset current frame
+        self->params->m_freeze = g_value_get_boolean(value);
         break;
     }
     default:
@@ -135,7 +138,7 @@ static void gst_hailo_image_freeze_get_property(GObject *object, guint property_
     switch (property_id)
     {
     case PROP_FREEZE: {
-        g_value_set_boolean(value, self->m_freeze);
+        g_value_set_boolean(value, self->params->m_freeze);
         break;
     }
     default:
@@ -176,16 +179,16 @@ static GstFlowReturn create_and_initialize_buffer_pools(GstHailoImageFreeze *sel
     size_t width = GST_VIDEO_INFO_WIDTH(&info);
     size_t height = GST_VIDEO_INFO_HEIGHT(&info);
 
-    if (self->m_buffer_pool != nullptr && self->m_buffer_pool->get_width() == width &&
-        self->m_buffer_pool->get_height() == height)
+    if (self->params->m_buffer_pool != nullptr && self->params->m_buffer_pool->get_width() == width &&
+        self->params->m_buffer_pool->get_height() == height)
     {
         return GST_FLOW_OK;
     }
 
     GST_INFO_OBJECT(self, "Creating buffer pool with width %zu and height %zu", width, height);
-    self->m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(width, height, HAILO_FORMAT_NV12, 1,
-                                                                   HAILO_MEMORY_TYPE_DMABUF, "image_freeze_output");
-    if (self->m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
+    self->params->m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(
+        width, height, HAILO_FORMAT_NV12, 1, HAILO_MEMORY_TYPE_DMABUF, "image_freeze_output");
+    if (self->params->m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
         GST_ERROR_OBJECT(self, "ImageFreeze element Failed to init buffer pool");
         return GST_FLOW_ERROR;
@@ -198,14 +201,14 @@ static GstFlowReturn gst_hailo_image_freeze_chain(GstPad *pad, GstObject *parent
 {
     GstHailoImageFreeze *self = GST_HAILO_IMAGE_FREEZE(parent);
 
-    if (self->m_freeze)
+    if (self->params->m_freeze)
     {
         HailoMediaLibraryBufferPtr input_buffer = hailo_buffer_from_gst_buffer(buffer, gst_pad_get_current_caps(pad));
-        if (!self->frozen_buffer)
+        if (!self->params->frozen_buffer)
         {
             GST_INFO_OBJECT(self, "Freezing buffer, creating new buffer and copying data");
-            self->frozen_buffer = std::make_shared<hailo_media_library_buffer>();
-            if (self->m_buffer_pool->acquire_buffer(self->frozen_buffer) != MEDIA_LIBRARY_SUCCESS)
+            self->params->frozen_buffer = std::make_shared<hailo_media_library_buffer>();
+            if (self->params->m_buffer_pool->acquire_buffer(self->params->frozen_buffer) != MEDIA_LIBRARY_SUCCESS)
             {
                 GST_ERROR_OBJECT(self, "Failed to acquire buffer to freeze");
                 return GST_FLOW_ERROR;
@@ -214,7 +217,7 @@ static GstFlowReturn gst_hailo_image_freeze_chain(GstPad *pad, GstObject *parent
             for (size_t i = 0; i < input_buffer->get_num_of_planes(); i++)
             {
                 void *input_plane = input_buffer->get_plane_ptr(i);
-                void *freeze_plane = self->frozen_buffer->get_plane_ptr(i);
+                void *freeze_plane = self->params->frozen_buffer->get_plane_ptr(i);
 
                 memcpy(freeze_plane, input_plane, input_buffer->get_plane_size(i));
             }
@@ -223,7 +226,7 @@ static GstFlowReturn gst_hailo_image_freeze_chain(GstPad *pad, GstObject *parent
         {
             GST_DEBUG_OBJECT(self, "reusing frozen buffer");
             GstCaps *caps = gst_pad_get_current_caps(pad);
-            GstBuffer *frozen_buffer = gst_buffer_from_hailo_buffer(self->frozen_buffer, caps);
+            GstBuffer *frozen_buffer = gst_buffer_from_hailo_buffer(self->params->frozen_buffer, caps);
             gst_caps_unref(caps);
 
             // Preserve the metadata from the old buffer
@@ -242,5 +245,5 @@ static GstFlowReturn gst_hailo_image_freeze_chain(GstPad *pad, GstObject *parent
         }
     }
 
-    return gst_pad_push(self->srcpad, buffer);
+    return gst_pad_push(self->params->srcpad, buffer);
 }

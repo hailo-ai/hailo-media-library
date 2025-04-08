@@ -25,6 +25,8 @@
 #include "csv.h"
 #include <fstream>
 
+#define MODULE_NAME LoggerType::Encoder
+
 #define COLUMN_COUNT 22
 
 EncoderConfigPresets::EncoderConfigPresets()
@@ -95,8 +97,9 @@ tl::expected<encoder_preset_t, media_library_return> EncoderConfigPresets::get_p
         }
     }
 
-    LOGGER__ERROR("No preset found for preset_mode: {}, codec: {}, width: {}, height: {}, bitrate: {}, rc_mode: {}",
-                  preset_mode, codec, width, height, bitrate, rc_mode);
+    LOGGER__MODULE__ERROR(
+        MODULE_NAME, "No preset found for preset_mode: {}, codec: {}, width: {}, height: {}, bitrate: {}, rc_mode: {}",
+        preset_mode, codec, width, height, bitrate, rc_mode);
     return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR);
 }
 
@@ -198,7 +201,8 @@ media_library_return EncoderConfigPresets::apply_padding(hailo_encoder_config_t 
     {
         if (preset.padding == USER_VALUE)
         {
-            LOGGER__ERROR(
+            LOGGER__MODULE__ERROR(
+                MODULE_NAME,
                 "Padding is set to 'user' in the preset, but no padding value is provided in the configuration");
             return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
@@ -208,7 +212,7 @@ media_library_return EncoderConfigPresets::apply_padding(hailo_encoder_config_t 
         }
         catch (const std::invalid_argument &e)
         {
-            LOGGER__ERROR("Invalid padding value: {}", preset.padding);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Invalid padding value: {}", preset.padding);
             return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
     }
@@ -233,7 +237,7 @@ media_library_return EncoderConfigPresets::apply_hrd_cpb_size(hailo_encoder_conf
             }
             catch (const std::invalid_argument &e)
             {
-                LOGGER__ERROR("Invalid hrd_cpb_size value: {}", preset.hrd_cpb_size);
+                LOGGER__MODULE__ERROR(MODULE_NAME, "Invalid hrd_cpb_size value: {}", preset.hrd_cpb_size);
                 return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
             }
         }
@@ -273,7 +277,7 @@ tl::expected<uint32_t, media_library_return> EncoderConfigPresets::get_preset_bi
     }
     catch (const std::invalid_argument &e)
     {
-        LOGGER__ERROR("Invalid bit_var_range value: {}", preset.bit_var_range);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Invalid bit_var_range value: {}", preset.bit_var_range);
         return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR);
     }
 }
@@ -315,7 +319,7 @@ media_library_return EncoderConfigPresets::apply_tolerance_moving_bitrate(hailo_
             }
             else
             {
-                LOGGER__ERROR("auto tolerance_moving_bitrate is only supported for VBR and CVBR");
+                LOGGER__MODULE__ERROR(MODULE_NAME, "auto tolerance_moving_bitrate is only supported for VBR and CVBR");
                 return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
             }
         }
@@ -327,7 +331,8 @@ media_library_return EncoderConfigPresets::apply_tolerance_moving_bitrate(hailo_
             }
             catch (const std::invalid_argument &e)
             {
-                LOGGER__ERROR("Invalid tolerance_moving_bitrate value: {}", preset.tolerance_moving_bitrate);
+                LOGGER__MODULE__ERROR(MODULE_NAME, "Invalid tolerance_moving_bitrate value: {}",
+                                      preset.tolerance_moving_bitrate);
                 return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
             }
         }

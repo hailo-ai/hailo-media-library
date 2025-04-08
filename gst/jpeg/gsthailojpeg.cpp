@@ -4,7 +4,6 @@
 #include <gst/video/video.h>
 #include <iostream>
 #include <fstream>
-#include <jpeglib.h>
 #include <sstream>
 #include <variant>
 
@@ -12,11 +11,6 @@ GST_DEBUG_CATEGORY_STATIC(gst_hailojpegenc_debug_category);
 #define GST_CAT_DEFAULT gst_hailojpegenc_debug_category
 
 #define INNER_QUEUE_SIZE 3
-#define DEFAULT_NUM_OF_THREADS 1
-
-#define DEFAULT_MIN_FORCE_KEY_UNIT_INTERVAL 0
-#define JPEG_DEFAULT_QUALITY 85
-#define JPEG_DEFAULT_IDCT_METHOD JDCT_FASTEST
 
 #define gst_hailojpegenc_parent_class parent_class
 
@@ -120,7 +114,7 @@ void handle_new_config(GstHailoJpegEnc *hailojpegenc, std::optional<jpeg_encoder
     {
         // need to clean old pipeline that was set in init
         clear_internal_pipeline(hailojpegenc);
-        hailojpegenc->num_of_threads = new_encoder_config.n_threads;
+        hailojpegenc->params->num_of_threads = new_encoder_config.n_threads;
         construct_internal_pipeline(hailojpegenc);
     }
     else if (old_encoder_config->n_threads != new_encoder_config.n_threads)
@@ -130,40 +124,40 @@ void handle_new_config(GstHailoJpegEnc *hailojpegenc, std::optional<jpeg_encoder
 
     if ((!old_encoder_config) || old_encoder_config->quality != new_encoder_config.quality)
     {
-        hailojpegenc->jpeg_quality = new_encoder_config.quality;
-        for (auto jpegenc : hailojpegenc->m_jpegencs)
+        hailojpegenc->params->jpeg_quality = new_encoder_config.quality;
+        for (auto jpegenc : hailojpegenc->params->m_jpegencs)
         {
-            g_object_set(jpegenc, "quality", hailojpegenc->jpeg_quality, NULL);
+            g_object_set(jpegenc, "quality", hailojpegenc->params->jpeg_quality, NULL);
         }
     }
 }
 
 void init_config_from_string(GstHailoJpegEnc *hailojpegenc)
 {
-    std::string clean_config = hailojpegenc->config;
+    std::string clean_config = hailojpegenc->params->config;
     // in case there are quotes around the string, remove them - they were added to enable spaces in the string
     if (clean_config[0] == '\'' && clean_config[clean_config.size() - 1] == '\'')
     {
-        clean_config = clean_config.substr(1, hailojpegenc->config.size() - 2);
+        clean_config = clean_config.substr(1, hailojpegenc->params->config.size() - 2);
     }
 
-    hailojpegenc->config = clean_config;
+    hailojpegenc->params->config = clean_config;
 
     std::optional<jpeg_encoder_config_t> old_encoder_config;
-    if (!hailojpegenc->encoder_config)
+    if (!hailojpegenc->params->encoder_config)
     {
-        hailojpegenc->encoder_config = std::make_unique<EncoderConfig>(hailojpegenc->config);
+        hailojpegenc->params->encoder_config = std::make_unique<EncoderConfig>(hailojpegenc->params->config);
     }
     else
     {
-        old_encoder_config = std::get<jpeg_encoder_config_t>(*hailojpegenc->encoder_user_config);
-        if (hailojpegenc->encoder_config->configure(hailojpegenc->config) !=
+        old_encoder_config = std::get<jpeg_encoder_config_t>(hailojpegenc->params->encoder_user_config);
+        if (hailojpegenc->params->encoder_config->configure(hailojpegenc->params->config) !=
             media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
             GST_ERROR_OBJECT(hailojpegenc, "Failed to configure encoder");
         }
     }
-    auto new_encoder_config = hailojpegenc->encoder_config->get_jpeg_config();
+    auto new_encoder_config = hailojpegenc->params->encoder_config->get_jpeg_config();
 
     handle_new_config(hailojpegenc, old_encoder_config, new_encoder_config);
 }
@@ -182,7 +176,7 @@ static void gst_hailojpegenc_set_property(GObject *object, guint prop_id, const 
     switch (prop_id)
     {
     case PROP_CONFIG_STRING: {
-        hailojpegenc->config = std::string(g_value_get_string(value));
+        hailojpegenc->params->config = std::string(g_value_get_string(value));
         init_config_from_string(hailojpegenc);
 
         break;
@@ -191,12 +185,12 @@ static void gst_hailojpegenc_set_property(GObject *object, guint prop_id, const 
         // Why do we need two lines instead of one? Good question!
         // For some odd reason, its not working when we use g_value_get_string directly
         std::string encoder_config_path = std::string(g_value_get_string(value));
-        hailojpegenc->config_path = encoder_config_path;
+        hailojpegenc->params->config_path = encoder_config_path;
 
-        std::ifstream input_json(hailojpegenc->config_path.c_str());
+        std::ifstream input_json(hailojpegenc->params->config_path.c_str());
         std::stringstream json_buffer;
         json_buffer << input_json.rdbuf();
-        hailojpegenc->config = json_buffer.str();
+        hailojpegenc->params->config = json_buffer.str();
 
         init_config_from_string(hailojpegenc);
 
@@ -205,35 +199,36 @@ static void gst_hailojpegenc_set_property(GObject *object, guint prop_id, const 
     case PROP_USER_CONFIG: {
         encoder_config_t *encoder_config = static_cast<encoder_config_t *>(g_value_get_pointer(value));
 
-        auto old_encoder_config = std::get<jpeg_encoder_config_t>(*hailojpegenc->encoder_user_config);
-        if (hailojpegenc->encoder_config->configure(*encoder_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        auto old_encoder_config = std::get<jpeg_encoder_config_t>(hailojpegenc->params->encoder_user_config);
+        if (hailojpegenc->params->encoder_config->configure(*encoder_config) !=
+            media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
             GST_ERROR_OBJECT(hailojpegenc, "Failed to configure encoder");
         }
         else
         {
-            hailojpegenc->encoder_user_config = std::make_shared<encoder_config_t>(*encoder_config);
+            hailojpegenc->params->encoder_user_config = encoder_config_t(*encoder_config);
         }
 
-        auto new_encoder_config = std::get<jpeg_encoder_config_t>(*hailojpegenc->encoder_user_config);
+        auto new_encoder_config = std::get<jpeg_encoder_config_t>(hailojpegenc->params->encoder_user_config);
         handle_new_config(hailojpegenc, old_encoder_config, new_encoder_config);
 
         break;
     }
     case PROP_MIN_FORCE_KEY_UNIT_INTERVAL: {
-        hailojpegenc->jpegenc_min_force_key_unit_interval = g_value_get_uint64(value);
-        for (auto jpegenc : hailojpegenc->m_jpegencs)
+        hailojpegenc->params->jpegenc_min_force_key_unit_interval = g_value_get_uint64(value);
+        for (auto jpegenc : hailojpegenc->params->m_jpegencs)
         {
-            g_object_set(jpegenc, "min-force-key-unit-interval", hailojpegenc->jpegenc_min_force_key_unit_interval,
-                         NULL);
+            g_object_set(jpegenc, "min-force-key-unit-interval",
+                         hailojpegenc->params->jpegenc_min_force_key_unit_interval, NULL);
         }
         break;
     }
     case PROP_IDCT_METHOD: {
-        hailojpegenc->jpeg_idct_method = g_value_get_enum(value);
-        for (auto jpegenc : hailojpegenc->m_jpegencs)
+        hailojpegenc->params->jpeg_idct_method = g_value_get_enum(value);
+        for (auto jpegenc : hailojpegenc->params->m_jpegencs)
         {
-            g_object_set(jpegenc, "idct-method", hailojpegenc->jpeg_idct_method, NULL);
+            g_object_set(jpegenc, "idct-method", hailojpegenc->params->jpeg_idct_method, NULL);
         }
         break;
     }
@@ -254,28 +249,27 @@ static void gst_hailojpegenc_get_property(GObject *object, guint property_id, GV
     switch (property_id)
     {
     case PROP_CONFIG_STRING: {
-        g_value_set_string(value, hailojpegenc->config.c_str());
+        g_value_set_string(value, hailojpegenc->params->config.c_str());
         break;
     }
     case PROP_CONFIG_PATH: {
-        g_value_set_string(value, hailojpegenc->config_path.c_str());
+        g_value_set_string(value, hailojpegenc->params->config_path.c_str());
         break;
     }
     case PROP_MIN_FORCE_KEY_UNIT_INTERVAL: {
-        g_value_set_uint64(value, hailojpegenc->jpegenc_min_force_key_unit_interval);
+        g_value_set_uint64(value, hailojpegenc->params->jpegenc_min_force_key_unit_interval);
         break;
     }
     case PROP_IDCT_METHOD: {
-        g_value_set_enum(value, hailojpegenc->jpeg_idct_method);
+        g_value_set_enum(value, hailojpegenc->params->jpeg_idct_method);
         break;
     }
     case PROP_CONFIG:
     case PROP_USER_CONFIG: {
-        if (hailojpegenc->encoder_config)
+        if (hailojpegenc->params->encoder_config)
         {
-            hailojpegenc->encoder_user_config =
-                std::make_shared<encoder_config_t>(hailojpegenc->encoder_config->get_user_config());
-            g_value_set_pointer(value, hailojpegenc->encoder_user_config.get());
+            hailojpegenc->params->encoder_user_config = hailojpegenc->params->encoder_config->get_user_config();
+            g_value_set_pointer(value, &hailojpegenc->params->encoder_user_config);
         }
         else
         {
@@ -292,7 +286,7 @@ static void gst_hailojpegenc_get_property(GObject *object, guint property_id, GV
 void init_ghost_sink(GstHailoJpegEnc *hailojpegenc)
 {
     const gchar *pad_name = "sink";
-    GstPad *pad = gst_element_get_static_pad(hailojpegenc->m_roundrobin, pad_name);
+    GstPad *pad = gst_element_get_static_pad(hailojpegenc->params->m_roundrobin, pad_name);
 
     GstPadTemplate *pad_tmpl = gst_static_pad_template_get(&sink_template);
 
@@ -308,7 +302,7 @@ void init_ghost_src(GstHailoJpegEnc *hailojpegenc)
 {
     const gchar *pad_name = "src";
 
-    GstPad *pad = gst_element_get_static_pad(hailojpegenc->m_hailoroundrobin, pad_name);
+    GstPad *pad = gst_element_get_static_pad(hailojpegenc->params->m_hailoroundrobin, pad_name);
 
     GstPadTemplate *pad_tmpl = gst_static_pad_template_get(&src_template);
 
@@ -322,10 +316,10 @@ void init_ghost_src(GstHailoJpegEnc *hailojpegenc)
 
 bool link_elements(GstHailoJpegEnc *hailojpegenc)
 {
-    for (uint i = 0; i < hailojpegenc->num_of_threads; i++)
+    for (uint i = 0; i < hailojpegenc->params->num_of_threads; i++)
     {
-        if (!gst_element_link_many(hailojpegenc->m_roundrobin, hailojpegenc->m_queues[i], hailojpegenc->m_jpegencs[i],
-                                   hailojpegenc->m_hailoroundrobin, NULL))
+        if (!gst_element_link_many(hailojpegenc->params->m_roundrobin, hailojpegenc->params->m_queues[i],
+                                   hailojpegenc->params->m_jpegencs[i], hailojpegenc->params->m_hailoroundrobin, NULL))
         {
             GST_ERROR_OBJECT(hailojpegenc, "Could not add link elements in bin");
             return false;
@@ -337,39 +331,40 @@ bool link_elements(GstHailoJpegEnc *hailojpegenc)
 void clear_internal_pipeline(GstHailoJpegEnc *hailojpegenc)
 {
     GST_DEBUG_OBJECT(hailojpegenc, "clear_internal_pipeline");
-    for (uint i = 0; i < hailojpegenc->num_of_threads; i++)
+    for (uint i = 0; i < hailojpegenc->params->num_of_threads; i++)
     {
-        gboolean remove_success = gst_bin_remove(GST_BIN(hailojpegenc), hailojpegenc->m_queues[i]);
+        gboolean remove_success = gst_bin_remove(GST_BIN(hailojpegenc), hailojpegenc->params->m_queues[i]);
         if (!remove_success)
         {
             GST_ERROR_OBJECT(hailojpegenc, "Could not remove queue element from bin");
         }
 
-        remove_success = gst_bin_remove(GST_BIN(hailojpegenc), hailojpegenc->m_jpegencs[i]);
+        remove_success = gst_bin_remove(GST_BIN(hailojpegenc), hailojpegenc->params->m_jpegencs[i]);
         if (!remove_success)
         {
             GST_ERROR_OBJECT(hailojpegenc, "Could not remove jpegenc element from bin");
         }
     }
-    hailojpegenc->m_queues.clear();
-    hailojpegenc->m_jpegencs.clear();
+    hailojpegenc->params->m_queues.clear();
+    hailojpegenc->params->m_jpegencs.clear();
 }
 
 void construct_internal_pipeline(GstHailoJpegEnc *hailojpegenc)
 {
-    gchar *name;
+    std::string name;
     GST_DEBUG_OBJECT(hailojpegenc, "construct_internal_pipeline");
-    for (uint i = 0; i < hailojpegenc->num_of_threads; i++)
+    for (uint i = 0; i < hailojpegenc->params->num_of_threads; i++)
     {
         std::stringstream ss;
         ss << "jpegenc_" << i;
-        name = (gchar *)ss.str().c_str();
-        GstElement *jpegenc = gst_element_factory_make("jpegenc", name);
-        g_object_set(jpegenc, "min-force-key-unit-interval", hailojpegenc->jpegenc_min_force_key_unit_interval, NULL);
-        g_object_set(jpegenc, "quality", hailojpegenc->jpeg_quality, NULL);
-        g_object_set(jpegenc, "idct-method", hailojpegenc->jpeg_idct_method, NULL);
+        name = ss.str();
+        GstElement *jpegenc = gst_element_factory_make("jpegenc", name.c_str());
+        g_object_set(jpegenc, "min-force-key-unit-interval", hailojpegenc->params->jpegenc_min_force_key_unit_interval,
+                     NULL);
+        g_object_set(jpegenc, "quality", hailojpegenc->params->jpeg_quality, NULL);
+        g_object_set(jpegenc, "idct-method", hailojpegenc->params->jpeg_idct_method, NULL);
 
-        hailojpegenc->m_jpegencs.push_back(jpegenc);
+        hailojpegenc->params->m_jpegencs.push_back(jpegenc);
         if (!gst_bin_add(GST_BIN(hailojpegenc), jpegenc))
         {
             GST_ERROR_OBJECT(hailojpegenc, "could not add jpegenc to bin");
@@ -377,13 +372,13 @@ void construct_internal_pipeline(GstHailoJpegEnc *hailojpegenc)
 
         std::stringstream ss2;
         ss2 << "queue_" << i;
-        name = (gchar *)ss2.str().c_str();
-        GstElement *queue = gst_element_factory_make("queue", name);
+        name = ss2.str();
+        GstElement *queue = gst_element_factory_make("queue", name.c_str());
         g_object_set(queue, "max-size-buffers", INNER_QUEUE_SIZE, NULL);
         g_object_set(queue, "max-size-bytes", 0, NULL);
         g_object_set(queue, "max-size-time", 0, NULL);
         g_object_set(queue, "leaky", 0, NULL);
-        hailojpegenc->m_queues.push_back(queue);
+        hailojpegenc->params->m_queues.push_back(queue);
         if (!gst_bin_add(GST_BIN(hailojpegenc), queue))
         {
             GST_ERROR_OBJECT(hailojpegenc, "Could not add queue to bin");
@@ -395,24 +390,20 @@ void construct_internal_pipeline(GstHailoJpegEnc *hailojpegenc)
 
 static void gst_hailojpegenc_init(GstHailoJpegEnc *hailojpegenc)
 {
-    hailojpegenc->num_of_threads = DEFAULT_NUM_OF_THREADS;
-    hailojpegenc->jpegenc_min_force_key_unit_interval = DEFAULT_MIN_FORCE_KEY_UNIT_INTERVAL;
-    hailojpegenc->jpeg_quality = JPEG_DEFAULT_QUALITY;
-    hailojpegenc->jpeg_idct_method = JPEG_DEFAULT_IDCT_METHOD;
-    hailojpegenc->encoder_config = nullptr;
+    hailojpegenc->params = new GstHailoJpegEncParams();
 
     GstElement *roundrobin = gst_element_factory_make("roundrobin", "roundrobin");
-    hailojpegenc->m_roundrobin = roundrobin;
-    if (!gst_bin_add(GST_BIN(hailojpegenc), hailojpegenc->m_roundrobin))
+    hailojpegenc->params->m_roundrobin = roundrobin;
+    if (!gst_bin_add(GST_BIN(hailojpegenc), hailojpegenc->params->m_roundrobin))
     {
         GST_ERROR_OBJECT(hailojpegenc, "Could not add roundrobin to bin");
     }
 
     GstElement *hailoroundrobin = gst_element_factory_make("hailoroundrobin", "hailoroundrobin");
     g_object_set(hailoroundrobin, "mode", 1, NULL);
-    hailojpegenc->m_hailoroundrobin = hailoroundrobin;
+    hailojpegenc->params->m_hailoroundrobin = hailoroundrobin;
 
-    if (!gst_bin_add(GST_BIN(hailojpegenc), hailojpegenc->m_hailoroundrobin))
+    if (!gst_bin_add(GST_BIN(hailojpegenc), hailojpegenc->params->m_hailoroundrobin))
     {
         GST_ERROR_OBJECT(hailojpegenc, "Could not add hailoroundrobin to bin");
     }
@@ -425,5 +416,13 @@ static void gst_hailojpegenc_init(GstHailoJpegEnc *hailojpegenc)
 
 static void gst_hailojpegenc_dispose(GObject *object)
 {
+    GstHailoJpegEnc *hailojpegenc = GST_HAILOJPEGENC(object);
+    GST_DEBUG_OBJECT(hailojpegenc, "dispose");
+    if (hailojpegenc->params != nullptr)
+    {
+        delete hailojpegenc->params;
+        hailojpegenc->params = nullptr;
+    }
+
     G_OBJECT_CLASS(parent_class)->dispose(object);
 }

@@ -32,6 +32,8 @@
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
 
+#define MODULE_NAME LoggerType::Config
+
 /* json-parse configurations - with custom error handler */
 class config_manager_error_handler : public nlohmann::json_schema::basic_error_handler
 {
@@ -39,8 +41,10 @@ class config_manager_error_handler : public nlohmann::json_schema::basic_error_h
                const std::string &message) override
     {
         nlohmann::json_schema::basic_error_handler::error(pointer, instance, message);
-        LOGGER__ERROR("Configuration Manager encountered an error: {} \nEncountered in: {} \nEncountered instance: {}",
-                      message, pointer.to_string(), instance.dump());
+        LOGGER__MODULE__ERROR(
+            MODULE_NAME,
+            "Configuration Manager encountered an error: {} \nEncountered in: {} \nEncountered instance: {}", message,
+            pointer.to_string(), instance.dump());
     }
 };
 
@@ -76,6 +80,9 @@ class ConfigManager::ConfigManagerImpl
         case ConfigSchema::CONFIG_SCHEMA_ISP:
             m_config_validator.set_root_schema(config_schemas::isp_config_schema);
             break;
+        case ConfigSchema::CONFIG_SCHEMA_ISP_CONFIG:
+            m_config_validator.set_root_schema(config_schemas::isp_config_files_schema);
+            break;
         case ConfigSchema::CONFIG_SCHEMA_HDR:
             m_config_validator.set_root_schema(config_schemas::hdr_config_schema);
             break;
@@ -87,6 +94,12 @@ class ConfigManager::ConfigManagerImpl
             break;
         case ConfigSchema::CONFIG_SCHEMA_FRONTEND:
             m_config_validator.set_root_schema(config_schemas::frontend_config_schema);
+            break;
+        case ConfigSchema::CONFIG_SCHEMA_MEDIALIB_CONFIG:
+            m_config_validator.set_root_schema(config_schemas::medialib_config_schema);
+            break;
+        case ConfigSchema::CONFIG_SCHEMA_PROFILE:
+            m_config_validator.set_root_schema(config_schemas::profile_config_schema);
             break;
         }
     };
@@ -133,6 +146,14 @@ class ConfigManager::ConfigManagerImpl
      */
     template <typename TConf>
     media_library_return config_string_to_struct(const std::string &user_config_string, TConf &conf);
+
+    /**
+     * @brief Convert a configuration struct to a json string
+     *
+     * @param[in] conf - the configuration struct
+     * @return std::string
+     */
+    template <typename TConf> std::string config_struct_to_string(const TConf &conf);
 
     /**
      * @brief Retrieve an entry from an input JSON string
@@ -185,6 +206,11 @@ media_library_return ConfigManager::config_string_to_struct(const std::string &u
     return m_config_manager_impl->config_string_to_struct<TConf>(user_config_string, conf);
 }
 
+template <typename TConf> std::string ConfigManager::config_struct_to_string(const TConf &conf)
+{
+    return m_config_manager_impl->config_struct_to_string(conf);
+}
+
 // Explicit instantiation for config types (because they were defined in a .cpp file)
 template media_library_return ConfigManager::config_string_to_struct<input_video_config_t>(
     const std::string &user_config_string, input_video_config_t &conf);
@@ -208,6 +234,31 @@ template media_library_return ConfigManager::config_string_to_struct<encoder_con
     const std::string &user_config_string, encoder_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<vsm_config_t>(
     const std::string &user_config_string, vsm_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<codec_config_t>(
+    const std::string &user_config_string, codec_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<frontend_config_t>(
+    const std::string &user_config_string, frontend_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<medialib_config_t>(
+    const std::string &user_config_string, medialib_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<profile_config_t>(
+    const std::string &user_config_string, profile_config_t &conf);
+
+template std::string ConfigManager::config_struct_to_string<input_video_config_t>(const input_video_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<multi_resize_config_t>(const multi_resize_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<eis_config_t>(const eis_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<gyro_config_t>(const gyro_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<ldc_config_t>(const ldc_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<denoise_config_t>(const denoise_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<isp_t>(const isp_t &conf);
+template std::string ConfigManager::config_struct_to_string<hailort_t>(const hailort_t &conf);
+template std::string ConfigManager::config_struct_to_string<hdr_config_t>(const hdr_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<encoder_config_t>(const encoder_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<vsm_config_t>(const vsm_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<isp_config_files_t>(const isp_config_files_t &conf);
+template std::string ConfigManager::config_struct_to_string<codec_config_t>(const codec_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<medialib_config_t>(const medialib_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<profile_config_t>(const profile_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<frontend_config_t>(const frontend_config_t &conf);
 
 tl::expected<std::string, media_library_return> ConfigManager::parse_config(std::string config_string,
                                                                             std::string entry)
@@ -228,7 +279,7 @@ media_library_return ConfigManager::ConfigManagerImpl::validate_config(const nlo
     m_config_validator.validate(user_config, err); // validate the document
     if (err)
     {
-        LOGGER__ERROR("Failed to validate given json against schema");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to validate given json against schema");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     return MEDIA_LIBRARY_SUCCESS;
@@ -239,7 +290,7 @@ media_library_return ConfigManager::ConfigManagerImpl::validate_config_string(co
     const nlohmann::json user_config_json = nlohmann::json::parse(user_config_string, nullptr, false);
     if (user_config_json.is_discarded())
     {
-        LOGGER__ERROR("Config Manager failed to parse string as JSON");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to parse string as JSON");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     media_library_return ret = validate_config(user_config_json);
@@ -254,7 +305,7 @@ media_library_return ConfigManager::ConfigManagerImpl::config_string_to_struct(c
     const nlohmann::json user_config_json = nlohmann::json::parse(user_config_string, nullptr, false);
     if (user_config_json.is_discarded())
     {
-        LOGGER__ERROR("Config Manager failed to parse string as JSON");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to parse string as JSON");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -262,7 +313,7 @@ media_library_return ConfigManager::ConfigManagerImpl::config_string_to_struct(c
     media_library_return validation_status = validate_config(user_config_json);
     if (validation_status == MEDIA_LIBRARY_CONFIGURATION_ERROR)
     {
-        LOGGER__ERROR("Config Manager failed to validate json against schema");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to validate json against schema");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -280,7 +331,8 @@ media_library_return ConfigManager::ConfigManagerImpl::config_string_to_struct(c
                 conf = user_config_json.get<hailo_encoder_config_t>();
                 break;
             case EncoderType::None:
-                LOGGER__ERROR("Config Manager failed to convert JSON to struct: No supported encoder found");
+                LOGGER__MODULE__ERROR(MODULE_NAME,
+                                      "Config Manager failed to convert JSON to struct: No supported encoder found");
                 return MEDIA_LIBRARY_CONFIGURATION_ERROR;
             }
         }
@@ -291,11 +343,33 @@ media_library_return ConfigManager::ConfigManagerImpl::config_string_to_struct(c
     }
     catch (const nlohmann::json::exception &e)
     {
-        LOGGER__ERROR("Config Manager failed to convert JSON to struct: {}", e.what());
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to convert JSON to struct: {}", e.what());
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
     return MEDIA_LIBRARY_SUCCESS;
+}
+
+template <typename TConf> std::string ConfigManager::ConfigManagerImpl::config_struct_to_string(const TConf &conf)
+{
+    try
+    {
+        nlohmann::json j;
+        if constexpr (std::is_same<TConf, encoder_config_t>::value)
+        {
+            std::visit([&j](auto &&arg) { j = arg; }, conf);
+        }
+        else
+        {
+            j = conf;
+        }
+        return j.dump();
+    }
+    catch (const nlohmann::json::exception &e)
+    {
+        LOGGER__ERROR("Config Manager failed to convert struct to JSON string: {}", e.what());
+        return "";
+    }
 }
 
 tl::expected<std::string, media_library_return> ConfigManager::ConfigManagerImpl::parse_config(
@@ -305,14 +379,14 @@ tl::expected<std::string, media_library_return> ConfigManager::ConfigManagerImpl
     const nlohmann::json user_config_json = nlohmann::json::parse(config_string, nullptr, false);
     if (user_config_json.is_discarded())
     {
-        LOGGER__ERROR("Config Manager failed to parse string as JSON");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to parse string as JSON");
         return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
     }
 
     // Check that the key exists
     if (!user_config_json.contains(entry))
     {
-        LOGGER__ERROR("Config Manager failed to find requested entry in JSON string");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to find requested entry in JSON string");
         return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
     }
 

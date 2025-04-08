@@ -39,16 +39,22 @@ G_BEGIN_DECLS
 #define GST_IS_HAILO_OSD_CLASS(obj) (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILO_OSD))
 
 typedef struct _GstHailoOsd GstHailoOsd;
+typedef struct _GstHailoOsdParams GstHailoOsdParams;
 typedef struct _GstHailoOsdClass GstHailoOsdClass;
+
+struct _GstHailoOsdParams
+{
+    std::string config_path;
+    std::string config_str;
+    std::shared_ptr<osd::Blender> blender;
+    gboolean wait_for_writable_buffer = false;
+    bool initialized = false;
+};
 
 struct _GstHailoOsd
 {
     GstBaseTransform base_hailoosd;
-    gchar *config_path;
-    gchar *config_str;
-    std::shared_ptr<osd::Blender> blender;
-    gboolean wait_for_writable_buffer;
-    bool initialized;
+    GstHailoOsdParams *params = nullptr;
 };
 
 struct _GstHailoOsdClass

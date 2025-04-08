@@ -67,7 +67,7 @@ using MediaLibraryEncoderPtr = std::shared_ptr<MediaLibraryEncoder>;
  * OSD static overlays support images, static text and timestamp blocks.
  * @ref TBD json configuration.
  *
- * @note OSD is mostly executed by the DSP co-prossesor, and encoding is
+ * @note OSD is mostly executed by the DSP co-processor, and encoding is
  * executed by the A53 or the HEVC/H264 encoder co-processor.
  */
 class MediaLibraryEncoder
@@ -106,8 +106,8 @@ class MediaLibraryEncoder
      * The callback function should not throw exceptions.
      * The callback function should not call the MediaLibraryEncoder module.
      * @return media_library_return - status of the subscription operation
-     * @note if user wishes to add additional arguments for the callback
-     * execution it may use lambda wrapper and pass as single argument to the
+     * @note if the user wishes to add additional arguments for the callback
+     * execution it may use lambda wrapper can be used and passed on as a single argument to the
      * subscribe function.
      * @ref AppWrapperCallback
      */

@@ -25,6 +25,8 @@
 #include "media_library_types.hpp"
 #include "dma_memory_allocator.hpp"
 
+#define MODULE_NAME LoggerType::Dsp
+
 /** @defgroup dsp_utils_definitions MediaLibrary DSP utilities CPP API
  * definitions
  *  @{
@@ -66,7 +68,7 @@ hailo_dsp_buffer_data_t::hailo_dsp_buffer_data_t(size_t width, size_t height, si
         properties.format = DSP_IMAGE_FORMAT_GRAY16;
         break;
     default:
-        LOGGER__ERROR("Unsupported format {}", format);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Unsupported format {}", format);
         // TOOD: Convert to `tl::expected` to be able to return error.
         // For now, set the format to unsupported DSP format to create error down the line
         properties.format = DSP_IMAGE_FORMAT_MAX_ENUM;
@@ -79,7 +81,7 @@ hailo_dsp_buffer_data_t::hailo_dsp_buffer_data_t(size_t width, size_t height, si
         properties.memory = DSP_MEMORY_TYPE_DMABUF;
         break;
     default:
-        LOGGER__ERROR("Unsupported memory type {}", memory);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Unsupported memory type {}", memory);
         // TOOD: Convert to `tl::expected` to be able to return error.
         // For now, set the memory type to unsupported DSP memory type to create error down the line
         properties.memory = DSP_MEMORY_TYPE_MAX_ENUM;
@@ -112,18 +114,18 @@ static dsp_status create_device()
     // If the device is not initialized, initialize it, else return SUCCESS
     if (device == NULL)
     {
-        LOGGER__INFO("Creating dsp device");
+        LOGGER__MODULE__INFO(MODULE_NAME, "Creating dsp device");
         dsp_status status = dsp_create_device(&device);
         if (status != DSP_SUCCESS)
         {
-            LOGGER__ERROR("Open DSP device failed with status {}", status);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Open DSP device failed with status {}", status);
             return status;
         }
 
         status = dsp_set_priority(device, DSP_VISION_PRIORITY);
         if (status != DSP_SUCCESS)
         {
-            LOGGER__ERROR("Set DSP priority failed with status {}", status);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Set DSP priority failed with status {}", status);
             return status;
         }
     }
@@ -142,26 +144,26 @@ dsp_status release_device()
 {
     if (device == NULL)
     {
-        LOGGER__WARNING("Release device skipped: Dsp device is already NULL");
+        LOGGER__MODULE__WARNING(MODULE_NAME, "Release device skipped: Dsp device is already NULL");
         return DSP_SUCCESS;
     }
 
     dsp_device_refcount--;
     if (dsp_device_refcount > 0)
     {
-        LOGGER__DEBUG("Release dsp device skipped, refcount is {}", dsp_device_refcount);
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Release dsp device skipped, refcount is {}", dsp_device_refcount);
     }
     else
     {
-        LOGGER__DEBUG("Releasing dsp device, refcount is {}", dsp_device_refcount);
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Releasing dsp device, refcount is {}", dsp_device_refcount);
         dsp_status status = dsp_release_device(device);
         if (status != DSP_SUCCESS)
         {
-            LOGGER__ERROR("Release device failed with status {}", status);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Release device failed with status {}", status);
             return status;
         }
         device = NULL;
-        LOGGER__INFO("Dsp device released successfully");
+        LOGGER__MODULE__INFO(MODULE_NAME, "Dsp device released successfully");
     }
 
     return DSP_SUCCESS;
@@ -183,7 +185,7 @@ dsp_status acquire_device()
             return status;
     }
     dsp_device_refcount++;
-    LOGGER__DEBUG("Acquired dsp device, refcount is {}", dsp_device_refcount);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Acquired dsp device, refcount is {}", dsp_device_refcount);
     return DSP_SUCCESS;
 }
 
@@ -202,29 +204,29 @@ dsp_status create_hailo_dsp_buffer(size_t size, void **buffer, bool dma)
     {
         if (dma)
         {
-            LOGGER__DEBUG("Creating dma buffer with size {}", size);
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "Creating dma buffer with size {}", size);
             // dsp_status status = dsp_create_dma_buffer(device, size, buffer);
             media_library_return status = DmaMemoryAllocator::get_instance().allocate_dma_buffer(size, buffer);
             if (status != MEDIA_LIBRARY_SUCCESS)
             {
-                LOGGER__ERROR("Create dma buffer failed with status {}", status);
+                LOGGER__MODULE__ERROR(MODULE_NAME, "Create dma buffer failed with status {}", status);
                 return DSP_UNINITIALIZED;
             }
         }
         else
         {
-            LOGGER__DEBUG("Creating dsp buffer with size {}", size);
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "Creating dsp buffer with size {}", size);
             dsp_status status = dsp_create_buffer(device, size, buffer);
             if (status != DSP_SUCCESS)
             {
-                LOGGER__ERROR("Create buffer failed with status {}", status);
+                LOGGER__MODULE__ERROR(MODULE_NAME, "Create buffer failed with status {}", status);
                 return status;
             }
         }
     }
     else
     {
-        LOGGER__ERROR("Create buffer failed: device is NULL");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Create buffer failed: device is NULL");
         return DSP_UNINITIALIZED;
     }
 
@@ -240,19 +242,19 @@ void release_hailo_dsp_buffer(void *buffer)
 {
     if (device == NULL)
     {
-        LOGGER__ERROR("DSP release buffer failed: device is NULL");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "DSP release buffer failed: device is NULL");
         return;
     }
 
-    LOGGER__DEBUG("Releasing dsp buffer");
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Releasing dsp buffer");
     dsp_status status = dsp_release_buffer(device, buffer);
     if (status != DSP_SUCCESS)
     {
-        LOGGER__ERROR("DSP release buffer failed with status {}", status);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "DSP release buffer failed with status {}", status);
         return;
     }
 
-    LOGGER__DEBUG("DSP buffer released successfully");
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "DSP buffer released successfully");
     return;
 }
 
@@ -274,7 +276,7 @@ dsp_status perform_resize(dsp_image_properties_t *input_image_properties,
 {
     if (device == NULL)
     {
-        LOGGER__ERROR("Perform DSP crop and resize ERROR: Device is NULL");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Perform DSP crop and resize ERROR: Device is NULL");
         return DSP_UNINITIALIZED;
     }
 
@@ -308,11 +310,11 @@ dsp_status perform_resize(dsp_image_properties_t *input_image_properties,
 
     if (status != DSP_SUCCESS)
     {
-        LOGGER__ERROR("DSP Resize command failed with status {}", status);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "DSP Resize command failed with status {}", status);
         return status;
     }
 
-    LOGGER__DEBUG("DSP Resize command completed successfully");
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "DSP Resize command completed successfully");
     return DSP_SUCCESS;
 }
 
@@ -334,7 +336,7 @@ dsp_status perform_crop_and_resize(dsp_image_properties_t *input_image_propertie
 {
     if (device == NULL)
     {
-        LOGGER__ERROR("Perform DSP crop and resize ERROR: Device is NULL");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Perform DSP crop and resize ERROR: Device is NULL");
         return DSP_UNINITIALIZED;
     }
 
@@ -375,11 +377,11 @@ dsp_status perform_crop_and_resize(dsp_image_properties_t *input_image_propertie
 
     if (status != DSP_SUCCESS)
     {
-        LOGGER__ERROR("DSP Crop & resize command failed with status {}", status);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "DSP Crop & resize command failed with status {}", status);
         return status;
     }
 
-    LOGGER__INFO("DSP Crop & resize command completed successfully");
+    LOGGER__MODULE__INFO(MODULE_NAME, "DSP Crop & resize command completed successfully");
     return DSP_SUCCESS;
 }
 
@@ -400,7 +402,7 @@ dsp_status perform_resize(hailo_buffer_data_t *input_buffer_data, hailo_buffer_d
 {
     if (device == NULL)
     {
-        LOGGER__ERROR("Perform DSP crop and resize ERROR: Device is NULL");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Perform DSP crop and resize ERROR: Device is NULL");
         return DSP_UNINITIALIZED;
     }
 
@@ -428,7 +430,7 @@ dsp_status perform_crop_and_resize(hailo_buffer_data_t *input_buffer_data, hailo
 {
     if (device == NULL)
     {
-        LOGGER__ERROR("Perform DSP crop and resize ERROR: Device is NULL");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Perform DSP crop and resize ERROR: Device is NULL");
         return DSP_UNINITIALIZED;
     }
 

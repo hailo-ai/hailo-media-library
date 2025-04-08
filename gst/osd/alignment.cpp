@@ -23,6 +23,8 @@
 #include "osd.hpp"
 #include "media_library/media_library_logger.hpp"
 
+#define MODULE_NAME LoggerType::Osd
+
 namespace osd
 {
 const HorizontalAlignment HorizontalAlignment::LEFT = HorizontalAlignment(0.0);
@@ -37,7 +39,7 @@ static media_library_return check_alignment(float alignment)
 {
     if (alignment < 0.0 || alignment > 1.0)
     {
-        LOGGER__ERROR("Alignment value must be between 0.0 and 1.0, got: {}", alignment);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Alignment value must be between 0.0 and 1.0, got: {}", alignment);
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
     return MEDIA_LIBRARY_SUCCESS;

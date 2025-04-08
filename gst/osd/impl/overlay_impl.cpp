@@ -26,6 +26,8 @@
 #include "media_library/media_library_logger.hpp"
 #include "media_library/threadpool.hpp"
 
+#define MODULE_NAME LoggerType::Osd
+
 // NOTE: this function may cause a memory leak (inside opencv) if called from the gstreamer thread. always call this
 // function from a ThreadPool thread.
 inline cv::Mat rotate_mat(cv::Mat mat, uint angle, osd::rotation_alignment_policy_t alignment_policy,
@@ -114,7 +116,7 @@ media_library_return OverlayImpl::create_gst_video_frame(uint width, uint height
     if (buffer_status != DSP_SUCCESS)
     {
         gst_caps_unref(caps);
-        LOGGER__ERROR("Error: create_hailo_dsp_buffer - failed to create buffer");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: create_hailo_dsp_buffer - failed to create buffer");
         return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
     }
 
@@ -139,7 +141,7 @@ media_library_return OverlayImpl::end_sync_buffer(GstVideoFrame *video_frame)
         media_library_return status = DmaMemoryAllocator::get_instance().dmabuf_sync_end(buffer_ptr);
         if (status != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__ERROR("Error: dmabuf_sync_end - failed to sync buffer for plane ", i);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Error: dmabuf_sync_end - failed to sync buffer for plane ", i);
             return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
         }
     }
@@ -155,7 +157,7 @@ media_library_return OverlayImpl::start_sync_buffer(GstVideoFrame *video_frame)
         media_library_return status = DmaMemoryAllocator::get_instance().dmabuf_sync_start(buffer_ptr);
         if (status != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__ERROR("Error: dmabuf_sync_start - failed to sync buffer for plane ", i);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Error: dmabuf_sync_start - failed to sync buffer for plane ", i);
             return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
         }
     }
@@ -198,7 +200,8 @@ media_library_return OverlayImpl::create_dma_video_frame(uint width, uint height
         }
         else
         {
-            LOGGER__ERROR("Error: create_dma_video_frame - invalid format ", GST_VIDEO_INFO_FORMAT(image_info));
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Error: create_dma_video_frame - invalid format ",
+                                  GST_VIDEO_INFO_FORMAT(image_info));
             return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
         }
 
@@ -207,7 +210,8 @@ media_library_return OverlayImpl::create_dma_video_frame(uint width, uint height
         if (status != MEDIA_LIBRARY_SUCCESS)
         {
             gst_caps_unref(caps);
-            LOGGER__ERROR("Error: create_hailo_dsp_buffer - failed to create buffer for plane ", i);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Error: create_hailo_dsp_buffer - failed to create buffer for plane ",
+                                  i);
             return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
         }
 
@@ -247,7 +251,7 @@ media_library_return OverlayImpl::convert_2_dma_video_frame(GstVideoFrame *src_f
         create_dma_video_frame(src_frame->info.width, src_frame->info.height, "A420", dest_frame);
     if (a420_dma_status != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Error: create_dma_video_frame - failed to create buffer (A420 format)");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: create_dma_video_frame - failed to create buffer (A420 format)");
         ret = MEDIA_LIBRARY_DSP_OPERATION_ERROR;
     }
     else
@@ -271,7 +275,7 @@ tl::expected<std::tuple<int, int>, media_library_return> OverlayImpl::calc_xy_of
 {
     if (x_norm < 0 || x_norm > 1 || y_norm < 0 || y_norm > 1)
     {
-        LOGGER__ERROR("overlay {} x and y offsets must be normalized between 0 and 1", id);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "overlay {} x and y offsets must be normalized between 0 and 1", id);
         return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
     }
 
@@ -355,7 +359,7 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
     GstVideoFrame dest_frame;
     if (m_image_mat.empty())
     {
-        LOGGER__ERROR("m_image_mat is empty");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "m_image_mat is empty");
         status = MEDIA_LIBRARY_ERROR;
         return tl::make_unexpected(status);
     }
@@ -366,8 +370,8 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
     {
         mat = ThreadPool::GetInstance()->invoke(
             [this, &center_drift]() { return rotate_mat(m_image_mat, m_angle, m_rotation_policy, &center_drift); });
-        LOGGER__DEBUG("Rotated OSD by {} degrees, center drifted by {} pixels, around {}", m_angle, center_drift,
-                      m_rotation_policy);
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Rotated OSD by {} degrees, center drifted by {} pixels, around {}", m_angle,
+                              center_drift, m_rotation_policy);
     }
 
     GstVideoFrame gst_bgra_image = gst_video_frame_from_mat_bgra(mat);
@@ -409,7 +413,7 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
 {
     if (!get_enabled())
     {
-        LOGGER__ERROR("overlay not ready to blend");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "overlay not ready to blend");
         return tl::make_unexpected(MEDIA_LIBRARY_UNINITIALIZED);
     }
 

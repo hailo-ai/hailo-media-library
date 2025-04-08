@@ -24,6 +24,8 @@
 #include "datetime_overlay_impl.hpp"
 #include "media_library/media_library_logger.hpp"
 
+#define MODULE_NAME LoggerType::Osd
+
 DateTimeOverlayImpl::DateTimeOverlayImpl(const osd::DateTimeOverlay &overlay, media_library_return &status)
     : TextOverlayImpl(overlay, status), m_datetime_format(overlay.datetime_format)
 {
@@ -68,7 +70,7 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> DateTi
 {
     if (!get_enabled())
     {
-        LOGGER__ERROR("overlay not ready to blend");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "overlay not ready to blend");
         return tl::make_unexpected(MEDIA_LIBRARY_UNINITIALIZED);
     }
 
@@ -97,7 +99,8 @@ std::string DateTimeOverlayImpl::select_chars_for_timestamp(std::string datetime
 
     if (oss.str().find('%') != std::string::npos)
     {
-        LOGGER__WARN("DateTime format string was not interpreted correctly, please check the dateime format");
+        LOGGER__MODULE__WARN(MODULE_NAME,
+                             "DateTime format string was not interpreted correctly, please check the dateime format");
     }
     return oss.str();
 }

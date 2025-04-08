@@ -26,6 +26,8 @@
 #include "media_library/media_library_logger.hpp"
 #include "media_library/threadpool.hpp"
 
+#define MODULE_NAME LoggerType::Osd
+
 ImageOverlayImpl::ImageOverlayImpl(const osd::ImageOverlay &overlay, media_library_return &status)
     : OverlayImpl(overlay.id, overlay.x, overlay.y, overlay.width, overlay.height, overlay.z_index, overlay.angle,
                   overlay.rotation_alignment_policy, false, overlay.horizontal_alignment, overlay.vertical_alignment),
@@ -62,7 +64,7 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> ImageO
     // check if the file exists
     if (!cv::utils::fs::exists(m_path))
     {
-        LOGGER__ERROR("Error: file {} does not exist", m_path);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: file {} does not exist", m_path);
         return tl::make_unexpected(MEDIA_LIBRARY_INVALID_ARGUMENT);
     }
 
@@ -72,14 +74,14 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> ImageO
     // check if the image was read successfully
     if (image_mat.empty())
     {
-        LOGGER__ERROR("Error: failed to read image file {}", m_path);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: failed to read image file {}", m_path);
         return tl::make_unexpected(MEDIA_LIBRARY_INVALID_ARGUMENT);
     }
 
     // convert image to 4-channel RGBA format if necessary
     if (image_mat.channels() != 4)
     {
-        LOGGER__INFO("READ IMAGE THAT WAS NOT 4 channels");
+        LOGGER__MODULE__INFO(MODULE_NAME, "READ IMAGE THAT WAS NOT 4 channels");
         image_mat = ThreadPool::GetInstance()->invoke([image_mat]() {
             cv::Mat result_image;
             cv::cvtColor(image_mat, result_image, cv::COLOR_BGR2BGRA);

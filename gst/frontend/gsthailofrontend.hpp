@@ -47,26 +47,31 @@ G_BEGIN_DECLS
 #define GST_IS_HAILO_FRONTEND_CLASS(obj) (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILO_FRONTEND))
 
 typedef struct _GstHailoFrontend GstHailoFrontend;
+typedef struct _GstHailoFrontendParams GstHailoFrontendParams;
 typedef struct _GstHailoFrontendClass GstHailoFrontendClass;
 
+struct _GstHailoFrontendParams
+{
+    GstPad *sinkpad = nullptr;
+
+    std::string config_file_path;
+    std::string config_string;
+
+    bool m_elements_linked = false;
+    GstElement *m_image_freeze = nullptr;
+    GstElement *m_freeze_mresize_queue = nullptr;
+    GstElement *m_denoise = nullptr;
+    GstElement *m_denoise_dis_queue = nullptr;
+    GstElement *m_dis_dewarp = nullptr;
+    GstElement *m_dewarp_mresize_queue = nullptr;
+    GstElement *m_multi_resize = nullptr;
+
+    frontend_element_config_t frontend_element_config;
+};
 struct _GstHailoFrontend
 {
     GstBin base_hailofrontend;
-    GstPad *sinkpad;
-
-    gchar *config_file_path;
-    std::string config_string;
-
-    gboolean m_elements_linked;
-    GstElement *m_image_freeze;
-    GstElement *m_freeze_mresize_queue;
-    GstElement *m_denoise;
-    GstElement *m_denoise_dis_queue;
-    GstElement *m_dis_dewarp;
-    GstElement *m_dewarp_mresize_queue;
-    GstElement *m_multi_resize;
-
-    std::shared_ptr<frontend_element_config_t> frontend_element_config;
+    GstHailoFrontendParams *params = nullptr;
 };
 
 struct _GstHailoFrontendClass

@@ -46,19 +46,24 @@ G_BEGIN_DECLS
 #define GST_HAILO_DEWARP_CAST(obj) ((GstHailoDewarp *)(obj))
 
 typedef struct _GstHailoDewarp GstHailoDewarp;
+typedef struct _GstHailoDewarpParams GstHailoDewarpParams;
 typedef struct _GstHailoDewarpClass GstHailoDewarpClass;
+
+struct _GstHailoDewarpParams
+{
+    GstPad *sinkpad = nullptr;
+    GstPad *srcpad = nullptr;
+    std::string config_file_path;
+    std::string config_string;
+
+    ldc_config_t dewarp_config;
+    std::shared_ptr<MediaLibraryDewarp> medialib_dewarp;
+};
 
 struct _GstHailoDewarp
 {
     GstElement element;
-
-    GstPad *sinkpad;
-    GstPad *srcpad;
-    gchar *config_file_path;
-    gchar *config_string;
-
-    std::shared_ptr<ldc_config_t> dewarp_config;
-    std::shared_ptr<MediaLibraryDewarp> medialib_dewarp;
+    GstHailoDewarpParams *params = nullptr;
 };
 
 struct _GstHailoDewarpClass

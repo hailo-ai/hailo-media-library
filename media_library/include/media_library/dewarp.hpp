@@ -124,7 +124,7 @@ class MediaLibraryDewarp
      *
      * @return output_resolution_t - output video configurations
      */
-    output_resolution_t get_output_video_config();
+    output_resolution_t get_application_input_streams_config();
 
     /**
      * @brief set magnification level of optical zoom

@@ -170,9 +170,7 @@ static void gst_hailo_encoder_class_init(GstHailoEncoderClass *klass)
 
 static void gst_hailo_encoder_init(GstHailoEncoder *hailoencoder)
 {
-    hailoencoder->stream_restart = FALSE;
-    hailoencoder->encoder = nullptr;
-    hailoencoder->enforce_caps = TRUE;
+    hailoencoder->params = new GstHailoEncoderParams();
 }
 
 /************************
@@ -186,18 +184,18 @@ static void gst_hailo_encoder_get_property(GObject *object, guint prop_id, GValu
     switch (prop_id)
     {
     case PROP_CONFIG_STRING: {
-        g_value_set_string(value, hailoencoder->config.c_str());
+        g_value_set_string(value, hailoencoder->params->config.c_str());
         break;
     }
     case PROP_CONFIG_PATH: {
-        g_value_set_string(value, hailoencoder->config_path.c_str());
+        g_value_set_string(value, hailoencoder->params->config_path.c_str());
         break;
     }
     case PROP_CONFIG: {
-        if (hailoencoder->encoder)
+        if (hailoencoder->params->encoder)
         {
-            hailoencoder->encoder_config = std::make_shared<encoder_config_t>(hailoencoder->encoder->get_config());
-            g_value_set_pointer(value, hailoencoder->encoder_config.get());
+            hailoencoder->params->encoder_config = hailoencoder->params->encoder->get_config();
+            g_value_set_pointer(value, &hailoencoder->params->encoder_config);
         }
         else
         {
@@ -206,11 +204,10 @@ static void gst_hailo_encoder_get_property(GObject *object, guint prop_id, GValu
         break;
     }
     case PROP_USER_CONFIG: {
-        if (hailoencoder->encoder)
+        if (hailoencoder->params->encoder)
         {
-            hailoencoder->encoder_user_config =
-                std::make_shared<encoder_config_t>(hailoencoder->encoder->get_user_config());
-            g_value_set_pointer(value, hailoencoder->encoder_user_config.get());
+            hailoencoder->params->encoder_user_config = hailoencoder->params->encoder->get_user_config();
+            g_value_set_pointer(value, &hailoencoder->params->encoder_user_config);
         }
         else
         {
@@ -219,14 +216,14 @@ static void gst_hailo_encoder_get_property(GObject *object, guint prop_id, GValu
         break;
     }
     case PROP_ENFORCE_CAPS: {
-        g_value_set_boolean(value, hailoencoder->enforce_caps);
+        g_value_set_boolean(value, hailoencoder->params->enforce_caps);
         break;
     }
     case PROP_ENCODER_MONITORS: {
-        if (hailoencoder->encoder)
+        if (hailoencoder->params->encoder)
         {
-            hailoencoder->encoder_monitors = std::make_shared<encoder_monitors>(hailoencoder->encoder->get_monitors());
-            g_value_set_pointer(value, hailoencoder->encoder_monitors.get());
+            hailoencoder->params->encoder_monitors = encoder_monitors(hailoencoder->params->encoder->get_monitors());
+            g_value_set_pointer(value, &hailoencoder->params->encoder_monitors);
         }
         else
         {
@@ -249,32 +246,28 @@ static void gst_hailo_encoder_set_property(GObject *object, guint prop_id, const
     switch (prop_id)
     {
     case PROP_CONFIG_STRING: {
-        if (!hailoencoder->config.empty())
-        {
-            hailoencoder->config.clear();
-            hailoencoder->config.shrink_to_fit();
-        }
-        hailoencoder->config = std::string(g_value_get_string(value));
+        hailoencoder->params->config = std::string(g_value_get_string(value));
         break;
     }
     case PROP_CONFIG_PATH: {
         // Why do we need two lines instead of one? Good question!
         // For some odd reason, its not working when we use g_value_get_string directly
         encoder_config_path = std::string(g_value_get_string(value));
-        hailoencoder->config_path = encoder_config_path;
+        hailoencoder->params->config_path = encoder_config_path;
         break;
     }
     case PROP_USER_CONFIG: {
-        if (hailoencoder->encoder)
+        if (hailoencoder->params->encoder)
         {
             encoder_config_t *encoder_config = static_cast<encoder_config_t *>(g_value_get_pointer(value));
-            if (hailoencoder->encoder->configure(*encoder_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+            if (hailoencoder->params->encoder->configure(*encoder_config) !=
+                media_library_return::MEDIA_LIBRARY_SUCCESS)
             {
                 GST_ERROR_OBJECT(hailoencoder, "Failed to configure encoder");
             }
             else
             {
-                hailoencoder->encoder_config = std::make_shared<encoder_config_t>(*encoder_config);
+                hailoencoder->params->encoder_config = *encoder_config;
             }
         }
         else
@@ -284,7 +277,7 @@ static void gst_hailo_encoder_set_property(GObject *object, guint prop_id, const
         break;
     }
     case PROP_ENFORCE_CAPS: {
-        hailoencoder->enforce_caps = g_value_get_boolean(value);
+        hailoencoder->params->enforce_caps = g_value_get_boolean(value);
         break;
     }
     default: {
@@ -299,8 +292,6 @@ static void gst_hailo_encoder_finalize(GObject *object)
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)object;
     GST_DEBUG_OBJECT(hailoencoder, "hailoencoder finalize callback");
 
-    /* clean up remaining allocated data */
-
     G_OBJECT_CLASS(parent_class)->finalize(object);
 }
 
@@ -308,28 +299,12 @@ static void gst_hailo_encoder_dispose(GObject *object)
 {
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)object;
     GST_DEBUG_OBJECT(hailoencoder, "hailoencoder dispose callback");
-
-    /* clean up as possible.  may be called multiple times */
-    if (hailoencoder->encoder)
+    if (hailoencoder->params != nullptr)
     {
-        hailoencoder->encoder->dispose();
-        hailoencoder->encoder.reset();
-        hailoencoder->encoder = nullptr;
-    }
-    if (!hailoencoder->config.empty())
-    {
-        hailoencoder->config.clear();
-        hailoencoder->config.shrink_to_fit();
-    }
-    if (!hailoencoder->config_path.empty())
-    {
-        hailoencoder->config_path.clear();
-        hailoencoder->config_path.shrink_to_fit();
+        delete hailoencoder->params;
+        hailoencoder->params = nullptr;
     }
 
-    hailoencoder->encoder_config = nullptr;
-    hailoencoder->encoder_user_config = nullptr;
-    hailoencoder->encoder_monitors = nullptr;
     G_OBJECT_CLASS(parent_class)->dispose(object);
 }
 
@@ -372,12 +347,12 @@ static GstCaps *gst_hailo_encoder_getcaps(GstVideoEncoder *encoder, GstCaps *fil
 {
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
     GstCaps *caps;
-    if (!hailoencoder->encoder)
+    if (!hailoencoder->params->encoder)
     {
         GST_DEBUG_OBJECT(hailoencoder, "Encoder instance not initialized - Getting proxy caps");
         caps = gst_video_encoder_proxy_getcaps(encoder, NULL, filter);
     }
-    else if (!hailoencoder->enforce_caps)
+    else if (!hailoencoder->params->enforce_caps)
     {
         GST_DEBUG_OBJECT(hailoencoder, "Enforce caps is disabled - Getting proxy caps");
         caps = gst_video_encoder_proxy_getcaps(encoder, NULL, filter);
@@ -386,7 +361,7 @@ static GstCaps *gst_hailo_encoder_getcaps(GstVideoEncoder *encoder, GstCaps *fil
     {
         GST_DEBUG_OBJECT(hailoencoder, "Getting caps from encoder instance");
         input_config_t input_config =
-            std::get<hailo_encoder_config_t>(hailoencoder->encoder->get_config()).input_stream;
+            std::get<hailo_encoder_config_t>(hailoencoder->params->encoder->get_config()).input_stream;
         caps = gst_caps_new_empty_simple("video/x-raw");
         gst_caps_set_simple(caps, "format", G_TYPE_STRING, input_config.format.c_str(), "width", G_TYPE_INT,
                             input_config.width, "height", G_TYPE_INT, input_config.height, "framerate",
@@ -419,9 +394,9 @@ static gboolean gst_hailo_encoder_set_format(GstVideoEncoder *encoder, GstVideoC
     icaps = gst_caps_fixate(allowed_caps);
 
     /* Store input state and set output state */
-    if (hailoencoder->input_state)
-        gst_video_codec_state_unref(hailoencoder->input_state);
-    hailoencoder->input_state = gst_video_codec_state_ref(state);
+    if (hailoencoder->params->input_state)
+        gst_video_codec_state_unref(hailoencoder->params->input_state);
+    hailoencoder->params->input_state = gst_video_codec_state_ref(state);
     GST_DEBUG_OBJECT(hailoencoder, "Setting output caps state %" GST_PTR_FORMAT, icaps);
 
     output_format = gst_video_encoder_set_output_state(encoder, icaps, state);
@@ -460,24 +435,24 @@ static gboolean gst_hailo_encoder_flush(GstVideoEncoder *)
 static gboolean gst_hailo_encoder_open(GstVideoEncoder *encoder)
 {
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
-    if (!hailoencoder->config_path.empty() && !hailoencoder->config.empty())
+    if (!hailoencoder->params->config_path.empty() && !hailoencoder->params->config.empty())
     {
         GST_ERROR_OBJECT(hailoencoder, "Both config and config-file-path are provided");
         return FALSE;
     }
-    else if (hailoencoder->config_path.empty() && hailoencoder->config.empty())
+    else if (hailoencoder->params->config_path.empty() && hailoencoder->params->config.empty())
     {
         GST_ERROR_OBJECT(hailoencoder, "No config provided");
         return FALSE;
     }
 
-    if (!hailoencoder->config_path.empty())
+    if (!hailoencoder->params->config_path.empty())
     {
         GST_DEBUG_OBJECT(hailoencoder, "Using config file");
-        std::ifstream input_json(hailoencoder->config_path.c_str());
+        std::ifstream input_json(hailoencoder->params->config_path.c_str());
         std::stringstream json_buffer;
         json_buffer << input_json.rdbuf();
-        hailoencoder->config = json_buffer.str();
+        hailoencoder->params->config = json_buffer.str();
     }
     else
     {
@@ -485,19 +460,19 @@ static gboolean gst_hailo_encoder_open(GstVideoEncoder *encoder)
     }
 
     // Load overlays from json string
-    std::string clean_config = hailoencoder->config;
+    std::string clean_config = hailoencoder->params->config;
     // in case there are quotes around the string, remove them - they were added to enable spaces in the string
     if (clean_config[0] == '\'' && clean_config[clean_config.size() - 1] == '\'')
     {
-        clean_config = clean_config.substr(1, hailoencoder->config.size() - 2);
+        clean_config = clean_config.substr(1, hailoencoder->params->config.size() - 2);
     }
 
-    hailoencoder->config = clean_config;
+    hailoencoder->params->config = clean_config;
 
-    if (hailoencoder->encoder)
+    if (hailoencoder->params->encoder)
     {
         GST_DEBUG_OBJECT(hailoencoder, "Reusing encoder instance");
-        if (hailoencoder->encoder->init() != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        if (hailoencoder->params->encoder->init() != media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
             GST_ERROR_OBJECT(hailoencoder, "Failed to initialize encoder");
             return FALSE;
@@ -506,7 +481,7 @@ static gboolean gst_hailo_encoder_open(GstVideoEncoder *encoder)
     else
     {
         GST_DEBUG_OBJECT(hailoencoder, "Creating new encoder instance");
-        hailoencoder->encoder = std::make_unique<Encoder>(hailoencoder->config);
+        hailoencoder->params->encoder = std::make_unique<Encoder>(hailoencoder->params->config);
     }
     return TRUE;
 }
@@ -515,11 +490,9 @@ static gboolean gst_hailo_encoder_start(GstVideoEncoder *encoder)
 {
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
     GST_DEBUG_OBJECT(hailoencoder, "hailoencoder start callback");
-    hailoencoder->stream_restart = FALSE;
-    hailoencoder->dts_queue = g_queue_new();
-    g_queue_init(hailoencoder->dts_queue);
+    hailoencoder->params->stream_restart = FALSE;
 
-    auto output_expected = hailoencoder->encoder->start();
+    auto output_expected = hailoencoder->params->encoder->start();
     if (!output_expected.has_value())
     {
         GST_ERROR_OBJECT(hailoencoder, "Failed to start encoder");
@@ -538,9 +511,8 @@ static gboolean gst_hailo_encoder_stop(GstVideoEncoder *encoder)
 {
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
     GST_DEBUG_OBJECT(hailoencoder, "hailoencoder stop callback");
-    hailoencoder->encoder->stop();
-    hailoencoder->encoder->release();
-    g_queue_free(hailoencoder->dts_queue);
+    hailoencoder->params->encoder->stop();
+    hailoencoder->params->encoder->release();
     return TRUE;
 }
 
@@ -549,7 +521,7 @@ static GstFlowReturn gst_hailo_encoder_finish(GstVideoEncoder *encoder)
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
 
     GST_DEBUG_OBJECT(hailoencoder, "hailoencoder finish callback");
-    auto output_expected = hailoencoder->encoder->finish();
+    auto output_expected = hailoencoder->params->encoder->finish();
     if (!output_expected.has_value())
     {
         GST_ERROR_OBJECT(hailoencoder, "Could not finish hailoencoder");
@@ -558,7 +530,7 @@ static GstFlowReturn gst_hailo_encoder_finish(GstVideoEncoder *encoder)
     GstBuffer *eos_buffer = gst_hailo_encoder_get_output_buffer(output_expected.value());
     gst_buffer_add_hailo_buffer_meta(eos_buffer, output_expected.value().buffer, output_expected.value().size);
 
-    eos_buffer->pts = eos_buffer->dts = GPOINTER_TO_UINT(g_queue_peek_tail(hailoencoder->dts_queue));
+    eos_buffer->pts = eos_buffer->dts = hailoencoder->params->dts_queue.back();
 
     return gst_pad_push(GST_VIDEO_ENCODER_SRC_PAD(encoder), eos_buffer);
 }
@@ -568,7 +540,7 @@ static GstFlowReturn gst_hailo_encoder_encode_frame(GstVideoEncoder *encoder, Gs
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
     GstBuffer *null_buffer;
     HailoMediaLibraryBufferPtr hailo_buffer_ptr =
-        hailo_buffer_from_gst_buffer(input_frame->input_buffer, hailoencoder->input_state->caps);
+        hailo_buffer_from_gst_buffer(input_frame->input_buffer, hailoencoder->params->input_state->caps);
     if (!hailo_buffer_ptr)
     {
         GST_ERROR_OBJECT(hailoencoder, "Could not get hailo buffer");
@@ -576,7 +548,7 @@ static GstFlowReturn gst_hailo_encoder_encode_frame(GstVideoEncoder *encoder, Gs
     }
 
     GST_DEBUG_OBJECT(encoder, "Encode frame - calling handle_frame");
-    auto outputs = hailoencoder->encoder->handle_frame(hailo_buffer_ptr, input_frame->system_frame_number);
+    auto outputs = hailoencoder->params->encoder->handle_frame(hailo_buffer_ptr, input_frame->system_frame_number);
 
     for (EncoderOutputBuffer &output : outputs)
     {
@@ -599,7 +571,8 @@ static GstFlowReturn gst_hailo_encoder_encode_frame(GstVideoEncoder *encoder, Gs
             current_frame->output_buffer = gst_hailo_encoder_get_output_buffer(output);
         }
 
-        current_frame->dts = GPOINTER_TO_UINT(g_queue_pop_head(hailoencoder->dts_queue));
+        current_frame->dts = hailoencoder->params->dts_queue.front();
+        hailoencoder->params->dts_queue.pop();
         gst_buffer_add_hailo_buffer_meta(current_frame->output_buffer, output.buffer, output.size);
         if (gst_video_encoder_finish_frame(encoder, current_frame) != GST_FLOW_OK)
         {
@@ -684,30 +657,30 @@ static GstFlowReturn gst_hailo_encoder_handle_frame(GstVideoEncoder *encoder, Gs
 
     if (frame->system_frame_number == 0)
     {
-        switch (hailoencoder->encoder->get_gop_size())
+        switch (hailoencoder->params->encoder->get_gop_size())
         {
         case 1:
             break;
         case 2:
         case 3:
-            g_queue_push_tail(hailoencoder->dts_queue, GUINT_TO_POINTER(frame->pts - frame->duration));
+            hailoencoder->params->dts_queue.push(frame->pts - frame->duration);
             break;
         default:
-            g_queue_push_tail(hailoencoder->dts_queue, GUINT_TO_POINTER(frame->pts - 2 * frame->duration));
-            g_queue_push_tail(hailoencoder->dts_queue, GUINT_TO_POINTER(frame->pts - frame->duration));
+            hailoencoder->params->dts_queue.push(frame->pts - 2 * frame->duration);
+            hailoencoder->params->dts_queue.push(frame->pts - frame->duration);
             break;
         }
     }
 
-    g_queue_push_tail(hailoencoder->dts_queue, GUINT_TO_POINTER(frame->pts));
+    hailoencoder->params->dts_queue.push(frame->pts);
     gboolean is_keyframe = GST_VIDEO_CODEC_FRAME_IS_FORCE_KEYFRAME(frame);
 
     if (is_keyframe)
     {
         GST_DEBUG_OBJECT(hailoencoder, "Forcing keyframe");
-        // Adding sync point in order to delete forced keyframe evnet from the queue.
+        // Adding sync point in order to delete forced keyframe evnet from the dts_queue.
         GST_VIDEO_CODEC_FRAME_SET_SYNC_POINT(frame);
-        hailoencoder->encoder->force_keyframe();
+        hailoencoder->params->encoder->force_keyframe();
         // Encode oldest frame of gop
         input_frame = gst_video_encoder_get_oldest_frame(encoder);
         ret = gst_hailo_encoder_encode_frame(encoder, input_frame);

@@ -27,11 +27,13 @@ static void gst_hailo_dsp_buffer_pool_dispose(GObject *object)
     G_OBJECT_CLASS(gst_hailo_dsp_buffer_pool_parent_class)->dispose(object);
     GstHailoDspBufferPool *pool = GST_HAILO_DSP_BUFFER_POOL(object);
     GST_INFO_OBJECT(pool, "Hailo DSP buffer pool dispose");
-    if (pool->config)
+
+    if (pool->params != nullptr)
     {
-        gst_structure_free(pool->config);
-        pool->config = NULL;
+        delete pool->params;
+        pool->params = nullptr;
     }
+
     // Release DSP device
     dsp_status result = dsp_utils::release_device();
     if (result != DSP_SUCCESS)
@@ -43,7 +45,8 @@ static void gst_hailo_dsp_buffer_pool_dispose(GObject *object)
 static void gst_hailo_dsp_buffer_pool_init(GstHailoDspBufferPool *pool)
 {
     GST_INFO_OBJECT(pool, "New Hailo DSP buffer pool");
-    pool->memory_allocator = &DmaMemoryAllocator::get_instance();
+    pool->params = new GstHailoDspBufferPoolParams();
+    pool->params->memory_allocator = &DmaMemoryAllocator::get_instance();
     // Acquire DSP device
     dsp_status status = dsp_utils::acquire_device();
     if (status != DSP_SUCCESS)
@@ -55,8 +58,8 @@ static void gst_hailo_dsp_buffer_pool_init(GstHailoDspBufferPool *pool)
 GstBufferPool *gst_hailo_dsp_buffer_pool_new(guint padding)
 {
     GstHailoDspBufferPool *pool = GST_HAILO_DSP_BUFFER_POOL(g_object_new(GST_TYPE_HAILO_DSP_BUFFER_POOL, NULL));
-    pool->padding = padding;
-    pool->config = NULL;
+    pool->params->padding = padding;
+    pool->params->config = NULL;
     return GST_BUFFER_POOL_CAST(pool);
 }
 
@@ -68,11 +71,11 @@ static GstFlowReturn gst_hailo_dsp_buffer_pool_alloc_buffer(GstBufferPool *pool,
     GstCaps *caps = NULL;
 
     // Get the size and caps of a buffer from the config of the pool
-    if (!hailo_dsp_pool->config)
+    if (!hailo_dsp_pool->params->config)
     {
-        hailo_dsp_pool->config = gst_buffer_pool_get_config(pool);
+        hailo_dsp_pool->params->config = gst_buffer_pool_get_config(pool);
     }
-    gst_buffer_pool_config_get_params(hailo_dsp_pool->config, &caps, &buffer_size, NULL, NULL);
+    gst_buffer_pool_config_get_params(hailo_dsp_pool->params->config, &caps, &buffer_size, NULL, NULL);
     if (caps == NULL)
     {
         GST_ERROR_OBJECT(hailo_dsp_pool, "Failed to get caps from buffer pool config");
@@ -95,12 +98,12 @@ static GstFlowReturn gst_hailo_dsp_buffer_pool_alloc_buffer(GstBufferPool *pool,
             return GST_FLOW_ERROR;
         }
         GST_INFO_OBJECT(hailo_dsp_pool, "Allocating buffer of size %d with padding %d", buffer_size,
-                        hailo_dsp_pool->padding);
+                        hailo_dsp_pool->params->padding);
 
         // Allocate the dma buffer
         void *buffer_ptr = NULL;
-        media_library_return ret = hailo_dsp_pool->memory_allocator->allocate_dma_buffer(
-            (size_t)buffer_size + hailo_dsp_pool->padding, &buffer_ptr);
+        media_library_return ret = hailo_dsp_pool->params->memory_allocator->allocate_dma_buffer(
+            (size_t)buffer_size + hailo_dsp_pool->params->padding, &buffer_ptr);
         if (ret != MEDIA_LIBRARY_SUCCESS)
         {
             GST_ERROR_OBJECT(pool, "Failed to create buffer with status code %d", ret);
@@ -109,7 +112,7 @@ static GstFlowReturn gst_hailo_dsp_buffer_pool_alloc_buffer(GstBufferPool *pool,
         GST_INFO_OBJECT(hailo_dsp_pool, "Allocated dma buffer of size %d from dsp memory", buffer_size);
 
         // Wrap the buffer memory
-        void *aligned_buffer_ptr = (void *)(((size_t)buffer_ptr + hailo_dsp_pool->padding));
+        void *aligned_buffer_ptr = (void *)(((size_t)buffer_ptr + hailo_dsp_pool->params->padding));
         *output_buffer_ptr = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS, aligned_buffer_ptr,
                                                          (size_t)buffer_size, 0, (size_t)buffer_size, NULL, NULL);
         GST_INFO_OBJECT(hailo_dsp_pool, "Allocated buffer memory wrapped");
@@ -124,12 +127,13 @@ static GstFlowReturn gst_hailo_dsp_buffer_pool_alloc_buffer(GstBufferPool *pool,
             if (i == 1)
                 channel_size /= 2;
             GST_DEBUG_OBJECT(hailo_dsp_pool, "Allocating plane %d buffer of size %ld with padding %d", i, channel_size,
-                             hailo_dsp_pool->padding);
+                             hailo_dsp_pool->params->padding);
             // Allocate the plane buffer
             void *plane_ptr = NULL;
             media_library_return status =
-                hailo_dsp_pool->memory_allocator->allocate_dma_buffer(channel_size, &plane_ptr);
-            hailo_dsp_pool->memory_allocator->dmabuf_sync_start(plane_ptr); // start sync so that we can write to it
+                hailo_dsp_pool->params->memory_allocator->allocate_dma_buffer(channel_size, &plane_ptr);
+            hailo_dsp_pool->params->memory_allocator->dmabuf_sync_start(
+                plane_ptr); // start sync so that we can write to it
             if (status != MEDIA_LIBRARY_SUCCESS)
             {
                 GST_ERROR_OBJECT(hailo_dsp_pool,
@@ -139,7 +143,7 @@ static GstFlowReturn gst_hailo_dsp_buffer_pool_alloc_buffer(GstBufferPool *pool,
             GST_DEBUG_OBJECT(hailo_dsp_pool, "Successfully allocated plane %d buffer of size %ld at address %p", i,
                              channel_size, plane_ptr);
             // Wrap the dma buffer as continuous GstMemory, add the plane to the GstBuffer
-            void *aligned_buffer_ptr = (void *)(((size_t)plane_ptr + hailo_dsp_pool->padding));
+            void *aligned_buffer_ptr = (void *)(((size_t)plane_ptr + hailo_dsp_pool->params->padding));
             GstMemory *mem = gst_memory_new_wrapped(GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS, aligned_buffer_ptr,
                                                     channel_size, 0, channel_size, NULL, NULL);
             gst_buffer_insert_memory(*output_buffer_ptr, -1, mem);
@@ -162,7 +166,7 @@ static GstFlowReturn gst_hailo_dsp_buffer_pool_alloc_buffer(GstBufferPool *pool,
 static void gst_hailo_dsp_buffer_pool_free_buffer(GstBufferPool *pool, GstBuffer *buffer)
 {
     GstHailoDspBufferPool *hailo_dsp_pool = GST_HAILO_DSP_BUFFER_POOL(pool);
-    GST_DEBUG_OBJECT(hailo_dsp_pool, "Freeing buffer %p with padding %d", buffer, hailo_dsp_pool->padding);
+    GST_DEBUG_OBJECT(hailo_dsp_pool, "Freeing buffer %p with padding %d", buffer, hailo_dsp_pool->params->padding);
     guint memory_count = gst_buffer_n_memory(buffer);
     for (guint i = 0; i < memory_count; i++)
     {
@@ -170,9 +174,9 @@ static void gst_hailo_dsp_buffer_pool_free_buffer(GstBufferPool *pool, GstBuffer
         GstMapInfo memory_map_info;
         gst_memory_map(memory, &memory_map_info, GST_MAP_READ);
         void *buffer_ptr = memory_map_info.data;
-        void *aligned_buffer_ptr = (void *)(((size_t)buffer_ptr - hailo_dsp_pool->padding));
+        void *aligned_buffer_ptr = (void *)(((size_t)buffer_ptr - hailo_dsp_pool->params->padding));
 
-        media_library_return result = hailo_dsp_pool->memory_allocator->free_dma_buffer(aligned_buffer_ptr);
+        media_library_return result = hailo_dsp_pool->params->memory_allocator->free_dma_buffer(aligned_buffer_ptr);
         if (result != MEDIA_LIBRARY_SUCCESS)
         {
             GST_ERROR_OBJECT(hailo_dsp_pool, "Failed to release dma-buf buffer %p number %d out of %d", buffer_ptr,

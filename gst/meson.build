@@ -17,6 +17,7 @@ utils_sources = [
     'utils/gsthailodmabufferpoolutils.cpp',
     'utils/gsthailodmabufallocator.cpp',
     'utils/gsthailodmabufferpool.cpp',
+    'common/gstmedialibcommon.cpp',
     'osd/impl/blender_impl.cpp',
     'osd/impl/custom_overlay_impl.cpp',
     'osd/impl/datetime_overlay_impl.cpp',
@@ -53,7 +54,7 @@ gstmedialibutils_lib = shared_library('gstmedialibutils',
 )
 
 gstmedialibrary_utils_dep = declare_dependency(
-  include_directories: [include_directories('./buffer_utils', './osd')],
+  include_directories: [include_directories('./buffer_utils', './osd', './common')],
   dependencies : [media_library_common_dep, v4l_dep],
   link_with : gstmedialibutils_lib)
 

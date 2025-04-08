@@ -107,11 +107,7 @@ static void gst_hailoosd_class_init(GstHailoOsdClass *klass)
 
 static void gst_hailoosd_init(GstHailoOsd *hailoosd)
 {
-    hailoosd->blender = nullptr;
-    hailoosd->config_path = g_strdup("");
-    hailoosd->config_str = g_strdup("");
-    hailoosd->wait_for_writable_buffer = false;
-    hailoosd->initialized = false;
+    hailoosd->params = new GstHailoOsdParams();
 }
 
 void gst_hailoosd_set_property(GObject *object, guint property_id, const GValue *value, GParamSpec *pspec)
@@ -123,18 +119,18 @@ void gst_hailoosd_set_property(GObject *object, guint property_id, const GValue 
     switch (property_id)
     {
     case PROP_CONFIG_FILE_PATH:
-        G_VALUE_REPLACE_STRING(hailoosd->config_path, value);
+        hailoosd->params->config_path = glib_cpp::get_string_from_gvalue(value);
         break;
     case PROP_CONFIG_STR: {
-        G_VALUE_REPLACE_STRING(hailoosd->config_str, value);
-        if (hailoosd->initialized)
+        hailoosd->params->config_str = glib_cpp::get_string_from_gvalue(value);
+        if (hailoosd->params->initialized)
         {
-            hailoosd->blender->configure(std::string(hailoosd->config_str));
+            hailoosd->params->blender->configure(std::string(hailoosd->params->config_str));
         }
         break;
     }
     case PROP_WAIT_FOR_WRITABLE_BUFFER:
-        hailoosd->wait_for_writable_buffer = g_value_get_boolean(value);
+        hailoosd->params->wait_for_writable_buffer = g_value_get_boolean(value);
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
@@ -151,16 +147,16 @@ void gst_hailoosd_get_property(GObject *object, guint property_id, GValue *value
     switch (property_id)
     {
     case PROP_CONFIG_FILE_PATH:
-        g_value_set_string(value, hailoosd->config_path);
+        g_value_set_string(value, hailoosd->params->config_path.c_str());
         break;
     case PROP_CONFIG_STR:
-        g_value_set_string(value, hailoosd->config_str);
+        g_value_set_string(value, hailoosd->params->config_str.c_str());
         break;
     case PROP_WAIT_FOR_WRITABLE_BUFFER:
-        g_value_set_boolean(value, hailoosd->wait_for_writable_buffer);
+        g_value_set_boolean(value, hailoosd->params->wait_for_writable_buffer);
         break;
     case PROP_BLENDER:
-        g_value_set_pointer(value, hailoosd->blender.get());
+        g_value_set_pointer(value, hailoosd->params->blender.get());
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
@@ -172,11 +168,11 @@ void gst_hailoosd_dispose(GObject *object)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(object);
     GST_DEBUG_OBJECT(hailoosd, "dispose");
-
-    /* clean up as possible.  may be called multiple times */
-
-    // Release overlays
-    hailoosd->blender = nullptr;
+    if (hailoosd->params != nullptr)
+    {
+        delete hailoosd->params;
+        hailoosd->params = nullptr;
+    }
 
     G_OBJECT_CLASS(gst_hailoosd_parent_class)->dispose(object);
 }
@@ -184,20 +180,8 @@ void gst_hailoosd_dispose(GObject *object)
 void gst_hailoosd_finalize(GObject *object)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(object);
-
     GST_DEBUG_OBJECT(hailoosd, "finalize");
 
-    /* clean up object here */
-    if (hailoosd->config_path)
-    {
-        g_free(hailoosd->config_path);
-        hailoosd->config_path = NULL;
-    }
-    if (hailoosd->config_str)
-    {
-        g_free(hailoosd->config_str);
-        hailoosd->config_str = NULL;
-    }
     G_OBJECT_CLASS(gst_hailoosd_parent_class)->finalize(object);
 }
 
@@ -205,44 +189,42 @@ static gboolean gst_hailoosd_start(GstBaseTransform *trans)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
 
-    if (hailoosd->blender != nullptr)
+    if (hailoosd->params->blender != nullptr)
     {
         GST_DEBUG_OBJECT(hailoosd, "Blender object already exists, skipping creation");
         return TRUE;
     }
 
-    std::string config_str = std::string(hailoosd->config_str);
-    std::string config_path = std::string(hailoosd->config_path);
-    hailoosd->initialized = true;
+    hailoosd->params->initialized = true;
 
-    if (config_str != "" && config_path == "")
+    if (hailoosd->params->config_str != "" && hailoosd->params->config_path == "")
     {
         // Load overlays from json string
-        std::string clean_config = config_str;
+        std::string clean_config = hailoosd->params->config_str;
         // in case there are quotes around the string, remove them - they were added to enable spaces in the string
         if (clean_config[0] == '\'' && clean_config[clean_config.size() - 1] == '\'')
         {
-            clean_config = clean_config.substr(1, config_str.size() - 2);
+            clean_config = clean_config.substr(1, hailoosd->params->config_str.size() - 2);
         }
         tl::expected<std::shared_ptr<osd::Blender>, media_library_return> blender_expected =
-            osd::Blender::create(config_str);
+            osd::Blender::create(clean_config);
 
         if (!blender_expected.has_value())
         {
             GST_ERROR_OBJECT(hailoosd, "Failed to create OSD from config str");
             return FALSE;
         }
-        hailoosd->blender = blender_expected.value();
+        hailoosd->params->blender = blender_expected.value();
     }
-    else if (config_str == "" && config_path != "")
+    else if (hailoosd->params->config_str == "" && hailoosd->params->config_path != "")
     {
         // Load overlays from json file
-        if (!std::ifstream(config_path))
+        if (!std::ifstream(hailoosd->params->config_path))
         {
             GST_ERROR_OBJECT(hailoosd, "Config file does not exist");
             return FALSE;
         }
-        std::ifstream config_file(config_path);
+        std::ifstream config_file(hailoosd->params->config_path);
         std::stringstream buffer;
         if (config_file.is_open())
         {
@@ -256,9 +238,9 @@ static gboolean gst_hailoosd_start(GstBaseTransform *trans)
             GST_ERROR_OBJECT(hailoosd, "Failed to create OSD from config file");
             return FALSE;
         }
-        hailoosd->blender = blender_expected.value();
+        hailoosd->params->blender = blender_expected.value();
     }
-    else if (config_str != "" && config_path != "")
+    else if (hailoosd->params->config_str != "" && hailoosd->params->config_path != "")
     {
         GST_ERROR_OBJECT(hailoosd, "Both config string and config path are not empty, please choose only one");
     }
@@ -273,7 +255,7 @@ static gboolean gst_hailoosd_start(GstBaseTransform *trans)
             GST_ERROR_OBJECT(hailoosd, "Failed to create OSD without config");
             return FALSE;
         }
-        hailoosd->blender = blender_expected.value();
+        hailoosd->params->blender = blender_expected.value();
     }
 
     GST_DEBUG_OBJECT(hailoosd, "start");
@@ -307,7 +289,7 @@ static void gst_hailoosd_before_transform(GstBaseTransform *trans, GstBuffer *bu
 
     if (gst_buffer_is_writable(buffer) == FALSE)
     {
-        if (hailoosd->wait_for_writable_buffer)
+        if (hailoosd->params->wait_for_writable_buffer)
         {
             gst_hailoosd_wait_for_writable_buffer(hailoosd, buffer);
         }
@@ -331,8 +313,8 @@ static gboolean gst_hailoosd_set_caps(GstBaseTransform *trans, GstCaps *incaps, 
     GstVideoInfo *full_image_info = gst_video_info_new();
     gst_video_info_from_caps(full_image_info, incaps);
 
-    media_library_return ret = hailoosd->blender->set_frame_size(GST_VIDEO_INFO_WIDTH(full_image_info),
-                                                                 GST_VIDEO_INFO_HEIGHT(full_image_info));
+    media_library_return ret = hailoosd->params->blender->set_frame_size(GST_VIDEO_INFO_WIDTH(full_image_info),
+                                                                         GST_VIDEO_INFO_HEIGHT(full_image_info));
 
     gst_video_info_free(full_image_info);
 
@@ -372,7 +354,7 @@ static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans, GstBuffe
     gst_caps_unref(caps);
 
     // perform blending
-    ret = hailoosd->blender->blend(media_library_buffer);
+    ret = hailoosd->params->blender->blend(media_library_buffer);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
         GST_ERROR_OBJECT(trans, "Failed to do blend (%d)", ret);

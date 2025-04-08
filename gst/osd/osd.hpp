@@ -115,14 +115,14 @@ struct rgba_color_t
 typedef enum
 {
     /**
-     * A420 Format - planar 4:4:2:0 AYUV. Each component is 8bit \n
+     * A420 Format - planar 4:4:2:0 AYUV. Each component is 8-bit. \n
      * For A420 format, the dimensions of the image, both width and height, need to be even numbers \n
-     * Four planes in the following order: Y plane, U plane, V plane, Alpha plane
+     * Four planes in the following order: Y plane, U plane, V plane, Alpha plane.
      */
     A420,
 
     /**
-     * ARGB - RGB with alpha channel first (packed) format. One plane, each color component is 8bit \n
+     * ARGB - RGB with alpha channel first (packed) format. One plane, each color component is 8-bit. \n
      * @code
      * +--+--+--+--+ +--+--+--+--+
      * |A0|R0|G0|B0| |A1|R1|G1|B1| ...
@@ -144,27 +144,27 @@ mat_dims calculate_text_size(const std::string &label, const std::string &font_p
  * @{
  */
 
-/** Overlay base strcut */
+/** Overlay base struct */
 struct Overlay
 {
     /**
-     * Unique string identifier for the overlay
-     * This id is used for all future operations on the overlay
+     * Unique string identifier for the overlay.
+     * This id is used for all future operations on the overlay.
      */
     std::string id;
     /**
      * Horizontal position in frame.
-     * Position is relative and denoted with a decimal number between [0, 1]
+     * Position is relative and denoted with a decimal number between [0, 1].
      */
     float x;
     /**
      * Vertical position in frame.
-     * Position is relative and denoted with a decimal number between [0, 1]
+     * Position is relative and denoted with a decimal number between [0, 1].
      */
     float y;
     /**
      * Blend order when overlays overlay.
-     * Overlays with higher :z_index value are blender on top of overlays with lower :z_index value
+     * Overlays with higher :z_index value are blender on top of overlays with lower :z_index value.
      */
     unsigned int z_index;
     /**
@@ -200,15 +200,15 @@ struct Overlay
 struct ImageOverlay : Overlay
 {
     /**
-     * Width is relative and denoted with a decimal number between [0, 1]
+     * Width is relative and denoted with a decimal number between [0, 1].
      */
     float width;
     /**
-     * Height is relative and denoted with a decimal number between [0, 1]
+     * Height is relative and denoted with a decimal number between [0, 1].
      */
     float height;
     /**
-     * Path to load image from. The image will be scaled to match the given :width and :height
+     * Path to load image from. The image will be scaled to match the given :width and :height.
      */
     std::string image_path;
 
@@ -223,40 +223,40 @@ struct ImageOverlay : Overlay
 /** Overlay containing text */
 struct BaseTextOverlay : Overlay
 {
-    /** Text content */
+    /** Text content. */
     std::string label;
 
-    /** Foreground Text color */
+    /** Foreground Text color. */
     rgba_color_t text_color;
 
-    /** Background color */
+    /** Background color. */
     rgba_color_t background_color;
 
-    /** Path to load font from. The font will be scaled to match the given font_size */
+    /** Path to load font from. The font will be scaled to match the given font_size. */
     std::string font_path;
 
-    /** Font size */
+    /** Font size. */
     float font_size;
 
-    /** Line thickness */
+    /** Line thickness. */
     int line_thickness;
 
-    /** Color of the text shadow. Shadow is disabled if any of the color components are negative */
+    /** Color of the text shadow. Shadow is disabled if any of the color components are negative. */
     rgba_color_t shadow_color;
 
-    /** Horizontal offset of the shadow relative to the text, in frame width ratio */
+    /** Horizontal offset of the shadow relative to the text, in frame width ratio. */
     float shadow_offset_x;
 
-    /** Vertical offset of the shadow relative to the text, in frame height ratio */
+    /** Vertical offset of the shadow relative to the text, in frame height ratio. */
     float shadow_offset_y;
 
-    /** Either normal or bold */
+    /** Either normal or bold. */
     font_weight_t font_weight;
 
-    /** Outline size */
+    /** Outline size. */
     int outline_size;
 
-    /** Outline Text color */
+    /** Outline Text color. */
     rgba_color_t outline_color;
 
     BaseTextOverlay();
@@ -413,7 +413,7 @@ void from_json(const nlohmann::json &json, CustomOverlay &overlay);
  *
  * @brief Overlay manager
  * @details Support the addition, removal and modification of overlays
- *          Overlay traits are defined using the structs above
+ *          Overlay traits are defined using the structs above.
  */
 class Blender : public std::enable_shared_from_this<Blender>
 {
@@ -427,8 +427,8 @@ class Blender : public std::enable_shared_from_this<Blender>
     /**
      * @brief Add a new overlay
      * @details The new overlay will be blended upon each subsequent call to :blend
-     * @param[in] id Unique string identifier for the overlay
-     *               This id is used for all future operations on the overlay
+     * @param[in] id Unique string identifier for the overlay.
+     *               This id is used for all future operations on the overlay.
      * @param[in] overlay Overlay to add
      * @return :MEDIA_LIBRARY_SUCCESS if successful, otherwise a :media_library_return error
      */
@@ -449,7 +449,7 @@ class Blender : public std::enable_shared_from_this<Blender>
      *         otherwise a :media_library_return error
      * @note The return overlay should be downcast to the correct overlay type using :std::static_pointer_cast
      *       The caller of the function is responsible to know which overlay type is denoted by each id
-     *       Casting to an incorrect type might result in undefined behaviour
+     *       Casting to an incorrect type might result in undefined behavior
      */
     tl::expected<std::shared_ptr<Overlay>, media_library_return> get_overlay(const std::string &id);
 

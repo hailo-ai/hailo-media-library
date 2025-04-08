@@ -5,6 +5,8 @@
 #include <tuple>
 #include "media_library_logger.hpp"
 
+#define MODULE_NAME LoggerType::Dsp
+
 DspImageEnhancement::DspImageEnhancement()
     : m_denoise_element_enabled(false), m_enabled(false), m_running(true),
       m_isp_params{
@@ -17,17 +19,32 @@ DspImageEnhancement::DspImageEnhancement()
           .auto_target_low = 5,
           .auto_target_high = 248,
           .auto_low_pass_filter_alpha = 0.95,
-          .sharpness = 5,
+          .blur_level = 0,
+          .sharpness_level = 0,
+          .sharpness_amount = 0,
+          .sharpness_threshold = 0,
           .saturation = 1.0,
       },
       m_dsp_params{
-          .sharpness = 5,
-          .contrast = 1.0,
-          .brightness = 0,
-          .saturation_u_a = 1.0,
-          .saturation_u_b = 0,
-          .saturation_v_a = 1.0,
-          .saturation_v_b = 0,
+          .blur =
+              {
+                  .level = 0,
+              },
+          .sharpness =
+              {
+                  .level = 0,
+                  .amount = 0,
+                  .threshold = 0,
+              },
+          .color =
+              {
+                  .contrast = 1.0,
+                  .brightness = 0,
+                  .saturation_u_a = 1.0,
+                  .saturation_u_b = 0,
+                  .saturation_v_a = 1.0,
+                  .saturation_v_b = 0,
+              },
           .histogram_params = nullptr,
       },
       m_dsp_histogram_params{
@@ -100,7 +117,7 @@ std::pair<uint8_t, uint8_t> DspImageEnhancement::find_percentile_pixels(const Hi
 void DspImageEnhancement::contrast_brightness_lowpass_filter(float contrast, int16_t brightness, float &new_contrast,
                                                              float &new_brightness)
 {
-    float previous_contrast = m_dsp_params.contrast;
+    float previous_contrast = m_dsp_params.color.contrast;
     float previous_brightness = m_brightness.value();
     new_contrast = m_isp_params.auto_low_pass_filter_alpha * previous_contrast +
                    (1 - m_isp_params.auto_low_pass_filter_alpha) * contrast;
@@ -141,25 +158,27 @@ void DspImageEnhancement::update_dsp_params_from_histogram(const Histogram &hist
     {
         // apply lowpass filter only if we've already sampled a histogram once
         contrast_brightness_lowpass_filter(contrast, brightness, new_contrast, new_brightness);
-        LOGGER__TRACE("image enhancement parameters calcualted from the histogram: "
-                      "low percentile pixel {} high percentile pixel {} "
-                      "contrast: before low-pass filter + clipping {} after {} "
-                      "brightness: before low-pass filter + clipping {} after {}",
-                      low_percentile_pixel, high_percentile_pixel, contrast, new_contrast, brightness,
-                      static_cast<int16_t>(new_brightness));
+        LOGGER__MODULE__TRACE(MODULE_NAME,
+                              "image enhancement parameters calcualted from the histogram: "
+                              "low percentile pixel {} high percentile pixel {} "
+                              "contrast: before low-pass filter + clipping {} after {} "
+                              "brightness: before low-pass filter + clipping {} after {}",
+                              low_percentile_pixel, high_percentile_pixel, contrast, new_contrast, brightness,
+                              static_cast<int16_t>(new_brightness));
     }
     else
     {
         new_contrast = contrast;
         new_brightness = brightness;
-        LOGGER__TRACE("image enhancement parameters calcualted from the histogram: "
-                      "low percentile pixel {} high percentile pixel {} "
-                      "contrast: {} brightness: {} (clipping without low-pass filter)",
-                      low_percentile_pixel, high_percentile_pixel, contrast, brightness);
+        LOGGER__MODULE__TRACE(MODULE_NAME,
+                              "image enhancement parameters calcualted from the histogram: "
+                              "low percentile pixel {} high percentile pixel {} "
+                              "contrast: {} brightness: {} (clipping without low-pass filter)",
+                              low_percentile_pixel, high_percentile_pixel, contrast, brightness);
     }
 
-    m_dsp_params.contrast = new_contrast;
-    m_dsp_params.brightness = new_brightness;
+    m_dsp_params.color.contrast = new_contrast;
+    m_dsp_params.color.brightness = new_brightness;
     m_brightness = new_brightness;
 }
 
@@ -170,46 +189,54 @@ void DspImageEnhancement::update_dsp_params_from_isp()
 
     if (m_isp_params.auto_luma)
     {
-        LOGGER__TRACE("image enhancement parameters received from the ISP: "
-                      "auto_luma- {} sharpness- {} saturation - {} "
-                      "percentile_low- {} percentile_high- {} target_low- {}  target_high - {} ",
-                      m_isp_params.auto_luma, m_isp_params.sharpness, m_isp_params.saturation,
-                      m_isp_params.auto_percentile_low, m_isp_params.auto_percentile_high, m_isp_params.auto_target_low,
-                      m_isp_params.auto_target_high);
-
-        if (m_isp_params.sharpness > std::numeric_limits<uint8_t>::max())
-        {
-            LOGGER__WARN("image enhancement parameters are out of range and will be clamped");
-        }
+        LOGGER__MODULE__TRACE(MODULE_NAME,
+                              "image enhancement parameters received from the ISP: "
+                              "auto_luma {} percentile_low {} percentile_high {} target_low {}  target_high {}, "
+                              "saturation {},"
+                              "blur level {}, "
+                              "sharpness level {} amount {} threshold {}",
+                              m_isp_params.auto_luma, static_cast<float>(m_isp_params.auto_percentile_low),
+                              static_cast<float>(m_isp_params.auto_percentile_high), m_isp_params.auto_target_low,
+                              m_isp_params.auto_target_high, static_cast<float>(m_isp_params.saturation),
+                              m_isp_params.blur_level, m_isp_params.sharpness_level,
+                              static_cast<float>(m_isp_params.sharpness_amount), m_isp_params.sharpness_threshold);
 
         std::unique_lock<std::shared_mutex> lock(m_dsp_params_lock);
-        m_dsp_params.sharpness = static_cast<uint8_t>(m_isp_params.sharpness);
-        m_dsp_params.saturation_u_a = saturation_a;
-        m_dsp_params.saturation_u_b = saturation_b;
-        m_dsp_params.saturation_v_a = saturation_a;
-        m_dsp_params.saturation_v_b = saturation_b;
+        m_dsp_params.blur.level = m_isp_params.blur_level;
+        m_dsp_params.sharpness.level = m_isp_params.sharpness_level;
+        m_dsp_params.sharpness.amount = m_isp_params.sharpness_amount;
+        m_dsp_params.sharpness.threshold = m_isp_params.sharpness_threshold;
+        m_dsp_params.color.saturation_u_a = saturation_a;
+        m_dsp_params.color.saturation_u_b = saturation_b;
+        m_dsp_params.color.saturation_v_a = saturation_a;
+        m_dsp_params.color.saturation_v_b = saturation_b;
         m_dsp_params.histogram_params = &m_dsp_histogram_params;
     }
     else
     {
-        LOGGER__TRACE("image enhancement parameters received from the ISP: "
-                      "auto_luma- {} sharpness- {} saturation- {} manual_contrast- {} manual_brightness- {}",
-                      m_isp_params.auto_luma, m_isp_params.sharpness, m_isp_params.saturation,
-                      m_isp_params.manual_contrast, m_isp_params.manual_brightness);
-        if (m_isp_params.sharpness > std::numeric_limits<uint8_t>::max() ||
-            m_isp_params.manual_brightness > std::numeric_limits<int16_t>::max())
-        {
-            LOGGER__WARN("image enhancement parameters are out of range and will be clamped");
-        }
+        LOGGER__MODULE__TRACE(MODULE_NAME,
+                              "image enhancement parameters received from the ISP: "
+                              "auto_luma {} manual_contrast {} manual_brightness {}, "
+                              "saturation {}, "
+                              "blur level {}, "
+                              "sharpness level {} amount {} threshold {}",
+                              m_isp_params.auto_luma, static_cast<float>(m_isp_params.manual_contrast),
+                              static_cast<int16_t>(m_isp_params.manual_brightness),
+                              static_cast<float>(m_isp_params.saturation), m_isp_params.blur_level,
+                              m_isp_params.sharpness_level, static_cast<float>(m_isp_params.sharpness_amount),
+                              m_isp_params.sharpness_threshold);
 
         std::unique_lock<std::shared_mutex> lock(m_dsp_params_lock);
-        m_dsp_params.sharpness = static_cast<uint8_t>(m_isp_params.sharpness);
-        m_dsp_params.contrast = m_isp_params.manual_contrast;
-        m_dsp_params.brightness = static_cast<int16_t>(m_isp_params.manual_brightness);
-        m_dsp_params.saturation_u_a = saturation_a;
-        m_dsp_params.saturation_u_b = saturation_b;
-        m_dsp_params.saturation_v_a = saturation_a;
-        m_dsp_params.saturation_v_b = saturation_b;
+        m_dsp_params.blur.level = m_isp_params.blur_level;
+        m_dsp_params.sharpness.level = m_isp_params.sharpness_level;
+        m_dsp_params.sharpness.amount = m_isp_params.sharpness_amount;
+        m_dsp_params.sharpness.threshold = m_isp_params.sharpness_threshold;
+        m_dsp_params.color.contrast = m_isp_params.manual_contrast;
+        m_dsp_params.color.brightness = m_isp_params.manual_brightness;
+        m_dsp_params.color.saturation_u_a = saturation_a;
+        m_dsp_params.color.saturation_u_b = saturation_b;
+        m_dsp_params.color.saturation_v_a = saturation_a;
+        m_dsp_params.color.saturation_v_b = saturation_b;
         m_dsp_params.histogram_params = nullptr;
         m_brightness = std::nullopt;
     }
@@ -226,7 +253,8 @@ void DspImageEnhancement::read_params_from_isp()
     mqd_t mq = mq_open(isp_data, O_RDONLY | O_CREAT, 0666, &attr);
     if (mq == (mqd_t)-1)
     {
-        LOGGER__ERROR(
+        LOGGER__MODULE__ERROR(
+            MODULE_NAME,
             "Error opening message queue named: {}. with the ISP when post denoise filter is enable for reading",
             isp_data);
         return;
@@ -237,12 +265,12 @@ void DspImageEnhancement::read_params_from_isp()
         int ret = clock_gettime(CLOCK_REALTIME, &timeout);
         if (ret != 0)
         {
-            LOGGER__ERROR("Failed to get current time: {}", strerror(errno));
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get current time: {}", strerror(errno));
             break;
         }
 
         timeout.tv_sec++; // Set the timeout to 1 second
-        LOGGER__TRACE("Reading from the message queue {} from ISP", isp_data);
+        LOGGER__MODULE__TRACE(MODULE_NAME, "Reading from the message queue {} from ISP", isp_data);
         ssize_t bytes_read =
             mq_timedreceive(mq, reinterpret_cast<char *>(&m_isp_params), sizeof(m_isp_params), NULL, &timeout);
         if (bytes_read < 0)
@@ -253,7 +281,8 @@ void DspImageEnhancement::read_params_from_isp()
             }
             else
             {
-                LOGGER__ERROR("Error receiving post denoise filter data from ISP message: {}", strerror(errno));
+                LOGGER__MODULE__ERROR(MODULE_NAME, "Error receiving post denoise filter data from ISP message: {}",
+                                      strerror(errno));
                 break; // Exit the loop and stop the thread
             }
         }

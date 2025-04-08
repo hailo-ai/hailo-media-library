@@ -31,6 +31,8 @@
 
 #include <algorithm>
 
+#define MODULE_NAME LoggerType::Osd
+
 namespace osd
 {
 const auto DEFAULT_OSD_CONFIG = R"({
@@ -274,7 +276,7 @@ template <typename BasicJsonType> void from_json(const BasicJsonType &j, rotatio
         e = rotation_alignment_policy_t::TOP_LEFT;
         return;
     }
-    LOGGER__ERROR("Unknown enum value received for rotation_alignment_policy_t");
+    LOGGER__MODULE__ERROR(MODULE_NAME, "Unknown enum value received for rotation_alignment_policy_t");
     throw std::invalid_argument("Unknown enum value received for rotation_alignment_policy_t");
 }
 
@@ -290,7 +292,7 @@ template <typename BasicJsonType> inline void from_json(const BasicJsonType &j, 
         e = font_weight_t::BOLD;
         return;
     }
-    LOGGER__ERROR("Unknown enum value received for font_weight_t");
+    LOGGER__MODULE__ERROR(MODULE_NAME, "Unknown enum value received for font_weight_t");
     throw std::invalid_argument("Unknown enum value received for font_weight_t");
 }
 
@@ -327,7 +329,7 @@ void from_json(const nlohmann::json &json, HorizontalAlignment &alignment)
         }
         else
         {
-            LOGGER__ERROR("Unknown horizontal alignment value received");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Unknown horizontal alignment value received");
             throw std::invalid_argument("Unknown horizontal alignment value received");
         }
     }
@@ -365,7 +367,7 @@ void from_json(const nlohmann::json &json, VerticalAlignment &alignment)
         }
         else
         {
-            LOGGER__ERROR("Unknown vertical alignment value received");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Unknown vertical alignment value received");
             throw std::invalid_argument("Unknown vertical alignment value received");
         }
     }

@@ -78,7 +78,7 @@ class MediaLibraryFrontend;
 using MediaLibraryFrontendPtr = std::shared_ptr<MediaLibraryFrontend>;
 
 /**
- * @brief Frontend object with Dewarp and MultiResize features.
+ * @brief Frontend object with Dewarp and Multi Resize features.
  *
  * Each instance represents a Frontend Bin.
  * Each Frontend bin have one input stream and may have several output streams, depending on configuration.

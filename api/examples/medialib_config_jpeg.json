@@ -1,0 +1,14 @@
+{
+	"default_profile": "Indoor",
+	"profiles": [
+		{
+			"name": "Indoor",
+			"config_file": "/usr/bin/profile_jpeg.json"
+		},
+		{
+			"name": "HDR",
+			"config_file": "/usr/bin/profile_hdr_jpeg.json"
+		}
+	],
+	"checksum": "7cd9ae3fddcbf0d349c20b18066140a8"
+}

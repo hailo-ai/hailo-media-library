@@ -7,6 +7,7 @@
 G_BEGIN_DECLS
 
 typedef struct _GstHailoImageFreeze GstHailoImageFreeze;
+typedef struct _GstHailoImageFreezeParams GstHailoImageFreezeParams;
 typedef struct _GstHailoImageFreezeClass GstHailoImageFreezeClass;
 
 #define GST_TYPE_HAILO_IMAGE_FREEZE (gst_hailo_image_freeze_get_type())
@@ -17,16 +18,21 @@ typedef struct _GstHailoImageFreezeClass GstHailoImageFreezeClass;
 #define GST_IS_HAILO_IMAGE_FREEZE(obj) (G_TYPE_CHECK_INSTANCE_TYPE((obj), GST_TYPE_HAILO_IMAGE_FREEZE))
 #define GST_IS_HAILO_IMAGE_FREEZE_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILO_IMAGE_FREEZE))
 
-struct _GstHailoImageFreeze
+struct _GstHailoImageFreezeParams
 {
-    GstElement parent;
-    GstPad *sinkpad;
-    GstPad *srcpad;
+    GstPad *sinkpad = nullptr;
+    GstPad *srcpad = nullptr;
 
-    bool m_freeze;
+    bool m_freeze = false;
     GstMapInfo info;
     HailoMediaLibraryBufferPtr frozen_buffer;
     MediaLibraryBufferPoolPtr m_buffer_pool;
+};
+
+struct _GstHailoImageFreeze
+{
+    GstElement parent;
+    GstHailoImageFreezeParams *params = nullptr;
 };
 
 struct _GstHailoImageFreezeClass

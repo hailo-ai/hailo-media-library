@@ -6,6 +6,13 @@
 #include "buffer_pool.hpp"
 #include <chrono>
 
+struct hailort_configured_device_t
+{
+    std::shared_ptr<hailort::InferModel> infer_model;
+    hailort::ConfiguredInferModel configured_infer_model;
+    hailort::ConfiguredInferModel::Bindings bindings;
+};
+
 class HailortAsyncDenoise
 {
   public:
@@ -29,10 +36,9 @@ class HailortAsyncDenoise
     denoise_config_t m_denoise_config;
     hailort::AsyncInferJob m_last_infer_job;
 
-    std::unique_ptr<hailort::VDevice> m_vdevice;
-    std::shared_ptr<hailort::InferModel> m_infer_model;
-    hailort::ConfiguredInferModel m_configured_infer_model;
-    hailort::ConfiguredInferModel::Bindings m_bindings;
+    std::string m_current_vdevice_name;
+    std::shared_ptr<hailort::VDevice> m_vdevice;
+    std::unordered_map<std::string, std::shared_ptr<hailort_configured_device_t>> m_configured_devices;
 
     bool set_input_buffer(int fd, const std::string &tensor_name);
     bool set_pre_isp_input_buffers(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr loopback_buffer);

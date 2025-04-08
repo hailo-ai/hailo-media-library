@@ -22,14 +22,14 @@
  */
 #pragma once
 
-#include "logger_macros.hpp"
-
 /* Minimum log level availble at compile time */
 #ifndef SPDLOG_ACTIVE_LEVEL
-#define SPDLOG_ACTIVE_LEVEL (SPDLOG_LEVEL_DEBUG)
+#define SPDLOG_ACTIVE_LEVEL (SPDLOG_LEVEL_TRACE)
 #endif
-
 #define SPDLOG_NO_EXCEPTIONS
+
+#include "logger_macros.hpp"
+
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/null_sink.h>
 #include <spdlog/sinks/rotating_file_sink.h>
@@ -40,51 +40,74 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <map>
 #include <sstream>
 #include <stdint.h>
 #include <string.h>
 
-spdlog::level::level_enum get_level(const char *log_level_c_str, spdlog::level::level_enum default_level);
+#define DEFAULT_ROTATE (true)
+#define DEFAULT_MAX_LOG_FILE_SIZE (1024 * 1024) // 1MB
+#define DEFAULT_LOGGER_PATTERN ("[%Y-%m-%d %X.%e] [%P] [%t] [%n] [%^%l%$] [%s:%#] [%!] %v")
+/* Logger format:
+   [timestamp]     - Date and time with microseconds
+   [PID]           - Process ID
+   [TID]           - Thread ID
+   [name]          - Name of the logger instance
+   [log level]     - Log severity level (e.g., info, error)
+   [source:line]   - Source file and line number
+   [function]      - Function name
+   [message]       - Log message content */
 
-class MediaLibLoggerSetup
-/**
- * @brief This class is responsible for setting up the logger.
- * It will create the logger sinks and set their levels.
- * It will also set the logger level and pattern.
- * The MediaLibLoggerSetup is not accessible after the constructing, log calls
- * are done directly through the logger macros, e.g LOGGER__INFO, LOGGER__ERROR,
- * etc. It will also set the logger pattern.
- */
+enum class LoggerType
+{
+    Default,
+    Api,
+    Resize,
+    Dewarp,
+    PrivacyMask,
+    Encoder,
+    BufferPool,
+    Dis,
+    Eis,
+    Dsp,
+    Isp,
+    Denoise,
+    Osd,
+    Config,
+    LdcMesh,
+    MotionDetection
+};
+
+class LoggerManager
 {
   public:
-    MediaLibLoggerSetup(spdlog::level::level_enum console_level, spdlog::level::level_enum file_level,
-                        spdlog::level::level_enum flush_level);
-    MediaLibLoggerSetup(spdlog::level::level_enum console_level, spdlog::level::level_enum file_level,
-                        spdlog::level::level_enum flush_level, std::string logger_name, std::string file_name,
-                        bool set_default_logger);
-    ~MediaLibLoggerSetup() = default;
-    MediaLibLoggerSetup(MediaLibLoggerSetup const &) = delete;
-    void operator=(MediaLibLoggerSetup const &) = delete;
+    static std::unordered_map<LoggerType, std::string> logger_names;
+    static std::unordered_map<LoggerType, std::shared_ptr<spdlog::logger>> loggers;
 
-    std::string get_log_path();
-    std::string get_main_log_path(std::string logger_name);
-    std::shared_ptr<spdlog::sinks::sink> create_file_sink(const std::string &dir_path, const std::string &filename,
-                                                          bool rotate);
-    std::shared_ptr<spdlog::logger> get_logger()
+    static std::shared_ptr<spdlog::logger> get_logger(LoggerType name)
     {
-        return m_medialib_logger;
+        return loggers[name];
     }
 
-  private:
-    std::string parse_log_path(const char *log_path);
-    void set_levels(spdlog::level::level_enum console_level, spdlog::level::level_enum file_level,
-                    spdlog::level::level_enum flush_level);
-    std::shared_ptr<spdlog::sinks::sink> m_console_sink;
-
-    // The main log will be written to a centralized directory (home directory)
-    // The local log will be written to the local directory or to the path the
-    // user has chosen (via $MEDIALIB_LOGGER_PATH)
-    std::shared_ptr<spdlog::sinks::sink> m_main_log_file_sink;
-    std::shared_ptr<spdlog::sinks::sink> m_local_log_file_sink;
-    std::shared_ptr<spdlog::logger> m_medialib_logger;
+    LoggerManager() = delete;
 };
+
+spdlog::level::level_enum get_level(const char *log_level_c_str, spdlog::level::level_enum default_level);
+
+namespace media_lib_logger_setup
+{
+/**
+ * @brief Sets up all loggers, according to default media library settings.
+ * It will create the loggers' sinks and set their levels.
+ * It will also set the loggers' levels and patterns.
+ * Log calls are done directly through the logger macros, e.g LOGGER__INFO, LOGGER__ERROR,
+ * LOGGER__MODULE__INFO, LOGGER__MODULE__ERROR, etc.
+ */
+void media_lib_logger_setup();
+// Create and return a single logger
+std::shared_ptr<spdlog::logger> create_logger(std::string logger_str, spdlog::level::level_enum file_level,
+                                              spdlog::level::level_enum console_level, const char *file_name,
+                                              const std::string &pattern = DEFAULT_LOGGER_PATTERN,
+                                              bool rotate = DEFAULT_ROTATE,
+                                              std::size_t max_file_size = DEFAULT_MAX_LOG_FILE_SIZE);
+}; // namespace media_lib_logger_setup

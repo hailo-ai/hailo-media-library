@@ -23,39 +23,30 @@
 #pragma once
 
 #include <gst/gst.h>
-#include <gst/video/video.h>
-#include <fstream>
 #include <string>
-#include <sstream>
-
-#define G_VALUE_REPLACE_STRING(dst, src)                                                                               \
-    {                                                                                                                  \
-        g_free(dst);                                                                                                   \
-        dst = g_value_dup_string(src);                                                                                 \
-    }
 
 namespace gstmedialibcommon
 {
-inline std::string read_json_string_from_file(const gchar *file_path)
-{
-    std::ifstream file_to_read;
-    file_to_read.open(file_path);
-    if (!file_to_read.is_open())
-        throw std::runtime_error("config path is not valid");
-    std::stringstream buffer;
-    buffer << file_to_read.rdbuf();
-    std::string file_string = buffer.str();
-    file_to_read.close();
-    return file_string;
-}
-
-inline void strip_string_syntax(std::string &pipeline_input)
-{
-    if (pipeline_input.front() == '\'' && pipeline_input.back() == '\'')
-    {
-        pipeline_input.erase(0, 1);
-        pipeline_input.pop_back();
-    }
-}
-
+std::string read_json_string_from_file(const std::string &file_path);
+void strip_string_syntax(std::string &pipeline_input);
 } // namespace gstmedialibcommon
+
+namespace glib_cpp
+{
+struct t_error_message
+{
+    std::string message;
+    std::string debug_info;
+};
+
+t_error_message parse_error(GstMessage *msg);
+std::string get_string_from_gvalue(const GValue *value);
+
+template <typename T> std::string get_name(const T *element)
+{
+    gchar *name_c(gst_object_get_name(GST_OBJECT_CAST(element)));
+    std::string name_str(name_c);
+    g_free(name_c);
+    return name_str;
+}
+} // namespace glib_cpp

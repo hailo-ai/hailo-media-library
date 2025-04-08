@@ -53,22 +53,22 @@ G_BEGIN_DECLS
 #define GST_IS_HAILO_FRONTEND_BINSRC_CLASS(obj) (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILO_FRONTEND_BINSRC))
 
 typedef struct _GstHailoFrontendBinSrc GstHailoFrontendBinSrc;
+typedef struct _GstHailoFrontendBinSrcParams GstHailoFrontendBinSrcParams;
 typedef struct _GstHailoFrontendBinSrcClass GstHailoFrontendBinSrcClass;
 
-struct _GstHailoFrontendBinSrc
+struct _GstHailoFrontendBinSrcParams
 {
-    GstBin base_hailofrontendbinsrc;
     std::vector<GstPad *> srcpads;
 
-    gchar *config_file_path;
+    std::string config_file_path;
     std::string config_string;
     std::string device_id;
 
-    gboolean m_elements_linked;
-    GstElement *m_v4l2src;
-    GstElement *m_capsfilter;
-    GstElement *m_queue;
-    GstElement *m_frontend;
+    bool m_elements_linked = false;
+    GstElement *m_v4l2src = nullptr;
+    GstElement *m_capsfilter = nullptr;
+    GstElement *m_queue = nullptr;
+    GstElement *m_frontend = nullptr;
     std::shared_ptr<ConfigManager> m_input_config_manager;
     std::shared_ptr<ConfigManager> m_isp_config_manager;
     std::shared_ptr<ConfigManager> m_hailort_config_manager;
@@ -80,6 +80,12 @@ struct _GstHailoFrontendBinSrc
     std::unique_ptr<HDR::HDRManager> m_hdr;
     MediaLibraryPreIspDenoisePtr m_pre_isp_denoise;
     std::mutex m_config_mutex;
+};
+
+struct _GstHailoFrontendBinSrc
+{
+    GstBin base_hailofrontendbinsrc;
+    GstHailoFrontendBinSrcParams *params = nullptr;
 };
 
 struct _GstHailoFrontendBinSrcClass

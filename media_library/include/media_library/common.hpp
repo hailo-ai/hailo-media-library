@@ -25,7 +25,9 @@
 #include <memory>
 #include <cstdlib>
 #include <string>
+#include <sstream>
 #include <tl/expected.hpp>
+#include <stdexcept> // For std::invalid_argument, std::out_of_range
 
 // this macro is used to create a static initializer for a function that should
 // be called before main program starts
@@ -72,20 +74,34 @@ static inline bool is_env_variable_on(const std::string &env_var_name, const std
     return ((nullptr != env_var) && (required_value == env_var));
 }
 
-static inline tl::expected<std::string, media_library_return> get_env_variable(const std::string &env_var_name)
+template <typename T> static inline tl::expected<T, media_library_return> get_env_variable(const std::string &var_name)
 {
-    const auto env_var = std::getenv(env_var_name.c_str());
-
-    if (nullptr == env_var)
+    const char *val = std::getenv(var_name.c_str());
+    if (!val)
     {
-        return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
+        return tl::make_unexpected(MEDIA_LIBRARY_UNINITIALIZED);
     }
 
-    const auto result = std::string(env_var);
-    if (result.empty())
+    std::string str_val(val);
+    T result;
+    if constexpr (std::is_same_v<T, std::string>)
     {
-        return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
+        return T(str_val); // Direct return for strings
     }
-
-    return result;
+    else if constexpr (std::is_same_v<T, bool>)
+    {
+        // Interpret common boolean values
+        if (str_val == "1" || str_val == "true" || str_val == "yes")
+            return true;
+        if (str_val == "0" || str_val == "false" || str_val == "no")
+            return false;
+        return tl::unexpected(MEDIA_LIBRARY_ERROR);
+    }
+    else
+    {
+        std::istringstream iss(str_val);
+        if (iss >> result)
+            return T(result); // Convert for int, double, etc.
+        return tl::unexpected(MEDIA_LIBRARY_ERROR);
+    }
 }

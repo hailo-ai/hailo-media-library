@@ -27,6 +27,7 @@
 #include <dlfcn.h>
 #include <unistd.h>
 #include <fstream>
+#include <iostream>
 #include <nlohmann/json.hpp>
 
 #include "media_library/media_library_types.hpp"
@@ -47,10 +48,6 @@ static gboolean gst_hailoencodebin_prepare_encoder_element(GstHailoEncodeBin *ha
                                                            const char *config_property, const gchar *property_value);
 static gboolean gst_hailoencodebin_link_elements(GstElement *element);
 static void gst_hailoencodebin_dispose(GObject *object);
-static void gst_hailoencodebin_reset(GstHailoEncodeBin *self);
-
-#define MIN_QUEUE_SIZE 1
-#define DEFAULT_QUEUE_SIZE 2
 
 typedef enum
 {
@@ -120,7 +117,7 @@ static void gst_hailoencodebin_class_init(GstHailoEncodeBinClass *klass)
     g_object_class_install_property(
         gobject_class, PROP_QUEUE_SIZE,
         g_param_spec_uint("queue-size", "Queue size", "Size of the queues in the bin, there are 2 queues.",
-                          MIN_QUEUE_SIZE, G_MAXUINT, DEFAULT_QUEUE_SIZE,
+                          MIN_QUEUE_SIZE, G_MAXUINT, ENCODEBIN_DEFAULT_QUEUE_SIZE,
                           (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
                                         GST_PARAM_MUTABLE_PLAYING)));
 
@@ -148,33 +145,31 @@ static void gst_hailoencodebin_class_init(GstHailoEncodeBinClass *klass)
 
 static void gst_hailoencodebin_init(GstHailoEncodeBin *hailoencodebin)
 {
-    // Default values
-    hailoencodebin->config_file_path = NULL;
-    hailoencodebin->m_elements_linked = FALSE;
-    hailoencodebin->queue_size = DEFAULT_QUEUE_SIZE;
-    hailoencodebin->encoder_type = EncoderType::None;
+    hailoencodebin->params = new GstHailoEncodeBinParams();
 
     // Prepare internal elements
     // osd
-    hailoencodebin->m_osd = gst_element_factory_make("hailoosd", NULL);
-    if (nullptr == hailoencodebin->m_osd)
+    hailoencodebin->params->m_osd = gst_element_factory_make("hailoosd", NULL);
+    if (nullptr == hailoencodebin->params->m_osd)
     {
         GST_ELEMENT_ERROR(hailoencodebin, RESOURCE, FAILED, ("Failed creating hailoosd element in bin!"), (NULL));
     }
 
     // queue between osd and encoder
-    hailoencodebin->m_queue_encoder = gst_element_factory_make("queue", NULL);
-    if (nullptr == hailoencodebin->m_queue_encoder)
+    hailoencodebin->params->m_queue_encoder = gst_element_factory_make("queue", NULL);
+    if (nullptr == hailoencodebin->params->m_queue_encoder)
     {
         GST_ELEMENT_ERROR(hailoencodebin, RESOURCE, FAILED, ("Failed creating queue element in bin!"), (NULL));
     }
     // Passing 0 disables the features here
-    g_object_set(hailoencodebin->m_queue_encoder, "max-size-time", (guint64)0, NULL);
-    g_object_set(hailoencodebin->m_queue_encoder, "max-size-bytes", (guint)0, NULL);
-    g_object_set(hailoencodebin->m_queue_encoder, "max-size-buffers", (guint)hailoencodebin->queue_size, NULL);
+    g_object_set(hailoencodebin->params->m_queue_encoder, "max-size-time", (guint64)0, NULL);
+    g_object_set(hailoencodebin->params->m_queue_encoder, "max-size-bytes", (guint)0, NULL);
+    g_object_set(hailoencodebin->params->m_queue_encoder, "max-size-buffers", (guint)hailoencodebin->params->queue_size,
+                 NULL);
 
     // Add elements and pads in the bin
-    gst_bin_add_many(GST_BIN(hailoencodebin), hailoencodebin->m_osd, hailoencodebin->m_queue_encoder, NULL);
+    gst_bin_add_many(GST_BIN(hailoencodebin), hailoencodebin->params->m_osd, hailoencodebin->params->m_queue_encoder,
+                     NULL);
     gst_hailoencodebin_init_ghost_sink(hailoencodebin);
 }
 
@@ -187,16 +182,16 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id, const G
     {
     // Handle property assignments here
     case PROP_CONFIG_FILE_PATH: {
-        G_VALUE_REPLACE_STRING(hailoencodebin->config_file_path, value);
-        GST_DEBUG_OBJECT(hailoencodebin, "config_file_path: %s", hailoencodebin->config_file_path);
+        hailoencodebin->params->config_file_path = glib_cpp::get_string_from_gvalue(value);
+        GST_DEBUG_OBJECT(hailoencodebin, "config_file_path: %s", hailoencodebin->params->config_file_path.c_str());
 
         // set params for sub elements here
-        g_object_set(hailoencodebin->m_osd, "config-file-path", g_value_get_string(value), NULL);
-        if (hailoencodebin->m_encoder)
+        g_object_set(hailoencodebin->params->m_osd, "config-file-path", g_value_get_string(value), NULL);
+        if (hailoencodebin->params->m_encoder)
         {
             nlohmann::json config_json = gst_hailoencodebin_get_encoder_json(g_value_get_string(value), false);
             EncoderType encoder_type = gst_hailoencodebin_get_encoder_type(config_json);
-            if (hailoencodebin->encoder_type == encoder_type)
+            if (hailoencodebin->params->encoder_type == encoder_type)
             {
                 gst_hailoencodebin_set_encoder_properties(hailoencodebin, "config-file-path",
                                                           g_value_get_string(value));
@@ -209,31 +204,31 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id, const G
         }
 
         // Now that configuration is known, link the elements
-        if (hailoencodebin->m_elements_linked == FALSE)
+        if (hailoencodebin->params->m_elements_linked == FALSE)
         {
-            if (!hailoencodebin->m_encoder)
+            if (!hailoencodebin->params->m_encoder)
             {
                 gst_hailoencodebin_prepare_encoder_element(hailoencodebin, "config-file-path",
                                                            g_value_get_string(value));
             }
             if (gst_hailoencodebin_link_elements(GST_ELEMENT(hailoencodebin)))
             {
-                hailoencodebin->m_elements_linked = TRUE;
+                hailoencodebin->params->m_elements_linked = TRUE;
             }
         }
         break;
     }
     case PROP_CONFIG_STRING: {
-        hailoencodebin->config_string = std::string(g_value_get_string(value));
-        GST_DEBUG_OBJECT(hailoencodebin, "config-string: %s", hailoencodebin->config_string.c_str());
+        hailoencodebin->params->config_string = std::string(g_value_get_string(value));
+        GST_DEBUG_OBJECT(hailoencodebin, "config-string: %s", hailoencodebin->params->config_string.c_str());
 
         // set params for sub elements here
-        g_object_set(hailoencodebin->m_osd, "config-string", g_value_get_string(value), NULL);
-        if (hailoencodebin->m_encoder)
+        g_object_set(hailoencodebin->params->m_osd, "config-string", g_value_get_string(value), NULL);
+        if (hailoencodebin->params->m_encoder)
         {
             nlohmann::json config_json = gst_hailoencodebin_get_encoder_json(g_value_get_string(value), false);
             EncoderType encoder_type = gst_hailoencodebin_get_encoder_type(config_json);
-            if (hailoencodebin->encoder_type == encoder_type)
+            if (hailoencodebin->params->encoder_type == encoder_type)
             {
                 gst_hailoencodebin_set_encoder_properties(hailoencodebin, "config-string", g_value_get_string(value));
             }
@@ -245,37 +240,38 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id, const G
         }
 
         // Now that configuration is known, link the elements
-        if (hailoencodebin->m_elements_linked == FALSE)
+        if (hailoencodebin->params->m_elements_linked == FALSE)
         {
-            if (!hailoencodebin->m_encoder)
+            if (!hailoencodebin->params->m_encoder)
             {
                 gst_hailoencodebin_prepare_encoder_element(hailoencodebin, "config-string", g_value_get_string(value));
             }
             if (gst_hailoencodebin_link_elements(GST_ELEMENT(hailoencodebin)))
             {
-                hailoencodebin->m_elements_linked = TRUE;
+                hailoencodebin->params->m_elements_linked = TRUE;
             }
         }
         break;
     }
     case PROP_USER_CONFIG: {
         gpointer config = g_value_get_pointer(value);
-        g_object_set(hailoencodebin->m_encoder, "user-config", config, NULL);
+        g_object_set(hailoencodebin->params->m_encoder, "user-config", config, NULL);
         break;
     }
     case PROP_WAIT_FOR_WRITABLE_BUFFER: {
         gboolean wait_for_writable_buffer = g_value_get_boolean(value);
-        g_object_set(hailoencodebin->m_osd, "wait-for-writable-buffer", wait_for_writable_buffer, NULL);
+        g_object_set(hailoencodebin->params->m_osd, "wait-for-writable-buffer", wait_for_writable_buffer, NULL);
         break;
     }
     case PROP_ENFORCE_CAPS: {
         gboolean enforce_caps = g_value_get_boolean(value);
-        g_object_set(hailoencodebin->m_encoder, "enforce-caps", enforce_caps, NULL);
+        g_object_set(hailoencodebin->params->m_encoder, "enforce-caps", enforce_caps, NULL);
         break;
     }
     case PROP_QUEUE_SIZE: {
-        hailoencodebin->queue_size = g_value_get_uint(value);
-        g_object_set(hailoencodebin->m_queue_encoder, "max-size-buffers", hailoencodebin->queue_size, NULL);
+        hailoencodebin->params->queue_size = g_value_get_uint(value);
+        g_object_set(hailoencodebin->params->m_queue_encoder, "max-size-buffers", hailoencodebin->params->queue_size,
+                     NULL);
         break;
     }
     default:
@@ -292,70 +288,70 @@ void gst_hailoencodebin_get_property(GObject *object, guint property_id, GValue 
     {
     // Handle property retrievals here
     case PROP_CONFIG_FILE_PATH: {
-        g_value_set_string(value, hailoencodebin->config_file_path);
+        g_value_set_string(value, hailoencodebin->params->config_file_path.c_str());
         break;
     }
     case PROP_CONFIG_STRING: {
-        g_value_set_string(value, hailoencodebin->config_string.c_str());
+        g_value_set_string(value, hailoencodebin->params->config_string.c_str());
         break;
     }
     case PROP_CONFIG: {
-        if (hailoencodebin->m_encoder == NULL)
+        if (hailoencodebin->params->m_encoder == NULL)
         {
             g_value_set_pointer(value, NULL);
             break;
         }
         gpointer config;
-        g_object_get(hailoencodebin->m_encoder, "config", &config, NULL);
+        g_object_get(hailoencodebin->params->m_encoder, "config", &config, NULL);
         g_value_set_pointer(value, config);
         break;
     }
     case PROP_USER_CONFIG: {
-        if (hailoencodebin->m_encoder == NULL)
+        if (hailoencodebin->params->m_encoder == NULL)
         {
             g_value_set_pointer(value, NULL);
             break;
         }
         gpointer config;
-        g_object_get(hailoencodebin->m_encoder, "user-config", &config, NULL);
+        g_object_get(hailoencodebin->params->m_encoder, "user-config", &config, NULL);
         g_value_set_pointer(value, config);
         break;
     }
     case PROP_WAIT_FOR_WRITABLE_BUFFER: {
         gboolean wait_for_writable_buffer;
-        g_object_get(hailoencodebin->m_osd, "wait-for-writable-buffer", &wait_for_writable_buffer, NULL);
+        g_object_get(hailoencodebin->params->m_osd, "wait-for-writable-buffer", &wait_for_writable_buffer, NULL);
         g_value_set_boolean(value, wait_for_writable_buffer);
         break;
     }
     case PROP_BLENDER: {
         gpointer blender;
-        g_object_get(hailoencodebin->m_osd, "blender", &blender, NULL);
+        g_object_get(hailoencodebin->params->m_osd, "blender", &blender, NULL);
         g_value_set_pointer(value, blender);
         break;
     }
     case PROP_QUEUE_SIZE: {
-        g_value_set_uint(value, hailoencodebin->queue_size);
+        g_value_set_uint(value, hailoencodebin->params->queue_size);
         break;
     }
     case PROP_ENFORCE_CAPS: {
-        if (hailoencodebin->m_encoder == NULL)
+        if (hailoencodebin->params->m_encoder == NULL)
         {
             g_value_set_boolean(value, true);
             break;
         }
         gboolean enforce;
-        g_object_get(hailoencodebin->m_encoder, "enforce-caps", &enforce, NULL);
+        g_object_get(hailoencodebin->params->m_encoder, "enforce-caps", &enforce, NULL);
         g_value_set_boolean(value, enforce);
         break;
     }
     case PROP_ENCODER_MONITORS: {
-        if (hailoencodebin->m_encoder == NULL)
+        if (hailoencodebin->params->m_encoder == NULL)
         {
             g_value_set_pointer(value, NULL);
             break;
         }
         gpointer encoder_monitors;
-        g_object_get(hailoencodebin->m_encoder, "encoder-monitors", &encoder_monitors, NULL);
+        g_object_get(hailoencodebin->params->m_encoder, "encoder-monitors", &encoder_monitors, NULL);
         g_value_set_pointer(value, encoder_monitors);
         break;
     }
@@ -369,13 +365,13 @@ void gst_hailoencodebin_init_ghost_sink(GstHailoEncodeBin *hailoencodebin)
 {
     // Get the connecting pad
     const gchar *pad_name = "sink";
-    GstPad *pad = gst_element_get_static_pad(hailoencodebin->m_osd, pad_name);
+    GstPad *pad = gst_element_get_static_pad(hailoencodebin->params->m_osd, pad_name);
 
     // Create a ghostpad and connect it to the bin
     GstPadTemplate *pad_tmpl = gst_static_pad_template_get(&sink_template);
-    hailoencodebin->sinkpad = gst_ghost_pad_new_from_template(pad_name, pad, pad_tmpl);
-    gst_pad_set_active(hailoencodebin->sinkpad, TRUE);
-    gst_element_add_pad(GST_ELEMENT(hailoencodebin), hailoencodebin->sinkpad);
+    hailoencodebin->params->sinkpad = gst_ghost_pad_new_from_template(pad_name, pad, pad_tmpl);
+    gst_pad_set_active(hailoencodebin->params->sinkpad, TRUE);
+    gst_element_add_pad(GST_ELEMENT(hailoencodebin), hailoencodebin->params->sinkpad);
 
     // Cleanup
     gst_object_unref(pad_tmpl);
@@ -386,13 +382,13 @@ void gst_hailoencodebin_init_ghost_src(GstHailoEncodeBin *hailoencodebin)
 {
     // Get the connecting pad
     const gchar *pad_name = "src";
-    GstPad *pad = gst_element_get_static_pad(hailoencodebin->m_encoder, pad_name);
+    GstPad *pad = gst_element_get_static_pad(hailoencodebin->params->m_encoder, pad_name);
 
     // Create a ghostpad and connect it to the bin
     GstPadTemplate *pad_tmpl = gst_static_pad_template_get(&src_template);
-    hailoencodebin->srcpad = gst_ghost_pad_new_from_template(pad_name, pad, pad_tmpl);
-    gst_pad_set_active(hailoencodebin->srcpad, TRUE);
-    gst_element_add_pad(GST_ELEMENT(hailoencodebin), hailoencodebin->srcpad);
+    hailoencodebin->params->srcpad = gst_ghost_pad_new_from_template(pad_name, pad, pad_tmpl);
+    gst_pad_set_active(hailoencodebin->params->srcpad, TRUE);
+    gst_element_add_pad(GST_ELEMENT(hailoencodebin), hailoencodebin->params->srcpad);
 
     // Cleanup
     gst_object_unref(pad_tmpl);
@@ -452,11 +448,11 @@ static nlohmann::json gst_hailoencodebin_get_encoder_json(const gchar *property_
 static void gst_hailoencodebin_set_encoder_properties(GstHailoEncodeBin *hailoencodebin, const char *config_property,
                                                       const gchar *property_value)
 {
-    switch (hailoencodebin->encoder_type)
+    switch (hailoencodebin->params->encoder_type)
     {
     case EncoderType::Hailo:
     case EncoderType::Jpeg: {
-        g_object_set(hailoencodebin->m_encoder, config_property, property_value, NULL);
+        g_object_set(hailoencodebin->params->m_encoder, config_property, property_value, NULL);
         break;
     }
     case EncoderType::None:
@@ -478,16 +474,16 @@ static gboolean gst_hailoencodebin_prepare_encoder_element(GstHailoEncodeBin *ha
         return FALSE;
     }
 
-    hailoencodebin->m_encoder = gst_element_factory_make(encoder_element_name, NULL);
-    if (nullptr == hailoencodebin->m_encoder)
+    hailoencodebin->params->m_encoder = gst_element_factory_make(encoder_element_name, NULL);
+    if (nullptr == hailoencodebin->params->m_encoder)
     {
         GST_ELEMENT_ERROR(hailoencodebin, RESOURCE, FAILED, ("Failed creating hailoencoder element in bin!"), (NULL));
         return FALSE;
     }
 
-    hailoencodebin->encoder_type = encoder_type;
+    hailoencodebin->params->encoder_type = encoder_type;
     gst_hailoencodebin_set_encoder_properties(hailoencodebin, config_property, property_value);
-    gst_bin_add(GST_BIN(hailoencodebin), hailoencodebin->m_encoder);
+    gst_bin_add(GST_BIN(hailoencodebin), hailoencodebin->params->m_encoder);
     // Now that we have encoder, initialize the ghost src pad
     gst_hailoencodebin_init_ghost_src(hailoencodebin);
     return TRUE;
@@ -498,7 +494,8 @@ static gboolean gst_hailoencodebin_link_elements(GstElement *element)
     GstHailoEncodeBin *self = GST_HAILO_ENCODE_BIN(element);
 
     // Link the elements
-    gboolean link_status = gst_element_link_many(self->m_osd, self->m_queue_encoder, self->m_encoder, NULL);
+    gboolean link_status =
+        gst_element_link_many(self->params->m_osd, self->params->m_queue_encoder, self->params->m_encoder, NULL);
     if (!link_status)
     {
         GST_ERROR_OBJECT(self, "Failed to link elements in bin!");
@@ -512,27 +509,11 @@ static void gst_hailoencodebin_dispose(GObject *object)
 {
     GstHailoEncodeBin *self = GST_HAILO_ENCODE_BIN(object);
     GST_DEBUG_OBJECT(self, "dispose");
-
-    gst_hailoencodebin_reset(self);
-
-    if (!self->config_string.empty())
+    if (self->params != nullptr)
     {
-        self->config_string.clear();
-        self->config_string.shrink_to_fit();
+        delete self->params;
+        self->params = nullptr;
     }
 
     G_OBJECT_CLASS(gst_hailoencodebin_parent_class)->dispose(object);
-}
-
-static void gst_hailoencodebin_reset(GstHailoEncodeBin *self)
-{
-    GST_DEBUG_OBJECT(self, "reset");
-    if (self->sinkpad != NULL)
-    {
-        self->sinkpad = NULL;
-    }
-    if (self->srcpad != NULL)
-    {
-        self->srcpad = NULL;
-    }
 }

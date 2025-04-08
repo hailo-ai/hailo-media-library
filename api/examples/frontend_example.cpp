@@ -1,6 +1,6 @@
 #include "buffer_utils.hpp"
-#include "media_library/encoder.hpp"
-#include "media_library/frontend.hpp"
+#include "media_library/media_library.hpp"
+#include "media_library/utils.hpp"
 #include "media_library/media_library_types.hpp"
 #include "media_library/privacy_mask.hpp"
 #include "media_library/privacy_mask_types.hpp"
@@ -10,9 +10,11 @@
 #include <sstream>
 #include <tl/expected.hpp>
 #include <signal.h>
+#define JPEG_SINK1 false
 
-#define FRONTEND_CONFIG_FILE "/usr/bin/frontend_config_example.json"
 #ifdef USE_JPEG_JSONS
+#undef JPEG_SINK1 // Undefine the previous definition
+#define JPEG_SINK1 true
 // Use jpeg encoder only for second file
 #define IS_JPEG(id) (id != "sink0")
 #define FILE_ID(id) (IS_JPEG(id) ? "jpeg_" + id : id)
@@ -24,14 +26,8 @@
 #define ENCODER_OSD_CONFIG_FILE(id) get_encoder_osd_config_file(FILE_ID(id))
 #define OUTPUT_FILE(id) get_output_file(FILE_ID(id), IS_JPEG(id))
 
-struct MediaLibrary
-{
-    MediaLibraryFrontendPtr frontend;
-    std::map<output_stream_id_t, MediaLibraryEncoderPtr> encoders;
-    std::map<output_stream_id_t, std::ofstream> output_files;
-};
-
-std::shared_ptr<MediaLibrary> m_media_lib;
+MediaLibraryPtr m_media_lib;
+std::map<output_stream_id_t, std::ofstream> m_output_files;
 
 inline std::string get_encoder_osd_config_file(const std::string &id)
 {
@@ -55,18 +51,6 @@ void write_encoded_data(HailoMediaLibraryBufferPtr buffer, uint32_t size, std::o
     output_file.write(data, size);
 }
 
-std::string read_string_from_file(const char *file_path)
-{
-    std::ifstream file_to_read;
-    file_to_read.open(file_path);
-    if (!file_to_read.is_open())
-        throw std::runtime_error("config path is not valid");
-    std::string file_string((std::istreambuf_iterator<char>(file_to_read)), std::istreambuf_iterator<char>());
-    file_to_read.close();
-    std::cout << "Read config from file: " << file_path << std::endl;
-    return file_string;
-}
-
 void delete_output_file(std::string output_file)
 {
     std::ofstream fp(output_file.c_str(), std::ios::out | std::ios::binary);
@@ -78,9 +62,9 @@ void delete_output_file(std::string output_file)
     fp.close();
 }
 
-void subscribe_elements(std::shared_ptr<MediaLibrary> media_lib)
+void subscribe_elements(MediaLibraryPtr media_lib)
 {
-    auto streams = media_lib->frontend->get_outputs_streams();
+    auto streams = media_lib->m_frontend->get_outputs_streams();
     if (!streams.has_value())
     {
         std::cout << "Failed to get stream ids" << std::endl;
@@ -91,19 +75,20 @@ void subscribe_elements(std::shared_ptr<MediaLibrary> media_lib)
     for (auto s : streams.value())
     {
         fe_callbacks[s.id] = [s, media_lib](HailoMediaLibraryBufferPtr buffer, size_t) {
-            media_lib->encoders[s.id]->add_buffer(buffer);
+            media_lib->m_encoders[s.id]->add_buffer(buffer);
         };
     }
-    media_lib->frontend->subscribe(fe_callbacks);
+    media_lib->subscribe_to_frontend_output(fe_callbacks);
 
-    for (const auto &entry : media_lib->encoders)
+    for (const auto &entry : media_lib->m_encoders)
     {
         output_stream_id_t streamId = entry.first;
         MediaLibraryEncoderPtr encoder = entry.second;
         std::cout << "subscribing to encoder for '" << streamId << "'" << std::endl;
-        media_lib->encoders[streamId]->subscribe([media_lib, streamId](HailoMediaLibraryBufferPtr buffer, size_t size) {
-            write_encoded_data(buffer, size, media_lib->output_files[streamId]);
-        });
+        AppWrapperCallback callback = [streamId, encoder](HailoMediaLibraryBufferPtr buffer, size_t size) {
+            write_encoded_data(buffer, size, m_output_files[streamId]);
+        };
+        media_lib->subscribe_to_encoder_output(streamId, callback);
     }
 }
 
@@ -145,6 +130,21 @@ void add_privacy_masks(PrivacyMaskBlenderPtr privacy_mask_blender)
     privacy_mask_blender->add_privacy_mask(example_polygon4);
 }
 
+void change_to_blur_and_back_to_color(PrivacyMaskBlenderPtr privacy_mask_blender)
+{
+    std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
+    std::cout << "changing privacy masks to blur" << std::endl;
+    privacy_mask_blender->set_blur_radius(60);
+
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    std::cout << "changing radius of blur" << std::endl;
+    privacy_mask_blender->set_blur_radius(10);
+
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    std::cout << "changing privacy masks to color" << std::endl;
+    privacy_mask_blender->set_color({23, 161, 231});
+}
+
 int update_privacy_masks(PrivacyMaskBlenderPtr privacy_mask_blender)
 {
     std::cout << "Updating privacy mask" << std::endl;
@@ -159,17 +159,26 @@ int update_privacy_masks(PrivacyMaskBlenderPtr privacy_mask_blender)
     polygon1.vertices[0].x = 600;
     polygon1.vertices[0].y = 120;
     privacy_mask_blender->set_privacy_mask(polygon1);
+
+    change_to_blur_and_back_to_color(privacy_mask_blender);
     return 0;
 }
 
-int update_encoders_bitrate(std::map<output_stream_id_t, MediaLibraryEncoderPtr> &encoders)
+int update_encoders_bitrate()
 {
-    uint32_t new_bitrate = 15000000;
+    uint32_t new_bitrate = 1000000;
     uint enc_i = 0;
-    for (const auto &entry : encoders)
+    auto expected_profile = m_media_lib->get_current_profile();
+    if (!expected_profile.has_value())
     {
-        encoder_config_t encoder_config = entry.second->get_user_config();
-        if (entry.second->get_type() == EncoderType::Jpeg)
+        std::cout << "Failed to get current profile" << std::endl;
+        return 1;
+    }
+    ProfileConfig profile = expected_profile.value();
+    for (auto &entry : profile.encoder_configs)
+    {
+        encoder_config_t &encoder_config = entry.second;
+        if (profile.get_type(entry.first) == EncoderType::Jpeg)
         {
             continue;
         }
@@ -178,136 +187,159 @@ int update_encoders_bitrate(std::map<output_stream_id_t, MediaLibraryEncoderPtr>
                   << " current bitrate: " << hailo_encoder_config.rate_control.bitrate.target_bitrate << " Setting to "
                   << new_bitrate << std::endl;
         hailo_encoder_config.rate_control.bitrate.target_bitrate = new_bitrate;
-        if (entry.second->set_config(encoder_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        if (m_media_lib->set_override_profile(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
-            std::cout << "Failed to configure Encoder " << enc_i << std::endl;
+            std::cout << "Failed to set profile" << std::endl;
             return 1;
         }
         enc_i++;
     }
+
     return 0;
 }
 
-int update_jpeg_encoders_quality(std::map<output_stream_id_t, MediaLibraryEncoderPtr> &encoders)
+int update_jpeg_encoders_quality()
 {
     uint32_t new_quality = 75;
     uint enc_i = 0;
-    for (const auto &entry : encoders)
+    auto expected_profile = m_media_lib->get_current_profile();
+    if (!expected_profile.has_value())
     {
-        encoder_config_t encoder_config = entry.second->get_user_config();
-        if (entry.second->get_type() == EncoderType::Jpeg)
+        std::cout << "Failed to get current profile" << std::endl;
+        return 1;
+    }
+    ProfileConfig profile = expected_profile.value();
+    for (auto &entry : profile.encoder_configs)
+    {
+        encoder_config_t &encoder_config = entry.second;
+        if (profile.get_type(entry.first) != EncoderType::Jpeg)
         {
-            jpeg_encoder_config_t &jpeg_encoder_config = std::get<jpeg_encoder_config_t>(encoder_config);
+            continue;
+        }
+        jpeg_encoder_config_t &jpeg_encoder_config = std::get<jpeg_encoder_config_t>(encoder_config);
 
-            std::cout << "Encoder " << enc_i << " current quality: " << jpeg_encoder_config.quality << " Setting to "
-                      << new_quality << std::endl;
-            jpeg_encoder_config.quality = new_quality;
-            if (entry.second->set_config(encoder_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
-            {
-                std::cout << "Failed to configure Encoder " << enc_i << std::endl;
-                return 1;
-            }
+        std::cout << "Encoder " << enc_i << " current quality: " << jpeg_encoder_config.quality << " Setting to "
+                  << new_quality << std::endl;
+        jpeg_encoder_config.quality = new_quality;
+        if (m_media_lib->set_override_profile(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        {
+            std::cout << "Failed to set profile" << std::endl;
+            return 1;
         }
         enc_i++;
     }
+
     return 0;
 }
 
-int update_encoders_bitrate_monitor_period(std::map<output_stream_id_t, MediaLibraryEncoderPtr> &encoders,
-                                           uint32_t period)
+int update_encoders_bitrate_monitor_period()
 {
+    uint32_t period = 2;
     uint enc_i = 0;
-    for (const auto &entry : encoders)
+    auto expected_profile = m_media_lib->get_current_profile();
+    if (!expected_profile.has_value())
     {
-        encoder_config_t encoder_config = entry.second->get_user_config();
-        if (entry.second->get_type() == EncoderType::Jpeg)
+        std::cout << "Failed to get current profile" << std::endl;
+        return 1;
+    }
+    ProfileConfig profile = expected_profile.value();
+    for (auto &entry : profile.encoder_configs)
+    {
+        encoder_config_t &encoder_config = entry.second;
+        if (profile.get_type(entry.first) == EncoderType::Jpeg)
         {
             continue;
         }
         hailo_encoder_config_t &hailo_encoder_config = std::get<hailo_encoder_config_t>(encoder_config);
         hailo_encoder_config.monitors_control.bitrate_monitor.period = period;
-        if (entry.second->set_config(encoder_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        std::cout << "Encoder " << enc_i << " setting bitrate monitor period to " << period << std::endl;
+        if (m_media_lib->set_override_profile(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
-            std::cout << "Failed to configure Encoder " << enc_i << std::endl;
+            std::cout << "Failed to set profile" << std::endl;
             return 1;
         }
         enc_i++;
     }
+
     return 0;
 }
 
-int disable_encoders_bitrate_monitor(std::map<output_stream_id_t, MediaLibraryEncoderPtr> &encoders)
+int disable_encoders_bitrate_monitor()
 {
     uint enc_i = 0;
-    for (const auto &entry : encoders)
+    auto expected_profile = m_media_lib->get_current_profile();
+    if (!expected_profile.has_value())
     {
-        encoder_config_t encoder_config = entry.second->get_user_config();
-        if (entry.second->get_type() == EncoderType::Jpeg)
+        std::cout << "Failed to get current profile" << std::endl;
+        return 1;
+    }
+    ProfileConfig profile = expected_profile.value();
+    for (auto &entry : profile.encoder_configs)
+    {
+        encoder_config_t &encoder_config = entry.second;
+        if (profile.get_type(entry.first) == EncoderType::Jpeg)
         {
             continue;
         }
         hailo_encoder_config_t &hailo_encoder_config = std::get<hailo_encoder_config_t>(encoder_config);
         hailo_encoder_config.monitors_control.bitrate_monitor.enable = false;
-        if (entry.second->set_config(encoder_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        std::cout << "Encoder " << enc_i << " disabling bitrate monitor" << std::endl;
+        if (m_media_lib->set_override_profile(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
-            std::cout << "Failed to configure Encoder " << enc_i << std::endl;
+            std::cout << "Failed to set profile" << std::endl;
             return 1;
         }
         enc_i++;
     }
-    return 0;
-}
 
-void stop_pipeline()
-{
-    std::cout << "Stopping Pipeline..." << std::endl;
-    m_media_lib->frontend->stop();
-    for (const auto &entry : m_media_lib->encoders)
-    {
-        entry.second->stop();
-    }
+    return 0;
 }
 
 void cleanup_resources()
 {
-    m_media_lib->frontend = nullptr;
-    m_media_lib->encoders.clear();
+    sleep(2);
+    m_media_lib->m_frontend = nullptr;
+    m_media_lib->m_encoders.clear();
 
     // close all file in m_media_lib->output_files
-    for (auto &entry : m_media_lib->output_files)
+    for (auto &entry : m_output_files)
     {
         entry.second.close();
     }
 
-    m_media_lib->output_files.clear();
+    m_output_files.clear();
 }
 
-media_library_return toggle_frontend_config(MediaLibraryFrontendPtr frontend)
+media_library_return toggle_frontend_config()
 {
-    auto config_expected = frontend->get_config();
-    if (!config_expected)
+    auto profile_config_expected = m_media_lib->get_current_profile();
+    if (!profile_config_expected.has_value())
     {
-        std::cout << "Failed to get frontend config" << std::endl;
+        std::cout << "Failed to get current profile" << std::endl;
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
-
-    frontend_config_t config = config_expected.value();
-
-    config.ldc_config.dewarp_config.enabled = false;
+    ProfileConfig profile_config = profile_config_expected.value();
+    profile_config.ldc_config.dewarp_config.enabled = false;
     std::cout << "Setting dewarp enable to false" << std::endl;
-    if (m_media_lib->frontend->set_config(config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    if (m_media_lib->set_override_profile(profile_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
-        std::cout << "Failed to set frontend config" << std::endl;
+        std::cout << "Failed to set config" << std::endl;
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
 
     std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
-
-    config.ldc_config.dewarp_config.enabled = true;
-    std::cout << "Setting dewarp enable to true" << std::endl;
-    if (m_media_lib->frontend->set_config(config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    profile_config_expected = m_media_lib->get_current_profile();
+    if (!profile_config_expected.has_value())
     {
-        std::cout << "Failed to set frontend config" << std::endl;
+        std::cout << "Failed to get current profile" << std::endl;
+        return media_library_return::MEDIA_LIBRARY_ERROR;
+    }
+    profile_config = profile_config_expected.value();
+    profile_config.ldc_config.dewarp_config.enabled = true;
+    std::cout << "Setting dewarp enable to true" << std::endl;
+    if (m_media_lib->set_override_profile(profile_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        std::cout << "Failed to set config" << std::endl;
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
 
@@ -366,62 +398,33 @@ media_library_return add_custom_overlays(std::shared_ptr<osd::Blender> blender)
 int main()
 {
     m_media_lib = std::make_shared<MediaLibrary>();
-
+    std::string medialib_config_path = "/usr/bin/medialib_config.json";
+    if (JPEG_SINK1)
+    {
+        medialib_config_path = "/usr/bin/medialib_config_jpeg.json";
+    }
+    std::string medialib_config_string = read_string_from_file(medialib_config_path.c_str());
+    if (m_media_lib->initialize(medialib_config_string) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        std::cout << "Failed to initialize media library" << std::endl;
+        return 1;
+    }
     // register signal SIGINT and signal handler
     signal_utils::register_signal_handler([](int signal) {
-        stop_pipeline();
+        m_media_lib->stop_pipeline();
         cleanup_resources();
         // terminate program
         exit(signal);
         ;
     });
-
-    // Create and configure frontend
-    std::string frontend_config_string = read_string_from_file(FRONTEND_CONFIG_FILE);
-    tl::expected<MediaLibraryFrontendPtr, media_library_return> frontend_expected = MediaLibraryFrontend::create();
-    if (!frontend_expected.has_value())
-    {
-        std::cout << "Failed to create frontend" << std::endl;
-        return 1;
-    }
-    m_media_lib->frontend = frontend_expected.value();
-    if (m_media_lib->frontend->set_config(frontend_config_string) != MEDIA_LIBRARY_SUCCESS)
-    {
-        std::cout << "Failed to configure frontend" << std::endl;
-        return 1;
-    }
-
-    auto streams = m_media_lib->frontend->get_outputs_streams();
-    if (!streams.has_value())
-    {
-        std::cout << "Failed to get stream ids" << std::endl;
-        throw std::runtime_error("Failed to get stream ids");
-    }
-
+    auto streams = m_media_lib->m_frontend->get_outputs_streams();
     for (auto s : streams.value())
     {
-        std::cout << "Creating encoder enc_" << s.id << std::endl;
-        // Create and configure encoder
-        std::string encoderosd_config_string = read_string_from_file(ENCODER_OSD_CONFIG_FILE(s.id).c_str());
-        tl::expected<MediaLibraryEncoderPtr, media_library_return> encoder_expected = MediaLibraryEncoder::create(s.id);
-        if (!encoder_expected.has_value())
-        {
-            std::cout << "Failed to create encoder" << std::endl;
-            return 1;
-        }
-        m_media_lib->encoders[s.id] = encoder_expected.value();
-        if (m_media_lib->encoders[s.id]->set_config(encoderosd_config_string) != MEDIA_LIBRARY_SUCCESS)
-        {
-            std::cout << "Failed to configure encoder" << std::endl;
-            return 1;
-        }
-
         // create and configure output file
         std::string output_file_path = OUTPUT_FILE(s.id);
         delete_output_file(output_file_path);
-        m_media_lib->output_files[s.id].open(output_file_path.c_str(),
-                                             std::ios::out | std::ios::binary | std::ios::app);
-        if (!m_media_lib->output_files[s.id].good())
+        m_output_files[s.id].open(output_file_path.c_str(), std::ios::out | std::ios::binary | std::ios::app);
+        if (!m_output_files[s.id].good())
         {
             std::cout << "Error occurred at writing time!" << std::endl;
             return 1;
@@ -430,25 +433,22 @@ int main()
     subscribe_elements(m_media_lib);
 
     std::cout << "Starting frontend." << std::endl;
-    for (const auto &entry : m_media_lib->encoders)
+    if (m_media_lib->start_pipeline() != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
-        output_stream_id_t streamId = entry.first;
-        MediaLibraryEncoderPtr encoder = entry.second;
-        std::cout << "starting encoder for " << streamId << std::endl;
-        encoder->start();
+        std::cout << "Failed to start frontend" << std::endl;
+        return 1;
     }
-    m_media_lib->frontend->start();
 
-    std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
+    std::this_thread::sleep_for(std::chrono::seconds(5)); // sleep for 2 seconds
 
-    if (toggle_frontend_config(m_media_lib->frontend) != MEDIA_LIBRARY_SUCCESS)
+    if (toggle_frontend_config() != MEDIA_LIBRARY_SUCCESS)
     {
         std::cout << "Failed to toggle frontend config" << std::endl;
     }
 
-    add_custom_overlays(m_media_lib->encoders["sink0"]->get_blender());
+    add_custom_overlays(m_media_lib->m_encoders["sink0"]->get_blender());
 
-    PrivacyMaskBlenderPtr privacy_blender = m_media_lib->frontend->get_privacy_mask_blender();
+    PrivacyMaskBlenderPtr privacy_blender = m_media_lib->m_frontend->get_privacy_mask_blender();
     add_privacy_masks(privacy_blender);
 
     std::cout << "Started playing for 30 seconds." << std::endl;
@@ -458,12 +458,12 @@ int main()
     // Update privacy mask
     if (update_privacy_masks(privacy_blender) != 0)
     {
-        stop_pipeline();
+        m_media_lib->stop_pipeline();
         cleanup_resources();
         return 1;
     }
 
-    for (const auto &entry : m_media_lib->encoders)
+    for (const auto &entry : m_media_lib->m_encoders)
     {
         output_stream_id_t streamId = entry.first;
         MediaLibraryEncoderPtr encoder = entry.second;
@@ -471,30 +471,52 @@ int main()
         std::cout << "Current fps for " << streamId << " is " << encoder->get_current_fps() << std::endl;
     }
 
-    auto output_streams_current_fps = m_media_lib->frontend->get_output_streams_current_fps();
+    auto output_streams_current_fps = m_media_lib->m_frontend->get_output_streams_current_fps();
     for (auto &[output_stream_id, output_stream_current_fps] : output_streams_current_fps)
     {
         std::cout << "Current fps for frontend output id " << output_stream_id << " is " << output_stream_current_fps
                   << std::endl;
     }
 
-    if (update_encoders_bitrate(m_media_lib->encoders) != 0)
+    if (update_encoders_bitrate() != 0)
         return 1;
 
-    if (update_encoders_bitrate_monitor_period(m_media_lib->encoders, 2) != 0)
+    if (update_encoders_bitrate_monitor_period() != 0)
         return 1;
 
-    if (update_jpeg_encoders_quality(m_media_lib->encoders) != 0)
+    if (update_jpeg_encoders_quality() != 0)
         return 1;
 
     std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
 
-    if (disable_encoders_bitrate_monitor(m_media_lib->encoders) != 0)
+    if (disable_encoders_bitrate_monitor() != 0)
         return 1;
 
     std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
 
-    stop_pipeline();
+    std::cout << "Setting profile to HDR" << std::endl;
+
+    if (m_media_lib->set_profile("HDR") != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        std::cout << "Failed to set profile" << std::endl;
+        return 1;
+    }
+
+    std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
+
+    if (m_media_lib->set_profile("Indoor") != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        std::cout << "Failed to set profile" << std::endl;
+        return 1;
+    }
+
+    std::this_thread::sleep_for(std::chrono::seconds(5)); // sleep for 10 seconds
+
+    if (m_media_lib->stop_pipeline() != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        std::cout << "Failed to stop pipeline" << std::endl;
+        return 1;
+    }
     cleanup_resources();
 
     return 0;

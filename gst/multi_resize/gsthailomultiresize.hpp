@@ -48,19 +48,24 @@ G_BEGIN_DECLS
 #define GST_HAILO_MULTI_RESIZE_CAST(obj) ((GstHailoMultiResize *)(obj))
 
 typedef struct _GstHailoMultiResize GstHailoMultiResize;
+typedef struct _GstHailoMultiResizeParams GstHailoMultiResizeParams;
 typedef struct _GstHailoMultiResizeClass GstHailoMultiResizeClass;
+
+struct _GstHailoMultiResizeParams
+{
+    GstPad *sinkpad = nullptr;
+    std::vector<GstPad *> srcpads;
+    std::string config_file_path;
+    std::string config_string;
+
+    multi_resize_config_t multi_resize_config;
+    std::shared_ptr<MediaLibraryMultiResize> medialib_multi_resize;
+};
 
 struct _GstHailoMultiResize
 {
     GstElement element;
-
-    GstPad *sinkpad;
-    std::shared_ptr<std::vector<GstPad *>> srcpads;
-    gchar *config_file_path;
-    gchar *config_string;
-
-    std::shared_ptr<multi_resize_config_t> multi_resize_config;
-    std::shared_ptr<MediaLibraryMultiResize> medialib_multi_resize;
+    GstHailoMultiResizeParams *params = nullptr;
 };
 
 struct _GstHailoMultiResizeClass

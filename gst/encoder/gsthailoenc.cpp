@@ -316,18 +316,20 @@ static void gst_hailoenc_class_init(GstHailoEncClass *klass)
 
 static void gst_hailoenc_init(GstHailoEnc *hailoenc)
 {
-    EncoderParams *enc_params = &(hailoenc->enc_params);
-    hailoenc->apiVer = VCEncGetApiVersion();
-    hailoenc->encBuild = VCEncGetBuild();
-    hailoenc->stream_restart = FALSE;
+    hailoenc->params = new GstHailoEncParams();
+
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
+    hailoenc->params->apiVer = VCEncGetApiVersion();
+    hailoenc->params->encBuild = VCEncGetBuild();
+    hailoenc->params->stream_restart = FALSE;
     memset(enc_params, 0, sizeof(EncoderParams));
-    memset(hailoenc->gopPicCfg, 0, sizeof(hailoenc->gopPicCfg));
-    hailoenc->encoder_instance = NULL;
-    enc_params->encIn.gopConfig.pGopPicCfg = hailoenc->gopPicCfg;
-    hailoenc->adapt_framerate = FALSE;
-    hailoenc->framerate_tolerance = 1.15f;
-    hailoenc->dts_queue = g_queue_new();
-    g_queue_init(hailoenc->dts_queue);
+    memset(hailoenc->params->gopPicCfg, 0, sizeof(hailoenc->params->gopPicCfg));
+    hailoenc->params->encoder_instance = NULL;
+    enc_params->encIn.gopConfig.pGopPicCfg = hailoenc->params->gopPicCfg;
+    hailoenc->params->adapt_framerate = FALSE;
+    hailoenc->params->framerate_tolerance = 1.15f;
+    hailoenc->params->dts_queue = g_queue_new();
+    g_queue_init(hailoenc->params->dts_queue);
 }
 
 /************************
@@ -342,153 +344,153 @@ static void gst_hailoenc_get_property(GObject *object, guint prop_id, GValue *va
     {
     case PROP_INTRA_PIC_RATE:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.intraPicRate);
+        g_value_set_uint(value, (guint)hailoenc->params->enc_params.intraPicRate);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_GOP_SIZE:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.gopSize);
+        g_value_set_uint(value, (guint)hailoenc->params->enc_params.gopSize);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_GOP_LENGTH:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.gopLength);
+        g_value_set_uint(value, (guint)hailoenc->params->enc_params.gopLength);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_QPHDR:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_int(value, (gint)hailoenc->enc_params.qphdr);
+        g_value_set_int(value, (gint)hailoenc->params->enc_params.qphdr);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_QPMIN:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.qpmin);
+        g_value_set_uint(value, (guint)hailoenc->params->enc_params.qpmin);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_QPMAX:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.qpmax);
+        g_value_set_uint(value, (guint)hailoenc->params->enc_params.qpmax);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_INTRA_QP_DELTA:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_int(value, (gint)hailoenc->enc_params.intra_qp_delta);
+        g_value_set_int(value, (gint)hailoenc->params->enc_params.intra_qp_delta);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_FIXED_INTRA_QP:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.fixed_intra_qp);
+        g_value_set_uint(value, (guint)hailoenc->params->enc_params.fixed_intra_qp);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_BFRAME_QP_DELTA:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_int(value, (gint)hailoenc->enc_params.bFrameQpDelta);
+        g_value_set_int(value, (gint)hailoenc->params->enc_params.bFrameQpDelta);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_BITRATE:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.bitrate);
+        g_value_set_uint(value, (guint)hailoenc->params->enc_params.bitrate);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_TOL_MOVING_BITRATE:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.tolMovingBitRate);
+        g_value_set_uint(value, (guint)hailoenc->params->enc_params.tolMovingBitRate);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_BITRATE_VAR_RANGE_I:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.bitVarRangeI);
+        g_value_set_uint(value, (guint)hailoenc->params->enc_params.bitVarRangeI);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_BITRATE_VAR_RANGE_P:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.bitVarRangeP);
+        g_value_set_uint(value, (guint)hailoenc->params->enc_params.bitVarRangeP);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_BITRATE_VAR_RANGE_B:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.bitVarRangeB);
+        g_value_set_uint(value, (guint)hailoenc->params->enc_params.bitVarRangeB);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_MONITOR_FRAMES:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.monitorFrames);
+        g_value_set_uint(value, (guint)hailoenc->params->enc_params.monitorFrames);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_PICTURE_RC: {
         GST_OBJECT_LOCK(hailoenc);
-        gboolean picture_rc = hailoenc->enc_params.pictureRc == 1 ? TRUE : FALSE;
+        gboolean picture_rc = hailoenc->params->enc_params.pictureRc == 1 ? TRUE : FALSE;
         g_value_set_boolean(value, picture_rc);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     }
     case PROP_CTB_RC: {
         GST_OBJECT_LOCK(hailoenc);
-        gboolean ctb_rc = hailoenc->enc_params.ctbRc == 1 ? TRUE : FALSE;
+        gboolean ctb_rc = hailoenc->params->enc_params.ctbRc == 1 ? TRUE : FALSE;
         g_value_set_boolean(value, ctb_rc);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     }
     case PROP_PICTURE_SKIP: {
         GST_OBJECT_LOCK(hailoenc);
-        gboolean picture_skip = hailoenc->enc_params.pictureSkip == 1 ? TRUE : FALSE;
+        gboolean picture_skip = hailoenc->params->enc_params.pictureSkip == 1 ? TRUE : FALSE;
         g_value_set_boolean(value, picture_skip);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     }
     case PROP_HRD: {
         GST_OBJECT_LOCK(hailoenc);
-        gboolean hrd = hailoenc->enc_params.hrd == 1 ? TRUE : FALSE;
+        gboolean hrd = hailoenc->params->enc_params.hrd == 1 ? TRUE : FALSE;
         g_value_set_boolean(value, hrd);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     }
     case PROP_CVBR: {
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.cvbr);
+        g_value_set_uint(value, (guint)hailoenc->params->enc_params.cvbr);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     }
     case PROP_PADDING: {
         GST_OBJECT_LOCK(hailoenc);
-        gboolean padding = hailoenc->enc_params.padding == 1 ? TRUE : FALSE;
+        gboolean padding = hailoenc->params->enc_params.padding == 1 ? TRUE : FALSE;
         g_value_set_boolean(value, padding);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     }
     case PROP_ROI_AREA_1:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_string(value, (const gchar *)hailoenc->enc_params.roiArea1);
+        g_value_set_string(value, (const gchar *)hailoenc->params->enc_params.roiArea1);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_ROI_AREA_2:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_string(value, (const gchar *)hailoenc->enc_params.roiArea2);
+        g_value_set_string(value, (const gchar *)hailoenc->params->enc_params.roiArea2);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_COMPRESSOR:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_enum(value, (gint)hailoenc->enc_params.compressor);
+        g_value_set_enum(value, (gint)hailoenc->params->enc_params.compressor);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_BLOCK_RC_SIZE:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_enum(value, (gint)hailoenc->enc_params.blockRcSize);
+        g_value_set_enum(value, (gint)hailoenc->params->enc_params.blockRcSize);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_HRD_CPB_SIZE:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)hailoenc->enc_params.hrdCpbSize);
+        g_value_set_uint(value, (guint)hailoenc->params->enc_params.hrdCpbSize);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_ADAPT_FRAMERATE:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_boolean(value, hailoenc->adapt_framerate);
+        g_value_set_boolean(value, hailoenc->params->adapt_framerate);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_FRAMERATE_TOLERANCE:
         GST_OBJECT_LOCK(hailoenc);
-        g_value_set_uint(value, (guint)((hailoenc->framerate_tolerance - 1.0f) * 100.0f));
+        g_value_set_uint(value, (guint)((hailoenc->params->framerate_tolerance - 1.0f) * 100.0f));
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     default:
@@ -500,168 +502,168 @@ static void gst_hailoenc_get_property(GObject *object, guint prop_id, GValue *va
 static void gst_hailoenc_set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
 {
     GstHailoEnc *hailoenc = (GstHailoEnc *)(object);
-    hailoenc->update_config = hailoenc->enc_params.picture_enc_cnt != 0;
+    hailoenc->params->update_config = hailoenc->params->enc_params.picture_enc_cnt != 0;
 
     switch (prop_id)
     {
     case PROP_INTRA_PIC_RATE:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.intraPicRate = g_value_get_uint(value);
+        hailoenc->params->enc_params.intraPicRate = g_value_get_uint(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_GOP_SIZE:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.gopSize = g_value_get_uint(value);
-        if (hailoenc->enc_params.gopSize > MAX_GOP_SIZE)
+        hailoenc->params->enc_params.gopSize = g_value_get_uint(value);
+        if (hailoenc->params->enc_params.gopSize > MAX_GOP_SIZE)
         {
-            GST_WARNING_OBJECT(hailoenc, "GOP size %d is too large, setting to max %d", hailoenc->enc_params.gopSize,
-                               MAX_GOP_SIZE);
-            hailoenc->enc_params.gopSize = MAX_GOP_SIZE;
+            GST_WARNING_OBJECT(hailoenc, "GOP size %d is too large, setting to max %d",
+                               hailoenc->params->enc_params.gopSize, MAX_GOP_SIZE);
+            hailoenc->params->enc_params.gopSize = MAX_GOP_SIZE;
         }
-        else if (hailoenc->enc_params.gopSize < MIN_GOP_SIZE)
+        else if (hailoenc->params->enc_params.gopSize < MIN_GOP_SIZE)
         {
-            GST_WARNING_OBJECT(hailoenc, "GOP size %d is too small, setting to min %d", hailoenc->enc_params.gopSize,
-                               MIN_GOP_SIZE);
-            hailoenc->enc_params.gopSize = MIN_GOP_SIZE;
+            GST_WARNING_OBJECT(hailoenc, "GOP size %d is too small, setting to min %d",
+                               hailoenc->params->enc_params.gopSize, MIN_GOP_SIZE);
+            hailoenc->params->enc_params.gopSize = MIN_GOP_SIZE;
         }
-        hailoenc->update_gop_size = TRUE;
+        hailoenc->params->update_gop_size = TRUE;
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_GOP_LENGTH:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.gopLength = g_value_get_uint(value);
+        hailoenc->params->enc_params.gopLength = g_value_get_uint(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_QPHDR:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.qphdr = g_value_get_int(value);
+        hailoenc->params->enc_params.qphdr = g_value_get_int(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_QPMIN:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.qpmin = g_value_get_uint(value);
+        hailoenc->params->enc_params.qpmin = g_value_get_uint(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_QPMAX:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.qpmax = g_value_get_uint(value);
+        hailoenc->params->enc_params.qpmax = g_value_get_uint(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_INTRA_QP_DELTA:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.intra_qp_delta = g_value_get_int(value);
+        hailoenc->params->enc_params.intra_qp_delta = g_value_get_int(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_FIXED_INTRA_QP:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.fixed_intra_qp = g_value_get_uint(value);
+        hailoenc->params->enc_params.fixed_intra_qp = g_value_get_uint(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_BFRAME_QP_DELTA:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.bFrameQpDelta = g_value_get_int(value);
+        hailoenc->params->enc_params.bFrameQpDelta = g_value_get_int(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_BITRATE:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.bitrate = g_value_get_uint(value);
+        hailoenc->params->enc_params.bitrate = g_value_get_uint(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_TOL_MOVING_BITRATE:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.tolMovingBitRate = g_value_get_uint(value);
+        hailoenc->params->enc_params.tolMovingBitRate = g_value_get_uint(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_BITRATE_VAR_RANGE_I:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.bitVarRangeI = g_value_get_uint(value);
+        hailoenc->params->enc_params.bitVarRangeI = g_value_get_uint(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_BITRATE_VAR_RANGE_P:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.bitVarRangeP = g_value_get_uint(value);
+        hailoenc->params->enc_params.bitVarRangeP = g_value_get_uint(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_BITRATE_VAR_RANGE_B:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.bitVarRangeB = g_value_get_uint(value);
+        hailoenc->params->enc_params.bitVarRangeB = g_value_get_uint(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_MONITOR_FRAMES:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.monitorFrames = g_value_get_uint(value);
+        hailoenc->params->enc_params.monitorFrames = g_value_get_uint(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_PICTURE_RC:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.pictureRc = g_value_get_boolean(value) ? 1 : 0;
+        hailoenc->params->enc_params.pictureRc = g_value_get_boolean(value) ? 1 : 0;
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_CTB_RC:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.ctbRc = g_value_get_boolean(value) ? 1 : 0;
+        hailoenc->params->enc_params.ctbRc = g_value_get_boolean(value) ? 1 : 0;
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_PICTURE_SKIP:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.pictureSkip = g_value_get_boolean(value) ? 1 : 0;
+        hailoenc->params->enc_params.pictureSkip = g_value_get_boolean(value) ? 1 : 0;
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_HRD:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.hrd = g_value_get_boolean(value) ? 1 : 0;
+        hailoenc->params->enc_params.hrd = g_value_get_boolean(value) ? 1 : 0;
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_CVBR:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.cvbr = g_value_get_uint(value);
+        hailoenc->params->enc_params.cvbr = g_value_get_uint(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_PADDING:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.padding = g_value_get_boolean(value) ? 1 : 0;
+        hailoenc->params->enc_params.padding = g_value_get_boolean(value) ? 1 : 0;
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_ROI_AREA_1:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.roiArea1 = (char *)g_value_get_string(value);
+        hailoenc->params->enc_params.roiArea1 = (char *)g_value_get_string(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_ROI_AREA_2:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.roiArea2 = (char *)g_value_get_string(value);
+        hailoenc->params->enc_params.roiArea2 = (char *)g_value_get_string(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_COMPRESSOR:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.compressor = (u32)g_value_get_enum(value);
+        hailoenc->params->enc_params.compressor = (u32)g_value_get_enum(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_BLOCK_RC_SIZE:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.blockRcSize = (u32)g_value_get_enum(value);
+        hailoenc->params->enc_params.blockRcSize = (u32)g_value_get_enum(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_HRD_CPB_SIZE:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->enc_params.hrdCpbSize = g_value_get_uint(value);
+        hailoenc->params->enc_params.hrdCpbSize = g_value_get_uint(value);
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_ADAPT_FRAMERATE:
         GST_OBJECT_LOCK(hailoenc);
-        hailoenc->adapt_framerate = g_value_get_boolean(value);
-        hailoenc->update_config = FALSE;
+        hailoenc->params->adapt_framerate = g_value_get_boolean(value);
+        hailoenc->params->update_config = FALSE;
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_FRAMERATE_TOLERANCE:
         GST_OBJECT_LOCK(hailoenc);
         GST_WARNING_OBJECT(hailoenc, "Setting framerate tolerance to %d", g_value_get_uint(value));
-        hailoenc->framerate_tolerance = (float)((float)g_value_get_uint(value) / 100.0f + 1.0f);
-        hailoenc->update_config = FALSE;
+        hailoenc->params->framerate_tolerance = (float)((float)g_value_get_uint(value) / 100.0f + 1.0f);
+        hailoenc->params->update_config = FALSE;
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     default:
-        hailoenc->update_config = FALSE;
+        hailoenc->params->update_config = FALSE;
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
         break;
     }
@@ -672,8 +674,6 @@ static void gst_hailoenc_finalize(GObject *object)
     GstHailoEnc *hailoenc = (GstHailoEnc *)object;
     GST_DEBUG_OBJECT(hailoenc, "hailoenc finalize callback");
 
-    /* clean up remaining allocated data */
-
     G_OBJECT_CLASS(parent_class)->finalize(object);
 }
 
@@ -683,23 +683,12 @@ static void gst_hailoenc_dispose(GObject *object)
     GST_DEBUG_OBJECT(hailoenc, "hailoenc dispose callback");
 
     /* clean up as possible.  may be called multiple times */
-    if (hailoenc->encoder_instance)
+    if (hailoenc->params != nullptr)
     {
-        CloseEncoder(hailoenc->encoder_instance);
-        hailoenc->encoder_instance = NULL;
-        FreeRes(&(hailoenc->enc_params));
-        if (hailoenc->dts_queue)
-        {
-            g_queue_clear(hailoenc->dts_queue);
-            g_queue_free(hailoenc->dts_queue);
-            hailoenc->dts_queue = NULL;
-        }
+        delete hailoenc->params;
+        hailoenc->params = nullptr;
     }
-    if (hailoenc->input_state)
-    {
-        gst_video_codec_state_unref(hailoenc->input_state);
-        hailoenc->input_state = NULL;
-    }
+
     G_OBJECT_CLASS(parent_class)->dispose(object);
 }
 
@@ -718,7 +707,7 @@ Internal Functions
 static gboolean gst_hailoenc_update_params(GstHailoEnc *hailoenc, GstVideoInfo *info)
 {
     gboolean updated_params = FALSE;
-    EncoderParams *enc_params = &(hailoenc->enc_params);
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
 
     if (enc_params->width != GST_VIDEO_INFO_WIDTH(info) || enc_params->height != GST_VIDEO_INFO_HEIGHT(info))
     {
@@ -764,7 +753,7 @@ static gboolean gst_hailoenc_update_params(GstHailoEnc *hailoenc, GstVideoInfo *
  */
 static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc *hailoenc, HailoMediaLibraryBufferPtr hailo_buffer)
 {
-    EncoderParams *enc_params = &(hailoenc->enc_params);
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
     uint32_t *luma = nullptr;
     uint32_t *chroma = nullptr;
     int lumaFd = -1;
@@ -795,7 +784,7 @@ static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc *hailoenc, Hai
     {
         GST_WARNING_OBJECT(hailoenc, "Stride changed from %u to %u", enc_params->stride, stride);
         enc_params->stride = stride;
-        InitEncoderPreProcConfig(enc_params, &(hailoenc->encoder_instance));
+        InitEncoderPreProcConfig(enc_params, &(hailoenc->params->encoder_instance));
     }
 
     if (hailo_buffer->is_dmabuf())
@@ -859,7 +848,7 @@ static GstFlowReturn gst_hailoenc_update_input_buffer(GstHailoEnc *hailoenc, Hai
 static GstBuffer *gst_hailoenc_get_encoded_buffer(GstHailoEnc *hailoenc)
 {
     GstBuffer *outbuf;
-    EncoderParams *enc_params = &(hailoenc->enc_params);
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
     outbuf = gst_buffer_new_memdup(enc_params->outbufMem.virtualAddress, enc_params->encOut.streamSize);
     return outbuf;
 }
@@ -872,10 +861,10 @@ static GstBuffer *gst_hailoenc_get_encoded_buffer(GstHailoEnc *hailoenc)
  */
 static void gst_hailoenc_add_headers(GstHailoEnc *hailoenc, GstBuffer *new_header)
 {
-    if (hailoenc->header_buffer)
-        hailoenc->header_buffer = gst_buffer_append(hailoenc->header_buffer, new_header);
+    if (hailoenc->params->header_buffer)
+        hailoenc->params->header_buffer = gst_buffer_append(hailoenc->params->header_buffer, new_header);
     else
-        hailoenc->header_buffer = new_header;
+        hailoenc->params->header_buffer = new_header;
 }
 
 /**
@@ -888,17 +877,17 @@ static VCEncRet gst_hailoenc_encode_header(GstVideoEncoder *encoder)
 {
     VCEncRet enc_ret;
     GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
-    EncoderParams *enc_params = &(hailoenc->enc_params);
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
     VCEncIn *pEncIn = &(enc_params->encIn);
     VCEncOut *pEncOut = &(enc_params->encOut);
     pEncIn->gopSize = enc_params->gopSize;
 
-    if (hailoenc->encoder_instance == NULL)
+    if (hailoenc->params->encoder_instance == NULL)
     {
         GST_ERROR_OBJECT(hailoenc, "Encoder not initialized");
         return VCENC_ERROR;
     }
-    enc_ret = VCEncStrmStart(hailoenc->encoder_instance, pEncIn, pEncOut);
+    enc_ret = VCEncStrmStart(hailoenc->params->encoder_instance, pEncIn, pEncOut);
     if (enc_ret != VCENC_OK)
     {
         return enc_ret;
@@ -924,18 +913,18 @@ static GstFlowReturn gst_hailoenc_stream_restart(GstVideoEncoder *encoder)
 {
     VCEncRet enc_ret;
     GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
-    EncoderParams *enc_params = &(hailoenc->enc_params);
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
     VCEncIn *pEncIn = &(enc_params->encIn);
     VCEncOut *pEncOut = &(enc_params->encOut);
     GST_WARNING_OBJECT(hailoenc, "Restarting encoder");
 
-    if (hailoenc->encoder_instance == NULL)
+    if (hailoenc->params->encoder_instance == NULL)
     {
         GST_ERROR_OBJECT(hailoenc, "Encoder not initialized");
         return GST_FLOW_ERROR;
     }
 
-    enc_ret = VCEncStrmEnd(hailoenc->encoder_instance, pEncIn, pEncOut);
+    enc_ret = VCEncStrmEnd(hailoenc->params->encoder_instance, pEncIn, pEncOut);
     if (enc_ret != VCENC_OK)
     {
         GST_ERROR_OBJECT(hailoenc, "Encoder restart - Failed to end stream, returned %d", enc_ret);
@@ -944,44 +933,44 @@ static GstFlowReturn gst_hailoenc_stream_restart(GstVideoEncoder *encoder)
 
     if (enc_params->picture_enc_cnt == 0)
     {
-        gst_buffer_unref(hailoenc->header_buffer);
-        hailoenc->header_buffer = NULL;
+        gst_buffer_unref(hailoenc->params->header_buffer);
+        hailoenc->params->header_buffer = NULL;
     }
 
-    if (hailoenc->hard_restart)
+    if (hailoenc->params->hard_restart)
     {
-        CloseEncoder(hailoenc->encoder_instance);
+        CloseEncoder(hailoenc->params->encoder_instance);
     }
 
-    if (hailoenc->update_gop_size)
+    if (hailoenc->params->update_gop_size)
     {
         GST_DEBUG_OBJECT(hailoenc, "Updating gop size to %u", enc_params->gopSize);
-        memset(hailoenc->gopPicCfg, 0, sizeof(hailoenc->gopPicCfg));
+        memset(hailoenc->params->gopPicCfg, 0, sizeof(hailoenc->params->gopPicCfg));
         memset(enc_params->gopCfgOffset, 0, sizeof(enc_params->gopCfgOffset));
         memset(&(enc_params->encIn.gopConfig), 0, sizeof(enc_params->encIn.gopConfig));
-        enc_params->encIn.gopConfig.pGopPicCfg = hailoenc->gopPicCfg;
+        enc_params->encIn.gopConfig.pGopPicCfg = hailoenc->params->gopPicCfg;
         if (VCEncInitGopConfigs(enc_params->gopSize, NULL, &(enc_params->encIn.gopConfig), enc_params->gopCfgOffset,
                                 enc_params->bFrameQpDelta, enc_params->codecH264) != 0)
         {
             GST_ERROR_OBJECT(hailoenc, "Encoder restart - Failed to update gop size");
             return GST_FLOW_ERROR;
         }
-        hailoenc->update_gop_size = FALSE;
+        hailoenc->params->update_gop_size = FALSE;
     }
 
-    if (hailoenc->hard_restart)
+    if (hailoenc->params->hard_restart)
     {
         GST_INFO_OBJECT(hailoenc, "Reopening encoder");
-        if (OpenEncoder(&(hailoenc->encoder_instance), enc_params) != 0)
+        if (OpenEncoder(&(hailoenc->params->encoder_instance), enc_params) != 0)
         {
             GST_ERROR_OBJECT(hailoenc, "Encoder restart - Failed to reopen encoder");
             return GST_FLOW_ERROR;
         }
-        hailoenc->hard_restart = FALSE;
+        hailoenc->params->hard_restart = FALSE;
     }
     else
     {
-        if (UpdateEncoderConfig(&(hailoenc->encoder_instance), enc_params) != 0)
+        if (UpdateEncoderConfig(&(hailoenc->params->encoder_instance), enc_params) != 0)
         {
             GST_ERROR_OBJECT(hailoenc, "Encoder restart - Failed to update configuration");
             return GST_FLOW_ERROR;
@@ -995,8 +984,8 @@ static GstFlowReturn gst_hailoenc_stream_restart(GstVideoEncoder *encoder)
         return GST_FLOW_ERROR;
     }
 
-    hailoenc->update_config = FALSE;
-    hailoenc->stream_restart = FALSE;
+    hailoenc->params->update_config = FALSE;
+    hailoenc->params->stream_restart = FALSE;
     return GST_FLOW_OK;
 }
 
@@ -1033,7 +1022,7 @@ static void gst_hailoenc_slice_ready(VCEncSliceReady *slice)
     u32 streamSize;
     u8 *strmPtr;
     GstHailoEnc *hailoenc = (GstHailoEnc *)slice->pAppData;
-    EncoderParams *enc_params = &(hailoenc->enc_params);
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
     /* Here is possible to implement low-latency streaming by
      * sending the complete slices before the whole frame is completed. */
 
@@ -1068,7 +1057,7 @@ static void gst_hailoenc_slice_ready(VCEncSliceReady *slice)
 
 static GstFlowReturn releaseDmabuf(GstHailoEnc *hailoenc, int fd)
 {
-    if (EWLUnshareDmabuf(hailoenc->enc_params.ewl, fd) != EWL_OK)
+    if (EWLUnshareDmabuf(hailoenc->params->enc_params.ewl, fd) != EWL_OK)
     {
         GST_ERROR_OBJECT(hailoenc, "Could not unshare dmabuf");
         return GST_FLOW_ERROR;
@@ -1079,7 +1068,7 @@ static GstFlowReturn releaseDmabuf(GstHailoEnc *hailoenc, int fd)
 static GstFlowReturn handle_frame_ready(GstHailoEnc *hailoenc, GstVideoCodecFrame *frame, std::vector<int> *planeFds,
                                         int num_planes, bool is_dmabuf, bool send_null_buffer)
 {
-    EncoderParams *enc_params = &(hailoenc->enc_params);
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
     GstBuffer *null_buffer;
     GstFlowReturn ret = GST_FLOW_OK;
     if (send_null_buffer)
@@ -1102,7 +1091,7 @@ static GstFlowReturn handle_frame_ready(GstHailoEnc *hailoenc, GstVideoCodecFram
         gst_buffer_set_size(null_buffer, 0);
     }
 
-    frame->dts = GPOINTER_TO_UINT(g_queue_pop_head(hailoenc->dts_queue));
+    frame->dts = GPOINTER_TO_UINT(g_queue_pop_head(hailoenc->params->dts_queue));
     frame->duration = GST_SECOND / enc_params->frameRateNumer * enc_params->frameRateDenom;
 
     if (send_null_buffer)
@@ -1110,10 +1099,10 @@ static GstFlowReturn handle_frame_ready(GstHailoEnc *hailoenc, GstVideoCodecFram
     else
         frame->output_buffer = gst_hailoenc_get_encoded_buffer(hailoenc);
 
-    if (hailoenc->header_buffer)
+    if (hailoenc->params->header_buffer)
     {
-        frame->output_buffer = gst_buffer_append(hailoenc->header_buffer, frame->output_buffer);
-        hailoenc->header_buffer = NULL;
+        frame->output_buffer = gst_buffer_append(hailoenc->params->header_buffer, frame->output_buffer);
+        hailoenc->params->header_buffer = NULL;
     }
     if (GST_PAD_IS_FLUSHING(GST_VIDEO_ENCODER_SRC_PAD(hailoenc)))
     {
@@ -1151,17 +1140,17 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
     bool is_dmabuf = false;
     int num_planes = 0;
     std::vector<int> planeFds;
-    EncoderParams *enc_params = &(hailoenc->enc_params);
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
     struct timespec start_encode, end_encode;
     GST_DEBUG_OBJECT(hailoenc, "Encoding frame number %u in type %u", frame->system_frame_number,
                      enc_params->nextCodingType);
 
-    if (hailoenc->encoder_instance == NULL)
+    if (hailoenc->params->encoder_instance == NULL)
     {
         GST_ERROR_OBJECT(hailoenc, "Encoder not initialized");
         return GST_FLOW_ERROR;
     }
-    hailo_buffer = hailo_buffer_from_gst_buffer(frame->input_buffer, hailoenc->input_state->caps);
+    hailo_buffer = hailo_buffer_from_gst_buffer(frame->input_buffer, hailoenc->params->input_state->caps);
     if (!hailo_buffer)
     {
         GST_ERROR_OBJECT(hailoenc, "Could not get hailo buffer");
@@ -1192,11 +1181,12 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
     }
 
     clock_gettime(CLOCK_MONOTONIC, &start_encode);
-    enc_ret = EncodeFrame(enc_params, hailoenc->encoder_instance, &gst_hailoenc_slice_ready, hailoenc);
+    enc_ret = EncodeFrame(enc_params, hailoenc->params->encoder_instance, &gst_hailoenc_slice_ready, hailoenc);
     clock_gettime(CLOCK_MONOTONIC, &end_encode);
     GST_DEBUG_OBJECT(hailoenc, "Encode took %lu milliseconds",
                      (long)media_library_difftimespec_ms(end_encode, start_encode));
-    GST_DEBUG_OBJECT(hailoenc, "Encode performance is %d cycles", VCEncGetPerformance(hailoenc->encoder_instance));
+    GST_DEBUG_OBJECT(hailoenc, "Encode performance is %d cycles",
+                     VCEncGetPerformance(hailoenc->params->encoder_instance));
 
     switch (enc_ret)
     {
@@ -1205,7 +1195,7 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
         if (enc_params->encOut.streamSize == 0)
         {
             ret = GST_FLOW_OK;
-            if (!hailoenc->enc_params.hrd && !hailoenc->enc_params.pictureSkip)
+            if (!hailoenc->params->enc_params.hrd && !hailoenc->params->enc_params.pictureSkip)
             {
                 GST_WARNING_OBJECT(hailoenc, "Encoder didn't return any output for frame %d", enc_params->picture_cnt);
             }
@@ -1229,10 +1219,10 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
                     return ret;
                 }
 
-                if (hailoenc->update_config && enc_params->nextCodingType == VCENC_INTRA_FRAME)
+                if (hailoenc->params->update_config && enc_params->nextCodingType == VCENC_INTRA_FRAME)
                 {
                     GST_INFO_OBJECT(hailoenc, "Finished GOP, restarting encoder in order to update config");
-                    hailoenc->stream_restart = TRUE;
+                    hailoenc->params->stream_restart = TRUE;
                 }
             }
             UpdateEncoderGOP(enc_params);
@@ -1274,13 +1264,13 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
 static GstFlowReturn gst_hailoenc_encode_frames(GstVideoEncoder *encoder)
 {
     GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
-    EncoderParams *enc_params = &(hailoenc->enc_params);
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
     GstVideoCodecFrame *current_frame;
     GstFlowReturn ret = GST_FLOW_ERROR;
     guint gop_size = enc_params->encIn.gopSize;
     GST_DEBUG_OBJECT(hailoenc, "Encoding %u frames", gop_size);
 
-    if (hailoenc->encoder_instance == NULL)
+    if (hailoenc->params->encoder_instance == NULL)
     {
         GST_ERROR_OBJECT(hailoenc, "Encoder not initialized");
         return GST_FLOW_ERROR;
@@ -1329,19 +1319,19 @@ static gboolean gst_hailoenc_set_format(GstVideoEncoder *encoder, GstVideoCodecS
     GstCaps *icaps;
     GstVideoCodecState *output_format;
     GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
-    EncoderParams *enc_params = &(hailoenc->enc_params);
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
 
     gboolean updated_caps = gst_hailoenc_update_params(hailoenc, &(state->info));
-    if (hailoenc->encoder_instance != NULL && updated_caps)
+    if (hailoenc->params->encoder_instance != NULL && updated_caps)
     {
         GST_INFO_OBJECT(hailoenc, "Encoder parameters changed, restarting encoder");
-        hailoenc->stream_restart = TRUE;
-        hailoenc->hard_restart = TRUE;
+        hailoenc->params->stream_restart = TRUE;
+        hailoenc->params->hard_restart = TRUE;
     }
-    else if (hailoenc->encoder_instance == NULL)
+    else if (hailoenc->params->encoder_instance == NULL)
     {
         /* Encoder initialization */
-        if (OpenEncoder(&(hailoenc->encoder_instance), enc_params) != 0)
+        if (OpenEncoder(&(hailoenc->params->encoder_instance), enc_params) != 0)
         {
             return FALSE;
         }
@@ -1369,9 +1359,9 @@ static gboolean gst_hailoenc_set_format(GstVideoEncoder *encoder, GstVideoCodecS
     icaps = gst_caps_fixate(allowed_caps);
 
     /* Store input state and set output state */
-    if (hailoenc->input_state)
-        gst_video_codec_state_unref(hailoenc->input_state);
-    hailoenc->input_state = gst_video_codec_state_ref(state);
+    if (hailoenc->params->input_state)
+        gst_video_codec_state_unref(hailoenc->params->input_state);
+    hailoenc->params->input_state = gst_video_codec_state_ref(state);
     GST_DEBUG_OBJECT(hailoenc, "Setting output caps state %" GST_PTR_FORMAT, icaps);
 
     output_format = gst_video_encoder_set_output_state(encoder, icaps, state);
@@ -1412,7 +1402,7 @@ static gboolean gst_hailoenc_flush(GstVideoEncoder *)
 static gboolean gst_hailoenc_start(GstVideoEncoder *encoder)
 {
     GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
-    EncoderParams *enc_params = &(hailoenc->enc_params);
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
     VCEncIn *pEncIn = &(enc_params->encIn);
 
     if (VCEncInitGopConfigs(enc_params->gopSize, NULL, &(enc_params->encIn.gopConfig), enc_params->gopCfgOffset,
@@ -1441,14 +1431,14 @@ static gboolean gst_hailoenc_start(GstVideoEncoder *encoder)
 static gboolean gst_hailoenc_stop(GstVideoEncoder *encoder)
 {
     GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
-    EncoderParams *enc_params = &(hailoenc->enc_params);
-    if (hailoenc->encoder_instance != NULL)
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
+    if (hailoenc->params->encoder_instance != NULL)
     {
-        CloseEncoder(hailoenc->encoder_instance);
-        hailoenc->encoder_instance = NULL;
+        CloseEncoder(hailoenc->params->encoder_instance);
+        hailoenc->params->encoder_instance = NULL;
     }
-    g_queue_clear(hailoenc->dts_queue);
-    g_queue_free(hailoenc->dts_queue);
+    g_queue_clear(hailoenc->params->dts_queue);
+    g_queue_free(hailoenc->params->dts_queue);
     FreeRes(enc_params);
 
     return TRUE;
@@ -1457,34 +1447,34 @@ static gboolean gst_hailoenc_stop(GstVideoEncoder *encoder)
 static GstFlowReturn gst_hailoenc_finish(GstVideoEncoder *encoder)
 {
     GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
-    VCEncOut *pEncOut = &(hailoenc->enc_params.encOut);
-    VCEncIn *pEncIn = &(hailoenc->enc_params.encIn);
+    VCEncOut *pEncOut = &(hailoenc->params->enc_params.encOut);
+    VCEncIn *pEncIn = &(hailoenc->params->enc_params.encIn);
     VCEncRet enc_ret;
     GstBuffer *eos_buf;
 
     /* End stream */
-    enc_ret = VCEncStrmEnd(hailoenc->encoder_instance, pEncIn, pEncOut);
+    enc_ret = VCEncStrmEnd(hailoenc->params->encoder_instance, pEncIn, pEncOut);
     if (enc_ret != VCENC_OK)
     {
         GST_ERROR_OBJECT(hailoenc, "Failed to end stream, returned %d", enc_ret);
         return GST_FLOW_ERROR;
     }
     eos_buf = gst_hailoenc_get_encoded_buffer(hailoenc);
-    eos_buf->pts = eos_buf->dts = GPOINTER_TO_UINT(g_queue_peek_tail(hailoenc->dts_queue));
+    eos_buf->pts = eos_buf->dts = GPOINTER_TO_UINT(g_queue_peek_tail(hailoenc->params->dts_queue));
     return gst_pad_push(encoder->srcpad, eos_buf);
 }
 
 static void gst_hailoenc_handle_timestamps(GstHailoEnc *hailoenc, GstVideoCodecFrame *frame)
 {
-    EncoderParams *enc_params = &(hailoenc->enc_params);
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
     struct timespec timestamp;
     clock_gettime(CLOCK_MONOTONIC, &timestamp);
     if (enc_params->picture_enc_cnt == 0)
     {
-        if (hailoenc->adapt_framerate)
+        if (hailoenc->params->adapt_framerate)
         {
-            hailoenc->framerate_counter = 1;
-            hailoenc->last_timestamp = timestamp;
+            hailoenc->params->framerate_counter = 1;
+            hailoenc->params->last_timestamp = timestamp;
         }
         switch (enc_params->gopSize)
         {
@@ -1492,45 +1482,45 @@ static void gst_hailoenc_handle_timestamps(GstHailoEnc *hailoenc, GstVideoCodecF
             break;
         case 2:
         case 3:
-            g_queue_push_tail(hailoenc->dts_queue, GUINT_TO_POINTER(frame->pts - frame->duration));
+            g_queue_push_tail(hailoenc->params->dts_queue, GUINT_TO_POINTER(frame->pts - frame->duration));
             break;
         default:
-            g_queue_push_tail(hailoenc->dts_queue, GUINT_TO_POINTER(frame->pts - 2 * frame->duration));
-            g_queue_push_tail(hailoenc->dts_queue, GUINT_TO_POINTER(frame->pts - frame->duration));
+            g_queue_push_tail(hailoenc->params->dts_queue, GUINT_TO_POINTER(frame->pts - 2 * frame->duration));
+            g_queue_push_tail(hailoenc->params->dts_queue, GUINT_TO_POINTER(frame->pts - frame->duration));
             break;
         }
     }
-    else if (hailoenc->adapt_framerate)
+    else if (hailoenc->params->adapt_framerate)
     {
-        hailoenc->framerate_counter++;
-        auto timediff_ms = media_library_difftimespec_ms(timestamp, hailoenc->last_timestamp);
-        if (timediff_ms > 1000 || hailoenc->framerate_counter == 10)
+        hailoenc->params->framerate_counter++;
+        auto timediff_ms = media_library_difftimespec_ms(timestamp, hailoenc->params->last_timestamp);
+        if (timediff_ms > 1000 || hailoenc->params->framerate_counter == 10)
         {
-            float avg_duration_s = (float)timediff_ms / (float)hailoenc->framerate_counter / 1000.0f;
+            float avg_duration_s = (float)timediff_ms / (float)hailoenc->params->framerate_counter / 1000.0f;
             float new_framerate = 1.0f / avg_duration_s;
             float current_framerate = (float)enc_params->frameRateNumer / (float)enc_params->frameRateDenom;
             if (std::max(new_framerate, current_framerate) / std::min(new_framerate, current_framerate) >=
-                hailoenc->framerate_tolerance)
+                hailoenc->params->framerate_tolerance)
             {
                 GST_WARNING_OBJECT(hailoenc, "Framerate changed from %d to %d", (int)current_framerate,
                                    (int)std::round(new_framerate));
                 enc_params->frameRateNumer = (u32)std::round(new_framerate);
                 enc_params->frameRateDenom = 1;
-                hailoenc->update_config = TRUE;
-                hailoenc->hard_restart = TRUE;
+                hailoenc->params->update_config = TRUE;
+                hailoenc->params->hard_restart = TRUE;
             }
-            hailoenc->framerate_counter = 0;
-            hailoenc->last_timestamp = timestamp;
+            hailoenc->params->framerate_counter = 0;
+            hailoenc->params->last_timestamp = timestamp;
         }
     }
-    g_queue_push_tail(hailoenc->dts_queue, GUINT_TO_POINTER(frame->pts));
+    g_queue_push_tail(hailoenc->params->dts_queue, GUINT_TO_POINTER(frame->pts));
 }
 
 static GstFlowReturn gst_hailoenc_handle_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *frame)
 {
     GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
     GstFlowReturn ret = GST_FLOW_ERROR;
-    EncoderParams *enc_params = &(hailoenc->enc_params);
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
     GList *frames;
     guint delayed_frames;
     GstVideoCodecFrame *oldest_frame;
@@ -1549,7 +1539,7 @@ static GstFlowReturn gst_hailoenc_handle_frame(GstVideoEncoder *encoder, GstVide
 
     gst_hailoenc_handle_timestamps(hailoenc, frame);
 
-    if (hailoenc->stream_restart)
+    if (hailoenc->params->stream_restart)
     {
         ret = gst_hailoenc_stream_restart(encoder);
         if (ret != GST_FLOW_OK)

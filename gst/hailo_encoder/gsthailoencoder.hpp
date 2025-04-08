@@ -26,10 +26,12 @@
 #include "media_library/media_library_utils.hpp"
 #include <gst/gst.h>
 #include <gst/video/video.h>
+#include <queue>
 
 G_BEGIN_DECLS
 
 typedef struct _GstHailoEncoder GstHailoEncoder;
+typedef struct _GstHailoEncoderParams GstHailoEncoderParams;
 typedef struct _GstHailoEncoderClass GstHailoEncoderClass;
 #define GST_TYPE_HAILO_ENCODER (gst_hailo_encoder_get_type())
 #define GST_HAILO_ENCODER(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), GST_TYPE_HAILO_ENCODER, GstHailoEncoder))
@@ -39,19 +41,24 @@ typedef struct _GstHailoEncoderClass GstHailoEncoderClass;
 #define GST_HAILO_ENCODER_GET_CLASS(obj)                                                                               \
     (G_TYPE_INSTANCE_GET_CLASS((obj), GST_TYPE_HAILO_ENCODER, GstHailoEncoderClass))
 
+struct _GstHailoEncoderParams
+{
+    GstVideoCodecState *input_state = nullptr;
+    std::unique_ptr<Encoder> encoder = nullptr;
+    std::string config;
+    std::string config_path;
+    encoder_config_t encoder_config;
+    encoder_config_t encoder_user_config;
+    encoder_monitors encoder_monitors;
+    gboolean stream_restart = false;
+    std::queue<uint64_t> dts_queue;
+    gboolean enforce_caps = true;
+};
+
 struct _GstHailoEncoder
 {
     GstVideoEncoder parent;
-    GstVideoCodecState *input_state;
-    std::unique_ptr<Encoder> encoder;
-    std::string config;
-    std::string config_path;
-    std::shared_ptr<encoder_config_t> encoder_config;
-    std::shared_ptr<encoder_config_t> encoder_user_config;
-    std::shared_ptr<encoder_monitors> encoder_monitors;
-    gboolean stream_restart;
-    GQueue *dts_queue;
-    gboolean enforce_caps;
+    GstHailoEncoderParams *params = nullptr;
 };
 
 struct _GstHailoEncoderClass

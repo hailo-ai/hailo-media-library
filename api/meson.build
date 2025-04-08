@@ -3,7 +3,10 @@
 ################################################
 sources = [
   'src/encoder/encoder.cpp',
-  'src/frontend/frontend.cpp'
+  'src/frontend/frontend.cpp',
+  'src/media_library/media_library.cpp',
+  'src/media_library/medialib_config_manager.cpp',
+  'src/utils/utils.cpp'
   ]
 
 json_dep = meson.get_compiler('c').find_library('libnlohmann_json_schema_validator', required: true, dirs: '/usr/lib/')

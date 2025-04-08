@@ -48,6 +48,9 @@ enum ConfigSchema
     CONFIG_SCHEMA_DENOISE,
     CONFIG_SCHEMA_INPUT_VIDEO,
     CONFIG_SCHEMA_FRONTEND,
+    CONFIG_SCHEMA_MEDIALIB_CONFIG,
+    CONFIG_SCHEMA_PROFILE,
+    CONFIG_SCHEMA_ISP_CONFIG,
 };
 
 class ConfigManager
@@ -103,6 +106,14 @@ class ConfigManager
      */
     template <typename TConf>
     media_library_return config_string_to_struct(const std::string &user_config_string, TConf &conf);
+
+    /**
+     * @brief Convert a configuration struct to a json string
+     *
+     * @param[in] conf - the configuration struct
+     * @return std::string
+     */
+    template <typename TConf> std::string config_struct_to_string(const TConf &conf);
 
     /**
      * @brief Retrieve an entry from an input JSON string

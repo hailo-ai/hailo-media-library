@@ -31,6 +31,8 @@
 #include "media_library_logger.hpp"
 #include "encoder_config_presets.hpp"
 
+#define MODULE_NAME LoggerType::Encoder
+
 #define MIN_MONITOR_FRAMES (10)
 #define MAX_MONITOR_FRAMES (120)
 #define VCENC_MAX_BITRATE (100000 * 1000) /* Level 6 main tier limit */
@@ -64,7 +66,7 @@ media_library_return EncoderConfig::configure(const std::string &json_string)
         m_config_manager->config_string_to_struct<encoder_config_t>(strapped_json, m_config);
     if (config_ret != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("encoder's JSON config conversion failed: {}", strapped_json);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "encoder's JSON config conversion failed: {}", strapped_json);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -240,14 +242,16 @@ media_library_return Encoder::Impl::validate_bitrate_limitations(rate_control_co
     {
         if (rate_control_config.bitrate.target_bitrate > VCENC_MAX_BITRATE)
         {
-            LOGGER__ERROR("Requested bitrate ({}) is higher than the maximum supported bitrate ({})",
-                          rate_control_config.bitrate.target_bitrate, VCENC_MAX_BITRATE);
+            LOGGER__MODULE__ERROR(MODULE_NAME,
+                                  "Requested bitrate ({}) is higher than the maximum supported bitrate ({})",
+                                  rate_control_config.bitrate.target_bitrate, VCENC_MAX_BITRATE);
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
         if (rate_control_config.bitrate.target_bitrate < VCENC_MIN_BITRATE)
         {
-            LOGGER__ERROR("Requested bitrate ({}) is lower than the minimum supported bitrate ({})",
-                          rate_control_config.bitrate.target_bitrate, VCENC_MIN_BITRATE);
+            LOGGER__MODULE__ERROR(MODULE_NAME,
+                                  "Requested bitrate ({}) is lower than the minimum supported bitrate ({})",
+                                  rate_control_config.bitrate.target_bitrate, VCENC_MIN_BITRATE);
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
     }
@@ -264,7 +268,7 @@ media_library_return Encoder::Impl::validate_level_limitations(std::string level
     auto find_level = h265_level.find(level);
     if (find_level == h265_level.end())
     {
-        LOGGER__ERROR("Requested level ({}) does not exist in the supported HEVC levels", level);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Requested level ({}) does not exist in the supported HEVC levels", level);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -273,31 +277,35 @@ media_library_return Encoder::Impl::validate_level_limitations(std::string level
     u32 max_fs;
     if (VCEncGetMaxFS((u32)level_index, &max_fs) != VCENC_OK)
     {
-        LOGGER__ERROR("Failed to get max resolution limitation for level {}", level);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get max resolution limitation for level {}", level);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
     if ((u32)(width * height) > max_fs)
     {
-        LOGGER__ERROR("Requested HEVC level {} is not supported for requested resolution {}x{}. Please refer to to the "
-                      "limitations on the hailo_encoder documentation",
-                      level, width, height);
+        LOGGER__MODULE__ERROR(
+            MODULE_NAME,
+            "Requested HEVC level {} is not supported for requested resolution {}x{}. Please refer to to the "
+            "limitations on the hailo_encoder documentation",
+            level, width, height);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
     u32 max_sbps;
     if (VCEncGetMaxSBPS((u32)level_index, &max_sbps) != VCENC_OK)
     {
-        LOGGER__ERROR("Failed to get framerate limitation for level {}", level);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get framerate limitation for level {}", level);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
     u32 sample_rate = (framerate * width * height) / framerate_denom;
     if (sample_rate > max_sbps)
     {
-        LOGGER__ERROR("Requested HEVC level {} is not supported for requested resolution {}x{} and framerate {}. "
-                      "Please refer to to the limitations on the hailo_encoder documentation",
-                      level, width, height, framerate);
+        LOGGER__MODULE__ERROR(
+            MODULE_NAME,
+            "Requested HEVC level {} is not supported for requested resolution {}x{} and framerate {}. "
+            "Please refer to to the limitations on the hailo_encoder documentation",
+            level, width, height, framerate);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -344,7 +352,7 @@ media_library_return Encoder::Impl::get_level(std::string level, bool codecH264,
         }
         else
         {
-            LOGGER__ERROR("Invalid H264 level: {}", level);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Invalid H264 level: {}", level);
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
     }
@@ -356,7 +364,7 @@ media_library_return Encoder::Impl::get_level(std::string level, bool codecH264,
         }
         else
         {
-            LOGGER__ERROR("Invalid HEVC level: {}", level);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Invalid HEVC level: {}", level);
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
     }
@@ -401,7 +409,7 @@ void Encoder::Impl::updateArea(coding_roi_t &area, VCEncPictureArea &vc_area)
 
 void Encoder::Impl::create_gop_config()
 {
-    LOGGER__DEBUG("Encoder - init_gop_config");
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoder - init_gop_config");
     auto codec = get_codec();
     auto gop_config_json = m_config->get_hailo_config().gop;
     int32_t bframe_qp_delta = gop_config_json.b_frame_qp_delta;
@@ -421,7 +429,7 @@ media_library_return Encoder::Impl::init_gop_config()
         m_gop_cfg->init_config(&(m_enc_in.gopConfig), gop_config.gop_size, gop_config.b_frame_qp_delta, codec);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__ERROR("Failed to init gop config");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init gop config");
         return ret;
     }
 
@@ -432,7 +440,7 @@ media_library_return Encoder::Impl::init_gop_config()
 
 media_library_return Encoder::Impl::init_rate_control_config()
 {
-    LOGGER__DEBUG("Encoder - init_rate_control_config");
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoder - init_rate_control_config");
     VCEncRet ret = VCENC_OK;
 
     auto rate_control = m_config->get_hailo_config().rate_control;
@@ -440,7 +448,7 @@ media_library_return Encoder::Impl::init_rate_control_config()
     if ((ret = VCEncGetRateCtrl(m_inst, &m_vc_rate_cfg)) != VCENC_OK)
     {
         VCEncRelease(m_inst);
-        LOGGER__ERROR("Failed to get rate control configuration on VCEnc error code {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get rate control configuration on VCEnc error code {}", ret);
         return MEDIA_LIBRARY_ERROR;
     }
 
@@ -516,7 +524,7 @@ media_library_return Encoder::Impl::init_rate_control_config()
     if ((ret = VCEncSetRateCtrl(m_inst, &m_vc_rate_cfg)) != VCENC_OK)
     {
         VCEncRelease(m_inst);
-        LOGGER__ERROR("Failed to set rate control configuration on VCEnc error code {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set rate control configuration on VCEnc error code {}", ret);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     return MEDIA_LIBRARY_SUCCESS;
@@ -524,7 +532,7 @@ media_library_return Encoder::Impl::init_rate_control_config()
 
 media_library_return Encoder::Impl::init_coding_control_config()
 {
-    LOGGER__DEBUG("Encoder - init_coding_control_config");
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoder - init_coding_control_config");
     VCEncRet ret = VCENC_OK;
     auto coding_control = m_config->get_hailo_config().coding_control;
 
@@ -532,7 +540,7 @@ media_library_return Encoder::Impl::init_coding_control_config()
     if ((ret = VCEncGetCodingCtrl(m_inst, &m_vc_coding_cfg)) != VCENC_OK)
     {
         VCEncRelease(m_inst);
-        LOGGER__ERROR("Failed to get coding control configuration on VCEnc error code {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get coding control configuration on VCEnc error code {}", ret);
         return MEDIA_LIBRARY_ERROR;
     }
 
@@ -591,7 +599,7 @@ media_library_return Encoder::Impl::init_coding_control_config()
     if ((ret = VCEncSetCodingCtrl(m_inst, &m_vc_coding_cfg)) != VCENC_OK)
     {
         VCEncRelease(m_inst);
-        LOGGER__ERROR("Failed to set coding control configuration on VCEnc error code {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set coding control configuration on VCEnc error code {}", ret);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     return MEDIA_LIBRARY_SUCCESS;
@@ -599,13 +607,13 @@ media_library_return Encoder::Impl::init_coding_control_config()
 
 media_library_return Encoder::Impl::init_preprocessing_config()
 {
-    LOGGER__DEBUG("Encoder - init_preprocessing_config");
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoder - init_preprocessing_config");
     VCEncRet ret;
     /* PreP setup */
     if ((ret = VCEncGetPreProcessing(m_inst, &m_vc_pre_proc_cfg)) != VCENC_OK)
     {
         VCEncRelease(m_inst);
-        LOGGER__ERROR("Failed to get pre processing configuration on VCEnc error code {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get pre processing configuration on VCEnc error code {}", ret);
         return MEDIA_LIBRARY_ERROR;
     }
     auto input_stream = m_config->get_hailo_config().input_stream;
@@ -663,7 +671,7 @@ media_library_return Encoder::Impl::init_preprocessing_config()
     if ((ret = VCEncSetPreProcessing(m_inst, &m_vc_pre_proc_cfg)) != VCENC_OK)
     {
         VCEncRelease(m_inst);
-        LOGGER__ERROR("Failed to set pre processing configuration on VCEnc error code {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set pre processing configuration on VCEnc error code {}", ret);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -673,7 +681,7 @@ media_library_return Encoder::Impl::init_preprocessing_config()
 media_library_return Encoder::Impl::init_encoder_config()
 {
     memset(&m_vc_cfg, 0, sizeof(m_vc_cfg));
-    LOGGER__DEBUG("Encoder - init_encoder_config");
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoder - init_encoder_config");
     VCEncRet ret = VCENC_OK;
     auto input_stream = m_config->get_hailo_config().input_stream;
     auto output_stream = m_config->get_hailo_config().output_stream;
@@ -692,7 +700,7 @@ media_library_return Encoder::Impl::init_encoder_config()
     if (!m_config->get_hailo_config().rate_control.picture_rc &&
         (output_stream.profile.value() == "auto" || output_stream.level.value() == "auto"))
     {
-        LOGGER__ERROR("Profile and level cannot be set to 'auto' when rate control is disabled");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Profile and level cannot be set to 'auto' when rate control is disabled");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -735,7 +743,7 @@ media_library_return Encoder::Impl::init_encoder_config()
     ret = VCEncInit(&m_vc_cfg, &m_inst);
     if (ret != VCENC_OK)
     {
-        LOGGER__ERROR("Failed to init encoder configuration on VCEnc error code {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init encoder configuration on VCEnc error code {}", ret);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -744,7 +752,7 @@ media_library_return Encoder::Impl::init_encoder_config()
 
 media_library_return Encoder::Impl::init_monitors_config()
 {
-    LOGGER__DEBUG("Encoder - init_monitors_config");
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoder - init_monitors_config");
     VCEncRet ret = VCENC_OK;
 
     auto monitors_control = m_config->get_hailo_config().monitors_control;
@@ -761,7 +769,7 @@ media_library_return Encoder::Impl::init_monitors_config()
             std::ofstream(monitors_control.bitrate_monitor.result_output_path, std::ios::out | std::ios::trunc);
         if (m_bitrate_monitor.output_file.bad())
         {
-            LOGGER__ERROR("Encoder - Failed to open bitrate output file");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder - Failed to open bitrate output file");
             ret = VCENC_SYSTEM_ERROR;
         }
     }
@@ -772,7 +780,7 @@ media_library_return Encoder::Impl::init_monitors_config()
             std::ofstream(monitors_control.cycle_monitor.result_output_path, std::ios::out | std::ios::trunc);
         if (m_cycle_monitor.output_file.bad())
         {
-            LOGGER__ERROR("Encoder - Failed to open cycle output file");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder - Failed to open cycle output file");
             ret = VCENC_SYSTEM_ERROR;
         }
     }

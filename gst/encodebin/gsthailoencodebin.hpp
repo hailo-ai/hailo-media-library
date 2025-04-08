@@ -44,24 +44,33 @@ G_BEGIN_DECLS
 #define GST_IS_HAILO_ENCODE_BIN(obj) (G_TYPE_CHECK_INSTANCE_TYPE((obj), GST_TYPE_HAILO_ENCODE_BIN))
 #define GST_IS_HAILO_ENCODE_BIN_CLASS(obj) (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILO_ENCODE_BIN))
 
+static constexpr size_t MIN_QUEUE_SIZE = 1;
+static constexpr size_t ENCODEBIN_DEFAULT_QUEUE_SIZE = 2;
+
 typedef struct _GstHailoEncodeBin GstHailoEncodeBin;
+typedef struct _GstHailoEncodeBinParams GstHailoEncodeBinParams;
 typedef struct _GstHailoEncodeBinClass GstHailoEncodeBinClass;
+
+struct _GstHailoEncodeBinParams
+{
+    GstPad *sinkpad = nullptr;
+    GstPad *srcpad = nullptr;
+
+    std::string config_file_path;
+    std::string config_string;
+    EncoderType encoder_type = EncoderType::None;
+
+    bool m_elements_linked = false;
+    GstElement *m_osd = nullptr;
+    GstElement *m_queue_encoder = nullptr;
+    GstElement *m_encoder = nullptr;
+    size_t queue_size = ENCODEBIN_DEFAULT_QUEUE_SIZE;
+};
 
 struct _GstHailoEncodeBin
 {
     GstBin base_hailoencodebin;
-    GstPad *sinkpad;
-    GstPad *srcpad;
-
-    gchar *config_file_path;
-    std::string config_string;
-    EncoderType encoder_type;
-
-    gboolean m_elements_linked;
-    GstElement *m_osd;
-    GstElement *m_queue_encoder;
-    GstElement *m_encoder;
-    guint queue_size;
+    GstHailoEncodeBinParams *params = nullptr;
 };
 
 struct _GstHailoEncodeBinClass

@@ -424,15 +424,6 @@ media_library_return fill_poly_packaged_array(InputOutputArray img, InputArrayOf
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-privacy_mask_types::yuv_color_t rgb_to_yuv(const privacy_mask_types::rgb_color_t &rgb_color)
-{
-    privacy_mask_types::yuv_color_t yuv_color;
-    yuv_color.y = 0.257 * rgb_color.r + 0.504 * rgb_color.g + 0.098 * rgb_color.b + 16;
-    yuv_color.u = -0.148 * rgb_color.r - 0.291 * rgb_color.g + 0.439 * rgb_color.b + 128;
-    yuv_color.v = 0.439 * rgb_color.r - 0.368 * rgb_color.g - 0.071 * rgb_color.b + 128;
-    return yuv_color;
-}
-
 media_library_return rotate_polygon(privacy_mask_types::PolygonPtr polygon, double rotation_angle, uint frame_width,
                                     uint frame_height)
 {
@@ -469,7 +460,6 @@ media_library_return rotate_polygons(std::vector<privacy_mask_types::PolygonPtr>
 
 media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mask_types::PolygonPtr> &polygons,
                                                          const uint &frame_width, const uint &frame_height,
-                                                         const privacy_mask_types::rgb_color_t &color,
                                                          privacy_mask_types::PrivacyMaskDataPtr privacy_mask_data)
 {
     struct timespec start_fill_polly, end_fill_polly;
@@ -493,9 +483,6 @@ media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mas
     uint packaged_array_size =
         (mask_width_with_stride * mask_height) / 8 + ((mask_width_with_stride * mask_height) % 8 == 0 ? 0 : 1);
     std::vector<uint8_t> packaged_array(packaged_array_size, 0);
-
-    // Set the rois count and YUV color in the privacy mask data
-    privacy_mask_data->color = rgb_to_yuv(color);
 
     uint i = 0;
     for (const auto &polygon : polygons)

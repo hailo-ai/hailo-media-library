@@ -48,30 +48,38 @@ G_BEGIN_DECLS
 #define GST_IS_HAILO_DENOISE_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILO_DENOISE))
 #define GST_HAILO_DENOISE_CAST(obj) ((GstHailoDenoise *)(obj))
 
+static constexpr size_t DENOISE_DEFAULT_QUEUE_SIZE = 2;
+
 typedef struct _GstHailoDenoise GstHailoDenoise;
+typedef struct _GstHailoDenoiseParams GstHailoDenoiseParams;
 typedef struct _GstHailoDenoiseClass GstHailoDenoiseClass;
 
-struct _GstHailoDenoise
+struct _GstHailoDenoiseParams
 {
-    GstElement element;
-
     GstPad *sinkpad;
     GstPad *srcpad;
-    gchar *config_file_path;
-    gchar *config_string;
+    std::string config_file_path;
+    std::string config_string;
 
-    gboolean m_flushing;
-    std::unique_ptr<std::condition_variable> m_condvar;
-    std::shared_ptr<std::mutex> m_mutex;
-    uint8_t m_queue_size;
-    std::shared_ptr<std::queue<GstBuffer *>> m_staging_queue;
+    bool m_flushing = false;
+    std::condition_variable m_condvar;
+    std::mutex m_mutex;
+    size_t m_queue_size = DENOISE_DEFAULT_QUEUE_SIZE;
+    std::queue<GstBuffer *> m_staging_queue;
 
-    std::shared_ptr<MediaLibraryPostIspDenoise> medialib_denoise;
-    std::shared_ptr<denoise_config_t> denoise_config;
+    std::shared_ptr<MediaLibraryPostIspDenoise> medialib_denoise = nullptr;
+    denoise_config_t denoise_config;
+
     media_library_return observe(const MediaLibraryPostIspDenoise::callbacks_t &callback)
     {
         return medialib_denoise->observe(callback);
     }
+};
+
+struct _GstHailoDenoise
+{
+    GstElement element;
+    GstHailoDenoiseParams *params = nullptr;
 };
 
 struct _GstHailoDenoiseClass

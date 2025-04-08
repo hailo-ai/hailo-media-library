@@ -28,6 +28,7 @@
 #pragma once
 #include "dis_common.h"
 #include "dsp_utils.hpp"
+#include "encoder_config_types.hpp"
 #include <tl/expected.hpp>
 #include <functional>
 #include <string>
@@ -303,11 +304,13 @@ struct output_resolution_t
     uint32_t framerate;
     uint32_t pool_max_buffers;
     dsp_utils::crop_resize_dims_t dimensions;
+    bool keep_aspect_ratio;
 
     bool operator==(const output_resolution_t &other) const
     {
         return framerate == other.framerate && dimensions.destination_width == other.dimensions.destination_width &&
-               dimensions.destination_height == other.dimensions.destination_height;
+               dimensions.destination_height == other.dimensions.destination_height &&
+               keep_aspect_ratio == other.keep_aspect_ratio;
     }
     bool operator!=(const output_resolution_t &other) const
     {
@@ -341,12 +344,11 @@ struct motion_detection_config_t
     float threshold;
 };
 
-struct output_video_config_t
+struct application_input_streams_config_t
 {
     dsp_interpolation_type_t interpolation_type;
     HailoFormat format;
     bool grayscale;
-    bool keep_aspect_ratio;
     std::vector<output_resolution_t> resolutions;
 };
 
@@ -371,7 +373,7 @@ struct multi_resize_config_t
 {
   public:
     output_resolution_t input_video_config;
-    output_video_config_t output_video_config;
+    application_input_streams_config_t application_input_streams_config;
     digital_zoom_config_t digital_zoom_config;
     rotation_config_t rotation_config;
     motion_detection_config_t motion_detection_config;
@@ -385,7 +387,7 @@ struct multi_resize_config_t
         input_video_config.dimensions.destination_height = 0;
         rotation_config = {false, ROTATION_ANGLE_0};
         digital_zoom_config = digital_zoom_config_t();
-        output_video_config.resolutions = std::vector<output_resolution_t>();
+        application_input_streams_config.resolutions = std::vector<output_resolution_t>();
         motion_detection_config = motion_detection_config_t();
     }
 
@@ -393,13 +395,14 @@ struct multi_resize_config_t
     {
         digital_zoom_config = mresize_config.digital_zoom_config;
         motion_detection_config = mresize_config.motion_detection_config;
-        output_video_config.grayscale = mresize_config.output_video_config.grayscale;
-        output_video_config.interpolation_type = mresize_config.output_video_config.interpolation_type;
+        application_input_streams_config.grayscale = mresize_config.application_input_streams_config.grayscale;
+        application_input_streams_config.interpolation_type =
+            mresize_config.application_input_streams_config.interpolation_type;
 
-        for (uint8_t i = 0; i < mresize_config.output_video_config.resolutions.size(); i++)
+        for (uint8_t i = 0; i < mresize_config.application_input_streams_config.resolutions.size(); i++)
         {
-            output_resolution_t &current_res = output_video_config.resolutions[i];
-            output_resolution_t &new_res = mresize_config.output_video_config.resolutions[i];
+            output_resolution_t &current_res = application_input_streams_config.resolutions[i];
+            output_resolution_t &new_res = mresize_config.application_input_streams_config.resolutions[i];
             current_res.framerate = new_res.framerate;
         }
 
@@ -420,7 +423,7 @@ struct multi_resize_config_t
         }
 
         // need to rotate frame dimensions
-        for (output_resolution_t &current_res : output_video_config.resolutions)
+        for (output_resolution_t &current_res : application_input_streams_config.resolutions)
         {
             std::swap(current_res.dimensions.destination_width, current_res.dimensions.destination_height);
         }
@@ -431,11 +434,11 @@ struct multi_resize_config_t
     tl::expected<std::reference_wrapper<output_resolution_t>, media_library_return> get_output_resolution_by_index(
         uint8_t index)
     {
-        if (index < output_video_config.resolutions.size())
+        if (index < application_input_streams_config.resolutions.size())
         {
-            return std::ref(output_video_config.resolutions[index]);
+            return std::ref(application_input_streams_config.resolutions[index]);
         }
-        else if (motion_detection_config.enabled && index == output_video_config.resolutions.size())
+        else if (motion_detection_config.enabled && index == application_input_streams_config.resolutions.size())
         {
             return std::ref(motion_detection_config.resolution);
         }
@@ -456,6 +459,8 @@ struct eis_config_t
     double iir_hpf_coefficient;
     float camera_fov_factor;
     uint64_t line_readout_time;
+    uint8_t num_exposures;
+    float hdr_exposure_ratio;
 };
 
 struct gyro_config_t
@@ -475,14 +480,14 @@ struct ldc_config_t
     dis_config_t dis_config;
     optical_zoom_config_t optical_zoom_config;
     input_video_config_t input_video_config;
-    output_resolution_t output_video_config;
+    output_resolution_t application_input_streams_config;
     eis_config_t eis_config;
     gyro_config_t gyro_config;
 
     ldc_config_t()
     {
-        // Since we are not parsing input_video_config and output_video_config from json, we need to set the default
-        // values
+        // Since we are not parsing input_video_config and application_input_streams_config from json, we need to set
+        // the default values
         input_video_config.format = HAILO_FORMAT_NV12;
         input_video_config.video_device = "";
         input_video_config.resolution.framerate = 0;
@@ -490,10 +495,10 @@ struct ldc_config_t
         input_video_config.resolution.dimensions.destination_width = 0;
         input_video_config.resolution.dimensions.destination_height = 0;
 
-        output_video_config.framerate = 0;
-        output_video_config.pool_max_buffers = 10;
-        output_video_config.dimensions.destination_width = 0;
-        output_video_config.dimensions.destination_height = 0;
+        application_input_streams_config.framerate = 0;
+        application_input_streams_config.pool_max_buffers = 10;
+        application_input_streams_config.dimensions.destination_width = 0;
+        application_input_streams_config.dimensions.destination_height = 0;
     }
 
     media_library_return update(ldc_config_t &ldc_configs)
@@ -504,7 +509,6 @@ struct ldc_config_t
 
         dewarp_config.enabled = disable_dewarp ? false : ldc_configs.dewarp_config.enabled;
         dewarp_config.camera_type = dewarp_config.enabled ? CAMERA_TYPE_PINHOLE : CAMERA_TYPE_INPUT_DISTORTIONS;
-        flip_config = ldc_configs.flip_config;
         dis_config = ldc_configs.dis_config;
         eis_config = ldc_configs.eis_config;
         gyro_config = ldc_configs.gyro_config;
@@ -516,6 +520,14 @@ struct ldc_config_t
             // Update dewarp configuration is restricted
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
+
+        update_flip_rotate(ldc_configs);
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    void update_flip_rotate(ldc_config_t &ldc_configs)
+    {
+        flip_config = ldc_configs.flip_config;
 
         rotation_angle_t current_rotation_angle = rotation_config.effective_value();
         rotation_angle_t new_rotation_angle = ldc_configs.rotation_config.effective_value();
@@ -529,14 +541,11 @@ struct ldc_config_t
         }
 
         rotation_config = ldc_configs.rotation_config;
-        return MEDIA_LIBRARY_SUCCESS;
     }
 
     bool check_ops_enabled(bool dewarp_actions_only = false)
     {
         return (dewarp_config.enabled || dis_config.enabled || eis_config.enabled || gyro_config.enabled ||
-                rotation_config.effective_value() == ROTATION_ANGLE_90 ||
-                rotation_config.effective_value() == ROTATION_ANGLE_270 ||
                 (!dewarp_actions_only && optical_zoom_config.enabled));
     }
 
@@ -552,7 +561,8 @@ struct ldc_config_t
   private:
     void rotate_output_dimensions()
     {
-        std::swap(output_video_config.dimensions.destination_width, output_video_config.dimensions.destination_height);
+        std::swap(application_input_streams_config.dimensions.destination_width,
+                  application_input_streams_config.dimensions.destination_height);
     }
 };
 
@@ -600,6 +610,11 @@ struct frontend_element_config_t
     {
     }
 
+    frontend_element_config_t(ldc_config_t &ldc, denoise_config_t &denoise, multi_resize_config_t &multi_resize)
+        : ldc_config(ldc), denoise_config(denoise), multi_resize_config(multi_resize)
+    {
+    }
+
     media_library_return update(frontend_element_config_t &frontend_element_configs)
     {
         ldc_config.update(frontend_element_configs.ldc_config);
@@ -607,6 +622,37 @@ struct frontend_element_config_t
         multi_resize_config.update(frontend_element_configs.multi_resize_config);
 
         return MEDIA_LIBRARY_SUCCESS;
+    }
+};
+
+struct isp_config_files_t
+{
+    std::string aaa_config_path;
+    std::string sensor_entry_path;
+};
+
+struct codec_config_t
+{
+    std::string stream_id;
+    std::string config_path;
+};
+
+struct profile_config_t
+{
+    multi_resize_config_t multi_resize_config;
+    ldc_config_t ldc_config;
+    hailort_t hailort_config;
+    isp_t isp_config;
+    hdr_config_t hdr_config;
+    denoise_config_t denoise_config;
+    input_video_config_t input_config;
+    std::vector<codec_config_t> codec_configs;
+    isp_config_files_t isp_config_files;
+
+    profile_config_t()
+        : multi_resize_config(), ldc_config(), hailort_config(), isp_config(), hdr_config(), denoise_config(),
+          input_config(), codec_configs(), isp_config_files()
+    {
     }
 };
 
@@ -639,6 +685,18 @@ struct frontend_config_t
 
         return MEDIA_LIBRARY_SUCCESS;
     }
+
+    frontend_config_t &operator=(const profile_config_t &profile_conf)
+    {
+        input_config = profile_conf.input_config;
+        ldc_config = profile_conf.ldc_config;
+        denoise_config = profile_conf.denoise_config;
+        multi_resize_config = profile_conf.multi_resize_config;
+        hdr_config = profile_conf.hdr_config;
+        hailort_config = profile_conf.hailort_config;
+        isp_config = profile_conf.isp_config;
+        return *this;
+    }
 };
 
 struct encoder_bitrate_monitor
@@ -666,4 +724,36 @@ struct encoder_monitors
     encoder_bitrate_monitor bitrate_monitor;
     encoder_cycle_monitor cycle_monitor;
 };
+
+struct OverrideParameters
+{
+    std::string override_file;
+    bool discard_on_profile_change;
+};
+
+struct profile_t
+{
+    std::string name;
+    std::string config_file;
+};
+
+struct medialib_config_t
+{
+    std::string default_profile;
+    std::vector<profile_t> profiles;
+
+    // get_profile(std::string name)
+    tl::expected<profile_t, media_library_return> get_profile(const std::string &name) const
+    {
+        for (const auto &profile : profiles)
+        {
+            if (profile.name == name)
+            {
+                return profile;
+            }
+        }
+        return tl::unexpected(MEDIA_LIBRARY_ERROR);
+    }
+};
+
 /** @} */ // end of media_library_types_definitions

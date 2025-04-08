@@ -25,24 +25,22 @@
 #include "camera.h"
 #include "dis.h"
 #include "dis_math.h"
-#include "log.h"
+#include "media_library_logger.hpp"
 
 #if LOG_TO_FILE // see log.h
 DisFileLog disFileLog;
 #endif // LOG_TO_FILE
+
+static constexpr LoggerType LOGGER_TYPE = LoggerType::Dis;
 
 RetCodes dis_init(void **ctx, dis_config_t &cfg, dis_calibration_t calib, int32_t out_width, int32_t out_height,
                   camera_type_t camera_type, float camera_fov_factor, bool is_eis_enabled, DewarpT *grid)
 {
     if (grid == nullptr)
     {
-        LOGE("dis_init: grid = 0");
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "dis_init: grid = 0");
         return ERROR_INPUT_DATA;
     }
-    // if ( grid->mesh_table != nullptr ) {
-    //     LOGE("dis_init: grid->mesh_table already points to something");
-    //     return ERROR_INPUT_DATA;
-    // }
     if (*ctx != nullptr)
     {
         return ERROR_CTX; //*ctx alreay points to something
@@ -56,7 +54,7 @@ RetCodes dis_init(void **ctx, dis_config_t &cfg, dis_calibration_t calib, int32_
     DIS &dis = *reinterpret_cast<DIS *>(*ctx);
     dis.cfg = cfg;
 
-    LOG("dis_init out resolution  %dx%d", out_width, out_height);
+    LOGGER__MODULE__INFO(LOGGER_TYPE, "dis_init out resolution  {}x{}", out_width, out_height);
 
     // If DIS AND EIS are disabled, changing the field of view is not supported
     if ((!dis.cfg.enabled) && (!is_eis_enabled))
@@ -107,7 +105,8 @@ RetCodes dis_generate_grid(void *ctx, int in_width, int in_height, float motion_
         return ERROR_INIT;
     if ((in_width != dis.in_cam.res.x) || (in_height != dis.in_cam.res.y))
     {
-        LOGE("dis_generateGrid: INput image resolutiuon differs from the one in the calibration");
+        LOGGER__MODULE__ERROR(LOGGER_TYPE,
+                              "dis_generateGrid: INput image resolutiuon differs from the one in the calibration");
         return ERROR_INPUT_DATA;
     }
 
@@ -129,7 +128,8 @@ RetCodes dis_dewarp_only_grid(void *ctx, int in_width, int in_height, FlipMirror
         return ERROR_INIT;
     if ((in_width != dis.in_cam.res.x) || (in_height != dis.in_cam.res.y))
     {
-        LOGE("dis_generateGrid: INput image resolutiuon differs from the one in the calibration");
+        LOGGER__MODULE__ERROR(LOGGER_TYPE,
+                              "dis_generateGrid: INput image resolutiuon differs from the one in the calibration");
         return ERROR_INPUT_DATA;
     }
 

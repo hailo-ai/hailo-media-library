@@ -9,7 +9,7 @@
 #include "eis_types.hpp"
 #include "media_library/media_library_types.hpp"
 
-#define FIFO_BUF_SIZE (1)
+#define FIFO_BUF_SIZE (10)
 #define MAX_CHANNEL_ID (4)
 #define MAX_VECTOR_SIZE (1000)
 
