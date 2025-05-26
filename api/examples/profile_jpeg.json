@@ -29,7 +29,7 @@
     "dewarp": {
         "enabled": false,
         "color_interpolation": "INTERPOLATION_TYPE_BILINEAR",
-        "sensor_calib_path": "/home/root/apps/resources/cam_intrinsics.txt",
+        "sensor_calib_path": "/etc/imaging/cfg/imx678/theia_sl410m/4k/shared/calibration/cam_intrinsics.txt",
         "camera_type": "CAMERA_TYPE_PINHOLE"
     },
     "dis": {
@@ -157,7 +157,7 @@
         }
     ],
     "isp_config_files": {
-        "3a_config_path": "/usr/bin/3aconfig.json",
-        "sensor_entry": "/usr/bin/Sensor0_Entry.cfg"
+        "3a_config_path": "/usr/lib/medialib/sensors/imx678/theia_sl410m/4k/isp_profiles/daylight/3aconfig.json",
+        "sensor_entry": "/usr/lib/medialib/sensors/imx678/theia_sl410m/4k/isp_profiles/daylight//Sensor0_Entry.cfg"
     }
 }

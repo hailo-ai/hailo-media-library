@@ -47,7 +47,7 @@ media_library_return HailoBucket::allocate()
     }
 
     size_t buffers_to_allocate = m_num_buffers - m_available_buffers.size();
-
+    std::vector<intptr_t> tmp_allocated_buffers;
     for (size_t i = 0; i < buffers_to_allocate; i++)
     {
         void *buffer = NULL;
@@ -55,10 +55,22 @@ media_library_return HailoBucket::allocate()
 
         if (result != MEDIA_LIBRARY_SUCCESS)
         {
+            for (intptr_t buffer : tmp_allocated_buffers)
+            {
+                media_library_return result =
+                    DmaMemoryAllocator::get_instance().free_dma_buffer(reinterpret_cast<void *>(buffer));
+                if (result != MEDIA_LIBRARY_SUCCESS)
+                {
+                    LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to release buffer. status code {}", result);
+                }
+            }
             LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create buffer with status code {}", result);
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
-
+        tmp_allocated_buffers.push_back((intptr_t)buffer);
+    }
+    for (intptr_t buffer : tmp_allocated_buffers)
+    {
         m_available_buffers.push_front((intptr_t)buffer);
     }
 

@@ -13,7 +13,7 @@
 #define DEVICE_CLK_TIMESTAMP "monotonic_raw"
 
 #define IIO_CTX_TIMEOUT_MS (100)
-#define GYRO_USLEEP_BETWEEN_ITERATIONS (1000)
+#define GYRO_USLEEP_BETWEEN_ITERATIONS (500)
 
 static gyro_sample gyro_sampled;
 std::unique_ptr<GyroDevice> gyroApi = nullptr;
@@ -158,17 +158,12 @@ std::vector<gyro_sample_t> GyroDevice::get_gyro_samples_for_frame_vsync(
 
     /* We want all the gyro samples before: middle_exposure_timestamp + readout_time */
     auto it_end = odd_closest_sample;
-    if (it_end->timestamp_ns >= threshold_timestamp)
+    while (it_end->timestamp_ns <= threshold_timestamp && it_end != m_vector_samples.end())
     {
-        while (it_end != m_vector_samples.begin() && (it_end - 1)->timestamp_ns >= threshold_timestamp)
-            it_end--;
-    }
-    else
-    {
-        while (it_end != m_vector_samples.end() && (it_end + 1)->timestamp_ns < threshold_timestamp)
-            it_end++;
+        ++it_end;
     }
 
+    it_end = it_end != m_vector_samples.end() ? it_end + 1 : it_end;
     std::vector<gyro_sample_t> result(m_vector_samples.begin(), it_end);
     m_vector_samples.erase(m_vector_samples.begin(), it_end);
     return result;
@@ -515,6 +510,14 @@ gyro_status_t GyroDevice::prepare_device()
         return GYRO_STATUS_IIO_CONTEXT_FAILURE;
     }
 
+    if (iio_buffer_set_blocking_mode(m_iio_device_data.buf, false) < 0)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Unable to set IIO buffer to non-blocking mode for device {}",
+                              m_iio_device_data.name.c_str());
+        m_iio_dev = NULL;
+        return GYRO_STATUS_IIO_CONTEXT_FAILURE;
+    }
+
     return GYRO_STATUS_SUCCESS;
 }
 
@@ -533,7 +536,6 @@ gyro_status_t GyroDevice::configure()
 
 gyro_status_t GyroDevice::run()
 {
-    int max_tries = 10;
     gyro_status_t rc = GYRO_STATUS_SUCCESS;
 
     if (!m_ctx)
@@ -545,26 +547,26 @@ gyro_status_t GyroDevice::run()
     LOGGER__MODULE__INFO(MODULE_NAME, "Gyro device {} started running...", m_iio_device_data.name.c_str());
     while (!m_stopRunning)
     {
-        for (int i = 0; i < max_tries && !m_stopRunning; i++)
+        ssize_t nbytes = iio_buffer_refill(m_iio_device_data.buf);
+        if (nbytes == -EAGAIN)
         {
-            ssize_t nbytes = iio_buffer_refill(m_iio_device_data.buf);
-            if (nbytes < 0 && !m_stopRunning)
-            {
-                LOGGER__MODULE__WARNING(MODULE_NAME,
-                                        "Could not refill buffer for device {}, rc = {}, restarting device",
-                                        m_iio_device_data.name.c_str(), nbytes);
-                rc = restart();
-                if (rc != GYRO_STATUS_SUCCESS)
-                {
-                    LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to restart Gyro device. err: {}", rc);
-                    return rc;
-                }
-                break;
-            }
-
-            iio_buffer_foreach_sample(m_iio_device_data.buf, rd_sample_demux, (void *)&m_vector_samples);
+            usleep(GYRO_USLEEP_BETWEEN_ITERATIONS); // 0.5 msec delay
+            continue;
         }
-        usleep(GYRO_USLEEP_BETWEEN_ITERATIONS); // 1 msec delay
+        if (nbytes < 0)
+        {
+            LOGGER__MODULE__WARNING(MODULE_NAME, "Could not refill buffer for device {}, rc = {}, restarting device",
+                                    m_iio_device_data.name.c_str(), nbytes);
+            rc = restart();
+            if (rc != GYRO_STATUS_SUCCESS)
+            {
+                LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to restart Gyro device. err: {}", rc);
+                return rc;
+            }
+            break;
+        }
+
+        iio_buffer_foreach_sample(m_iio_device_data.buf, rd_sample_demux, (void *)&m_vector_samples);
     }
 
     shutdown();

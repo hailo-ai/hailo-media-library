@@ -501,47 +501,9 @@ struct ldc_config_t
         application_input_streams_config.dimensions.destination_height = 0;
     }
 
-    media_library_return update(ldc_config_t &ldc_configs)
-    {
-        bool disable_dewarp =
-            ldc_configs.optical_zoom_config.enabled && ldc_configs.optical_zoom_config.magnification >=
-                                                           ldc_configs.optical_zoom_config.max_dewarping_magnification;
+    media_library_return update(ldc_config_t &ldc_configs);
 
-        dewarp_config.enabled = disable_dewarp ? false : ldc_configs.dewarp_config.enabled;
-        dewarp_config.camera_type = dewarp_config.enabled ? CAMERA_TYPE_PINHOLE : CAMERA_TYPE_INPUT_DISTORTIONS;
-        dis_config = ldc_configs.dis_config;
-        eis_config = ldc_configs.eis_config;
-        gyro_config = ldc_configs.gyro_config;
-        optical_zoom_config = ldc_configs.optical_zoom_config;
-
-        // TODO: can we change interpolation type?
-        if (dewarp_config != ldc_configs.dewarp_config)
-        {
-            // Update dewarp configuration is restricted
-            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-        }
-
-        update_flip_rotate(ldc_configs);
-        return MEDIA_LIBRARY_SUCCESS;
-    }
-
-    void update_flip_rotate(ldc_config_t &ldc_configs)
-    {
-        flip_config = ldc_configs.flip_config;
-
-        rotation_angle_t current_rotation_angle = rotation_config.effective_value();
-        rotation_angle_t new_rotation_angle = ldc_configs.rotation_config.effective_value();
-        if (current_rotation_angle != new_rotation_angle)
-        {
-            if (current_rotation_angle % 2 !=
-                new_rotation_angle % 2) // if the rotation angle is not aligned, rotate the output resolutions
-            {
-                rotate_output_dimensions();
-            }
-        }
-
-        rotation_config = ldc_configs.rotation_config;
-    }
+    void update_flip_rotate(ldc_config_t &ldc_configs);
 
     bool check_ops_enabled(bool dewarp_actions_only = false)
     {

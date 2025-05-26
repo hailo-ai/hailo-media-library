@@ -107,18 +107,14 @@ class MediaLibraryPostIspDenoise::Impl final
     // loopback controls
     uint8_t m_queue_size = QUEUE_DEFAULT_SIZE;
     uint8_t m_loop_counter = 0;
-    uint8_t m_initial_batch_callback_counter = 0;
     uint8_t m_loopback_batch_counter = 0;
     uint8_t m_loopback_limit = 1;
     bool m_configured = false;
-    bool m_flushing = false;
+    std::atomic<bool> m_flushing = false;
 
     std::condition_variable m_loopback_condvar;
     std::mutex m_loopback_mutex;
     std::queue<HailoMediaLibraryBufferPtr> m_loopback_queue;
-    std::condition_variable m_staging_condvar;
-    std::mutex m_staging_mutex;
-    std::queue<HailoMediaLibraryBufferPtr> m_staging_queue;
     // callback controls
     std::condition_variable m_inference_callback_condvar;
     std::mutex m_inference_callback_mutex;
@@ -138,9 +134,6 @@ class MediaLibraryPostIspDenoise::Impl final
     void queue_loopback_buffer(HailoMediaLibraryBufferPtr buffer);
     HailoMediaLibraryBufferPtr dequeue_loopback_buffer();
     void clear_loopback_queue();
-    void queue_staging_buffer(HailoMediaLibraryBufferPtr buffer);
-    HailoMediaLibraryBufferPtr dequeue_staging_buffer();
-    void clear_staging_queue();
     void queue_buffer(HailoMediaLibraryBufferPtr buffer, std::queue<HailoMediaLibraryBufferPtr> &queue,
                       std::shared_ptr<std::mutex> mutex, std::shared_ptr<std::condition_variable> condvar,
                       uint8_t queue_size);
@@ -153,7 +146,6 @@ class MediaLibraryPostIspDenoise::Impl final
     std::thread m_inference_callback_thread;
     void queue_inference_callback_buffer(HailoMediaLibraryBufferPtr buffer);
     HailoMediaLibraryBufferPtr dequeue_inference_callback_buffer();
-    void clear_inference_callback_queue();
 };
 
 //------------------------ MediaLibraryPostIspDenoise ------------------------
@@ -220,14 +212,11 @@ MediaLibraryPostIspDenoise::Impl::~Impl()
     m_flushing = true;
     m_inference_callback_condvar.notify_one();
     m_loopback_condvar.notify_one();
-    m_staging_condvar.notify_one();
     if (m_inference_callback_thread.joinable())
         m_inference_callback_thread.join();
     m_output_buffer_pool->for_each_buffer(
         [this](int fd, size_t size) { return m_hailort_denoise.unmap_buffer_to_hailort(fd, size); });
-    clear_inference_callback_queue();
     clear_loopback_queue();
-    clear_staging_queue();
 }
 
 media_library_return MediaLibraryPostIspDenoise::Impl::decode_config_json_string(denoise_config_t &denoise_configs,
@@ -301,7 +290,6 @@ media_library_return MediaLibraryPostIspDenoise::Impl::configure(const denoise_c
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
         m_loop_counter = 0;
-        m_initial_batch_callback_counter = 0;
         m_loopback_batch_counter = 0;
         m_loopback_limit = denoise_configs.loopback_count;
         m_flushing = false;
@@ -313,15 +301,27 @@ media_library_return MediaLibraryPostIspDenoise::Impl::configure(const denoise_c
     {
         LOGGER__MODULE__DEBUG(MODULE_NAME, "Post ISP Denoise disable requested, starting flushing");
         m_flushing = true;
-        // notify all queues that we are flushing
-        m_inference_callback_condvar.notify_one();
-        m_loopback_condvar.notify_one();
-        m_staging_condvar.notify_one();
+
+        m_inference_callback_condvar.notify_all();
+
         if (m_inference_callback_thread.joinable())
             m_inference_callback_thread.join();
-        clear_inference_callback_queue();
+
+        m_output_buffer_pool->for_each_buffer(
+            [this](int fd, size_t size) { return m_hailort_denoise.unmap_buffer_to_hailort(fd, size); });
+
+        m_loopback_condvar.notify_all();
         clear_loopback_queue();
-        clear_staging_queue();
+
+        // Wait 1000 milliseconds for all used buffers to be released
+        if (m_output_buffer_pool->wait_for_used_buffers(1000) != MEDIA_LIBRARY_SUCCESS)
+        {
+            return MEDIA_LIBRARY_ERROR;
+        }
+        if (m_output_buffer_pool->free() != MEDIA_LIBRARY_SUCCESS)
+        {
+            return MEDIA_LIBRARY_ERROR;
+        }
     }
 
     // Call observing callbacks in case configuration changed
@@ -334,26 +334,6 @@ media_library_return MediaLibraryPostIspDenoise::Impl::configure(const denoise_c
         {
             callbacks.send_event(denoise_common::post_isp_enabled(m_denoise_configs, denoise_configs));
         }
-    }
-
-    if (denoise_common::post_isp_disabled(m_denoise_configs, denoise_configs))
-    {
-        // Wait for the buffer pool to clear after GST denoise and MediaLibrary denoise are both set to flushing and all
-        // qeues have been cleared
-        m_output_buffer_pool->for_each_buffer(
-            [this](int fd, size_t size) { return m_hailort_denoise.unmap_buffer_to_hailort(fd, size); });
-
-        // Wait 1000 milliseconds for all used buffers to be released
-        if (m_output_buffer_pool->wait_for_used_buffers(1000) != MEDIA_LIBRARY_SUCCESS)
-        {
-            return MEDIA_LIBRARY_ERROR;
-        }
-
-        if (m_output_buffer_pool->free() != MEDIA_LIBRARY_SUCCESS)
-        {
-            return MEDIA_LIBRARY_ERROR;
-        }
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "Post ISP Denoise disabled, buffer pool is free");
     }
 
     m_denoise_configs = denoise_configs;
@@ -470,8 +450,6 @@ media_library_return MediaLibraryPostIspDenoise::Impl::perform_subsequent_batche
         return MEDIA_LIBRARY_ERROR;
     }
 
-    queue_staging_buffer(loopback_buffer);
-
     if (!m_hailort_denoise.process(input_buffer, loopback_buffer, output_buffer))
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to process denoise");
@@ -526,20 +504,25 @@ media_library_return MediaLibraryPostIspDenoise::Impl::handle_frame(HailoMediaLi
 
     std::unique_lock<std::shared_mutex> lock(rw_lock);
 
+    if (!(m_denoise_configs.enabled && !m_denoise_configs.bayer))
+    {
+        LOGGER__DEBUG("Post ISP Denoise is disabled, skipping denoise [handle_frame]");
+        return MEDIA_LIBRARY_SUCCESS;
+    }
     // Stamp start time
     struct timespec start_handle, end_handle;
     clock_gettime(CLOCK_MONOTONIC, &start_handle);
 
     // Denoise
-    media_library_return media_lib_ret = perform_denoise(input_frame, output_frame);
     output_frame->copy_metadata_from(input_frame);
-
     output_frame->isp_ae_fps = input_frame->isp_ae_fps;
     output_frame->isp_ae_converged = input_frame->isp_ae_converged;
     output_frame->isp_ae_average_luma = input_frame->isp_ae_average_luma;
     output_frame->isp_ae_integration_time = input_frame->isp_ae_integration_time;
     output_frame->isp_timestamp_ns = input_frame->isp_timestamp_ns;
     output_frame->pts = input_frame->pts;
+
+    media_library_return media_lib_ret = perform_denoise(input_frame, output_frame);
 
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
         return media_lib_ret;
@@ -575,27 +558,19 @@ media_library_return MediaLibraryPostIspDenoise::Impl::observe(const MediaLibrar
 
 void MediaLibraryPostIspDenoise::Impl::inference_callback_thread()
 {
-    while (!m_flushing)
+    while (true)
     {
+        std::unique_lock<std::mutex> lock(m_inference_callback_mutex);
+        if (m_flushing && !m_hailort_denoise.has_pending_jobs() && m_inference_callback_queue.empty())
+        {
+            LOGGER__INFO("Inference callback thread is exiting");
+            return;
+        }
+        lock.unlock();
         HailoMediaLibraryBufferPtr output_buffer = dequeue_inference_callback_buffer();
         if (output_buffer == nullptr)
         {
-            if (m_flushing)
-            {
-                return;
-            }
-            LOGGER__MODULE__ERROR(MODULE_NAME,
-                                  "denoise.cpp inference_callback_thread output_buffer is null and not flushing");
-            return;
-        }
-        // Call observing callbacks in case configuration changed
-        if (m_initial_batch_callback_counter >= m_loopback_limit)
-        {
-            HailoMediaLibraryBufferPtr staging_buffer = dequeue_staging_buffer();
-        }
-        else
-        {
-            m_initial_batch_callback_counter++;
+            continue;
         }
 
         for (auto &callbacks : m_callbacks)
@@ -610,10 +585,7 @@ void MediaLibraryPostIspDenoise::Impl::inference_callback_thread()
 
 void MediaLibraryPostIspDenoise::Impl::inference_callback(HailoMediaLibraryBufferPtr output_buffer)
 {
-    if (!m_flushing)
-    {
-        queue_inference_callback_buffer(output_buffer);
-    }
+    queue_inference_callback_buffer(output_buffer);
 }
 
 // Loopback queue controls
@@ -651,41 +623,6 @@ void MediaLibraryPostIspDenoise::Impl::clear_loopback_queue()
     m_loopback_condvar.notify_one();
 }
 
-// Staging queue controls
-
-void MediaLibraryPostIspDenoise::Impl::queue_staging_buffer(HailoMediaLibraryBufferPtr buffer)
-{
-    std::unique_lock<std::mutex> lock(m_staging_mutex);
-    m_staging_condvar.wait(lock, [this] { return m_staging_queue.size() < m_queue_size; });
-    m_staging_queue.push(buffer);
-    m_staging_condvar.notify_one();
-}
-
-HailoMediaLibraryBufferPtr MediaLibraryPostIspDenoise::Impl::dequeue_staging_buffer()
-{
-    std::unique_lock<std::mutex> lock(m_staging_mutex);
-    m_staging_condvar.wait(lock, [this] { return !m_staging_queue.empty() || m_flushing; });
-    if (m_staging_queue.empty())
-    {
-        return nullptr;
-    }
-    HailoMediaLibraryBufferPtr buffer = m_staging_queue.front();
-    m_staging_queue.pop();
-    m_staging_condvar.notify_one();
-    return buffer;
-}
-
-void MediaLibraryPostIspDenoise::Impl::clear_staging_queue()
-{
-    std::unique_lock<std::mutex> lock(m_staging_mutex);
-    while (!m_staging_queue.empty())
-    {
-        HailoMediaLibraryBufferPtr buffer = m_staging_queue.front();
-        m_staging_queue.pop();
-    }
-    m_staging_condvar.notify_one();
-}
-
 // Thread queue controls
 
 void MediaLibraryPostIspDenoise::Impl::queue_inference_callback_buffer(HailoMediaLibraryBufferPtr buffer)
@@ -708,17 +645,6 @@ HailoMediaLibraryBufferPtr MediaLibraryPostIspDenoise::Impl::dequeue_inference_c
     m_inference_callback_queue.pop();
     m_inference_callback_condvar.notify_one();
     return buffer;
-}
-
-void MediaLibraryPostIspDenoise::Impl::clear_inference_callback_queue()
-{
-    std::unique_lock<std::mutex> lock(m_inference_callback_mutex);
-    while (!m_inference_callback_queue.empty())
-    {
-        HailoMediaLibraryBufferPtr buffer = m_inference_callback_queue.front();
-        m_inference_callback_queue.pop();
-    }
-    m_inference_callback_condvar.notify_one();
 }
 
 // Generic Queue Control

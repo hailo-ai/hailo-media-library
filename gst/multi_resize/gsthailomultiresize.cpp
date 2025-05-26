@@ -297,7 +297,8 @@ static gboolean gst_hailo_set_srcpad_caps(GstHailoMultiResize *self, GstPad *src
     GstCaps *caps_result, *outcaps, *query_caps = NULL;
     gboolean ret = TRUE;
     auto srcpad_name = glib_cpp::get_name(srcpad);
-
+    GST_INFO_OBJECT(self, "Setting caps on srcpad with width %ld and height %ld",
+                    output_res.dimensions.destination_width, output_res.dimensions.destination_height);
     query_caps = gst_hailo_create_caps_from_output_config(self, output_res);
 
     // Query the peer srcpad to obtain wanted resolution

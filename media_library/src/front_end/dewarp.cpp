@@ -41,6 +41,8 @@
 #include <shared_mutex>
 #include "media_library/v4l2_ctrl.hpp"
 #include "media_library/isp_utils.hpp"
+#include "env_vars.hpp"
+#include "common.hpp"
 
 #define HAILO15_ISP_CID_LSC_BASE (V4L2_CID_USER_BASE + 0x3200)
 #define HAILO15_ISP_CID_LSC_OPTICAL_ZOOM (HAILO15_ISP_CID_LSC_BASE + 0x0009)
@@ -274,6 +276,7 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
     // first check changes in ldc config relevant to multi resize (flip rotate)
     // and notify the multi resize element if needed
     std::unique_lock<std::shared_mutex> lock(rw_lock);
+    bool no_rotation_in_dewarp = !is_env_variable_on(MEDIALIB_DEWARP_DSP_OPTIMIZATION_ENV_VAR);
 
     auto prev_do_flip_rotate = !m_ldc_configs.check_ops_enabled(true);
     auto prev_flip_config = m_ldc_configs.flip_config;
@@ -282,10 +285,9 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
     auto do_flip_rotate = !ldc_configs.check_ops_enabled(true);
 
     // if output config has changed, call callback
-    bool do_flip_rotate_changed = !m_configured || do_flip_rotate != prev_do_flip_rotate;
-    bool flip_changed = !m_configured || ldc_configs.flip_config != prev_flip_config;
-    bool rot_changed = !m_configured || ldc_configs.rotation_config != prev_rot_config;
-
+    bool do_flip_rotate_changed = !no_rotation_in_dewarp && (!m_configured || do_flip_rotate != prev_do_flip_rotate);
+    bool flip_changed = (!m_configured || ldc_configs.flip_config != prev_flip_config);
+    bool rot_changed = !no_rotation_in_dewarp && (!m_configured || ldc_configs.rotation_config != prev_rot_config);
     m_ldc_configs.update_flip_rotate(ldc_configs);
 
     lock.unlock();
@@ -307,6 +309,8 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
             (*callbacks.on_rotation_change)(rot_val);
         }
     }
+    if (no_rotation_in_dewarp)
+        ldc_configs.flip_config.enabled = false;
 
     lock.lock();
 
@@ -364,7 +368,8 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
         return ret;
 
     // if output config has changed, call callback
-    bool out_changed = !m_ldc_configs.application_input_streams_config.dimensions_equal(prev_out_config);
+    bool out_changed =
+        !no_rotation_in_dewarp && (!m_ldc_configs.application_input_streams_config.dimensions_equal(prev_out_config));
 
     if (!m_ldc_configs.gyro_config.enabled && m_ldc_configs.eis_config.enabled)
     {
@@ -710,4 +715,50 @@ media_library_return MediaLibraryDewarp::Impl::observe(const MediaLibraryDewarp:
 {
     m_callbacks.push_back(callbacks);
     return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return ldc_config_t::update(ldc_config_t &ldc_configs)
+{
+    bool disable_dewarp =
+        ldc_configs.optical_zoom_config.enabled &&
+        ldc_configs.optical_zoom_config.magnification >= ldc_configs.optical_zoom_config.max_dewarping_magnification;
+
+    dewarp_config.enabled = disable_dewarp ? false : ldc_configs.dewarp_config.enabled;
+    dewarp_config.camera_type = dewarp_config.enabled ? CAMERA_TYPE_PINHOLE : CAMERA_TYPE_INPUT_DISTORTIONS;
+    dis_config = ldc_configs.dis_config;
+    eis_config = ldc_configs.eis_config;
+    gyro_config = ldc_configs.gyro_config;
+    optical_zoom_config = ldc_configs.optical_zoom_config;
+
+    // TODO: can we change interpolation type?
+    if (dewarp_config != ldc_configs.dewarp_config)
+    {
+        // Update dewarp configuration is restricted
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    update_flip_rotate(ldc_configs);
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+void ldc_config_t::update_flip_rotate(ldc_config_t &ldc_configs)
+{
+    flip_config = ldc_configs.flip_config;
+    if (!is_env_variable_on(MEDIALIB_DEWARP_DSP_OPTIMIZATION_ENV_VAR))
+    {
+        return;
+    }
+
+    rotation_angle_t current_rotation_angle = rotation_config.effective_value();
+    rotation_angle_t new_rotation_angle = ldc_configs.rotation_config.effective_value();
+    if (current_rotation_angle != new_rotation_angle)
+    {
+        if (current_rotation_angle % 2 != new_rotation_angle % 2 &&
+            dewarp_config.enabled) // if the rotation angle is not aligned, rotate the output resolutions
+        {
+            rotate_output_dimensions();
+        }
+    }
+
+    rotation_config = ldc_configs.rotation_config;
 }

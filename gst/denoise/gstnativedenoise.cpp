@@ -363,6 +363,12 @@ static GstFlowReturn gst_hailo_denoise_chain(GstPad *pad, GstObject *parent, Gst
         gst_buffer_unref(buffer);
         return GST_FLOW_ERROR;
     }
+    if (output_frame_ptr->buffer_data == nullptr)
+    {
+        GST_DEBUG_OBJECT(self, "Post ISP Denoise disabled, pushing buffer to srcpad");
+        gst_pad_push(self->params->srcpad, buffer);
+        return GST_FLOW_OK;
+    }
 
     GST_DEBUG_OBJECT(self, "Handle frame done");
     gst_hailo_denoise_queue_buffer(self, buffer);

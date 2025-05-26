@@ -43,6 +43,8 @@
 #include <vector>
 #include <shared_mutex>
 #include <optional>
+#include "env_vars.hpp"
+#include "common.hpp"
 
 #define MODULE_NAME LoggerType::Resize
 
@@ -52,6 +54,12 @@
     ((multi_resize_config.application_input_streams_config.resolutions.size()) +                                       \
      (multi_resize_config.motion_detection_config.enabled ? 1 : 0))
 
+/* Simple struct to aggregate output data and configuration together */
+struct output_data_and_config
+{
+    hailo_dsp_buffer_data_t data;
+    output_resolution_t *config;
+};
 struct timestamp_metadata
 {
     uint64_t last_timestamp;
@@ -113,7 +121,8 @@ class MediaLibraryMultiResize::Impl final
     static constexpr int max_frames_latency_multiplier = 20;
 
     // flip-rotate flag
-    bool m_do_flip_rotate = false;
+    bool m_do_flip_rotate;
+    bool m_do_flip_rotate_override;
 
     // flip direction
     flip_config_t m_flip_config = {false, FLIP_DIRECTION_NONE};
@@ -254,6 +263,8 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
     : m_dsp_image_enhancement(std::make_unique<DspImageEnhancement>())
 {
     m_configured = false;
+    m_do_flip_rotate = !is_env_variable_on(MEDIALIB_DEWARP_DSP_OPTIMIZATION_ENV_VAR);
+    m_do_flip_rotate_override = m_do_flip_rotate;
     // Start frame count from 0 - to make sure we always handle the first frame even if framerate is set to 0
     m_frame_counter = 0;
     m_buffer_pools.reserve(MAX_NUM_OF_OUTPUTS);
@@ -352,7 +363,8 @@ media_library_return MediaLibraryMultiResize::Impl::validate_configurations(mult
 media_library_return MediaLibraryMultiResize::Impl::set_do_flip_rotate(bool do_flip_rotate)
 {
     std::unique_lock<std::shared_mutex> lock(rw_lock);
-    m_do_flip_rotate = do_flip_rotate;
+    if (!m_do_flip_rotate_override)
+        m_do_flip_rotate = do_flip_rotate;
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -698,22 +710,20 @@ static std::pair<size_t, size_t> adjust_to_aspect_ratio(size_t src_width, size_t
  * will be in descending order (for both width and height).
  * This function splits the output resolutions into groups of resolutions that can be resized together.
  */
-static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::vector<hailo_dsp_buffer_data_t> &outputs,
-                                                                         const dsp_roi_t &input_roi,
-                                                                         multi_resize_config_t &multi_resize_config)
+static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::vector<output_data_and_config> &outputs,
+                                                                         const dsp_roi_t &input_roi)
 {
     std::vector<dsp_crop_resize_params_t> params;
 
     // Sort output resolutions (by width) from largest to smallest
-    std::sort(outputs.begin(), outputs.end(), [](const hailo_dsp_buffer_data_t &a, const hailo_dsp_buffer_data_t &b) {
-        return a.properties.width >= b.properties.width;
+    std::sort(outputs.begin(), outputs.end(), [](const output_data_and_config &a, const output_data_and_config &b) {
+        return a.config->dimensions.destination_width > b.config->dimensions.destination_width;
     });
 
-    for (size_t output_idx = 0; output_idx < outputs.size(); output_idx++)
+    for (auto &[output, output_config] : outputs)
     {
-        auto &output = outputs[output_idx];
-        bool keep_aspect_ratio =
-            multi_resize_config.get_output_resolution_by_index(output_idx).value().get().keep_aspect_ratio;
+        bool keep_aspect_ratio = output_config->keep_aspect_ratio;
+
         // Try to find a suitable crop_resize_param for the current output
         bool found = false;
         for (auto &crop_resize_param : params)
@@ -735,8 +745,8 @@ static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::ve
             // (a previous buffer exists since crop_resize_param is never added with an empty dst)
             auto prev_width = crop_resize_param.dst[i - 1]->width;
             auto prev_height = crop_resize_param.dst[i - 1]->height;
-            auto curr_width = output.properties.width;
-            auto curr_height = output.properties.height;
+            auto curr_width = output_config->dimensions.destination_width;
+            auto curr_height = output_config->dimensions.destination_height;
             if (keep_aspect_ratio)
             {
                 auto src_width = input_roi.end_x - input_roi.start_x;
@@ -856,10 +866,10 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
         return MEDIA_LIBRARY_ERROR;
     }
 
-    hailo_dsp_buffer_data_t dsp_buffer_data = input_buffer->buffer_data->As<hailo_dsp_buffer_data_t>();
+    hailo_dsp_buffer_data_t src_dsp_buffer_data = input_buffer->buffer_data->As<hailo_dsp_buffer_data_t>();
 
-    std::vector<hailo_dsp_buffer_data_t> output_dsp_buffers;
-    output_dsp_buffers.reserve(num_of_output_resolutions);
+    std::vector<output_data_and_config> outputs_data_and_config;
+    outputs_data_and_config.reserve(num_of_output_resolutions);
 
     uint num_bufs_to_resize = 0;
     for (size_t i = 0; i < num_of_output_resolutions; i++)
@@ -879,7 +889,7 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
         }
 
         hailo_buffer_data_t *output_frame = output_frames[i]->buffer_data.get();
-        output_dsp_buffers.emplace_back(std::move(output_frame->As<hailo_dsp_buffer_data_t>()));
+        outputs_data_and_config.emplace_back(std::move(output_frame->As<hailo_dsp_buffer_data_t>()), &output_res);
 
         if (output_res != *output_frame)
         {
@@ -909,10 +919,10 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
         return input_roi.error();
     }
 
-    auto crop_resize_params = split_to_crop_resize_params(output_dsp_buffers, input_roi.value(), m_multi_resize_config);
+    auto crop_resize_params = split_to_crop_resize_params(outputs_data_and_config, input_roi.value());
 
     dsp_multi_crop_resize_params_t multi_crop_resize_params = {
-        .src = &dsp_buffer_data.properties,
+        .src = &src_dsp_buffer_data.properties,
         .crop_resize_params = crop_resize_params.data(),
         .crop_resize_params_count = crop_resize_params.size(),
         .interpolation = m_multi_resize_config.application_input_streams_config.interpolation_type,
