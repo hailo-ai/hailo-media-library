@@ -1,6 +1,7 @@
 #include "dsp/gsthailodspbasetransform.hpp"
 #include "upload/gsthailoupload.hpp"
 #include "media_library/dma_memory_allocator.hpp"
+#include "common/gstmedialibcommon.hpp"
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <sys/ioctl.h>
@@ -182,7 +183,7 @@ static GstFlowReturn gst_hailo_upload_transform(GstBaseTransform *base_transform
 
     GST_DEBUG_OBJECT(hailoupload, "Transforming hailo DSP buffer");
 
-    GstCaps *incaps, *outcaps;
+    GstCapsPtr incaps, outcaps;
     incaps = gst_pad_get_current_caps(base_transform->sinkpad);
     outcaps = gst_pad_get_current_caps(base_transform->srcpad);
     GstVideoInfo input_video_info;
@@ -195,8 +196,6 @@ static GstFlowReturn gst_hailo_upload_transform(GstBaseTransform *base_transform
     if (!gst_video_info_from_caps(&input_video_info, incaps))
     {
         GST_ERROR_OBJECT(hailoupload, "Failed to get video info from input caps");
-        gst_caps_unref(incaps);
-        gst_caps_unref(outcaps);
         return GST_FLOW_ERROR;
     }
 
@@ -315,8 +314,6 @@ static GstFlowReturn gst_hailo_upload_transform(GstBaseTransform *base_transform
 
     gst_video_frame_unmap(&video_frame_input);
     gst_video_frame_unmap(&video_frame_output);
-    gst_caps_unref(incaps);
-    gst_caps_unref(outcaps);
 
     return ret;
 }

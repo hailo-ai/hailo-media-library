@@ -27,9 +27,12 @@
 
 #pragma once
 
+#include <cstdint>
+#include <sys/types.h>
 #include <tl/expected.hpp>
 #include <nlohmann/json.hpp>
 #include <mutex>
+#include "config_manager.hpp"
 #include "media_library_types.hpp"
 #include "privacy_mask_types.hpp"
 #include "buffer_pool.hpp"
@@ -61,7 +64,21 @@ class PrivacyMaskBlender : public std::enable_shared_from_this<PrivacyMaskBlende
      * @brief Destructor for Privacy Mask Blender object
      */
     ~PrivacyMaskBlender();
+    /**
+     * @brief Create a PrivacyMaskBlender object.
+     *
+     * @return tl::expected<std::shared_ptr<PrivacyMaskBlender>, media_library_return> - An expected object that holds
+     * either a shared pointer to a PrivacyMaskBlender object or an error code.
+     */
     static tl::expected<std::shared_ptr<PrivacyMaskBlender>, media_library_return> create();
+    /**
+     * @brief Create a PrivacyMaskBlender object using a configuration string.
+     *
+     * @param config - JSON configuration string.
+     * @return tl::expected<std::shared_ptr<PrivacyMaskBlender>, media_library_return> - An expected object that holds
+     * either a shared pointer to a PrivacyMaskBlender object or an error code.
+     */
+    static tl::expected<std::shared_ptr<PrivacyMaskBlender>, media_library_return> create(const std::string &config);
     /**
      * @brief Create the PrivacyMaskBlender object
      *
@@ -75,36 +92,36 @@ class PrivacyMaskBlender : public std::enable_shared_from_this<PrivacyMaskBlende
                                                                                           uint frame_height);
 
     /**
-     * @brief Add a new privacy mask
+     * @brief Add a new static privacy mask
      *
      * @param privacy_mask - privacy mask to add
      * @return media_library_return - error code
      */
-    media_library_return add_privacy_mask(const polygon &privacy_mask);
+    media_library_return add_static_privacy_mask(const polygon &privacy_mask);
 
     /**
-     * @brief Get privacy mask
+     * @brief Get static privacy mask
      *
      * @param id - privacy mask id
      * @return tl::expected<polygon, media_library_return> - polygon
      */
-    tl::expected<polygon, media_library_return> get_privacy_mask(const std::string &id);
+    tl::expected<polygon, media_library_return> get_static_privacy_mask(const std::string &id);
 
     /**
-     * @brief Update existing privacy mask
+     * @brief Update existing static privacy mask
      *
      * @param privacy_mask - privacy mask to update
      * @return media_library_return - error code
      */
-    media_library_return set_privacy_mask(const polygon &privacy_mask);
+    media_library_return set_static_privacy_mask(const polygon &privacy_mask);
 
     /**
-     * @brief Remove privacy mask
+     * @brief Remove static privacy mask
      *
      * @param id - privacy mask id
      * @return media_library_return - error code
      */
-    media_library_return remove_privacy_mask(const std::string &id);
+    media_library_return remove_static_privacy_mask(const std::string &id);
 
     /**
      * @brief Change privacy mask to color mode and set color
@@ -115,12 +132,13 @@ class PrivacyMaskBlender : public std::enable_shared_from_this<PrivacyMaskBlende
     media_library_return set_color(const rgb_color_t &color);
 
     /**
-     * @brief Change privacy mask to blur mode and set blur radius
+     * @brief Change privacy mask to pixelization mode and set pixelization size
      *
-     * @param radius - blur radius affecting the intensity of the blur. Must be an even number between 2 and 64
+     * @param size - pixelization size affecting the intensity of the pixelization. Must be an even number between 2 and
+     * 64
      * @return media_library_return - error code
      */
-    media_library_return set_blur_radius(size_t radius);
+    media_library_return set_pixelization_size(PixelizationSize size);
 
     /**
      * @brief Set rotation
@@ -131,12 +149,23 @@ class PrivacyMaskBlender : public std::enable_shared_from_this<PrivacyMaskBlende
     media_library_return set_rotation(const rotation_angle_t &rotation);
 
     /**
-     * @brief Blend privacy masks
-     * calculate the quantized bitmask representing the all privacy masks combined
+     * @brief Update all privacy masks.
+     * Calculate the quantized bitmask representing all the static privacy masks combined, if enabled.
+     * Get the latest dymanic privacy mask from the analytics database, if enabled.
+     * Update the mask's info according to the current privacy mask type and settings.
      *
-     * @return tl::expected<PrivacyMaskDataPtr, media_library_return> containing the bitmask and relevant metadata.
+     * @return tl::expected<PrivacyMasksPtr, media_library_return> containing the bitmasks and relevant metadata.
      */
-    tl::expected<PrivacyMaskDataPtr, media_library_return> blend();
+    tl::expected<PrivacyMasksPtr, media_library_return> get_updated_privacy_masks(uint64_t isp_timestamp_ns);
+
+    /**
+     * @brief Blend privacy masks
+     * Update the current privacy masks, and blend them with the input buffer.
+     *
+     * @param input_buffer - input buffer to blend
+     * @return media_library_return - error code
+     */
+    media_library_return blend(HailoMediaLibraryBufferPtr &input_buffer);
 
     /**
      * @brief Get color
@@ -147,12 +176,12 @@ class PrivacyMaskBlender : public std::enable_shared_from_this<PrivacyMaskBlende
     tl::expected<rgb_color_t, media_library_return> get_color();
 
     /**
-     * @brief Get blur radius
+     * @brief Get pixelization size
      *
-     * @return tl::expected<size_t, media_library_return> - the blur radius if the privacy mask is in blur mode, else
-     * MEDIA_LIBRARY_ERROR
+     * @return tl::expected<PixelizationSize, media_library_return> - the pixelization size if the privacy mask is in
+     * pixelization mode, else MEDIA_LIBRARY_ERROR
      */
-    tl::expected<size_t, media_library_return> get_blur_radius();
+    tl::expected<PixelizationSize, media_library_return> get_pixelization_size();
 
     /**
      * @brief Get frame size (width, height)
@@ -171,27 +200,81 @@ class PrivacyMaskBlender : public std::enable_shared_from_this<PrivacyMaskBlende
     media_library_return set_frame_size(const uint &width, const uint &height);
 
     /**
-     * @brief Get all privacy masks
+     * @brief Get all static privacy masks
      *
      * @return tl::expected<std::vector<polygon>, media_library_return> - vector of polygons
      */
-    tl::expected<std::vector<polygon>, media_library_return> get_all_privacy_masks();
+    tl::expected<std::vector<polygon>, media_library_return> get_all_static_privacy_masks();
+
+    /**
+     * @brief Clear all static privacy masks
+     *
+     * @return media_library_return - error code
+     */
+    media_library_return clear_all_static_privacy_masks();
+
+    /**
+     * @brief Enable or disable static mask
+     *
+     * @param enable - true to enable static mask, false to disable
+     */
+    void set_static_mask_enabled(bool enable);
+
+    /**
+     * @brief Check if static mask is enabled
+     *
+     * @return bool - true if static mask is enabled, false otherwise
+     */
+    bool is_static_mask_enabled();
+
+    /**
+     * @brief Enable or disable dynamic mask
+     *
+     * @param enable - true to enable dynamic mask, false to disable
+     */
+    void set_dynamic_mask_enabled(bool enable);
+
+    /**
+     * @brief Check if dynamic mask is enabled
+     *
+     * @return bool - true if dynamic mask is enabled, false otherwise
+     */
+    bool is_dynamic_mask_enabled();
+
+    /**
+     * @brief Configure the PrivacyMaskBlender object using a JSON configuration string.
+     *
+     * @param config - JSON configuration string.
+     * @return media_library_return - error code.
+     */
+    media_library_return configure(const std::string &config);
 
   private:
-    std::vector<PolygonPtr> m_privacy_masks;
+    std::vector<PolygonPtr> m_static_privacy_masks;
 
     PrivacyMaskType m_privacy_mask_type;
     std::optional<rgb_color_t> m_color;
-    std::optional<BlurRadius> m_blur_radius;
+    std::optional<PixelizationSize> m_pixelization_size; // Range: 2 to 64
     uint m_frame_width;
     uint m_frame_height;
     rotation_angle_t m_rotation;
     MediaLibraryBufferPoolPtr m_buffer_pool;
     std::mutex m_privacy_mask_mutex;
-    PrivacyMaskDataPtr m_latest_privacy_mask_data;
-    bool m_update_required;
+    PrivacyMasksPtr m_latest_privacy_masks;
+    std::vector<dsp_dynamic_privacy_mask_roi_t> m_dynamic_masks_rois;
+
+    std::string m_analytics_data_id;
+    std::vector<std::string> m_masked_labels;
+    size_t m_dilation_size;
+    bool m_info_update_required;
+    bool m_static_mask_update_required;
+    bool m_static_mask_enabled;
+    bool m_dynamic_mask_enabled;
+    std::shared_ptr<ConfigManager> m_config_manager;
     media_library_return init_buffer_pool();
-    void clean_latest_privacy_mask_data();
+    media_library_return update_info();
+    media_library_return update_static_mask();
+    media_library_return update_dynamic_mask(uint64_t isp_timestamp_ns);
 };
 using PrivacyMaskBlenderPtr = std::shared_ptr<PrivacyMaskBlender>;
 

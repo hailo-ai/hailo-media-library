@@ -39,8 +39,8 @@
 #include <ctype.h>
 #include <iomanip>
 #include <iostream>
-#include <memory>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <stdint.h>
 #include <string.h>
@@ -75,7 +75,12 @@ enum class LoggerType
     Osd,
     Config,
     LdcMesh,
-    MotionDetection
+    MotionDetection,
+    Snapshot,
+    ThrottlingMonitor,
+    Hdr,
+    NamedPipe,
+    AnalyticsDB
 };
 
 class LoggerManager
@@ -86,7 +91,9 @@ class LoggerManager
 
     static std::shared_ptr<spdlog::logger> get_logger(LoggerType name)
     {
-        return loggers[name];
+        auto it = loggers.find(name);
+        assert(it != loggers.end());
+        return it->second;
     }
 
     LoggerManager() = delete;

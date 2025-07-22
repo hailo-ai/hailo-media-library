@@ -33,6 +33,7 @@
 #include <gst/allocators/gstfdmemory.h>
 #include "gsthailoenc.hpp"
 #include "buffer_utils/buffer_utils.hpp"
+#include "common/gstmedialibcommon.hpp"
 
 /*******************
 Property Definitions
@@ -126,7 +127,7 @@ static void gst_hailoenc_get_property(GObject *object, guint prop_id, GValue *va
 static void gst_hailoenc_finalize(GObject *object);
 static void gst_hailoenc_dispose(GObject *object);
 
-static gboolean gst_hailoenc_set_format(GstVideoEncoder *encoder, GstVideoCodecState *state);
+static gboolean gst_hailoenc_set_format(GstVideoEncoder *encoder, GstVideoCodecState *gst_state);
 static gboolean gst_hailoenc_propose_allocation(GstVideoEncoder *encoder, GstQuery *query);
 static gboolean gst_hailoenc_flush(GstVideoEncoder *encoder);
 static gboolean gst_hailoenc_start(GstVideoEncoder *encoder);
@@ -1265,7 +1266,7 @@ static GstFlowReturn gst_hailoenc_encode_frames(GstVideoEncoder *encoder)
 {
     GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
     EncoderParams *enc_params = &(hailoenc->params->enc_params);
-    GstVideoCodecFrame *current_frame;
+    GstVideoCodecFramePtr current_frame;
     GstFlowReturn ret = GST_FLOW_ERROR;
     guint gop_size = enc_params->encIn.gopSize;
     GST_DEBUG_OBJECT(hailoenc, "Encoding %u frames", gop_size);
@@ -1292,7 +1293,6 @@ static GstFlowReturn gst_hailoenc_encode_frames(GstVideoEncoder *encoder)
             break;
         }
         ret = encode_single_frame(hailoenc, current_frame);
-        gst_video_codec_frame_unref(current_frame);
         if (ret == GST_FLOW_FLUSHING)
         {
             GST_WARNING_OBJECT(hailoenc, "Pad is flushing, not sending more frames");
@@ -1312,12 +1312,11 @@ static GstFlowReturn gst_hailoenc_encode_frames(GstVideoEncoder *encoder)
 GstVideoEncoder Virtual Functions
 ********************************/
 
-static gboolean gst_hailoenc_set_format(GstVideoEncoder *encoder, GstVideoCodecState *state)
+static gboolean gst_hailoenc_set_format(GstVideoEncoder *encoder, GstVideoCodecState *gst_state)
 {
-    // GstCaps *other_caps;
-    GstCaps *allowed_caps;
-    GstCaps *icaps;
-    GstVideoCodecState *output_format;
+    GstCapsPtr allowed_caps, icaps;
+    GstVideoCodecStatePtr state = gst_state;
+    GstVideoCodecStatePtr output_format;
     GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
     EncoderParams *enc_params = &(hailoenc->params->enc_params);
 
@@ -1352,29 +1351,24 @@ static gboolean gst_hailoenc_set_format(GstVideoEncoder *encoder, GstVideoCodecS
         GST_DEBUG_OBJECT(hailoenc, "... but no peer, using template caps");
         /* we need to copy because get_allowed_caps returns a ref, and
          * get_pad_template_caps doesn't */
-        allowed_caps = gst_pad_get_pad_template_caps(GST_VIDEO_ENCODER_SRC_PAD(encoder));
+        allowed_caps.reset(gst_pad_get_pad_template_caps(GST_VIDEO_ENCODER_SRC_PAD(encoder)));
     }
-    GST_DEBUG_OBJECT(hailoenc, "chose caps %" GST_PTR_FORMAT, allowed_caps);
+    GST_DEBUG_OBJECT(hailoenc, "chose caps %" GST_PTR_FORMAT, allowed_caps.get());
 
-    icaps = gst_caps_fixate(allowed_caps);
+    icaps = glib_cpp::ptrs::fixate_caps(allowed_caps);
 
     /* Store input state and set output state */
-    if (hailoenc->params->input_state)
-        gst_video_codec_state_unref(hailoenc->params->input_state);
     hailoenc->params->input_state = gst_video_codec_state_ref(state);
-    GST_DEBUG_OBJECT(hailoenc, "Setting output caps state %" GST_PTR_FORMAT, icaps);
+    GST_DEBUG_OBJECT(hailoenc, "Setting output caps state %" GST_PTR_FORMAT, icaps.get());
 
-    output_format = gst_video_encoder_set_output_state(encoder, icaps, state);
+    output_format = glib_cpp::ptrs::video_encoder_set_output_state(encoder, icaps, state);
     GST_DEBUG_OBJECT(hailoenc, "Encoder output width %d, height %d", GST_VIDEO_INFO_WIDTH(&(output_format->info)),
                      GST_VIDEO_INFO_HEIGHT(&(output_format->info)));
 
-    gst_video_codec_state_unref(output_format);
-
     /* Store some tags */
     {
-        GstTagList *tags = gst_tag_list_new_empty();
+        GstTagListPtr tags = gst_tag_list_new_empty();
         gst_video_encoder_merge_tags(encoder, tags, GST_TAG_MERGE_REPLACE);
-        gst_tag_list_unref(tags);
     }
     gint max_delayed_frames = 5;
     GstClockTime latency;
@@ -1450,7 +1444,7 @@ static GstFlowReturn gst_hailoenc_finish(GstVideoEncoder *encoder)
     VCEncOut *pEncOut = &(hailoenc->params->enc_params.encOut);
     VCEncIn *pEncIn = &(hailoenc->params->enc_params.encIn);
     VCEncRet enc_ret;
-    GstBuffer *eos_buf;
+    GstBufferPtr eos_buf;
 
     /* End stream */
     enc_ret = VCEncStrmEnd(hailoenc->params->encoder_instance, pEncIn, pEncOut);
@@ -1461,7 +1455,7 @@ static GstFlowReturn gst_hailoenc_finish(GstVideoEncoder *encoder)
     }
     eos_buf = gst_hailoenc_get_encoded_buffer(hailoenc);
     eos_buf->pts = eos_buf->dts = GPOINTER_TO_UINT(g_queue_peek_tail(hailoenc->params->dts_queue));
-    return gst_pad_push(encoder->srcpad, eos_buf);
+    return glib_cpp::ptrs::push_buffer_to_pad(encoder->srcpad, eos_buf);
 }
 
 static void gst_hailoenc_handle_timestamps(GstHailoEnc *hailoenc, GstVideoCodecFrame *frame)
@@ -1523,7 +1517,7 @@ static GstFlowReturn gst_hailoenc_handle_frame(GstVideoEncoder *encoder, GstVide
     EncoderParams *enc_params = &(hailoenc->params->enc_params);
     GList *frames;
     guint delayed_frames;
-    GstVideoCodecFrame *oldest_frame;
+    GstVideoCodecFramePtr oldest_frame;
     struct timespec start_handle, end_handle;
     clock_gettime(CLOCK_MONOTONIC, &start_handle);
     GST_DEBUG_OBJECT(hailoenc, "Received frame number %u", frame->system_frame_number);
@@ -1568,7 +1562,6 @@ static GstFlowReturn gst_hailoenc_handle_frame(GstVideoEncoder *encoder, GstVide
         }
         if (frame == oldest_frame)
         {
-            gst_video_codec_frame_unref(oldest_frame);
             return ret;
         }
     }

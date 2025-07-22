@@ -34,6 +34,7 @@
 #include <gst/gst.h>
 #include <tl/expected.hpp>
 #include "media_library/media_library_types.hpp"
+#include "common/gstmedialibcommon.hpp"
 
 G_BEGIN_DECLS
 
@@ -51,10 +52,10 @@ typedef struct _GstHailoEncodeBin GstHailoEncodeBin;
 typedef struct _GstHailoEncodeBinParams GstHailoEncodeBinParams;
 typedef struct _GstHailoEncodeBinClass GstHailoEncodeBinClass;
 
-struct _GstHailoEncodeBinParams
+struct __attribute__((visibility("hidden"))) _GstHailoEncodeBinParams
 {
-    GstPad *sinkpad = nullptr;
-    GstPad *srcpad = nullptr;
+    GstPadPtr sinkpad;
+    GstPadPtr srcpad;
 
     std::string config_file_path;
     std::string config_string;
@@ -67,7 +68,7 @@ struct _GstHailoEncodeBinParams
     size_t queue_size = ENCODEBIN_DEFAULT_QUEUE_SIZE;
 };
 
-struct _GstHailoEncodeBin
+struct __attribute__((visibility("hidden"))) _GstHailoEncodeBin
 {
     GstBin base_hailoencodebin;
     GstHailoEncodeBinParams *params = nullptr;

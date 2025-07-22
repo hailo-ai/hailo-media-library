@@ -127,15 +127,6 @@ class MediaLibraryDewarp
     output_resolution_t get_application_input_streams_config();
 
     /**
-     * @brief set magnification level of optical zoom
-     *
-     * @param[in] magnification - magnification level of optical zoom
-     *
-     *  @return media_library_return - status of the operation
-     */
-    media_library_return set_optical_zoom(float magnification);
-
-    /**
      * @brief set the input video configurations object
      *
      * @param[in] width - the new width of the input video

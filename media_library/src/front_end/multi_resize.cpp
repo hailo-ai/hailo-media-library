@@ -21,21 +21,25 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "opencv2/imgproc.hpp"
-#include "opencv2/imgcodecs.hpp"
-#include "opencv2/highgui.hpp"
 #include "opencv2/core/core.hpp"
+#include "opencv2/highgui.hpp"
+#include "opencv2/imgcodecs.hpp"
+#include "opencv2/imgproc.hpp"
 
-#include "multi_resize.hpp"
 #include "buffer_pool.hpp"
 #include "config_manager.hpp"
 #include "dsp_utils.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_utils.hpp"
-#include "privacy_mask.hpp"
 #include "motion_detection.hpp"
+#include "multi_resize.hpp"
+#include "privacy_mask.hpp"
+#include "snapshot.hpp"
+
 #include "dsp_image_enhancement.hpp"
 #include <iostream>
+#include <optional>
+#include <shared_mutex>
 #include <stdint.h>
 #include <string>
 #include <time.h>
@@ -43,6 +47,9 @@
 #include <vector>
 #include <shared_mutex>
 #include <optional>
+#include "env_vars.hpp"
+#include "common.hpp"
+#include "hailo_media_library_perfetto.hpp"
 
 #define MODULE_NAME LoggerType::Resize
 
@@ -52,6 +59,12 @@
     ((multi_resize_config.application_input_streams_config.resolutions.size()) +                                       \
      (multi_resize_config.motion_detection_config.enabled ? 1 : 0))
 
+/* Simple struct to aggregate output data and configuration together */
+struct output_data_and_config
+{
+    hailo_dsp_buffer_data_t data;
+    output_resolution_t *config;
+};
 struct timestamp_metadata
 {
     uint64_t last_timestamp;
@@ -91,8 +104,6 @@ class MediaLibraryMultiResize::Impl final
     // set the input video configurations object
     media_library_return set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate);
 
-    PrivacyMaskBlenderPtr get_privacy_mask_blender();
-
     // set flip rotate status
     media_library_return set_do_flip_rotate(bool do_flip_rotate);
 
@@ -111,9 +122,14 @@ class MediaLibraryMultiResize::Impl final
   private:
     static constexpr int max_frames_jitter_multiplier = 3;
     static constexpr int max_frames_latency_multiplier = 20;
+    static constexpr std::chrono::milliseconds wait_for_pools_timeout = std::chrono::milliseconds(1000);
 
     // flip-rotate flag
-    bool m_do_flip_rotate = false;
+    bool m_do_flip_rotate;
+    bool m_do_flip_rotate_override;
+
+    // Multi-resize frame control logic
+    bool m_use_div_framerate_logic;
 
     // flip direction
     flip_config_t m_flip_config = {false, FLIP_DIRECTION_NONE};
@@ -126,8 +142,6 @@ class MediaLibraryMultiResize::Impl final
     std::shared_ptr<ConfigManager> m_config_manager;
     // operation configurations
     multi_resize_config_t m_multi_resize_config;
-    // privacy mask blender
-    PrivacyMaskBlenderPtr m_privacy_mask_blender;
     // callbacks
     std::vector<MediaLibraryMultiResize::callbacks_t> m_callbacks;
     // output buffer pools
@@ -141,11 +155,14 @@ class MediaLibraryMultiResize::Impl final
     MotionDetection m_motion_detection;
     std::unique_ptr<DspImageEnhancement> m_dsp_image_enhancement;
 
-    media_library_return validate_configurations(multi_resize_config_t &mresize_config);
     media_library_return decode_config_json_string(multi_resize_config_t &mresize_config, std::string config_string);
     media_library_return acquire_output_buffers(HailoMediaLibraryBufferPtr input_buffer,
                                                 std::vector<HailoMediaLibraryBufferPtr> &buffers);
     bool should_push_frame_logic(uint32_t output_framerate, uint8_t output_index, uint64_t isp_timestamp_ns);
+    bool should_push_frame_dividable_logic(uint32_t input_framerate, uint32_t output_framerate, uint32_t frame_counter,
+                                           uint8_t output_index);
+    bool should_push_frame_timestamp_logic(uint32_t output_framerate, uint8_t output_index, uint64_t isp_timestamp_ns,
+                                           std::vector<timestamp_metadata> &timestamps);
     media_library_return create_and_initialize_buffer_pools();
     media_library_return validate_output_frames(std::vector<HailoMediaLibraryBufferPtr> &output_frames);
     media_library_return perform_multi_resize(HailoMediaLibraryBufferPtr input_buffer,
@@ -186,7 +203,11 @@ media_library_return MediaLibraryMultiResize::configure(multi_resize_config_t &m
 media_library_return MediaLibraryMultiResize::handle_frame(HailoMediaLibraryBufferPtr input_frame,
                                                            std::vector<HailoMediaLibraryBufferPtr> &output_frames)
 {
-    return m_impl->handle_frame(input_frame, output_frames);
+    media_library_return status;
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("MediaLibraryMultiResize::handle_frame", DSP_THREADED_TRACK);
+    status = m_impl->handle_frame(input_frame, output_frames);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
+    return status;
 }
 
 multi_resize_config_t MediaLibraryMultiResize::get_multi_resize_configs()
@@ -197,11 +218,6 @@ multi_resize_config_t MediaLibraryMultiResize::get_multi_resize_configs()
 application_input_streams_config_t MediaLibraryMultiResize::get_application_input_streams_config()
 {
     return m_impl->get_application_input_streams_config();
-}
-
-PrivacyMaskBlenderPtr MediaLibraryMultiResize::get_privacy_mask_blender()
-{
-    return m_impl->get_privacy_mask_blender();
 }
 
 media_library_return MediaLibraryMultiResize::set_input_video_config(uint32_t width, uint32_t height,
@@ -254,6 +270,11 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
     : m_dsp_image_enhancement(std::make_unique<DspImageEnhancement>())
 {
     m_configured = false;
+    m_do_flip_rotate = !is_env_variable_on(MEDIALIB_DEWARP_DSP_OPTIMIZATION_ENV_VAR);
+    m_do_flip_rotate_override = m_do_flip_rotate;
+
+    m_use_div_framerate_logic = is_env_variable_on(MEDIALIB_USE_DIV_FRAMERATE_LOGIC_ENV_VAR);
+
     // Start frame count from 0 - to make sure we always handle the first frame even if framerate is set to 0
     m_frame_counter = 0;
     m_buffer_pools.reserve(MAX_NUM_OF_OUTPUTS);
@@ -288,29 +309,29 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
         return;
     }
 
-    tl::expected<std::shared_ptr<PrivacyMaskBlender>, media_library_return> blender_expected =
-        PrivacyMaskBlender::create();
-    if (blender_expected.has_value())
-    {
-        m_privacy_mask_blender = blender_expected.value();
-    }
-    else
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create privacy mask blender");
-        status = blender_expected.error();
-    }
-
     status = MEDIA_LIBRARY_SUCCESS;
 }
 
 MediaLibraryMultiResize::Impl::~Impl()
 {
-
     m_multi_resize_config.application_input_streams_config.resolutions.clear();
     dsp_status status = dsp_utils::release_device();
     if (status != DSP_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to release DSP device, status: {}", status);
+    }
+
+    // Wait for all buffers to return to the pool before destruction.
+    // We use a timeout to avoid hanging if some buffers are still in use by clients.
+    // After timeout, destruction will proceed, potentially causing memory issues if buffers are accessed later.
+    for (auto &buffer_pool : m_buffer_pools)
+    {
+        if (buffer_pool->wait_for_used_buffers(wait_for_pools_timeout) != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME,
+                                  "Buffer pool {} failed to wait for used buffers, the buffer is probably in use",
+                                  buffer_pool->get_name());
+        }
     }
 }
 
@@ -331,28 +352,11 @@ media_library_return MediaLibraryMultiResize::Impl::configure(std::string config
     return configure(mresize_config);
 }
 
-media_library_return MediaLibraryMultiResize::Impl::validate_configurations(multi_resize_config_t &mresize_config)
-{
-    // Make sure that the output fps of each stream is divided by the input fps with no reminder
-    output_resolution_t &input_res = mresize_config.input_video_config;
-    for (output_resolution_t &output_res : mresize_config.application_input_streams_config.resolutions)
-    {
-        if (output_res.framerate != 0 && input_res.framerate % output_res.framerate != 0)
-        {
-            LOGGER__MODULE__ERROR(MODULE_NAME,
-                                  "Invalid output framerate {} - must be a divider of the input framerate {}",
-                                  output_res.framerate, input_res.framerate);
-            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-        }
-    }
-
-    return MEDIA_LIBRARY_SUCCESS;
-}
-
 media_library_return MediaLibraryMultiResize::Impl::set_do_flip_rotate(bool do_flip_rotate)
 {
     std::unique_lock<std::shared_mutex> lock(rw_lock);
-    m_do_flip_rotate = do_flip_rotate;
+    if (!m_do_flip_rotate_override)
+        m_do_flip_rotate = do_flip_rotate;
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -417,18 +421,11 @@ media_library_return MediaLibraryMultiResize::Impl::set_image_enhancement_status
 
 media_library_return MediaLibraryMultiResize::Impl::configure(multi_resize_config_t &mresize_config)
 {
-    auto ret = validate_configurations(mresize_config);
-    if (ret != MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure multi-resize {}", ret);
-        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-    }
-
     LOGGER__MODULE__INFO(MODULE_NAME, "Configuring multi-resize with new configurations");
     std::unique_lock<std::shared_mutex> lock(rw_lock);
 
     // Create and initialize buffer pools
-    ret = m_multi_resize_config.update(mresize_config);
+    auto ret = m_multi_resize_config.update(mresize_config);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to update multi-resize configurations (prohibited) {}", ret);
@@ -544,12 +541,103 @@ media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer
 }
 
 /**
- * @brief Determines whether a frame should be pushed based on the output framerate and timestamp.
+ * @brief Helper function that determines whether to push a frame for evenly dividable framerates.
  *
- * This function calculates the latency since the last frame for the given output index and
- * compares it to the expected frame latency based on the output framerate. If the accumulated
- * latency difference exceeds or meets the expected latency, the function returns true,
- * indicating that the frame should be pushed. Otherwise, it returns false.
+ * @param[in] input_framerate The framerate of the input video.
+ * @param[in] output_framerate The desired framerate for the output.
+ * @param[in] frame_counter Current frame counter.
+ * @param[in] output_index The index of the output buffer to check.
+ *
+ * @return `true` if the frame should be pushed to the buffer, `false` otherwise.
+ */
+bool MediaLibraryMultiResize::Impl::should_push_frame_dividable_logic(uint32_t input_framerate,
+                                                                      uint32_t output_framerate, uint32_t frame_counter,
+                                                                      uint8_t output_index)
+{
+    uint32_t divisor = input_framerate / output_framerate;
+
+    // Using the frame counter to determine if this frame should be pushed or dropped
+    // Example: for divisor 2 (30fps -> 15fps), push frames 1,3,5..., drop frames 2,4,6...
+    // Example: for divisor 3 (30fps -> 10fps), push frames 1,4,7..., drop frames 2,3,5,6,8,9...
+    bool should_push = (input_framerate == output_framerate) || (frame_counter % divisor == 1);
+    if (should_push)
+    {
+        LOGGER__MODULE__DEBUG(MODULE_NAME,
+                              "Pushing frame for output {} (dividable case). Frame counter: {}, Input fps: {}, "
+                              "Output fps: {}, Divisor: {}",
+                              output_index, frame_counter, input_framerate, output_framerate, divisor);
+        return true;
+    }
+    else
+    {
+        LOGGER__MODULE__DEBUG(MODULE_NAME,
+                              "Dropping frame for output {} (dividable case). Frame counter: {}, Input fps: {}, "
+                              "Output fps: {}, Divisor: {}",
+                              output_index, frame_counter, input_framerate, output_framerate, divisor);
+        return false;
+    }
+}
+
+/**
+ * @brief Helper function that determines whether to push a frame using timestamp-based approach.
+ *
+ * @param[in] output_framerate The desired framerate for the output.
+ * @param[in] output_index The index of the output buffer to check.
+ * @param[in] isp_timestamp_ns The timestamp of the frame from the ISP in nanoseconds.
+ * @param[in,out] timestamps Vector of timestamp metadata for tracking output timing.
+ *
+ * @return `true` if the frame should be pushed to the buffer, `false` otherwise.
+ */
+bool MediaLibraryMultiResize::Impl::should_push_frame_timestamp_logic(uint32_t output_framerate, uint8_t output_index,
+                                                                      uint64_t isp_timestamp_ns,
+                                                                      std::vector<timestamp_metadata> &timestamps)
+{
+    // Fallback to the timestamp-based approach for non-dividable framerates
+    float expected_frame_latency = 1000 / output_framerate;
+    float latency_since_last_frame = (isp_timestamp_ns - timestamps[output_index].last_timestamp) / pow(10, 6);
+
+    if (timestamps[output_index].last_timestamp == 0)
+    {
+        // We can't save `latency_since_last_frame` in the first frame, because the isp timestamp is not starting
+        // from zero
+        timestamps[output_index].accumulated_diff = expected_frame_latency;
+    }
+    else
+    {
+        // In case of jitter, limit the accumulated diff to `max_frames_jitter_multiplier` frames
+        timestamps[output_index].accumulated_diff +=
+            std::min(latency_since_last_frame, expected_frame_latency * max_frames_jitter_multiplier);
+
+        timestamps[output_index].accumulated_diff =
+            std::min(timestamps[output_index].accumulated_diff, expected_frame_latency * max_frames_latency_multiplier);
+    }
+
+    timestamps[output_index].last_timestamp = isp_timestamp_ns;
+
+    if (timestamps[output_index].accumulated_diff >= expected_frame_latency)
+    {
+        LOGGER__MODULE__DEBUG(
+            MODULE_NAME, "Should push frame (timestamp case), accumulated diff is {} and expected frame latency is {}",
+            timestamps[output_index].accumulated_diff, expected_frame_latency);
+        timestamps[output_index].accumulated_diff -= expected_frame_latency;
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * @brief Determines whether a frame should be pushed based on the output framerate.
+ *
+ * This function uses two different approaches to determine if a frame should be pushed:
+ *
+ * 1. For evenly dividable framerates (input_framerate % output_framerate == 0):
+ *    Uses a simple pattern-based approach that relies on the frame counter to determine
+ *    whether to pass or drop a frame. This ensures perfect consistency in framerate reduction.
+ *
+ * 2. For non-dividable framerates:
+ *    Falls back to a timestamp-based approach that calculates the latency since the last frame
+ *    and compares it to the expected frame latency based on the output framerate.
  *
  * @param[in] output_framerate The desired framerate for the output in frames per second (fps).
  * @param[in] output_index The index of the output buffer to check.
@@ -559,22 +647,28 @@ media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer
  *
  * @note If `output_framerate` is 0, the function skips the current frame.
  *
- * @note This method is particularly robust in scenarios where the denoise element operates
- *       with a batch-size, as it can handle irregular frame intervals caused by processing
- *       delays and frame drops.
+ * Example for dividable framerate:
+ * @code
+ * Input Framerate: 30 fps, Output Framerate: 15 fps (divisor = 2)
+ * Frame 1: Push (counter % 2 = 1)
+ * Frame 2: Drop (counter % 2 = 0)
+ * Frame 3: Push (counter % 2 = 1)
+ * Frame 4: Drop (counter % 2 = 0)
  *
- * Example Timeline:
+ * Input Framerate: 30 fps, Output Framerate: 10 fps (divisor = 3)
+ * Frame 1: Push (counter % 3 = 1)
+ * Frame 2: Drop (counter % 3 = 2)
+ * Frame 3: Drop (counter % 3 = 0)
+ * Frame 4: Push (counter % 3 = 1)
+ * @endcode
+ *
+ * Example for non-dividable framerate (timestamp-based approach):
  * @code
  * Output Framerate: 25 fps (expected latency: 40 ms)
- *
  * Frame 1: [0 ms]      (Initial frame, push frame)
- * Frame 2: [33 ms]     (Latency since last frame: 33 ms, accumulated_diff: 33 ms       -> Drop frame)
- * Frame 3: [66 ms]     (Latency since last frame: 33 ms, accumulated_diff: 33+33=66 ms -> Push frame, accumulated_diff
- * -= 40 ms) Frame 4: [99 ms]     (Latency since last frame: 33 ms, accumulated_diff: 26+33=59 ms -> Push frame,
- * accumulated_diff -= 40 ms) Frame 5: [132 ms]    (Latency since last frame: 33 ms, accumulated_diff: 19+33=52 ms ->
- * Push frame, accumulated_diff -= 40 ms) Frame 6: [165 ms]    (Latency since last frame: 33 ms, accumulated_diff:
- * 12+33=45 ms -> Push frame, accumulated_diff -= 40 ms) Frame 7: [198 ms]    (Latency since last frame: 33 ms,
- * accumulated_diff: 5+33=38 ms  -> Drop frame)
+ * Frame 2: [33 ms]     (Latency: 33 ms, accumulated_diff: 33 ms       -> Drop frame)
+ * Frame 3: [66 ms]     (Latency: 33 ms, accumulated_diff: 66 ms -> Push frame, accumulated_diff -= 40 ms)
+ * Frame 4: [99 ms]     (Latency: 33 ms, accumulated_diff: 59 ms -> Push frame, accumulated_diff -= 40 ms)
  * @endcode
  */
 bool MediaLibraryMultiResize::Impl::should_push_frame_logic(uint32_t output_framerate, uint8_t output_index,
@@ -588,36 +682,19 @@ bool MediaLibraryMultiResize::Impl::should_push_frame_logic(uint32_t output_fram
         return false;
     }
 
-    float expected_frame_latency = 1000 / output_framerate;
-    float latency_since_last_frame = (isp_timestamp_ns - m_timestamps[output_index].last_timestamp) / pow(10, 6);
+    uint32_t input_framerate = m_multi_resize_config.input_video_config.framerate;
 
-    if (m_timestamps[output_index].last_timestamp == 0)
+    // Check if the output framerate is dividable by the input framerate
+    // For example: input 30 fps, output 15 fps (30/15 = 2, which is an integer)
+    // or input 30 fps, output 10 fps (30/10 = 3, which is an integer)
+    if (m_use_div_framerate_logic && input_framerate > 0 && input_framerate % output_framerate == 0)
     {
-        // We can't save `latency_since_last_frame` in the first frame, because the isp timestamp is not starting from
-        // zero
-        m_timestamps[output_index].accumulated_diff = expected_frame_latency;
+        return should_push_frame_dividable_logic(input_framerate, output_framerate, m_frame_counter, output_index);
     }
     else
     {
-        // In case of jitter, limit the accumulated diff to `max_frames_jitter_multiplier` frames
-        m_timestamps[output_index].accumulated_diff +=
-            std::min(latency_since_last_frame, expected_frame_latency * max_frames_jitter_multiplier);
-
-        m_timestamps[output_index].accumulated_diff = std::min(m_timestamps[output_index].accumulated_diff,
-                                                               expected_frame_latency * max_frames_latency_multiplier);
+        return should_push_frame_timestamp_logic(output_framerate, output_index, isp_timestamp_ns, m_timestamps);
     }
-
-    m_timestamps[output_index].last_timestamp = isp_timestamp_ns;
-
-    if (m_timestamps[output_index].accumulated_diff >= expected_frame_latency)
-    {
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "Should push frame, accumulated diff is {} and expected frame latency is {}",
-                              m_timestamps[output_index].accumulated_diff, expected_frame_latency);
-        m_timestamps[output_index].accumulated_diff -= expected_frame_latency;
-        return true;
-    }
-
-    return false;
 }
 
 /**
@@ -698,22 +775,20 @@ static std::pair<size_t, size_t> adjust_to_aspect_ratio(size_t src_width, size_t
  * will be in descending order (for both width and height).
  * This function splits the output resolutions into groups of resolutions that can be resized together.
  */
-static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::vector<hailo_dsp_buffer_data_t> &outputs,
-                                                                         const dsp_roi_t &input_roi,
-                                                                         multi_resize_config_t &multi_resize_config)
+static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::vector<output_data_and_config> &outputs,
+                                                                         const dsp_roi_t &input_roi)
 {
     std::vector<dsp_crop_resize_params_t> params;
 
     // Sort output resolutions (by width) from largest to smallest
-    std::sort(outputs.begin(), outputs.end(), [](const hailo_dsp_buffer_data_t &a, const hailo_dsp_buffer_data_t &b) {
-        return a.properties.width >= b.properties.width;
+    std::sort(outputs.begin(), outputs.end(), [](const output_data_and_config &a, const output_data_and_config &b) {
+        return a.config->dimensions.destination_width > b.config->dimensions.destination_width;
     });
 
-    for (size_t output_idx = 0; output_idx < outputs.size(); output_idx++)
+    for (auto &[output, output_config] : outputs)
     {
-        auto &output = outputs[output_idx];
-        bool keep_aspect_ratio =
-            multi_resize_config.get_output_resolution_by_index(output_idx).value().get().keep_aspect_ratio;
+        bool keep_aspect_ratio = output_config->keep_aspect_ratio;
+
         // Try to find a suitable crop_resize_param for the current output
         bool found = false;
         for (auto &crop_resize_param : params)
@@ -735,8 +810,8 @@ static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::ve
             // (a previous buffer exists since crop_resize_param is never added with an empty dst)
             auto prev_width = crop_resize_param.dst[i - 1]->width;
             auto prev_height = crop_resize_param.dst[i - 1]->height;
-            auto curr_width = output.properties.width;
-            auto curr_height = output.properties.height;
+            auto curr_width = output_config->dimensions.destination_width;
+            auto curr_height = output_config->dimensions.destination_height;
             if (keep_aspect_ratio)
             {
                 auto src_width = input_roi.end_x - input_roi.start_x;
@@ -856,10 +931,10 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
         return MEDIA_LIBRARY_ERROR;
     }
 
-    hailo_dsp_buffer_data_t dsp_buffer_data = input_buffer->buffer_data->As<hailo_dsp_buffer_data_t>();
+    hailo_dsp_buffer_data_t src_dsp_buffer_data = input_buffer->buffer_data->As<hailo_dsp_buffer_data_t>();
 
-    std::vector<hailo_dsp_buffer_data_t> output_dsp_buffers;
-    output_dsp_buffers.reserve(num_of_output_resolutions);
+    std::vector<output_data_and_config> outputs_data_and_config;
+    outputs_data_and_config.reserve(num_of_output_resolutions);
 
     uint num_bufs_to_resize = 0;
     for (size_t i = 0; i < num_of_output_resolutions; i++)
@@ -879,7 +954,7 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
         }
 
         hailo_buffer_data_t *output_frame = output_frames[i]->buffer_data.get();
-        output_dsp_buffers.emplace_back(std::move(output_frame->As<hailo_dsp_buffer_data_t>()));
+        outputs_data_and_config.emplace_back(std::move(output_frame->As<hailo_dsp_buffer_data_t>()), &output_res);
 
         if (output_res != *output_frame)
         {
@@ -909,10 +984,10 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
         return input_roi.error();
     }
 
-    auto crop_resize_params = split_to_crop_resize_params(output_dsp_buffers, input_roi.value(), m_multi_resize_config);
+    auto crop_resize_params = split_to_crop_resize_params(outputs_data_and_config, input_roi.value());
 
     dsp_multi_crop_resize_params_t multi_crop_resize_params = {
-        .src = &dsp_buffer_data.properties,
+        .src = &src_dsp_buffer_data.properties,
         .crop_resize_params = crop_resize_params.data(),
         .crop_resize_params_count = crop_resize_params.size(),
         .interpolation = m_multi_resize_config.application_input_streams_config.interpolation_type,
@@ -924,60 +999,19 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
         p.crop = &input_roi.value();
     }
 
-    // Blend privacy mask
-    auto blender_expected = m_privacy_mask_blender->blend();
-    if (!blender_expected.has_value())
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to blend privacy mask");
-        return MEDIA_LIBRARY_ERROR;
-    }
-
-    PrivacyMaskDataPtr privacy_mask_data = blender_expected.value();
-
     // Perform multi resize
     clock_gettime(CLOCK_MONOTONIC, &start_resize);
-    std::optional<dsp_privacy_mask_t> dsp_privacy_mask;
-    std::vector<dsp_roi_t> dsp_rois;
 
-    if (privacy_mask_data->rois_count != 0)
-    {
-        dsp_privacy_mask.emplace();
-        dsp_rois.resize(privacy_mask_data->rois_count);
-
-        dsp_privacy_mask->bitmask = (uint8_t *)privacy_mask_data->bitmask->get_plane_ptr(0);
-        if (privacy_mask_data->type == PrivacyMaskType::COLOR)
-        {
-            dsp_privacy_mask->color.y = privacy_mask_data->color.y;
-            dsp_privacy_mask->color.u = privacy_mask_data->color.u;
-            dsp_privacy_mask->color.v = privacy_mask_data->color.v;
-            dsp_privacy_mask->type = DSP_PRIVACY_MASK_COLOR;
-        }
-        else
-        {
-            dsp_privacy_mask->type = DSP_PRIVACY_MASK_BLUR;
-            dsp_privacy_mask->blur_radius = privacy_mask_data->blur_radius;
-        }
-        dsp_privacy_mask->rois = dsp_rois.data();
-        dsp_privacy_mask->rois_count = privacy_mask_data->rois_count;
-
-        for (uint i = 0; i < privacy_mask_data->rois_count; i++)
-        {
-            dsp_rois[i] = {.start_x = privacy_mask_data->rois[i].x,
-                           .start_y = privacy_mask_data->rois[i].y,
-                           .end_x = privacy_mask_data->rois[i].x + privacy_mask_data->rois[i].width,
-                           .end_y = privacy_mask_data->rois[i].y + privacy_mask_data->rois[i].height};
-        }
-    }
-
-    // Using std::optional to manage the image enhancement parameters
     std::optional<dsp_image_enhancement_params_t> dsp_image_enhancement_params;
-    if (m_dsp_image_enhancement->m_denoise_element_enabled && m_dsp_image_enhancement->is_enabled())
+    if (m_dsp_image_enhancement->is_enabled())
     {
-        dsp_image_enhancement_params =
-            std::make_optional<dsp_image_enhancement_params_t>(m_dsp_image_enhancement->get_dsp_params());
+        /* If denoise is disabled only histogram equalization can be applied */
+        dsp_image_enhancement_params = m_dsp_image_enhancement->m_denoise_element_enabled
+                                           ? m_dsp_image_enhancement->get_dsp_params()
+                                           : m_dsp_image_enhancement->get_default_disabled_dsp_params();
 
         LOGGER__MODULE__DEBUG(
-            LoggerType::Resize,
+            MODULE_NAME,
             "Image enhancement params: "
             "contrast {} brightness {} saturation_u_a {} saturation_u_b {} saturation_v_a {} saturation_v_b {} "
             "blur level {} "
@@ -1006,8 +1040,8 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
     LOGGER__MODULE__DEBUG(
         MODULE_NAME,
         "Performing multi resize on the DSP with digital zoom ROI: start_x {} start_y {} end_x {} end_y "
-        "{} and {} privacy masks and post denoise filter",
-        input_roi->start_x, input_roi->start_y, input_roi->end_x, input_roi->end_y, privacy_mask_data->rois_count);
+        "{} and post denoise filter",
+        input_roi->start_x, input_roi->start_y, input_roi->end_x, input_roi->end_y);
 
     // enable only if not already done in dewarp
     std::optional<dsp_flip_rotate_params_t> dsp_flip_rotate_params;
@@ -1021,7 +1055,7 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
 
     const dsp_frontend_params_t dsp_frontend_params = {
         .multi_crop_resize_params = &multi_crop_resize_params,
-        .privacy_mask_params = dsp_privacy_mask ? &dsp_privacy_mask.value() : nullptr,
+        .privacy_mask_params = nullptr,
         .image_enhancement_params = dsp_image_enhancement_params ? &dsp_image_enhancement_params.value() : nullptr,
         .flip_rotate_params = dsp_flip_rotate_params ? &dsp_flip_rotate_params.value() : nullptr,
     };
@@ -1034,10 +1068,10 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
     if (ret != DSP_SUCCESS)
         return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
 
-    if (m_dsp_image_enhancement->m_denoise_element_enabled && m_dsp_image_enhancement->is_enabled() &&
-        dsp_image_enhancement_params->histogram_params)
+    if (m_dsp_image_enhancement->is_enabled() && dsp_image_enhancement_params->histogram_params)
     {
         m_dsp_image_enhancement->update_dsp_params_from_histogram(
+            m_dsp_image_enhancement->m_denoise_element_enabled,
             dsp_image_enhancement_params->histogram_params->histogram);
     }
 
@@ -1121,7 +1155,9 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(HailoMediaLibra
     }
 
     // Perform multi resize
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("perform_multi_resize", DSP_THREADED_TRACK);
     media_lib_ret = perform_multi_resize(input_frame, output_frames);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
 
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
         return media_lib_ret;
@@ -1132,6 +1168,18 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(HailoMediaLibra
 
         if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
             return media_lib_ret;
+    }
+
+    for (size_t i = 0; i < output_frames.size(); i++)
+    {
+        // In cases where we have multiple fps outputs, the frame might be null if the buffer was shouldn't be pushed
+        if (output_frames[i]->buffer_data == nullptr)
+        {
+            LOGGER__TRACE("Output frame at index {} is empty, skipping snapshot", i);
+            continue;
+        }
+
+        SnapshotManager::get_instance().take_snapshot("multiresize" + std::to_string(i), output_frames[i]);
     }
 
     increase_frame_counter();
@@ -1152,11 +1200,6 @@ application_input_streams_config_t MediaLibraryMultiResize::Impl::get_applicatio
     return m_multi_resize_config.application_input_streams_config;
 }
 
-PrivacyMaskBlenderPtr MediaLibraryMultiResize::Impl::get_privacy_mask_blender()
-{
-    return m_privacy_mask_blender;
-}
-
 media_library_return MediaLibraryMultiResize::Impl::set_input_video_config(uint32_t width, uint32_t height,
                                                                            uint32_t framerate)
 {
@@ -1165,16 +1208,7 @@ media_library_return MediaLibraryMultiResize::Impl::set_input_video_config(uint3
     m_multi_resize_config.input_video_config.dimensions.destination_height = height;
     m_multi_resize_config.input_video_config.framerate = framerate;
 
-    media_library_return blender_config_status =
-        m_privacy_mask_blender->set_frame_size(m_multi_resize_config.input_video_config.dimensions.destination_width,
-                                               m_multi_resize_config.input_video_config.dimensions.destination_height);
-    if (blender_config_status != MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set privacy mask blender frame size");
-        return blender_config_status;
-    }
-
-    return blender_config_status;
+    return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return MediaLibraryMultiResize::Impl::observe(const MediaLibraryMultiResize::callbacks_t &callbacks)

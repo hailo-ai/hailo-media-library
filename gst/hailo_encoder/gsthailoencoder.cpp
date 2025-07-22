@@ -35,6 +35,7 @@
 #include "gsthailobuffermeta.hpp"
 #include "gsthailoencoder.hpp"
 #include "buffer_utils/buffer_utils.hpp"
+#include "common/gstmedialibcommon.hpp"
 
 #define MEDIALIB_ENCODER_THREAD_PRIORITY_ENV_VAR ("MEDIALIB_ENCODER_THREAD_PRIORITY")
 
@@ -87,13 +88,13 @@ static void gst_hailo_encoder_finalize(GObject *object);
 static void gst_hailo_encoder_dispose(GObject *object);
 
 static gboolean gst_hailo_encoder_open(GstVideoEncoder *encoder);
-static gboolean gst_hailo_encoder_set_format(GstVideoEncoder *encoder, GstVideoCodecState *state);
+static gboolean gst_hailo_encoder_set_format(GstVideoEncoder *encoder, GstVideoCodecState *gst_state);
 static gboolean gst_hailo_encoder_propose_allocation(GstVideoEncoder *encoder, GstQuery *query);
 static gboolean gst_hailo_encoder_flush(GstVideoEncoder *encoder);
 static gboolean gst_hailo_encoder_start(GstVideoEncoder *encoder);
 static gboolean gst_hailo_encoder_stop(GstVideoEncoder *encoder);
 static GstFlowReturn gst_hailo_encoder_finish(GstVideoEncoder *encoder);
-static GstFlowReturn gst_hailo_encoder_handle_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *frame);
+static GstFlowReturn gst_hailo_encoder_handle_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *gst_frame);
 static GstCaps *gst_hailo_encoder_getcaps(GstVideoEncoder *encoder, GstCaps *filter);
 
 /*************
@@ -247,6 +248,20 @@ static void gst_hailo_encoder_set_property(GObject *object, guint prop_id, const
     {
     case PROP_CONFIG_STRING: {
         hailoencoder->params->config = std::string(g_value_get_string(value));
+
+        if (hailoencoder->params->encoder)
+        {
+            if (hailoencoder->params->encoder->configure(hailoencoder->params->config) !=
+                media_library_return::MEDIA_LIBRARY_SUCCESS)
+            {
+                GST_ERROR_OBJECT(hailoencoder, "Failed to configure encoder with config string");
+            }
+        }
+        else
+        {
+            GST_ERROR_OBJECT(hailoencoder, "Encoder instance not initialized");
+        }
+
         break;
     }
     case PROP_CONFIG_PATH: {
@@ -371,12 +386,11 @@ static GstCaps *gst_hailo_encoder_getcaps(GstVideoEncoder *encoder, GstCaps *fil
     return caps;
 }
 
-static gboolean gst_hailo_encoder_set_format(GstVideoEncoder *encoder, GstVideoCodecState *state)
+static gboolean gst_hailo_encoder_set_format(GstVideoEncoder *encoder, GstVideoCodecState *gst_state)
 {
-    // GstCaps *other_caps;
-    GstCaps *allowed_caps;
-    GstCaps *icaps;
-    GstVideoCodecState *output_format;
+    GstCapsPtr allowed_caps, icaps;
+    GstVideoCodecStatePtr state = gst_state;
+    GstVideoCodecStatePtr output_format;
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
 
     /* some codecs support more than one format, first auto-choose one */
@@ -387,27 +401,22 @@ static gboolean gst_hailo_encoder_set_format(GstVideoEncoder *encoder, GstVideoC
         GST_DEBUG_OBJECT(hailoencoder, "... but no peer, using template caps");
         /* we need to copy because get_allowed_caps returns a ref, and
          * get_pad_template_caps doesn't */
-        allowed_caps = gst_pad_get_pad_template_caps(GST_VIDEO_ENCODER_SRC_PAD(encoder));
+        allowed_caps.reset(gst_pad_get_pad_template_caps(GST_VIDEO_ENCODER_SRC_PAD(encoder)));
     }
-    GST_DEBUG_OBJECT(hailoencoder, "chose caps %" GST_PTR_FORMAT, allowed_caps);
+    GST_DEBUG_OBJECT(hailoencoder, "chose caps %" GST_PTR_FORMAT, allowed_caps.get());
 
-    icaps = gst_caps_fixate(allowed_caps);
+    icaps = glib_cpp::ptrs::fixate_caps(allowed_caps);
 
     /* Store input state and set output state */
-    if (hailoencoder->params->input_state)
-        gst_video_codec_state_unref(hailoencoder->params->input_state);
     hailoencoder->params->input_state = gst_video_codec_state_ref(state);
-    GST_DEBUG_OBJECT(hailoencoder, "Setting output caps state %" GST_PTR_FORMAT, icaps);
+    GST_DEBUG_OBJECT(hailoencoder, "Setting output caps state %" GST_PTR_FORMAT, icaps.get());
 
-    output_format = gst_video_encoder_set_output_state(encoder, icaps, state);
-
-    gst_video_codec_state_unref(output_format);
+    output_format = glib_cpp::ptrs::video_encoder_set_output_state(encoder, icaps, state);
 
     /* Store some tags */
     {
-        GstTagList *tags = gst_tag_list_new_empty();
+        GstTagListPtr tags = gst_tag_list_new_empty();
         gst_video_encoder_merge_tags(encoder, tags, GST_TAG_MERGE_REPLACE);
-        gst_tag_list_unref(tags);
     }
     gint max_delayed_frames = 5;
     GstClockTime latency;
@@ -527,12 +536,12 @@ static GstFlowReturn gst_hailo_encoder_finish(GstVideoEncoder *encoder)
         GST_ERROR_OBJECT(hailoencoder, "Could not finish hailoencoder");
         return GST_FLOW_ERROR;
     }
-    GstBuffer *eos_buffer = gst_hailo_encoder_get_output_buffer(output_expected.value());
+    GstBufferPtr eos_buffer = gst_hailo_encoder_get_output_buffer(output_expected.value());
     gst_buffer_add_hailo_buffer_meta(eos_buffer, output_expected.value().buffer, output_expected.value().size);
 
     eos_buffer->pts = eos_buffer->dts = hailoencoder->params->dts_queue.back();
 
-    return gst_pad_push(GST_VIDEO_ENCODER_SRC_PAD(encoder), eos_buffer);
+    return glib_cpp::ptrs::push_buffer_to_pad(GST_VIDEO_ENCODER_SRC_PAD(encoder), eos_buffer);
 }
 
 static GstFlowReturn gst_hailo_encoder_encode_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *input_frame)
@@ -642,15 +651,16 @@ static void set_thread_priority(GstVideoEncoder *encoder)
     }
 }
 
-static GstFlowReturn gst_hailo_encoder_handle_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *frame)
+static GstFlowReturn gst_hailo_encoder_handle_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *gst_frame)
 {
     if (get_env_variable_as_int(MEDIALIB_ENCODER_THREAD_PRIORITY_ENV_VAR) != -1)
     {
         set_thread_priority(encoder);
     }
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
+    GstVideoCodecFramePtr frame = gst_frame;
+    GstVideoCodecFramePtr input_frame;
     GstFlowReturn ret = GST_FLOW_ERROR;
-    GstVideoCodecFrame *input_frame = nullptr;
     struct timespec start_handle, end_handle;
     clock_gettime(CLOCK_MONOTONIC, &start_handle);
     GST_DEBUG_OBJECT(hailoencoder, "Received frame number %u", frame->system_frame_number);
@@ -694,19 +704,6 @@ static GstFlowReturn gst_hailo_encoder_handle_frame(GstVideoEncoder *encoder, Gs
         ret = gst_hailo_encoder_encode_frame(encoder, frame);
         if (ret != GST_FLOW_OK)
             return ret;
-    }
-
-    // Unref both frames if needed
-    if (input_frame != nullptr)
-    {
-        gst_video_codec_frame_unref(input_frame);
-        input_frame = nullptr;
-    }
-
-    if (frame != nullptr)
-    {
-        gst_video_codec_frame_unref(frame);
-        frame = nullptr;
     }
 
     clock_gettime(CLOCK_MONOTONIC, &end_handle);

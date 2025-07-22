@@ -1,5 +1,6 @@
 #include "gsthailodspbufferpoolutils.hpp"
 #include "dsp/gsthailodspbufferpool.hpp"
+#include "common/gstmedialibcommon.hpp"
 
 gboolean gst_is_hailo_dsp_pool_type(GstBufferPool *pool)
 {
@@ -38,7 +39,7 @@ gboolean gst_hailo_dsp_configure_pool(GstBufferPool *pool, GstCaps *caps, gsize 
 GstBufferPool *gst_hailo_dsp_create_new_pool(GstDebugCategory *category, GstQuery *query, guint min_buffers,
                                              guint max_buffers, gsize size, guint padding)
 {
-    GstCaps *caps = NULL;
+    GstCapsPtr caps;
 
     // Create a new bufferpool object
     GstBufferPool *pool = gst_hailo_dsp_buffer_pool_new(padding);
@@ -48,7 +49,8 @@ GstBufferPool *gst_hailo_dsp_create_new_pool(GstDebugCategory *category, GstQuer
         return NULL;
     }
 
-    gst_query_parse_allocation(query, &caps, NULL);
+    auto query_result = glib_cpp::ptrs::parse_query_allocation(query);
+    caps = std::move(query_result.caps);
 
     // Configure the bufferpool
     gboolean res = gst_hailo_dsp_configure_pool(pool, caps, size, min_buffers, max_buffers);
@@ -58,7 +60,6 @@ GstBufferPool *gst_hailo_dsp_create_new_pool(GstDebugCategory *category, GstQuer
         return NULL;
     }
 
-    gst_caps_unref(caps);
     GST_DEBUG_OBJECT(pool,
                      "Dsp Bufferpool created with buffer size: %ld min buffers: %d max buffers: %d and padding: %d",
                      size, min_buffers, max_buffers, padding);
@@ -70,11 +71,11 @@ GstBufferPool *gst_create_hailo_dsp_bufferpool_from_allocation_query(GstElement 
                                                                      guint bufferpool_min_size,
                                                                      guint bufferpool_max_size, guint padding)
 {
-    GstCaps *caps;
-    GstAllocator *allocator = NULL;
-    gboolean need_pool = FALSE;
+    GstCapsPtr caps;
+    GstAllocatorPtr allocator;
 
-    gst_query_parse_allocation(query, &caps, &need_pool);
+    auto query_result = glib_cpp::ptrs::parse_query_allocation(query);
+    caps = std::move(query_result.caps);
 
     if (caps == NULL)
     {
@@ -85,7 +86,6 @@ GstBufferPool *gst_create_hailo_dsp_bufferpool_from_allocation_query(GstElement 
     if (!gst_caps_is_fixed(caps))
     {
         GST_ERROR_OBJECT(element, "Bufferpool creation from alloc query - Caps is not fixed");
-        gst_caps_unref(caps);
         return NULL;
     }
 
@@ -94,7 +94,6 @@ GstBufferPool *gst_create_hailo_dsp_bufferpool_from_allocation_query(GstElement 
     // Get the width and height of the caps
     GstVideoInfo *video_info = gst_video_info_new();
     gst_video_info_from_caps(video_info, caps);
-    gst_caps_unref(caps);
 
     guint buffer_size = video_info->size;
 
@@ -128,26 +127,13 @@ GstBufferPool *gst_create_hailo_dsp_bufferpool_from_allocation_query(GstElement 
     if (!gst_buffer_pool_set_active(pool, TRUE))
     {
         GST_ERROR_OBJECT(element, "Bufferpool creation from alloc query - Unable to set pool active");
-        if (allocator)
-        {
-            gst_object_unref(allocator);
-        }
         return NULL;
     }
 
     if (gst_query_get_n_allocation_pools(query) == 0)
     {
         GST_ERROR_OBJECT(element, "Bufferpool creation from alloc query - No pools in query");
-        if (allocator)
-        {
-            gst_object_unref(allocator);
-        }
         return NULL;
-    }
-
-    if (allocator)
-    {
-        gst_object_unref(allocator);
     }
 
     return pool;

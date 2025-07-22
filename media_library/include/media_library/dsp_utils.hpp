@@ -161,6 +161,9 @@ dsp_status perform_dsp_telescopic_multi_resize(dsp_multi_crop_resize_params_t *m
 
 dsp_status perform_dsp_frontend_process(const dsp_frontend_params_t &frontend_params);
 
+dsp_status perform_dsp_privacy_mask(hailo_buffer_data_t *input_buffer_data,
+                                    const unified_dsp_privacy_mask_t *privacy_mask_params);
+
 dsp_status perform_dsp_dewarp(hailo_buffer_data_t *input_buffer_data, hailo_buffer_data_t *output_buffer_data,
                               dsp_dewarp_mesh_t *mesh, dsp_interpolation_type_t interpolation,
                               const dsp_isp_vsm_t &isp_vsm, const dsp_vsm_config_t &dsp_vsm_config,

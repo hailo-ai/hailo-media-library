@@ -47,12 +47,6 @@ tl::expected<ImageOverlayImplPtr, media_library_return> ImageOverlayImpl::create
     return osd_overlay;
 }
 
-std::shared_future<tl::expected<ImageOverlayImplPtr, media_library_return>> ImageOverlayImpl::create_async(
-    const osd::ImageOverlay &overlay)
-{
-    return std::async(std::launch::async, [overlay]() { return create(overlay); }).share();
-}
-
 tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> ImageOverlayImpl::create_dsp_overlays(
     int frame_width, int frame_height)
 {

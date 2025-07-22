@@ -22,13 +22,16 @@
  */
 
 #include "gsthailofrontendbinsrc.hpp"
+#include "media_library/media_library_types.hpp"
 #include "multi_resize/gsthailomultiresize.hpp"
 #include "media_library/privacy_mask.hpp"
 #include "media_library/isp_utils.hpp"
 #include "common/gstmedialibcommon.hpp"
+#include "media_library/isp_utils.hpp"
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <dlfcn.h>
+#include <optional>
 #include <unistd.h>
 #include <chrono>
 
@@ -36,21 +39,20 @@ GST_DEBUG_CATEGORY_STATIC(gst_hailofrontendbinsrc_debug_category);
 #define GST_CAT_DEFAULT gst_hailofrontendbinsrc_debug_category
 
 #define INPUT_VIDEO_IS_4K(frontendbinsrc)                                                                              \
-    (frontendbinsrc->params->m_input_config.resolution.dimensions.destination_width == 3840 &&                         \
-     frontendbinsrc->params->m_input_config.resolution.dimensions.destination_height == 2160)
+    (frontendbinsrc->params->m_frontend_config.input_config.resolution.dimensions.destination_width == 3840 &&         \
+     frontendbinsrc->params->m_frontend_config.input_config.resolution.dimensions.destination_height == 2160)
 #define INPUT_VIDEO_IS_FHD(frontendbinsrc)                                                                             \
-    (frontendbinsrc->params->m_input_config.resolution.dimensions.destination_width == 1920 &&                         \
-     frontendbinsrc->params->m_input_config.resolution.dimensions.destination_height == 1080)
+    (frontendbinsrc->params->m_frontend_config.input_config.resolution.dimensions.destination_width == 1920 &&         \
+     frontendbinsrc->params->m_frontend_config.input_config.resolution.dimensions.destination_height == 1080)
 #define HDR_IMAGING_RESOLUTION(frontendbinsrc)                                                                         \
     INPUT_VIDEO_IS_4K(frontendbinsrc) ? HDR::InputResolution::RES_4K : HDR::InputResolution::RES_FHD
-#define HDR_IS_3DOL(frontendbinsrc) frontendbinsrc->params->m_hdr_config.dol == HDR_DOL_3
+#define HDR_IS_3DOL(frontendbinsrc) frontendbinsrc->params->m_frontend_config.hdr_config.dol == HDR_DOL_3
 #define HDR_IMAGING_DOL(frontendbinsrc) HDR_IS_3DOL(frontendbinsrc) ? HDR::DOL::HDR_DOL_3 : HDR::DOL::HDR_DOL_2
 
 static void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id, const GValue *value,
                                                  GParamSpec *pspec);
 static void gst_hailofrontendbinsrc_get_property(GObject *object, guint property_id, GValue *value, GParamSpec *pspec);
 static GstElement *gst_hailofrontendbinsrc_init_queue(GstHailoFrontendBinSrc *hailofrontendbinsrc);
-static GstElement *gst_hailofrontendbinsrc_init_capsfilter(GstHailoFrontendBinSrc *hailofrontendbinsrc);
 static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *element, GstStateChange transition);
 static GstPad *gst_hailofrontendbinsrc_request_new_pad(GstElement *element, GstPadTemplate *templ, const gchar *name,
                                                        const GstCaps *caps);
@@ -60,16 +62,14 @@ static void gst_hailofrontendbinsrc_dispose(GObject *object);
 static gboolean gst_hailofrontendbinsrc_denoise_enabled_changed(GstHailoFrontendBinSrc *self, bool enabled);
 static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, frontend_config_t &config,
                                                std::string config_string = "");
-static media_library_return gst_hailofrontendbinsrc_load_config(GstHailoFrontendBinSrc *self, std::string config_string,
-                                                                frontend_config_t *out_config);
-static std::string get_hdr_hef_path(GstHailoFrontendBinSrc *self);
+static std::optional<frontend_config_t> gst_hailofrontendbinsrc_load_config(GstHailoFrontendBinSrc *self,
+                                                                            const std::string &config_string);
 
 enum
 {
     PROP_0,
     PROP_CONFIG_FILE_PATH,
     PROP_CONFIG_STRING,
-    PROP_PRIVACY_MASK,
     PROP_CONFIG,
     PROP_HDR_CONFIG,
     PROP_HAILORT_CONFIG,
@@ -86,6 +86,18 @@ static GstStaticPadTemplate src_template =
 G_DEFINE_TYPE_WITH_CODE(GstHailoFrontendBinSrc, gst_hailofrontendbinsrc, GST_TYPE_BIN,
                         GST_DEBUG_CATEGORY_INIT(gst_hailofrontendbinsrc_debug_category, "hailofrontendbinsrc", 0,
                                                 "debug category for hailofrontendbinsrc element"));
+
+static int round_up_to_multiple_inner(int num_to_round, int multiple)
+{
+    if (multiple == 0)
+        return num_to_round;
+
+    int remainder = num_to_round % multiple;
+    if (remainder == 0)
+        return num_to_round;
+
+    return num_to_round + multiple - remainder;
+}
 
 static void gst_hailofrontendbinsrc_class_init(GstHailoFrontendBinSrcClass *klass)
 {
@@ -113,11 +125,6 @@ static void gst_hailofrontendbinsrc_class_init(GstHailoFrontendBinSrcClass *klas
         g_param_spec_string("config-string", "Config string", "JSON config string to load", "",
                             (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
                                           GST_PARAM_MUTABLE_PLAYING)));
-
-    g_object_class_install_property(gobject_class, PROP_PRIVACY_MASK,
-                                    g_param_spec_pointer("privacy-mask", "Privacy Mask",
-                                                         "Pointer to privacy mask blender",
-                                                         (GParamFlags)(G_PARAM_READABLE)));
 
     g_object_class_install_property(
         gobject_class, PROP_CONFIG,
@@ -169,8 +176,7 @@ static void gst_hailofrontendbinsrc_init(GstHailoFrontendBinSrc *hailofrontendbi
     g_object_set(hailofrontendbinsrc->params->m_v4l2src, "io-mode", 4, NULL);
 
     // caps
-    hailofrontendbinsrc->params->m_capsfilter = gst_hailofrontendbinsrc_init_capsfilter(hailofrontendbinsrc);
-
+    hailofrontendbinsrc->params->m_capsfilter = gst_element_factory_make("capsfilter", "frontendcapsfilter");
     // queue
     hailofrontendbinsrc->params->m_queue = gst_hailofrontendbinsrc_init_queue(hailofrontendbinsrc);
 
@@ -182,7 +188,7 @@ static void gst_hailofrontendbinsrc_init(GstHailoFrontendBinSrc *hailofrontendbi
         GST_ELEMENT_ERROR(hailofrontendbinsrc, RESOURCE, FAILED, ("Failed creating hailofrontend element in bin!"),
                           (NULL));
     }
-    MediaLibraryPostIspDenoise::callbacks_t callbacks;
+    MediaLibraryDenoise::callbacks_t callbacks;
     callbacks.on_enable_changed = [hailofrontendbinsrc](bool enabled) {
         // initialize caps negotiation to be passed downstream
         auto ret = gst_hailofrontendbinsrc_denoise_enabled_changed(hailofrontendbinsrc, enabled);
@@ -194,14 +200,8 @@ static void gst_hailofrontendbinsrc_init(GstHailoFrontendBinSrc *hailofrontendbi
     gst_bin_add_many(GST_BIN(hailofrontendbinsrc), hailofrontendbinsrc->params->m_v4l2src,
                      hailofrontendbinsrc->params->m_capsfilter, hailofrontendbinsrc->params->m_queue,
                      hailofrontendbinsrc->params->m_frontend, NULL);
-    hailofrontendbinsrc->params->m_input_config_manager =
-        std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_INPUT_VIDEO);
-    hailofrontendbinsrc->params->m_isp_config_manager =
-        std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_ISP);
-    hailofrontendbinsrc->params->m_hailort_config_manager =
-        std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_HAILORT);
-    hailofrontendbinsrc->params->m_hdr_config_manager =
-        std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_HDR);
+    hailofrontendbinsrc->params->m_frontend_config_manager =
+        std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_FRONTEND);
 }
 
 static GstElement *gst_hailofrontendbinsrc_init_queue(GstHailoFrontendBinSrc *hailofrontendbinsrc)
@@ -221,119 +221,72 @@ static GstElement *gst_hailofrontendbinsrc_init_queue(GstHailoFrontendBinSrc *ha
     return queue;
 }
 
-static GstElement *gst_hailofrontendbinsrc_init_capsfilter(GstHailoFrontendBinSrc *hailofrontendbinsrc)
-{
-    GstElement *capsfilter = gst_element_factory_make("capsfilter", "frontendcapsfilter");
-    if (nullptr == capsfilter)
-    {
-        GST_ELEMENT_ERROR(hailofrontendbinsrc, RESOURCE, FAILED, ("Failed creating capsfilter element in bin!"),
-                          (NULL));
-        return NULL;
-    }
-    GstCaps *caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "NV12", "framerate", GST_TYPE_FRACTION,
-                                        30, 1, "width", G_TYPE_INT, 3840, "height", G_TYPE_INT, 2160, NULL);
-    g_object_set(capsfilter, "caps", caps, NULL);
-    gst_caps_unref(caps);
-    return capsfilter;
-}
-
 static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, frontend_config_t &config,
                                                std::string config_string)
 {
-    if (self->params->m_elements_linked && self->params->m_input_config != config.input_config)
+    if (self->params->m_elements_linked && self->params->m_frontend_config.input_config != config.input_config)
     {
         GST_ERROR_OBJECT(self, "Input Video config cannot be changed while pipeline is running");
         return;
     }
+
+    if (config.denoise_config.enabled && config.hdr_config.enabled)
+    {
+        GST_ERROR_OBJECT(self, "Denoise and HDR cannot be enabled at the same time");
+        return;
+    }
+
     isp_utils::set_auto_configure(config.isp_config.auto_configuration);
     isp_utils::set_isp_config_files_path(config.isp_config.isp_config_files_path);
 
-    if (self->params->m_input_config != config.input_config)
+    if (self->params->m_frontend_config.input_config != config.input_config)
     {
+        static constexpr int RESOLUTION_MULTIPLE_REQUIRED_BY_DENOISE_NETWORK = 16;
+        auto adjusted_width = round_up_to_multiple_inner(config.input_config.resolution.dimensions.destination_width,
+                                                         RESOLUTION_MULTIPLE_REQUIRED_BY_DENOISE_NETWORK);
+        auto adjusted_height = round_up_to_multiple_inner(config.input_config.resolution.dimensions.destination_height,
+                                                          RESOLUTION_MULTIPLE_REQUIRED_BY_DENOISE_NETWORK);
         // update capsfilter with input_config
-        GstCaps *caps =
-            gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "NV12", "framerate", GST_TYPE_FRACTION,
-                                config.input_config.resolution.framerate, 1, "width", G_TYPE_INT,
-                                config.input_config.resolution.dimensions.destination_width, "height", G_TYPE_INT,
-                                config.input_config.resolution.dimensions.destination_height, NULL);
-        g_object_set(self->params->m_capsfilter, "caps", caps, NULL);
-        gst_caps_unref(caps);
+        GstCapsPtr caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "NV12", "framerate",
+                                              GST_TYPE_FRACTION, config.input_config.resolution.framerate, 1, "width",
+                                              G_TYPE_INT, adjusted_width, "height", G_TYPE_INT, adjusted_height, NULL);
+        g_object_set(self->params->m_capsfilter, "caps", caps.get(), NULL);
     }
-    self->params->m_input_config = config.input_config;
-    self->params->m_isp_config = config.isp_config;
-    self->params->m_hailort_config = config.hailort_config;
-    self->params->m_hdr_config = config.hdr_config;
+
+    self->params->m_frontend_config = config;
     if (!config_string.empty())
     {
         g_object_set(self->params->m_frontend, "config-string", config_string.c_str(), NULL);
         if (self->params->m_pre_isp_denoise->configure(config_string) != MEDIA_LIBRARY_SUCCESS)
             GST_ERROR_OBJECT(self, "configuration error: Pre ISP Denoise");
     }
-    gpointer value_ptr;
-    g_object_get(self->params->m_frontend, "denoise-config", &(value_ptr), NULL); // get denoise after it's parsed
-    denoise_config_t *denoise_config = reinterpret_cast<denoise_config_t *>(value_ptr);
-    if (denoise_config == nullptr)
-    {
-        GST_ERROR_OBJECT(self, "Failed to get denoise config");
-        return;
-    }
-    if (denoise_config->enabled && self->params->m_hdr_config.enabled)
-    {
-        GST_ERROR_OBJECT(self, "Denoise and HDR cannot be enabled at the same time");
-        return;
-    }
-    if (denoise_config->enabled && !INPUT_VIDEO_IS_4K(self))
-    {
-        GST_ERROR_OBJECT(self, "Denoise is only supported for 4K resolution");
-        return;
-    }
+    g_object_set(self->params->m_frontend, "denoise-config", &(self->params->m_frontend_config), NULL);
 }
 
-static media_library_return gst_hailofrontendbinsrc_load_config(GstHailoFrontendBinSrc *self, std::string config_string,
-                                                                frontend_config_t *out_config)
+static std::optional<frontend_config_t> gst_hailofrontendbinsrc_load_config(GstHailoFrontendBinSrc *self,
+                                                                            const std::string &config_string)
 {
     if (config_string.empty())
     {
         GST_ERROR_OBJECT(self, "Config string is NULL");
-        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+        return std::nullopt;
     }
 
-    media_library_return status;
-
-    status = self->params->m_isp_config_manager->config_string_to_struct<isp_t>(config_string, out_config->isp_config);
-    if (status != MEDIA_LIBRARY_SUCCESS)
+    frontend_config_t out_config;
+    if (self->params->m_frontend_config_manager->config_string_to_struct<frontend_config_t>(
+            config_string, out_config) != MEDIA_LIBRARY_SUCCESS)
     {
         GST_ERROR_OBJECT(self, "Failed to decode ISP config from json string: %s", config_string.c_str());
-        return status;
-    }
-    status = self->params->m_hailort_config_manager->config_string_to_struct<hailort_t>(config_string,
-                                                                                        out_config->hailort_config);
-    if (status != MEDIA_LIBRARY_SUCCESS)
-    {
-        GST_ERROR_OBJECT(self, "Failed to decode Hailort config from json string: %s", config_string.c_str());
-        return status;
-    }
-    status = self->params->m_hdr_config_manager->config_string_to_struct<hdr_config_t>(config_string,
-                                                                                       out_config->hdr_config);
-    if (status != MEDIA_LIBRARY_SUCCESS)
-    {
-        GST_ERROR_OBJECT(self, "Failed to decode HDR config from json string: %s", config_string.c_str());
-        return status;
-    }
-    status = self->params->m_input_config_manager->config_string_to_struct<input_video_config_t>(
-        config_string, out_config->input_config);
-    if (status != MEDIA_LIBRARY_SUCCESS)
-    {
-        GST_ERROR_OBJECT(self, "Failed to decode input video config from json string: %s", config_string.c_str());
-        return status;
+        return std::nullopt;
     }
 
-    return MEDIA_LIBRARY_SUCCESS;
+    return std::make_optional(out_config);
 }
 
 void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id, const GValue *value, GParamSpec *pspec)
 {
     GstHailoFrontendBinSrc *self = GST_HAILO_FRONTEND_BINSRC(object);
+    std::lock_guard<std::mutex> lock(self->params->m_config_mutex);
     GST_DEBUG_OBJECT(self, "set_property");
     switch (property_id)
     {
@@ -343,16 +296,15 @@ void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id, co
         self->params->config_string = gstmedialibcommon::read_json_string_from_file(self->params->config_file_path);
 
         // Load configurations
-        frontend_config_t config;
-        media_library_return status = gst_hailofrontendbinsrc_load_config(self, self->params->config_string, &config);
-        if (status != MEDIA_LIBRARY_SUCCESS)
+        auto config = gst_hailofrontendbinsrc_load_config(self, self->params->config_string);
+        if (!config.has_value())
         {
             GST_ERROR_OBJECT(self, "Failed to load config from string");
             return;
         }
 
         // Set configurations
-        gst_hailofrontendbinsrc_set_config(self, config, self->params->config_string);
+        gst_hailofrontendbinsrc_set_config(self, config.value(), self->params->config_string);
         break;
     }
     case PROP_CONFIG_STRING: {
@@ -361,24 +313,24 @@ void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id, co
         GST_DEBUG_OBJECT(self, "config-string: %s", self->params->config_string.c_str());
 
         // Load configurations
-        frontend_config_t config;
-        media_library_return status = gst_hailofrontendbinsrc_load_config(self, self->params->config_string, &config);
-        if (status != MEDIA_LIBRARY_SUCCESS)
+        auto config = gst_hailofrontendbinsrc_load_config(self, self->params->config_string);
+        if (!config.has_value())
         {
             GST_ERROR_OBJECT(self, "Failed to load config from string");
             return;
         }
 
         // Set configurations
-        gst_hailofrontendbinsrc_set_config(self, config, self->params->config_string);
+        gst_hailofrontendbinsrc_set_config(self, config.value(), self->params->config_string);
         break;
     }
     case PROP_CONFIG: {
         frontend_config_t *config = static_cast<frontend_config_t *>(g_value_get_pointer(value));
         g_object_set(self->params->m_frontend, "dewarp-config", &(config->ldc_config), NULL);
-        g_object_set(self->params->m_frontend, "denoise-config", &(config->denoise_config), NULL);
+        g_object_set(self->params->m_frontend, "denoise-config", config, NULL);
         g_object_set(self->params->m_frontend, "multi-resize-config", &(config->multi_resize_config), NULL);
-        self->params->m_pre_isp_denoise->configure(config->denoise_config, config->hailort_config);
+        self->params->m_pre_isp_denoise->configure(config->denoise_config, config->hailort_config,
+                                                   config->input_config);
         gst_hailofrontendbinsrc_set_config(self, *config);
         break;
     }
@@ -399,6 +351,7 @@ void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id, co
 void gst_hailofrontendbinsrc_get_property(GObject *object, guint property_id, GValue *value, GParamSpec *pspec)
 {
     GstHailoFrontendBinSrc *hailofrontendbinsrc = GST_HAILO_FRONTEND_BINSRC(object);
+    std::lock_guard<std::mutex> lock(hailofrontendbinsrc->params->m_config_mutex);
     GST_DEBUG_OBJECT(hailofrontendbinsrc, "get_property");
     switch (property_id)
     {
@@ -411,12 +364,6 @@ void gst_hailofrontendbinsrc_get_property(GObject *object, guint property_id, GV
         g_value_set_string(value, hailofrontendbinsrc->params->config_string.c_str());
         break;
     }
-    case PROP_PRIVACY_MASK: {
-        gpointer blender;
-        g_object_get(hailofrontendbinsrc->params->m_frontend, "privacy-mask", &blender, NULL);
-        g_value_set_pointer(value, blender);
-        break;
-    }
     case PROP_CONFIG: {
         gpointer frontend_config;
         g_object_get(hailofrontendbinsrc->params->m_frontend, "config", &frontend_config, NULL);
@@ -424,19 +371,19 @@ void gst_hailofrontendbinsrc_get_property(GObject *object, guint property_id, GV
         break;
     }
     case PROP_HDR_CONFIG: {
-        g_value_set_pointer(value, &hailofrontendbinsrc->params->m_hdr_config);
+        g_value_set_pointer(value, &hailofrontendbinsrc->params->m_frontend_config.hdr_config);
         break;
     }
     case PROP_HAILORT_CONFIG: {
-        g_value_set_pointer(value, &hailofrontendbinsrc->params->m_hailort_config);
+        g_value_set_pointer(value, &hailofrontendbinsrc->params->m_frontend_config.hailort_config);
         break;
     }
     case PROP_INPUT_VIDEO_CONFIG: {
-        g_value_set_pointer(value, &hailofrontendbinsrc->params->m_input_config);
+        g_value_set_pointer(value, &hailofrontendbinsrc->params->m_frontend_config.input_config);
         break;
     }
     case PROP_ISP_CONFIG: {
-        g_value_set_pointer(value, &hailofrontendbinsrc->params->m_isp_config);
+        g_value_set_pointer(value, &hailofrontendbinsrc->params->m_frontend_config.isp_config);
         break;
     }
     case PROP_FREEZE: {
@@ -453,30 +400,29 @@ void gst_hailofrontendbinsrc_get_property(GObject *object, guint property_id, GV
     }
 }
 
-static std::string get_hdr_hef_path(GstHailoFrontendBinSrc *self)
-{
-    std::string resolution = INPUT_VIDEO_IS_4K(self) ? "4k" : "fhd";
-    std::string dol = HDR_IS_3DOL(self) ? "3" : "2";
-
-    return "/usr/bin/hdr_" + resolution + "_" + dol + "_exposures.hef";
-}
-
 static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *element, GstStateChange transition)
 {
     GstStateChangeReturn result = GST_STATE_CHANGE_SUCCESS;
     GstHailoFrontendBinSrc *self = GST_HAILO_FRONTEND_BINSRC(element);
     std::lock_guard<std::mutex> lock(self->params->m_config_mutex);
 
+    gpointer value_ptr;
+    g_object_get(self->params->m_frontend, "denoise-config", &value_ptr, NULL);
+    denoise_config_t *denoise_config = reinterpret_cast<denoise_config_t *>(value_ptr);
+    if (denoise_config == nullptr)
+    {
+        GST_ERROR_OBJECT(self, "Failed to get denoise config");
+        return GST_STATE_CHANGE_FAILURE;
+    }
+
     switch (transition)
     {
     case GST_STATE_CHANGE_PLAYING_TO_PAUSED: {
         GST_DEBUG_OBJECT(self, "GST_STATE_CHANGE_PLAYING_TO_PAUSED");
-        if (self->params->m_hdr_config.enabled)
+        if (self->params->m_frontend_config.hdr_config.enabled)
         {
             GST_DEBUG_OBJECT(self, "Stopping HDR thread");
             self->params->m_hdr->stop();
-            GST_DEBUG_OBJECT(self, "Deactivate HDR forward timestamp");
-            isp_utils::set_hdr_forward_timestamp(false);
         }
         else if (self->params->m_pre_isp_denoise->is_enabled())
         {
@@ -493,42 +439,38 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
         }
 
         // setup should be done only if imx* is available
-        if (isp_utils::find_sensor_name().empty())
+        if (!isp_utils::get_sensor_type().has_value())
         {
             GST_DEBUG_OBJECT(self, "IMX not found, skipping setup");
             break;
         }
-
-        gpointer value_ptr;
-        g_object_get(self->params->m_frontend, "denoise-config", &value_ptr, NULL);
-        denoise_config_t *denoise_config = reinterpret_cast<denoise_config_t *>(value_ptr);
-        if (denoise_config == nullptr)
-        {
-            GST_ERROR_OBJECT(self, "Failed to get denoise config");
-            return GST_STATE_CHANGE_FAILURE;
-        }
-        if (denoise_config->enabled && self->params->m_hdr_config.enabled)
+        if (denoise_config->enabled && self->params->m_frontend_config.hdr_config.enabled)
         {
             GST_ERROR_OBJECT(self, "Denoise and HDR cannot be enabled at the same time");
             return GST_STATE_CHANGE_FAILURE;
         }
-        else if (self->params->m_hdr_config.enabled)
+        else if (self->params->m_frontend_config.hdr_config.enabled)
         {
             GST_DEBUG_OBJECT(self, "Setting HDR configuration");
-            isp_utils::setup_hdr(INPUT_VIDEO_IS_4K(self), self->params->m_hdr_config.dol);
-            isp_utils::set_hdr_configuration();
         }
-        else if (denoise_config->enabled)
+        else if (denoise_config->enabled && !denoise_config->bayer)
         {
-            GST_DEBUG_OBJECT(self, "Setting denoise configuration");
+            GST_DEBUG_OBJECT(self, "Setting post-isp denoise configuration");
+            isp_utils::setup_sdr(self->params->m_frontend_config.input_config.resolution);
             isp_utils::set_lowlight_configuration();
-            isp_utils::setup_sdr(INPUT_VIDEO_IS_4K(self));
+        }
+        else if (denoise_config->enabled && denoise_config->bayer &&
+                 !denoise_config->bayer_network_config.dgain_channel.empty())
+        {
+            GST_DEBUG_OBJECT(self, "Setting pre-isp denoise configuration");
+            isp_utils::setup_pre_isp_denoise(self->params->m_frontend_config.input_config.resolution);
+            isp_utils::set_lowlight_configuration();
         }
         else
         {
             GST_DEBUG_OBJECT(self, "Setting SDR configuration");
+            isp_utils::setup_sdr(self->params->m_frontend_config.input_config.resolution);
             isp_utils::set_daylight_configuration();
-            isp_utils::setup_sdr(INPUT_VIDEO_IS_4K(self));
         }
         break;
     }
@@ -544,24 +486,31 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
         if (result == GST_STATE_CHANGE_FAILURE)
             break;
         GST_DEBUG_OBJECT(self, "GST_STATE_CHANGE_NULL_TO_READY");
-        if (self->params->m_hdr_config.enabled)
+        if (self->params->m_frontend_config.hdr_config.enabled)
         {
             GST_DEBUG_OBJECT(self, "Initializing HDR");
-            self->params->m_hdr = std::make_unique<HDR::HDRManager>();
-            bool res_hdr = self->params->m_hdr->init(
-                get_hdr_hef_path(self), self->params->m_hailort_config.device_id, 1, 1000, HDR_IMAGING_DOL(self),
-                HDR_IMAGING_RESOLUTION(self), self->params->m_hdr_config.ls_ratio, self->params->m_hdr_config.vs_ratio);
+            self->params->m_hdr = std::make_unique<HdrManager>();
+            bool res_hdr = self->params->m_hdr->init(self->params->m_frontend_config);
             if (!res_hdr)
             {
                 GST_ERROR_OBJECT(self, "Failed to initialize HDR manager");
                 return GST_STATE_CHANGE_FAILURE;
             }
         }
+        else if (denoise_config->enabled && denoise_config->bayer &&
+                 !denoise_config->bayer_network_config.dgain_channel.empty())
+        {
+            GST_DEBUG_OBJECT(self, "Pre ISP Denoise intialized");
+        }
+        else
+        {
+            isp_utils::setup_sdr(self->params->m_frontend_config.input_config.resolution);
+        }
         break;
     }
     case GST_STATE_CHANGE_PAUSED_TO_PLAYING: {
         GST_DEBUG_OBJECT(self, "GST_STATE_CHANGE_PAUSED_TO_PLAYING");
-        if (self->params->m_hdr_config.enabled && result != GST_STATE_CHANGE_FAILURE)
+        if (self->params->m_frontend_config.hdr_config.enabled && result != GST_STATE_CHANGE_FAILURE)
         {
             GST_DEBUG_OBJECT(self, "Activate HDR thread");
             if (bool res = self->params->m_hdr->start(); !res)
@@ -569,11 +518,8 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
                 GST_ERROR_OBJECT(self, "Failed to initialize HDR manager");
                 return GST_STATE_CHANGE_FAILURE;
             }
-            // sleep for 100 ms
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
             GST_DEBUG_OBJECT(self, "Activate HDR forward timestamp");
-            isp_utils::set_hdr_forward_timestamp(true);
         }
         else if (self->params->m_pre_isp_denoise->is_enabled() && result != GST_STATE_CHANGE_FAILURE)
         {
@@ -587,7 +533,7 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
         else
         {
             GST_DEBUG_OBJECT(self, "HDR and Pre-ISP Denoise are disabled %d, state retval %d",
-                             self->params->m_hdr_config.enabled, result);
+                             self->params->m_frontend_config.hdr_config.enabled, result);
         }
         break;
     }
@@ -606,31 +552,28 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
 static GstPad *gst_hailofrontendbinsrc_request_new_pad(GstElement *element, GstPadTemplate *templ, const gchar *name,
                                                        const GstCaps *caps)
 {
-    GstPad *srcpad;
+    GstPadPtr srcpad;
     GstHailoFrontendBinSrc *self = GST_HAILO_FRONTEND_BINSRC(element);
     GST_DEBUG_OBJECT(self, "FrontendBinSrc request new pad name: %s", name);
 
     // Get the source pad from GstHailoMultiResize that you want to expose
-    GstPad *frontend_srcpad = gst_element_request_pad(self->params->m_frontend, templ, name, caps);
-    GST_DEBUG_OBJECT(self, "FrontendBinSrc requested frontend_srcpad: %s", GST_PAD_NAME(frontend_srcpad));
+    GstPadPtr frontend_srcpad = gst_element_request_pad(self->params->m_frontend, templ, name, caps);
+    const auto frontend_srcpad_name = glib_cpp::ptrs::get_pad_name(frontend_srcpad);
+    GST_DEBUG_OBJECT(self, "FrontendBinSrc requested frontend_srcpad: %s", frontend_srcpad_name);
 
     // Create a new ghost pad and target GstHailoMultiResize source pad
     srcpad = gst_ghost_pad_new_no_target(NULL, GST_PAD_SRC);
-    gboolean link_status = gst_ghost_pad_set_target(GST_GHOST_PAD(srcpad), frontend_srcpad);
-    GST_DEBUG_OBJECT(self, "FrontendBinSrc setting %s to target %s", GST_PAD_NAME(srcpad),
-                     GST_PAD_NAME(frontend_srcpad));
+    const auto srcpad_name = glib_cpp::ptrs::get_pad_name(srcpad);
+    gboolean link_status = gst_ghost_pad_set_target(GST_GHOST_PAD(srcpad.get()), frontend_srcpad);
+    GST_DEBUG_OBJECT(self, "FrontendBinSrc setting %s to target %s", srcpad_name, frontend_srcpad_name);
     if (!link_status)
     {
-        GST_ERROR_OBJECT(self, "FrontendBinSrc failed to set %s to target %s", GST_PAD_NAME(srcpad),
-                         GST_PAD_NAME(frontend_srcpad));
+        GST_ERROR_OBJECT(self, "FrontendBinSrc failed to set %s to target %s", srcpad_name, frontend_srcpad_name);
     }
-
-    // Unreference the frontend_srcpad when you're done with it
-    gst_object_unref(frontend_srcpad);
 
     // Set the new ghostpad to active and add it to the bin
     gst_pad_set_active(srcpad, TRUE);
-    gst_element_add_pad(element, srcpad);
+    glib_cpp::ptrs::add_pad_to_element(element, srcpad);
     self->params->srcpads.emplace_back(srcpad);
 
     return srcpad;
@@ -644,7 +587,7 @@ static void gst_hailofrontendbinsrc_release_pad(GstElement *element, GstPad *pad
     GST_OBJECT_LOCK(self);
 
     // Find the corresponding source pad in GstHailoMultiResize
-    GstPad *frontend_srcpad = gst_ghost_pad_get_target(GST_GHOST_PAD(pad));
+    GstPadPtr frontend_srcpad = gst_ghost_pad_get_target(GST_GHOST_PAD(pad));
 
     // Release the source pad in GstHailoFrontend
     gst_element_release_request_pad(self->params->m_frontend, frontend_srcpad);
@@ -653,9 +596,6 @@ static void gst_hailofrontendbinsrc_release_pad(GstElement *element, GstPad *pad
     gst_element_remove_pad(element, pad);
 
     GST_OBJECT_UNLOCK(self);
-
-    // Unreference the frontend_srcpad when you're done with it
-    gst_object_unref(frontend_srcpad);
 }
 
 static gboolean gst_hailofrontendbinsrc_link_elements(GstElement *element)
@@ -690,6 +630,7 @@ static void gst_hailofrontendbinsrc_dispose(GObject *object)
 
 static gboolean gst_hailofrontendbinsrc_denoise_enabled_changed(GstHailoFrontendBinSrc *self, bool enabled)
 {
+    std::lock_guard<std::mutex> lock(self->params->m_config_mutex);
     GST_DEBUG_OBJECT(self, "Denoise enabled changed to: %d", enabled);
 
     // Handle enabling/disabling denoise here

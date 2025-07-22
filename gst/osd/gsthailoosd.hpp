@@ -23,6 +23,7 @@
 #pragma once
 
 #include "media_library/dsp_utils.hpp"
+#include "media_library/privacy_mask.hpp"
 #include "osd.hpp"
 #include <gst/base/gstbasetransform.h>
 #include <gst/video/video.h>
@@ -46,7 +47,8 @@ struct _GstHailoOsdParams
 {
     std::string config_path;
     std::string config_str;
-    std::shared_ptr<osd::Blender> blender;
+    std::shared_ptr<osd::Blender> osd_blender;
+    std::shared_ptr<PrivacyMaskBlender> pm_blender;
     gboolean wait_for_writable_buffer = false;
     bool initialized = false;
 };

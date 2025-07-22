@@ -20,117 +20,104 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-/**
- * @file denoise.hpp
- * @brief MediaLibrary Denoise CPP API module
- **/
-
 #pragma once
-#include <stdint.h>
-#include <vector>
-#include <string>
-#include <functional>
-#include <memory>
-#include <tl/expected.hpp>
 
+#include "denoise.hpp"
 #include "buffer_pool.hpp"
 #include "media_library_types.hpp"
+#include "video_device.hpp"
+#include "v4l2_ctrl.hpp"
 
-/** @defgroup pre_isp_denoise_type_definitions MediaLibrary Pre ISP Denoise CPP API definitions
- *  @{
- */
-class MediaLibraryPreIspDenoise;
-using MediaLibraryPreIspDenoisePtr = std::shared_ptr<MediaLibraryPreIspDenoise>;
+#include <linux/v4l2-controls.h>
+#include <linux/v4l2-subdev.h>
+#include <stdint.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <time.h>
+#include <tl/expected.hpp>
+#include <ctime>
+#include <thread>
 
-class MediaLibraryPreIspDenoise
+enum isp_mcm_mode
 {
-  protected:
-    class Impl;
-    std::unique_ptr<Impl> m_impl;
-
-  public:
-    class callbacks_t
-    {
-      public:
-        std::function<void(bool)> on_enable_changed = nullptr;
-        std::function<void(HailoMediaLibraryBufferPtr)> on_buffer_ready = nullptr;
-        std::function<void(bool)> send_event = nullptr;
-    };
-
-    /**
-     * @brief Constructor for the denoise module
-     */
-    MediaLibraryPreIspDenoise();
-
-    /**
-     * @brief Destructor for the denoise module
-     */
-    ~MediaLibraryPreIspDenoise();
-
-    /**
-     * @brief Configure the denoise module with new json string
-     *
-     * Read the json string and decode it to create the denoise_config_t object
-     * @param[in] config_string - configuration json as string
-     * @return media_library_return - status of the configuration operation
-     */
-    media_library_return configure(const std::string &config_string);
-
-    /**
-     * @brief Configure the denoise module with denoise_config_t object
-     *
-     * Update the denoise_config_t object
-     * @param[in] denoise_config_t - denoise_config_t object
-     * @param[in] hailort_t - hailort_t object
-     * @return media_library_return - status of the configuration operation
-     */
-    media_library_return configure(const denoise_config_t &denoise_configs, const hailort_t &hailort_configs);
-
-    /**
-     * @brief get the denoise configurations object
-     *
-     * @return denoise_config_t - denoise configurations
-     */
-    denoise_config_t get_denoise_configs();
-
-    /**
-     * @brief get the hailort configurations object
-     *
-     * @return hailort_t - hailort configurations
-     */
-    hailort_t get_hailort_configs();
-
-    /**
-     * @brief check enabled flag
-     *
-     * @return bool - enabled config flag
-     */
-    bool is_enabled();
-
-    /**
-     * @brief Observes the media library by registering the provided callbacks.
-     *
-     * This function allows the user to observe the media library by registering
-     * callbacks that will be called when certain events occur.
-     *
-     * @param callbacks The callbacks to be registered for observation.
-     * @return media_library_return - status of the observation operation
-     */
-    media_library_return observe(const callbacks_t &callbacks);
-
-    /**
-     * @brief Start the pre ISP denoise module, must be called before /dev/video0 is opened
-     *
-     * @return media_library_return - status of the operation
-     */
-    media_library_return start();
-
-    /**
-     * @brief Stop the pre ISP denoise module
-     *
-     * @return media_library_return - status of the operation
-     */
-    media_library_return stop();
+    ISP_MCM_MODE_OFF = 0,
+    ISP_MCM_MODE_STITCHING = 1, // default mode for MCM
+    ISP_MCM_MODE_INJECTION = 2, // read raw and write back to MCM, 16 bit
+    ISP_MCM_MODE_PACKED = 3,    // read raw and write back to MCM, 12 bit
+    ISP_MCM_MODE_MAX
 };
 
-/** @} */ // end of pre_isp_denoise_type_definitions
+class MediaLibraryPreIspDenoise final : public MediaLibraryDenoise
+{
+  public:
+    MediaLibraryPreIspDenoise();
+    ~MediaLibraryPreIspDenoise();
+
+    // start the ISP thread
+    media_library_return start();
+
+    // stop the ISP thread
+    media_library_return stop();
+
+    // buffer wrapper
+    void hailo_buffer_from_isp_buffer(HDR::VideoBuffer *video_buffer, HailoMediaLibraryBufferPtr buffer,
+                                      std::function<void(HDR::VideoBuffer *buf)> on_free, HailoFormat format);
+
+  private:
+    // dgain buffer pool
+    static constexpr const char *BUFFER_POOL_NAME_DGAIN = "dgain_pool";
+    std::shared_ptr<MediaLibraryBufferPool> m_dgain_buffer_pool;
+    static constexpr int DGAIN_WIDTH = 1;
+    static constexpr int DGAIN_HEIGHT = 1;
+    static constexpr float DGAIN_FACTOR = 255.99225734;
+    static constexpr uint16_t DGAIN_DIVISOR = 100;
+    // bls buffer pool
+    static constexpr const char *BUFFER_POOL_NAME_BLS = "bls_pool";
+    std::shared_ptr<MediaLibraryBufferPool> m_bls_buffer_pool;
+    static constexpr int BLS_WIDTH = 4;
+    static constexpr int BLS_HEIGHT = 1;
+
+    static constexpr int RAW_CAPTURE_BUFFERS_COUNT = 5;
+    static constexpr int ISP_IN_BUFFERS_COUNT = 3;
+    static constexpr const char *YUV_STREAM_PATH = "/dev/video0";
+    static constexpr const char *RAW_CAPTURE_PATH = "/dev/video2";
+    static constexpr const char *ISP_IN_PATH = "/dev/video3";
+    static constexpr const char *DMA_HEAP_PATH = "/dev/dma_heap/linux,cma";
+    static constexpr int RAW_CAPTURE_DEFAULT_FPS = 30;
+    static constexpr size_t BITS_PER_INPUT = 16;
+    static constexpr size_t BITS_PER_OUTPUT = 16;
+    int m_isp_fd;
+    std::shared_ptr<HDR::VideoCaptureDevice> m_raw_capture_device;
+    std::shared_ptr<HDR::VideoOutputDevice> m_isp_in_device;
+    std::shared_ptr<HDR::DMABufferAllocator> m_allocator;
+
+    // ISP thread
+    std::thread m_isp_thread;
+    std::atomic<bool> m_isp_thread_running;
+
+    media_library_return start_isp_thread();
+    media_library_return stop_isp_thread();
+    void wait_for_stream_start();
+    bool set_isp_mcm_mode(uint32_t target_mcm_mode);
+    uint16_t get_dgain();
+    uint16_t get_bls(v4l2::Video0Ctrl ctrl);
+    std::pair<int, size_t> get_pixel_format_and_width(const size_t bits_per_pixel);
+    void write_output_buffer(HailoMediaLibraryBufferPtr output_buffer);
+
+    // virtual functions to override
+    bool currently_enabled() override;
+    bool enabled(const denoise_config_t &denoise_configs) override;
+    bool disabled(const denoise_config_t &denoise_configs) override;
+    bool enable_changed(const denoise_config_t &denoise_configs) override;
+    bool network_changed(const denoise_config_t &denoise_configs, const hailort_t &hailort_configs) override;
+    media_library_return create_and_initialize_buffer_pools(const input_video_config_t &input_video_configs) override;
+    media_library_return close_buffer_pools() override;
+    media_library_return acquire_output_buffer(HailoMediaLibraryBufferPtr output_buffer) override;
+    media_library_return acquire_dgain_buffer(HailoMediaLibraryBufferPtr dgain_buffer);
+    media_library_return acquire_bls_buffer(HailoMediaLibraryBufferPtr bls_buffer);
+    bool process_inference(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr loopback_buffer,
+                           HailoMediaLibraryBufferPtr output_buffer) override;
+    void copy_meta(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr output_buffer) override;
+    media_library_return generate_startup_buffer() override;
+};
+using MediaLibraryPreIspDenoisePtr = std::shared_ptr<MediaLibraryPreIspDenoise>;

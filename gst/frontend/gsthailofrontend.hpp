@@ -36,6 +36,7 @@
 #include <tl/expected.hpp>
 #include "media_library/post_isp_denoise.hpp"
 #include "media_library/media_library_types.hpp"
+#include "common/gstmedialibcommon.hpp"
 
 G_BEGIN_DECLS
 
@@ -50,9 +51,9 @@ typedef struct _GstHailoFrontend GstHailoFrontend;
 typedef struct _GstHailoFrontendParams GstHailoFrontendParams;
 typedef struct _GstHailoFrontendClass GstHailoFrontendClass;
 
-struct _GstHailoFrontendParams
+struct __attribute__((visibility("hidden"))) _GstHailoFrontendParams
 {
-    GstPad *sinkpad = nullptr;
+    GstPadPtr sinkpad;
 
     std::string config_file_path;
     std::string config_string;
@@ -68,7 +69,7 @@ struct _GstHailoFrontendParams
 
     frontend_element_config_t frontend_element_config;
 };
-struct _GstHailoFrontend
+struct __attribute__((visibility("hidden"))) _GstHailoFrontend
 {
     GstBin base_hailofrontend;
     GstHailoFrontendParams *params = nullptr;

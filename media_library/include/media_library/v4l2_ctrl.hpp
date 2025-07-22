@@ -3,6 +3,7 @@
 #include <iostream>
 #include <optional>
 #include <fstream>
+#include <span>
 #include <map>
 #include <cstring>
 #include <fcntl.h>
@@ -17,6 +18,16 @@
 #ifndef CTRL_REPOSITORY_TTL_MS
 #define CTRL_REPOSITORY_TTL_MS 5000 // 5 sec
 #endif
+
+template <typename T> struct is_span : std::false_type
+{
+};
+
+template <typename T, std::size_t Extent> struct is_span<std::span<T, Extent>> : std::true_type
+{
+};
+
+template <typename T> inline constexpr bool is_span_v = is_span<T>::value;
 
 namespace v4l2
 {
@@ -51,8 +62,22 @@ enum class Video0Ctrl
     AWB_MODE,
     AWB_ILLUM_INDEX,
 
+    WB_R_GAIN,
+    WB_GR_GAIN,
+    WB_GB_GAIN,
+    WB_B_GAIN,
+
     HDR_RATIOS,
     HDR_FORWARD_TIMESTAMPS,
+
+    BLS_RED,
+    BLS_GREEN_RED,
+    BLS_GREEN_BLUE,
+    BLS_BLUE,
+
+    DG_ENABLE,
+    DG_GAIN,
+
     MAX
 };
 
@@ -156,9 +181,14 @@ bool xioctl(int fd, unsigned long request, void *arg);
 
 namespace
 {
-template <class T> bool ctrl_set(IspCtrl id, T val)
+template <class T, class CtrlEnum> bool ctrl_set(CtrlEnum id, T val)
 {
-    auto fd_with_dtor_opt = get_device_fd(Device::ISP);
+    auto device_type = get_ctrl_device<CtrlEnum>();
+    if (device_type == Device::UNKNOWN)
+    {
+        return false;
+    }
+    auto fd_with_dtor_opt = get_device_fd(device_type);
     if (!fd_with_dtor_opt.has_value())
     {
         return false;
@@ -220,6 +250,11 @@ template <class T, class CtrlEnum> bool ext_ctrl_set(CtrlEnum id, T val)
     {
         ctrl.size = sizeof(*val);
         ctrl.ptr = val;
+    }
+    else if constexpr (is_span_v<T>)
+    {
+        ctrl.size = val.size() * sizeof(val.data()[0]);
+        ctrl.ptr = val.data();
     }
     else
     {

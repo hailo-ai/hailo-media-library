@@ -1,5 +1,6 @@
 #include "gsthailojpeg.hpp"
 
+#include "common/gstmedialibcommon.hpp"
 #include <algorithm>
 #include <gst/video/video.h>
 #include <iostream>
@@ -286,32 +287,26 @@ static void gst_hailojpegenc_get_property(GObject *object, guint property_id, GV
 void init_ghost_sink(GstHailoJpegEnc *hailojpegenc)
 {
     const gchar *pad_name = "sink";
-    GstPad *pad = gst_element_get_static_pad(hailojpegenc->params->m_roundrobin, pad_name);
+    GstPadPtr pad = gst_element_get_static_pad(hailojpegenc->params->m_roundrobin, pad_name);
 
-    GstPadTemplate *pad_tmpl = gst_static_pad_template_get(&sink_template);
+    GstPadTemplatePtr pad_tmpl = gst_static_pad_template_get(&sink_template);
 
-    GstPad *ghost_pad = gst_ghost_pad_new_from_template("sink", pad, pad_tmpl);
+    GstPadPtr ghost_pad = gst_ghost_pad_new_from_template("sink", pad, pad_tmpl);
     gst_pad_set_active(ghost_pad, TRUE);
-    gst_element_add_pad(GST_ELEMENT(hailojpegenc), ghost_pad);
-
-    gst_object_unref(pad_tmpl);
-    gst_object_unref(pad);
+    glib_cpp::ptrs::add_pad_to_element(GST_ELEMENT(hailojpegenc), ghost_pad);
 }
 
 void init_ghost_src(GstHailoJpegEnc *hailojpegenc)
 {
     const gchar *pad_name = "src";
 
-    GstPad *pad = gst_element_get_static_pad(hailojpegenc->params->m_hailoroundrobin, pad_name);
+    GstPadPtr pad = gst_element_get_static_pad(hailojpegenc->params->m_hailoroundrobin, pad_name);
 
-    GstPadTemplate *pad_tmpl = gst_static_pad_template_get(&src_template);
+    GstPadTemplatePtr pad_tmpl = gst_static_pad_template_get(&src_template);
 
-    GstPad *ghost_pad = gst_ghost_pad_new_from_template("src", pad, pad_tmpl);
+    GstPadPtr ghost_pad = gst_ghost_pad_new_from_template("src", pad, pad_tmpl);
     gst_pad_set_active(ghost_pad, TRUE);
-    gst_element_add_pad(GST_ELEMENT(hailojpegenc), ghost_pad);
-
-    gst_object_unref(pad_tmpl);
-    gst_object_unref(pad);
+    glib_cpp::ptrs::add_pad_to_element(GST_ELEMENT(hailojpegenc), ghost_pad);
 }
 
 bool link_elements(GstHailoJpegEnc *hailojpegenc)

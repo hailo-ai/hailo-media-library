@@ -24,6 +24,7 @@
 
 #include "media_library/encoder_class.hpp"
 #include "media_library/media_library_utils.hpp"
+#include "common/gstmedialibcommon.hpp"
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <queue>
@@ -41,9 +42,9 @@ typedef struct _GstHailoEncoderClass GstHailoEncoderClass;
 #define GST_HAILO_ENCODER_GET_CLASS(obj)                                                                               \
     (G_TYPE_INSTANCE_GET_CLASS((obj), GST_TYPE_HAILO_ENCODER, GstHailoEncoderClass))
 
-struct _GstHailoEncoderParams
+struct __attribute__((visibility("hidden"))) _GstHailoEncoderParams
 {
-    GstVideoCodecState *input_state = nullptr;
+    GstVideoCodecStatePtr input_state;
     std::unique_ptr<Encoder> encoder = nullptr;
     std::string config;
     std::string config_path;
@@ -55,7 +56,7 @@ struct _GstHailoEncoderParams
     gboolean enforce_caps = true;
 };
 
-struct _GstHailoEncoder
+struct __attribute__((visibility("hidden"))) _GstHailoEncoder
 {
     GstVideoEncoder parent;
     GstHailoEncoderParams *params = nullptr;

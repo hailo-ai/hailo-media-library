@@ -32,8 +32,6 @@ class ImageOverlayImpl : public OverlayImpl
 {
   public:
     static tl::expected<ImageOverlayImplPtr, media_library_return> create(const osd::ImageOverlay &overlay);
-    static std::shared_future<tl::expected<ImageOverlayImplPtr, media_library_return>> create_async(
-        const osd::ImageOverlay &overlay);
     ImageOverlayImpl(const osd::ImageOverlay &overlay, media_library_return &status);
     virtual ~ImageOverlayImpl() = default;
 

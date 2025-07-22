@@ -29,6 +29,7 @@
 #pragma once
 
 #include "media_library/multi_resize.hpp"
+#include "common/gstmedialibcommon.hpp"
 #include <fstream>
 #include <gst/gst.h>
 #include <memory>
@@ -51,9 +52,9 @@ typedef struct _GstHailoMultiResize GstHailoMultiResize;
 typedef struct _GstHailoMultiResizeParams GstHailoMultiResizeParams;
 typedef struct _GstHailoMultiResizeClass GstHailoMultiResizeClass;
 
-struct _GstHailoMultiResizeParams
+struct __attribute__((visibility("hidden"))) _GstHailoMultiResizeParams
 {
-    GstPad *sinkpad = nullptr;
+    GstPadPtr sinkpad;
     std::vector<GstPad *> srcpads;
     std::string config_file_path;
     std::string config_string;
@@ -62,7 +63,7 @@ struct _GstHailoMultiResizeParams
     std::shared_ptr<MediaLibraryMultiResize> medialib_multi_resize;
 };
 
-struct _GstHailoMultiResize
+struct __attribute__((visibility("hidden"))) _GstHailoMultiResize
 {
     GstElement element;
     GstHailoMultiResizeParams *params = nullptr;

@@ -15,6 +15,8 @@
 #include "buffer_utils.hpp"
 #include "media_library/media_library_types.hpp"
 
+static constexpr std::chrono::milliseconds MAIN_LOOP_WAIT_DURATION{100};
+
 #define OUTPUT_SINK_ID(idx) ("sink" + std::to_string(idx))
 #define OUTPUT_FPS_SINK_ID(idx) ("fpsdisplaysink" + std::to_string(idx))
 #define PRINT_FPS false
@@ -77,10 +79,6 @@ media_library_return MediaLibraryFrontend::set_config(const frontend_config_t &c
     return m_impl->set_config(config);
 }
 
-PrivacyMaskBlenderPtr MediaLibraryFrontend::get_privacy_mask_blender()
-{
-    return m_impl->get_privacy_mask_blender();
-}
 std::unordered_map<output_stream_id_t, float> MediaLibraryFrontend::get_output_streams_current_fps()
 {
     return m_impl->get_output_streams_current_fps();
@@ -93,17 +91,17 @@ media_library_return MediaLibraryFrontend::set_freeze(bool freeze)
 
 media_library_return MediaLibraryFrontend::Impl::add_buffer(HailoMediaLibraryBufferPtr ptr)
 {
-    GstBuffer *gst_buffer = gst_buffer_from_hailo_buffer(ptr, m_appsrc_caps);
-    if (!gst_buffer)
+    GstBufferPtr buffer = gst_buffer_from_hailo_buffer(ptr, m_appsrc_caps);
+    if (!buffer)
     {
-        GST_ERROR_OBJECT(m_appsrc, "Frontend add_buffer failed to get GstBuffer from HailoMediaLibraryBuffer");
+        GST_ERROR_OBJECT(m_appsrc.get(), "Frontend add_buffer failed to get GstBuffer from HailoMediaLibraryBuffer");
         return MEDIA_LIBRARY_ERROR;
     }
 
-    GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(m_appsrc), gst_buffer);
+    GstFlowReturn ret = glib_cpp::ptrs::push_buffer_to_app_src(m_appsrc, buffer);
     if (ret != GST_FLOW_OK)
     {
-        GST_ERROR_OBJECT(m_appsrc, "Failed to push buffer to appsrc");
+        GST_ERROR_OBJECT(m_appsrc.get(), "Failed to push buffer to appsrc");
         return MEDIA_LIBRARY_ERROR;
     }
     return MEDIA_LIBRARY_SUCCESS;
@@ -132,13 +130,8 @@ MediaLibraryFrontend::Impl::Impl(media_library_return &status)
 
 MediaLibraryFrontend::Impl::~Impl()
 {
-    deinit_pipeline();
-
-    if (m_main_loop != nullptr)
-    {
-        g_main_loop_unref(m_main_loop);
-        m_main_loop = nullptr;
-    }
+    LOGGER__MODULE__INFO(MODULE_NAME, "Cleaning frontend gst pipeline");
+    stop();
 }
 
 frontend_src_element_t MediaLibraryFrontend::Impl::get_input_stream_type(const std::string &validated_json_config)
@@ -204,15 +197,24 @@ std::optional<std::vector<frontend_output_stream_t>> MediaLibraryFrontend::Impl:
 {
     if (!output_streams_json.is_array())
     {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get output streams from json config");
         return std::nullopt;
     }
 
+    std::unordered_set<std::string> unique_stream_ids;
     std::vector<frontend_output_stream_t> output_streams;
     for (size_t i = 0; i < output_streams_json.size(); ++i)
     {
         auto output_cfg = output_streams_json[i];
         frontend_output_stream_t output;
-        output.id = OUTPUT_SINK_ID(i);
+        output.id = output_cfg.value("stream_id", OUTPUT_SINK_ID(i));
+        auto result = unique_stream_ids.insert(output.id);
+        if (!result.second)
+        {
+            // Duplicate stream_id is not allowed
+            LOGGER__MODULE__ERROR(MODULE_NAME, "output stream_id duplicated from frontend json config");
+            return std::nullopt;
+        }
         output.width = output_cfg["width"];
         output.height = output_cfg["height"];
         output.target_fps = output_cfg["framerate"];
@@ -222,66 +224,59 @@ std::optional<std::vector<frontend_output_stream_t>> MediaLibraryFrontend::Impl:
     return output_streams;
 }
 
-tl::expected<GstElement *, media_library_return> MediaLibraryFrontend::Impl::get_frontend_element()
+tl::expected<GstElementPtr, media_library_return> MediaLibraryFrontend::Impl::get_frontend_element()
 {
-    // get gsthailofrontendbinsrc element from m_pipeline
-    GstElement *frontendbinsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
+    GstElementPtr frontendbinsrc = glib_cpp::ptrs::get_bin_by_name(m_pipeline, "frontend");
     // get the element with type hailofrontend from the bin
-    GstElement *frontend = gst_bin_get_by_name(GST_BIN(frontendbinsrc), "hailofrontendelement");
+    GstElementPtr frontend = glib_cpp::ptrs::get_bin_by_name(frontendbinsrc, "hailofrontendelement");
     if (frontend == nullptr)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get frontend element");
         return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
     }
 
-    gst_object_unref(frontendbinsrc);
     return frontend;
 }
 
 tl::expected<frontend_config_t, media_library_return> MediaLibraryFrontend::Impl::get_config()
 {
-    auto frontendbinsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
-    if (frontendbinsrc)
+    auto frontendbinsrc = glib_cpp::ptrs::get_bin_by_name(m_pipeline, "frontend");
+    if (frontendbinsrc == nullptr)
     {
-        frontend_element_config_t frontend_element_config;
-        gpointer value = nullptr;
-        g_object_get(frontendbinsrc, "config", &value, NULL);
-        frontend_element_config = *reinterpret_cast<frontend_element_config_t *>(value);
-
-        hdr_config_t hdr_config;
-        g_object_get(frontendbinsrc, "hdr-config", &value, NULL);
-        hdr_config = *reinterpret_cast<hdr_config_t *>(value);
-
-        g_object_get(frontendbinsrc, "hailort-config", &value, NULL);
-        hailort_t hailort_config;
-        hailort_config = *reinterpret_cast<hailort_t *>(value);
-
-        g_object_get(frontendbinsrc, "input-video-config", &value, NULL);
-        input_video_config_t input_config;
-        input_config = *reinterpret_cast<input_video_config_t *>(value);
-
-        g_object_get(frontendbinsrc, "isp-config", &value, NULL);
-        isp_t isp_config;
-        isp_config = *reinterpret_cast<isp_t *>(value);
-
-        gst_object_unref(frontendbinsrc);
-
-        frontend_config_t frontend_config;
-        frontend_config.ldc_config = frontend_element_config.ldc_config;
-        frontend_config.denoise_config = frontend_element_config.denoise_config;
-        frontend_config.multi_resize_config = frontend_element_config.multi_resize_config;
-        frontend_config.input_config = input_config;
-        frontend_config.hdr_config = hdr_config;
-        frontend_config.hailort_config = hailort_config;
-        frontend_config.isp_config = isp_config;
-
-        return frontend_config;
-    }
-    else
-    {
-        gst_object_unref(frontendbinsrc);
         return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
     }
+
+    frontend_element_config_t frontend_element_config;
+    gpointer value = nullptr;
+    g_object_get(frontendbinsrc, "config", &value, NULL);
+    frontend_element_config = *reinterpret_cast<frontend_element_config_t *>(value);
+
+    hdr_config_t hdr_config;
+    g_object_get(frontendbinsrc, "hdr-config", &value, NULL);
+    hdr_config = *reinterpret_cast<hdr_config_t *>(value);
+
+    g_object_get(frontendbinsrc, "hailort-config", &value, NULL);
+    hailort_t hailort_config;
+    hailort_config = *reinterpret_cast<hailort_t *>(value);
+
+    g_object_get(frontendbinsrc, "input-video-config", &value, NULL);
+    input_video_config_t input_config;
+    input_config = *reinterpret_cast<input_video_config_t *>(value);
+
+    g_object_get(frontendbinsrc, "isp-config", &value, NULL);
+    isp_t isp_config;
+    isp_config = *reinterpret_cast<isp_t *>(value);
+
+    frontend_config_t frontend_config;
+    frontend_config.ldc_config = frontend_element_config.ldc_config;
+    frontend_config.denoise_config = frontend_element_config.denoise_config;
+    frontend_config.multi_resize_config = frontend_element_config.multi_resize_config;
+    frontend_config.input_config = input_config;
+    frontend_config.hdr_config = hdr_config;
+    frontend_config.hailort_config = hailort_config;
+    frontend_config.isp_config = isp_config;
+
+    return frontend_config;
 }
 
 media_library_return MediaLibraryFrontend::Impl::subscribe(FrontendCallbacksMap callback)
@@ -311,6 +306,7 @@ media_library_return MediaLibraryFrontend::Impl::start()
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Starting frontend gst pipeline");
     GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE)
     {
@@ -319,19 +315,20 @@ media_library_return MediaLibraryFrontend::Impl::start()
     }
     m_main_loop_thread = std::make_shared<std::thread>([this]() { g_main_loop_run(m_main_loop); });
 
-    GstElement *frontend = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
+    // Wait for the main loop to start before we proceed to avoid racing condition in case start() is called again
+    // before g_main_loop is ready/running
+    if (!wait_for_main_loop(MAIN_LOOP_WAIT_DURATION))
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to start main loop thread");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    GstElementPtr frontend = glib_cpp::ptrs::get_bin_by_name(m_pipeline, "frontend");
     if (frontend == nullptr)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get frontend element");
         return MEDIA_LIBRARY_ERROR;
     }
-
-    // Get privacy mask blender from frontend bin
-    gpointer val = nullptr;
-    g_object_get(G_OBJECT(frontend), "privacy-mask", &val, NULL);
-    PrivacyMaskBlender *value_ptr = reinterpret_cast<PrivacyMaskBlender *>(val);
-    m_privacy_blender = value_ptr->shared_from_this();
-    gst_object_unref(frontend);
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -371,9 +368,8 @@ media_library_return MediaLibraryFrontend::Impl::stop()
         g_main_loop_quit(m_main_loop);
     }
 
-    GstBus *bus = gst_element_get_bus(m_pipeline);
+    GstBusPtr bus = gst_element_get_bus(m_pipeline);
     gst_bus_remove_watch(bus);
-    gst_object_unref(bus);
 
     if (m_main_loop_thread->joinable())
     {
@@ -444,7 +440,6 @@ media_library_return MediaLibraryFrontend::Impl::set_config(const std::string &j
         auto output_streams = create_output_streams(new_config_output_streams);
         if (!output_streams.has_value())
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get output streams from json config");
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
         if (!init_pipeline(json_config, new_config_input_stream_type, input_width, input_height,
@@ -458,15 +453,14 @@ media_library_return MediaLibraryFrontend::Impl::set_config(const std::string &j
     }
     else
     {
-        GstElement *frontend = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
+        GstElementPtr frontend = glib_cpp::ptrs::get_bin_by_name(m_pipeline, "frontend");
         if (frontend == nullptr)
         {
             LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get frontend element");
             return MEDIA_LIBRARY_UNINITIALIZED;
         }
 
-        g_object_set(G_OBJECT(frontend), "config-string", json_config.c_str(), NULL);
-        gst_object_unref(frontend);
+        g_object_set(frontend.as_g_object(), "config-string", json_config.c_str(), NULL);
     }
 
     m_json_config_str = json_config;
@@ -479,14 +473,14 @@ media_library_return MediaLibraryFrontend::Impl::set_config(const frontend_confi
     {
         return MEDIA_LIBRARY_UNINITIALIZED;
     }
-    auto frontendbinsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
+    auto frontendbinsrc = glib_cpp::ptrs::get_bin_by_name(m_pipeline, "frontend");
     media_library_return ret = MEDIA_LIBRARY_ERROR;
     if (frontendbinsrc != nullptr)
     {
-        g_object_set(G_OBJECT(frontendbinsrc), "config", &config, NULL);
+        g_object_set(frontendbinsrc.as_g_object(), "config", &config, NULL);
         ret = MEDIA_LIBRARY_SUCCESS;
     }
-    gst_object_unref(frontendbinsrc);
+
     return ret;
 }
 
@@ -503,6 +497,27 @@ bool MediaLibraryFrontend::Impl::is_started()
     return true;
 }
 
+bool MediaLibraryFrontend::Impl::wait_for_main_loop(std::chrono::milliseconds timeout)
+{
+    if (m_main_loop == nullptr)
+    {
+        return false;
+    }
+
+    auto start_time = std::chrono::steady_clock::now();
+
+    while (!g_main_loop_is_running(m_main_loop))
+    {
+        if (std::chrono::steady_clock::now() - start_time > timeout)
+        {
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    return true;
+}
+
 tl::expected<std::vector<frontend_output_stream_t>, media_library_return> MediaLibraryFrontend::Impl::
     get_outputs_streams()
 {
@@ -513,27 +528,6 @@ tl::expected<std::vector<frontend_output_stream_t>, media_library_return> MediaL
     return m_output_streams;
 }
 
-void MediaLibraryFrontend::Impl::deinit_pipeline()
-{
-    LOGGER__MODULE__INFO(MODULE_NAME, "Cleaning frontend gst pipeline");
-    stop();
-    if ((m_src_element == frontend_src_element_t::APPSRC) && (m_appsrc_caps != nullptr))
-    {
-        gst_caps_unref(m_appsrc_caps);
-        m_appsrc_caps = nullptr;
-    }
-    if (m_appsrc != nullptr)
-    {
-        gst_object_unref(m_appsrc);
-        m_appsrc = nullptr;
-    }
-    if (m_pipeline != nullptr)
-    {
-        gst_object_unref(m_pipeline);
-        m_pipeline = nullptr;
-    }
-}
-
 bool MediaLibraryFrontend::Impl::init_pipeline(const std::string &frontend_json_config,
                                                frontend_src_element_t source_type, uint16_t input_width,
                                                uint16_t input_height,
@@ -541,7 +535,7 @@ bool MediaLibraryFrontend::Impl::init_pipeline(const std::string &frontend_json_
 {
     LOGGER__MODULE__INFO(MODULE_NAME, "Initializing frontend gst pipeline");
 
-    GstElement *pipeline = gst_parse_launch(
+    GstElementPtr pipeline = gst_parse_launch(
         create_pipeline_string(frontend_json_config, source_type, input_width, input_height, output_streams).c_str(),
         NULL);
     if (pipeline == nullptr)
@@ -550,19 +544,18 @@ bool MediaLibraryFrontend::Impl::init_pipeline(const std::string &frontend_json_
         return false;
     }
 
-    GstBus *bus = gst_element_get_bus(pipeline);
+    GstBusPtr bus = gst_element_get_bus(pipeline);
     gst_bus_add_watch(bus, (GstBusFunc)bus_call, this);
-    gst_object_unref(bus);
 
-    GstElement *appsrc = nullptr;
-    GstCaps *appsrc_caps = nullptr;
+    GstElementPtr appsrc;
+    GstCapsPtr appsrc_caps;
     if (source_type == frontend_src_element_t::APPSRC)
     {
-        appsrc = gst_bin_get_by_name(GST_BIN(pipeline), "src");
+        appsrc = glib_cpp::ptrs::get_bin_by_name(pipeline, "src");
         appsrc_caps =
             gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "NV12", "width", G_TYPE_INT, input_width,
                                 "height", G_TYPE_INT, input_height, "framerate", GST_TYPE_FRACTION, 30, 1, NULL);
-        g_object_set(G_OBJECT(appsrc), "caps", appsrc_caps, NULL);
+        g_object_set(appsrc.as_g_object(), "caps", appsrc_caps.get(), NULL);
     }
 
     if (!set_gst_callbacks(pipeline, source_type, output_streams))
@@ -572,11 +565,11 @@ bool MediaLibraryFrontend::Impl::init_pipeline(const std::string &frontend_json_
 
     if (appsrc != nullptr)
     {
-        m_appsrc = GST_APP_SRC(appsrc);
-        m_appsrc_caps = appsrc_caps;
+        m_appsrc = glib_cpp::ptrs::element_to_app_src(appsrc);
+        m_appsrc_caps = std::move(appsrc_caps);
     }
 
-    m_pipeline = pipeline;
+    m_pipeline = std::move(pipeline);
     return true;
 }
 
@@ -615,7 +608,7 @@ std::string MediaLibraryFrontend::Impl::create_pipeline_string(
     }
 
     auto pipeline_str = pipeline.str();
-    LOGGER__MODULE__INFO(MODULE_NAME, "Pipeline: gst-launch-1.0 {}", pipeline_str);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Pipeline: gst-launch-1.0 {}", pipeline_str);
 
     return pipeline_str;
 }
@@ -636,16 +629,16 @@ void MediaLibraryFrontend::Impl::fps_measurement(GstElement *fpsdisplaysink, gdo
     output_stream->current_fps = static_cast<float>(fps);
 }
 
-bool MediaLibraryFrontend::Impl::set_gst_callbacks(GstElement *pipeline, frontend_src_element_t source_type,
+bool MediaLibraryFrontend::Impl::set_gst_callbacks(GstElementPtr &pipeline, frontend_src_element_t source_type,
                                                    std::vector<frontend_output_stream_t> &output_streams)
 {
-    GstElement *appsrc = nullptr;
-    std::vector<GstElement *> fpssinks;
+    GstElementPtr appsrc;
+    std::vector<GstElementPtr> fpssinks;
 
     if (source_type == frontend_src_element_t::APPSRC)
     {
         const gchar *gst_element_name = "src";
-        appsrc = gst_bin_get_by_name(GST_BIN(pipeline), gst_element_name);
+        appsrc = glib_cpp::ptrs::get_bin_by_name(pipeline, gst_element_name);
         if (appsrc == nullptr)
         {
             LOGGER__MODULE__ERROR(MODULE_NAME, "Could not find gst element {}", gst_element_name);
@@ -656,20 +649,19 @@ bool MediaLibraryFrontend::Impl::set_gst_callbacks(GstElement *pipeline, fronten
     for (auto &output_stream : output_streams)
     {
         const std::string gst_element_name = std::string("fpsdisplay") + output_stream.id;
-        GstElement *fpssink = gst_bin_get_by_name(GST_BIN(pipeline), gst_element_name.c_str());
+        GstElementPtr fpssink = glib_cpp::ptrs::get_bin_by_name(pipeline, gst_element_name);
         if (fpssink == nullptr)
         {
             LOGGER__MODULE__ERROR(MODULE_NAME, "Could not find gst element {}", gst_element_name);
             return false;
         }
-        fpssinks.push_back(fpssink);
+        fpssinks.push_back(std::move(fpssink));
     }
 
     if (appsrc != nullptr)
     {
         GstAppSrcCallbacks appsrc_callbacks = {};
-        gst_app_src_set_callbacks(GST_APP_SRC(appsrc), &appsrc_callbacks, (void *)this, NULL);
-        gst_object_unref(appsrc);
+        gst_app_src_set_callbacks(GST_APP_SRC(appsrc.get()), &appsrc_callbacks, (void *)this, NULL);
     }
 
     GstAppSinkCallbacks appsink_callbacks = {};
@@ -677,16 +669,14 @@ bool MediaLibraryFrontend::Impl::set_gst_callbacks(GstElement *pipeline, fronten
     for (size_t i = 0; i < output_streams.size(); ++i)
     {
         auto &output_stream = output_streams[i];
-        auto &fpssink = fpssinks[i];
+        auto fpssink = std::move(fpssinks[i]);
 
         LOGGER__MODULE__INFO(MODULE_NAME, "Setting callback for sink {}", output_stream.id);
 
         g_signal_connect(fpssink, "fps-measurements", G_CALLBACK(fps_measurement), &output_stream);
-        gst_object_unref(fpssink);
 
-        GstElement *appsink = gst_bin_get_by_name(GST_BIN(pipeline), output_stream.id.c_str());
-        gst_app_sink_set_callbacks(GST_APP_SINK(appsink), &appsink_callbacks, (void *)this, NULL);
-        gst_object_unref(appsink);
+        GstElementPtr appsink = glib_cpp::ptrs::get_bin_by_name(pipeline, output_stream.id);
+        gst_app_sink_set_callbacks(GST_APP_SINK(appsink.get()), &appsink_callbacks, (void *)this, NULL);
     }
 
     return true;
@@ -698,16 +688,15 @@ GstFlowReturn MediaLibraryFrontend::Impl::on_new_sample(output_stream_id_t id, G
     {
         return GST_FLOW_OK;
     }
-    GstSample *sample;
-    GstBuffer *buffer;
+    GstSamplePtr sample;
+    GstBufferPtr buffer;
     sample = gst_app_sink_pull_sample(appsink);
-    buffer = gst_sample_get_buffer(sample);
+    buffer = glib_cpp::ptrs::get_buffer_from_sample(sample);
     GstHailoBufferMeta *buffer_meta = gst_buffer_get_hailo_buffer_meta(buffer);
     if (!buffer_meta)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get hailo buffer meta");
         GST_ERROR("Failed to get hailo buffer meta");
-        gst_sample_unref(sample);
         return GST_FLOW_ERROR;
     }
 
@@ -717,14 +706,12 @@ GstFlowReturn MediaLibraryFrontend::Impl::on_new_sample(output_stream_id_t id, G
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get hailo buffer ptr");
         GST_ERROR("Failed to get hailo buffer ptr");
-        gst_sample_unref(sample);
         return GST_FLOW_ERROR;
     }
 
     auto cb_iter = m_callbacks.find(id);
     if (cb_iter == m_callbacks.end()) // id does not exist as a key
     {
-        gst_sample_unref(sample);
         return GST_FLOW_OK;
     }
     for (auto cb : cb_iter->second)
@@ -732,13 +719,7 @@ GstFlowReturn MediaLibraryFrontend::Impl::on_new_sample(output_stream_id_t id, G
         cb(buffer_ptr, used_size);
     }
 
-    gst_sample_unref(sample);
     return GST_FLOW_OK;
-}
-
-PrivacyMaskBlenderPtr MediaLibraryFrontend::Impl::get_privacy_mask_blender()
-{
-    return m_privacy_blender;
 }
 
 std::unordered_map<output_stream_id_t, float> MediaLibraryFrontend::Impl::get_output_streams_current_fps()
@@ -753,14 +734,13 @@ std::unordered_map<output_stream_id_t, float> MediaLibraryFrontend::Impl::get_ou
 
 media_library_return MediaLibraryFrontend::Impl::set_freeze(bool freeze)
 {
-    GstElement *frontend = gst_bin_get_by_name(GST_BIN(m_pipeline), "frontend");
+    GstElementPtr frontend = glib_cpp::ptrs::get_bin_by_name(m_pipeline, "frontend");
     if (frontend == nullptr)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get frontend element");
         return MEDIA_LIBRARY_ERROR;
     }
-    g_object_set(G_OBJECT(frontend), "freeze", freeze, NULL);
-    gst_object_unref(frontend);
+    g_object_set(frontend.as_g_object(), "freeze", freeze, NULL);
     return MEDIA_LIBRARY_SUCCESS;
 }
 

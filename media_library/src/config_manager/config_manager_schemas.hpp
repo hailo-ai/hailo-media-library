@@ -24,8 +24,16 @@
 #pragma once
 #include <nlohmann/json-schema.hpp>
 
+#include "imaging/aaa_config_schema.hpp"
 namespace config_schemas
 {
+
+static nlohmann::json empty_config_schema = R"(
+            {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "type": "object"
+            })"_json;
+
 static nlohmann::json encoding_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
@@ -852,6 +860,9 @@ static nlohmann::json multi_resize_application_input_streams_config_schema = R"(
             "items": {
               "type": "object",
               "properties": {
+                "stream_id": {
+                  "type": "string"
+                },
                 "width": {
                   "type": "number"
                 },
@@ -1251,6 +1262,43 @@ static nlohmann::json ldc_rotation_config_schema = R"(
 }
 )"_json;
 
+static nlohmann::json hdr_config_schema = R"(
+  {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Media Library schema for HDR configuration",
+    "type": "object",
+    "properties": {
+      "hdr": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "dol": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 3
+          },
+          "lsRatio": {
+            "type": "number"
+          },
+          "vsRatio": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "dol"
+        ]
+      }
+    },
+    "required": [
+      "hdr"
+    ]
+  }
+  )"_json;
+
 static nlohmann::json ldc_flip_config_schema = R"(
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1329,43 +1377,6 @@ static nlohmann::json isp_config_schema = R"(
   }
   )"_json;
 
-static nlohmann::json hdr_config_schema = R"(
-  {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "title": "Media Library schema for HDR configuration",
-    "type": "object",
-    "properties": {
-      "hdr": {
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "dol": {
-            "type": "integer",
-            "minimum": 2,
-            "maximum": 3
-          },
-          "lsRatio": {
-            "type": "number"
-          },
-          "vsRatio": {
-            "type": "number"
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "enabled",
-          "dol"
-        ]
-      }
-    },
-    "required": [
-      "hdr"
-    ]
-  }
-  )"_json;
-
 static nlohmann::json denoise_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
@@ -1420,6 +1431,12 @@ static nlohmann::json denoise_config_schema = R"(
               "feedback_bayer_channel": {
                 "type": "string"
               },
+              "dgain_channel": {
+                "type": "string"
+              },
+              "bls_channel": {
+                "type": "string"
+              },
               "output_bayer_channel": {
                 "type": "string"
               }
@@ -1446,6 +1463,18 @@ static nlohmann::json denoise_config_schema = R"(
         "then": {
           "properties": {
             "network": {
+              "if": {
+                "anyOf": [
+                  { "required": ["dgain_channel"] },
+                  { "required": ["bls_channel"] }
+                ]
+              },
+              "then": {
+                "required": [
+                  "dgain_channel",
+                  "bls_channel"
+                ]
+              },
               "required": [
                 "network_path",
                 "bayer_channel",
@@ -1578,12 +1607,211 @@ static nlohmann::json input_video_config_schema = R"(
   ]
 })"_json;
 
+static nlohmann::json application_analytics_config_schema = R"(
+  {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Application Analytics Configuration",
+    "type": "object",
+    "properties": {
+      "application_analytics": {
+        "type": "object",
+        "properties": {
+          "detection": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "analytics_data_id": { "type": "string" },
+                "scaling_mode": { 
+                  "type": "string",
+                  "enum": ["STRETCH", "LETTERBOX_MIDDLE", "LETTERBOX_UP_LEFT"]
+                },
+                "width": { "type": "integer" },
+                "height": { "type": "integer" },
+                "original_width_ratio": { "type": "integer" },
+                "original_height_ratio": { "type": "integer" },
+                "max_entries": { "type": "integer" },
+                "labels": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": { "type": "string" },
+                      "id": { "type": "integer" }
+                    },
+                    "required": ["label", "id"]
+                  }
+                }
+              },
+              "required": ["analytics_data_id", "scaling_mode", "width", "height", "original_width_ratio", "original_height_ratio", "labels", "max_entries"],
+              "additionalProperties": false
+            }
+          },
+          "instance_segmentation": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "analytics_data_id": { "type": "string" },
+                "scaling_mode": { 
+                  "type": "string",
+                  "enum": ["STRETCH", "LETTERBOX_MIDDLE", "LETTERBOX_UP_LEFT"]
+                },
+                "width": { "type": "integer" },
+                "height": { "type": "integer" },
+                "original_width_ratio": { "type": "integer" },
+                "original_height_ratio": { "type": "integer" },
+                "max_entries": { "type": "integer" },
+                "labels": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": { "type": "string" },
+                      "id": { "type": "integer" }
+                    },
+                    "required": ["label", "id"]
+                  }
+                }
+              },
+              "required": ["analytics_data_id", "scaling_mode", "width", "height", "original_width_ratio", "original_height_ratio", "labels", "max_entries"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["application_analytics"],
+    "additionalProperties": false
+  }
+  )"_json;
+
+static nlohmann::json privacy_mask_config_schema = R"(
+  {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Privacy Mask Configuration",
+    "type": "object",
+    "definitions": {
+      "vertex": {
+        "$id": "vertex",
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "y": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": ["x", "y"],
+        "additionalProperties": false
+      },
+      "polygon": {
+        "$id": "polygon",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "polygon_points": {
+            "type": "array",
+            "items": { 
+              "$ref": "vertex"
+            },
+            "maxItems": 8
+          }
+        },
+        "required": ["name", "polygon_points"],
+        "additionalProperties": false
+      }
+    },
+    "properties": {
+      "privacy_mask": {
+        "type": "object",
+        "properties": {
+          "mask_type": {
+            "type": "string",
+            "enum": ["COLOR", "PIXELIZATION"]
+          },
+          "pixelization_size": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 64
+          },
+          "color_value": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "static_privacy_mask": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "masks": {
+                "type": "array",
+                "items": {
+                  "$ref": "polygon"
+                },
+                "maxItems": 8
+              }
+            },
+            "required": ["enabled", "masks"],
+            "additionalProperties": false
+          },
+          "dynamic_privacy_mask": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "analytics_data_id": {
+                "type": "string"
+              },
+              "masked_labels": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "dilation_size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 15
+              }
+            },
+            "required": [
+              "enabled",
+              "analytics_data_id",
+              "masked_labels",
+              "dilation_size"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": ["mask_type", "pixelization_size", "color_value"]
+      },
+      "additionalProperties": false
+    }
+  }
+  )"_json;
+
 static nlohmann::json frontend_config_schema = {
     {"allOf",
      {multi_resize_config_schema, ldc_config_schema, hailort_config_schema, isp_config_schema, hdr_config_schema,
       denoise_config_schema, input_video_config_schema}}};
 
-static nlohmann::json encoder_config_schema = {{"allOf", {encoding_config_schema, osd_config_schema}}};
+static nlohmann::json encoder_config_schema = {
+    {"allOf", {encoding_config_schema, osd_config_schema, privacy_mask_config_schema}}};
 
 static nlohmann::json medialib_config_schema = R"(
 {
@@ -1657,4 +1885,9 @@ static nlohmann::json profile_config_schema = {
      {multi_resize_config_schema, ldc_config_schema, hailort_config_schema, isp_config_schema, hdr_config_schema,
       denoise_config_schema, input_video_config_schema, codec_configs_schema, isp_config_files_schema}}};
 
+static nlohmann::json automatic_algorithms_schema = nlohmann::json::parse(AUTOMATIC_ALGORITHMS_SCHEMA_TEXT);
+
+static nlohmann::json aaa_config_schema = {{"allOf", {automatic_algorithms_schema}}};
+
+static nlohmann::json old_aaa_config_schema = nlohmann::json::parse(OLD_3ACONFIG_SCHEMA_TEXT);
 } // namespace config_schemas

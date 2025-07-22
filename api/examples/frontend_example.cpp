@@ -6,6 +6,7 @@
 #include "media_library/privacy_mask_types.hpp"
 #include "media_library/signal_utils.hpp"
 #include <fstream>
+#include <optional>
 #include <iostream>
 #include <sstream>
 #include <tl/expected.hpp>
@@ -28,6 +29,7 @@
 
 MediaLibraryPtr m_media_lib;
 std::map<output_stream_id_t, std::ofstream> m_output_files;
+std::optional<ProfileConfig> m_user_profile;
 
 inline std::string get_encoder_osd_config_file(const std::string &id)
 {
@@ -92,7 +94,7 @@ void subscribe_elements(MediaLibraryPtr media_lib)
     }
 }
 
-void add_privacy_masks(PrivacyMaskBlenderPtr privacy_mask_blender)
+void add_static_privacy_masks(PrivacyMaskBlenderPtr privacy_mask_blender)
 {
     polygon example_polygon;
     example_polygon.id = "privacy_mask1";
@@ -103,7 +105,7 @@ void add_privacy_masks(PrivacyMaskBlenderPtr privacy_mask_blender)
     example_polygon.vertices.push_back(vertex(750, 750));
     example_polygon.vertices.push_back(vertex(125, 920));
     example_polygon.vertices.push_back(vertex(250, 600));
-    privacy_mask_blender->add_privacy_mask(example_polygon);
+    privacy_mask_blender->add_static_privacy_mask(example_polygon);
 
     polygon example_polygon2;
     example_polygon2.id = "privacy_mask2";
@@ -112,14 +114,14 @@ void add_privacy_masks(PrivacyMaskBlenderPtr privacy_mask_blender)
     example_polygon2.vertices.push_back(vertex(2900, 550));
     example_polygon2.vertices.push_back(vertex(2723, 550));
     example_polygon2.vertices.push_back(vertex(2600, 120));
-    privacy_mask_blender->add_privacy_mask(example_polygon2);
+    privacy_mask_blender->add_static_privacy_mask(example_polygon2);
 
     polygon example_polygon3;
     example_polygon3.id = "privacy_mask3";
     example_polygon3.vertices.push_back(vertex(400, 3160));
     example_polygon3.vertices.push_back(vertex(-100, 1860));
     example_polygon3.vertices.push_back(vertex(900, 1860));
-    privacy_mask_blender->add_privacy_mask(example_polygon3);
+    privacy_mask_blender->add_static_privacy_mask(example_polygon3);
 
     polygon example_polygon4;
     example_polygon4.id = "privacy_mask4";
@@ -127,18 +129,18 @@ void add_privacy_masks(PrivacyMaskBlenderPtr privacy_mask_blender)
     example_polygon4.vertices.push_back(vertex(3600, -50));
     example_polygon4.vertices.push_back(vertex(3900, 550));
     example_polygon4.vertices.push_back(vertex(3800, 650));
-    privacy_mask_blender->add_privacy_mask(example_polygon4);
+    privacy_mask_blender->add_static_privacy_mask(example_polygon4);
 }
 
-void change_to_blur_and_back_to_color(PrivacyMaskBlenderPtr privacy_mask_blender)
+void change_to_pixelization_and_back_to_color(PrivacyMaskBlenderPtr privacy_mask_blender)
 {
     std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
-    std::cout << "changing privacy masks to blur" << std::endl;
-    privacy_mask_blender->set_blur_radius(60);
+    std::cout << "changing privacy masks to pixelization" << std::endl;
+    privacy_mask_blender->set_pixelization_size(60);
 
     std::this_thread::sleep_for(std::chrono::seconds(2));
-    std::cout << "changing radius of blur" << std::endl;
-    privacy_mask_blender->set_blur_radius(10);
+    std::cout << "changing size of pixelization" << std::endl;
+    privacy_mask_blender->set_pixelization_size(10);
 
     std::this_thread::sleep_for(std::chrono::seconds(2));
     std::cout << "changing privacy masks to color" << std::endl;
@@ -148,7 +150,7 @@ void change_to_blur_and_back_to_color(PrivacyMaskBlenderPtr privacy_mask_blender
 int update_privacy_masks(PrivacyMaskBlenderPtr privacy_mask_blender)
 {
     std::cout << "Updating privacy mask" << std::endl;
-    auto polygon_exp = privacy_mask_blender->get_privacy_mask("privacy_mask1");
+    auto polygon_exp = privacy_mask_blender->get_static_privacy_mask("privacy_mask1");
     if (!polygon_exp.has_value())
     {
         std::cout << "Failed to get privacy mask with id 'privacy_mask1'" << std::endl;
@@ -158,15 +160,93 @@ int update_privacy_masks(PrivacyMaskBlenderPtr privacy_mask_blender)
     polygon polygon1 = polygon_exp.value();
     polygon1.vertices[0].x = 600;
     polygon1.vertices[0].y = 120;
-    privacy_mask_blender->set_privacy_mask(polygon1);
+    privacy_mask_blender->set_static_privacy_mask(polygon1);
 
-    change_to_blur_and_back_to_color(privacy_mask_blender);
+    change_to_pixelization_and_back_to_color(privacy_mask_blender);
     return 0;
+}
+
+void update_osd_profile_name(const std::string &profile_name)
+{
+    if (m_media_lib->get_pipeline_state() != media_library_pipeline_state_t::PIPELINE_STATE_RUNNING)
+    {
+        std::cout << "Pipeline is not started, skipping OSD update" << std::endl;
+        return;
+    }
+
+    for (auto &encoder : m_media_lib->m_encoders)
+    {
+        auto blender = encoder.second->get_osd_blender();
+        auto overlay_exp = blender->get_overlay("profile_text_overlay");
+        if (overlay_exp.has_value())
+        {
+            std::shared_ptr<osd::TextOverlay> overlay = std::static_pointer_cast<osd::TextOverlay>(overlay_exp.value());
+            overlay->label = "Profile: " + profile_name;
+            blender->set_overlay(*overlay);
+        }
+    }
+}
+
+bool set_profile(const std::string &profile_name)
+{
+    media_library_return profile_ret = m_media_lib->set_profile(profile_name);
+    if (profile_ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        if (profile_ret == media_library_return::MEDIA_LIBRARY_PROFILE_IS_RESTRICTED)
+        {
+            std::cout << "Profile is restricted at this moment, skipping" << std::endl;
+        }
+        else
+        {
+            std::cout << "Failed to set profile to " << profile_name << std::endl;
+            return false;
+        }
+    }
+
+    auto get_profile_exp = m_media_lib->get_profile(profile_name);
+    if (!get_profile_exp.has_value())
+    {
+        std::cout << "Failed to get profile " << profile_name << std::endl;
+        return false;
+    }
+
+    m_user_profile = get_profile_exp.value();
+    update_osd_profile_name(profile_name);
+
+    return true;
+}
+
+bool set_override_parameters(ProfileConfig override_profile)
+{
+    media_library_return profile_ret = m_media_lib->set_override_parameters(override_profile);
+    if (profile_ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        if (profile_ret == media_library_return::MEDIA_LIBRARY_PROFILE_IS_RESTRICTED)
+        {
+            std::cout << "Profile is restricted at this moment, skipping" << std::endl;
+        }
+        else
+        {
+            std::cout << "Failed to override profile" << std::endl;
+            return false;
+        }
+    }
+
+    auto profile_exp = m_media_lib->get_current_profile();
+    if (!profile_exp.has_value())
+    {
+        std::cout << "Failed to get current profile name" << std::endl;
+        return false;
+    }
+    m_user_profile = profile_exp.value();
+
+    update_osd_profile_name(m_user_profile.value().name);
+    return true;
 }
 
 int update_encoders_bitrate()
 {
-    uint32_t new_bitrate = 1000000;
+    uint32_t new_bitrate = 10000000;
     uint enc_i = 0;
     auto expected_profile = m_media_lib->get_current_profile();
     if (!expected_profile.has_value())
@@ -187,11 +267,9 @@ int update_encoders_bitrate()
                   << " current bitrate: " << hailo_encoder_config.rate_control.bitrate.target_bitrate << " Setting to "
                   << new_bitrate << std::endl;
         hailo_encoder_config.rate_control.bitrate.target_bitrate = new_bitrate;
-        if (m_media_lib->set_override_profile(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
-        {
-            std::cout << "Failed to set profile" << std::endl;
+        bool profile_ret = set_override_parameters(profile);
+        if (!profile_ret)
             return 1;
-        }
         enc_i++;
     }
 
@@ -216,16 +294,15 @@ int update_jpeg_encoders_quality()
         {
             continue;
         }
+
         jpeg_encoder_config_t &jpeg_encoder_config = std::get<jpeg_encoder_config_t>(encoder_config);
 
         std::cout << "Encoder " << enc_i << " current quality: " << jpeg_encoder_config.quality << " Setting to "
                   << new_quality << std::endl;
         jpeg_encoder_config.quality = new_quality;
-        if (m_media_lib->set_override_profile(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
-        {
-            std::cout << "Failed to set profile" << std::endl;
+        bool profile_ret = set_override_parameters(profile);
+        if (!profile_ret)
             return 1;
-        }
         enc_i++;
     }
 
@@ -253,11 +330,9 @@ int update_encoders_bitrate_monitor_period()
         hailo_encoder_config_t &hailo_encoder_config = std::get<hailo_encoder_config_t>(encoder_config);
         hailo_encoder_config.monitors_control.bitrate_monitor.period = period;
         std::cout << "Encoder " << enc_i << " setting bitrate monitor period to " << period << std::endl;
-        if (m_media_lib->set_override_profile(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
-        {
-            std::cout << "Failed to set profile" << std::endl;
+        bool profile_ret = set_override_parameters(profile);
+        if (!profile_ret)
             return 1;
-        }
         enc_i++;
     }
 
@@ -284,11 +359,9 @@ int disable_encoders_bitrate_monitor()
         hailo_encoder_config_t &hailo_encoder_config = std::get<hailo_encoder_config_t>(encoder_config);
         hailo_encoder_config.monitors_control.bitrate_monitor.enable = false;
         std::cout << "Encoder " << enc_i << " disabling bitrate monitor" << std::endl;
-        if (m_media_lib->set_override_profile(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
-        {
-            std::cout << "Failed to set profile" << std::endl;
+        bool profile_ret = set_override_parameters(profile);
+        if (!profile_ret)
             return 1;
-        }
         enc_i++;
     }
 
@@ -321,11 +394,9 @@ media_library_return toggle_frontend_config()
     ProfileConfig profile_config = profile_config_expected.value();
     profile_config.ldc_config.dewarp_config.enabled = false;
     std::cout << "Setting dewarp enable to false" << std::endl;
-    if (m_media_lib->set_override_profile(profile_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
-    {
-        std::cout << "Failed to set config" << std::endl;
+    bool profile_ret = set_override_parameters(profile_config);
+    if (!profile_ret)
         return media_library_return::MEDIA_LIBRARY_ERROR;
-    }
 
     std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
     profile_config_expected = m_media_lib->get_current_profile();
@@ -337,11 +408,15 @@ media_library_return toggle_frontend_config()
     profile_config = profile_config_expected.value();
     profile_config.ldc_config.dewarp_config.enabled = true;
     std::cout << "Setting dewarp enable to true" << std::endl;
-    if (m_media_lib->set_override_profile(profile_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
-    {
-        std::cout << "Failed to set config" << std::endl;
+    profile_ret = set_override_parameters(profile_config);
+    if (!profile_ret)
         return media_library_return::MEDIA_LIBRARY_ERROR;
-    }
+    profile_config = profile_config_expected.value();
+    profile_config.ldc_config.dewarp_config.enabled = true;
+    std::cout << "Setting dewarp enable to true" << std::endl;
+    profile_ret = set_override_parameters(profile_config);
+    if (!profile_ret)
+        return media_library_return::MEDIA_LIBRARY_ERROR;
 
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
@@ -397,18 +472,106 @@ media_library_return add_custom_overlays(std::shared_ptr<osd::Blender> blender)
 
 int main()
 {
+    m_user_profile = std::nullopt;
     m_media_lib = std::make_shared<MediaLibrary>();
     std::string medialib_config_path = "/usr/bin/medialib_config.json";
     if (JPEG_SINK1)
     {
         medialib_config_path = "/usr/bin/medialib_config_jpeg.json";
     }
+
     std::string medialib_config_string = read_string_from_file(medialib_config_path.c_str());
+
+    auto get_profile_exp = m_media_lib->get_current_profile();
+    std::string current_profile_name = "";
+
+    osd::rgba_color_t red_argb = {255, 0, 0, 255};
+    osd::rgba_color_t blue_argb = {0, 0, 255, 255};
+    std::string font_path = "/usr/share/fonts/ttf/LiberationMono-Bold.ttf";
+    osd::TextOverlay profile_text_overlay("profile_text_overlay", 0.1, 0.4, "Current Profile: " + current_profile_name,
+                                          red_argb, blue_argb, 40.0f, 1, 1, font_path, 0,
+                                          osd::rotation_alignment_policy_t::CENTER);
+    for (const auto &encoder : m_media_lib->m_encoders)
+    {
+        encoder.second->get_osd_blender()->add_overlay(profile_text_overlay);
+        encoder.second->get_osd_blender()->set_overlay_enabled("profile_text_overlay", true);
+    }
+
+    m_media_lib->on_profile_restricted([](ProfileConfig previous_profile, ProfileConfig new_profile) {
+        std::cout << "Profile restricted - previous profile denoise enabled: "
+                  << previous_profile.denoise_config.enabled
+                  << " new profile denoise enabled: " << new_profile.denoise_config.enabled << std::endl;
+        m_user_profile = previous_profile;
+        std::string current_profile_name = "";
+        auto get_profile_exp = m_media_lib->get_current_profile();
+        if (get_profile_exp.has_value())
+        {
+            current_profile_name = new_profile.name;
+        }
+        else
+        {
+            std::cout << "Failed to get profile name" << std::endl;
+        }
+
+        if (previous_profile.denoise_config.enabled && !new_profile.denoise_config.enabled)
+        {
+            update_osd_profile_name(current_profile_name + " - denoise disabled");
+        }
+        else
+        {
+            update_osd_profile_name(current_profile_name);
+        }
+    });
+
     if (m_media_lib->initialize(medialib_config_string) != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         std::cout << "Failed to initialize media library" << std::endl;
         return 1;
     }
+
+    m_media_lib->on_profile_restriction_done([]() {
+        std::cout << "Profile restriction done" << std::endl;
+        // Set profile to previous profile?
+        if (m_user_profile.has_value())
+        {
+            std::cout << "Setting profile to previous restricted profile" << std::endl;
+            ProfileConfig &restricted_profile = m_user_profile.value();
+            bool ret = set_override_parameters(restricted_profile);
+            if (!ret)
+                std::cout << "Failed to set profile to previous restricted profile" << std::endl;
+
+            std::string profile_name = restricted_profile.name;
+            if (!restricted_profile.denoise_config.enabled)
+            {
+                profile_name += " - denoise disabled";
+            }
+            update_osd_profile_name(profile_name);
+        }
+    });
+
+    m_media_lib->on_pipeline_state_change([](media_library_pipeline_state_t state) {
+        switch (state)
+        {
+        case media_library_pipeline_state_t::PIPELINE_STATE_STOPPED:
+            std::cout << "Pipeline stopped" << std::endl;
+            break;
+        case media_library_pipeline_state_t::PIPELINE_STATE_RUNNING:
+            std::cout << "Pipeline running" << std::endl;
+            break;
+        default:
+            break;
+        }
+    });
+
+    get_profile_exp = m_media_lib->get_current_profile();
+    if (!get_profile_exp.has_value())
+    {
+        std::cout << "Failed to get profile name" << std::endl;
+        return 1;
+    }
+    current_profile_name = get_profile_exp.value().name;
+    update_osd_profile_name(current_profile_name);
+
     // register signal SIGINT and signal handler
     signal_utils::register_signal_handler([](int signal) {
         m_media_lib->stop_pipeline();
@@ -439,17 +602,17 @@ int main()
         return 1;
     }
 
-    std::this_thread::sleep_for(std::chrono::seconds(5)); // sleep for 2 seconds
+    std::this_thread::sleep_for(std::chrono::seconds(2)); // sleep for 2 seconds
 
     if (toggle_frontend_config() != MEDIA_LIBRARY_SUCCESS)
     {
         std::cout << "Failed to toggle frontend config" << std::endl;
     }
 
-    add_custom_overlays(m_media_lib->m_encoders["sink0"]->get_blender());
+    add_custom_overlays(m_media_lib->m_encoders["sink0"]->get_osd_blender());
 
-    PrivacyMaskBlenderPtr privacy_blender = m_media_lib->m_frontend->get_privacy_mask_blender();
-    add_privacy_masks(privacy_blender);
+    PrivacyMaskBlenderPtr privacy_blender = m_media_lib->m_encoders["sink0"]->get_privacy_mask_blender();
+    add_static_privacy_masks(privacy_blender);
 
     std::cout << "Started playing for 30 seconds." << std::endl;
 
@@ -496,7 +659,15 @@ int main()
 
     std::cout << "Setting profile to HDR" << std::endl;
 
-    if (m_media_lib->set_profile("HDR") != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    bool profile_ret = set_profile("High_Dynamic_Range");
+    if (!profile_ret)
+        return 1;
+
+    std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
+
+    std::cout << "Setting profile to low light" << std::endl;
+
+    if (!set_profile("Lowlight"))
     {
         std::cout << "Failed to set profile" << std::endl;
         return 1;
@@ -504,13 +675,15 @@ int main()
 
     std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
 
-    if (m_media_lib->set_profile("Indoor") != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    std::cout << "Setting profile to day light" << std::endl;
+
+    if (!set_profile("Daylight"))
     {
         std::cout << "Failed to set profile" << std::endl;
         return 1;
     }
 
-    std::this_thread::sleep_for(std::chrono::seconds(5)); // sleep for 10 seconds
+    std::this_thread::sleep_for(std::chrono::seconds(5)); // sleep for 5 seconds
 
     if (m_media_lib->stop_pipeline() != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {

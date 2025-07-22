@@ -67,7 +67,13 @@ std::unordered_map<LoggerType, std::string> LoggerManager::logger_names = {
     {LoggerType::Osd, "osd"},
     {LoggerType::Config, "config"},
     {LoggerType::LdcMesh, "ldc_mesh"},
-    {LoggerType::MotionDetection, "motion_detection"}};
+    {LoggerType::ThrottlingMonitor, "throttling_monitor"},
+    {LoggerType::Snapshot, "snapshot"},
+    {LoggerType::MotionDetection, "motion_detection"},
+    {LoggerType::Hdr, "hdr"},
+    {LoggerType::NamedPipe, "named_pipe"},
+    {LoggerType::AnalyticsDB, "analytics_db"},
+};
 
 std::unordered_map<LoggerType, std::shared_ptr<spdlog::logger>> LoggerManager::loggers = {};
 

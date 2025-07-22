@@ -23,11 +23,53 @@
 #include <thread>
 #include "buffer_pool.hpp"
 #include "media_library_logger.hpp"
+#include "hailo_media_library_perfetto.hpp"
 
 #define MODULE_NAME LoggerType::BufferPool
 
-HailoBucket::HailoBucket(size_t buffer_size, size_t num_buffers, HailoMemoryType memory_type)
-    : m_buffer_size(buffer_size), m_num_buffers(num_buffers), m_memory_type(memory_type)
+class HailoBucket
+{
+  private:
+    size_t m_buffer_size;
+    size_t m_num_buffers;
+    HailoMemoryType m_memory_type;
+    std::string m_name;
+#ifdef HAVE_PERFETTO
+    perfetto::CounterTrack m_counter_track;
+#endif
+
+    // Keep track of used and free buffers
+    std::unordered_set<intptr_t> m_used_buffers;
+    std::deque<intptr_t> m_available_buffers;
+    std::shared_ptr<std::mutex> m_bucket_mutex;
+
+    media_library_return allocate();
+    media_library_return free(bool fail_on_used_buffers = true);
+    media_library_return acquire(intptr_t *buffer_ptr);
+    media_library_return release(intptr_t buffer_ptr);
+
+  public:
+    HailoBucket(size_t buffer_size, size_t num_buffers, HailoMemoryType memory_type, std::string name);
+    ~HailoBucket();
+    // remove copy assigment
+    HailoBucket &operator=(const HailoBucket &) = delete;
+    // remove copy constructor
+    HailoBucket(const HailoBucket &) = delete;
+    // remove move constructor
+    HailoBucket(HailoBucket &&) = delete;
+    // remove move assignment
+    HailoBucket &operator=(HailoBucket &&) = delete;
+    friend class MediaLibraryBufferPool;
+    int available_buffers_count();
+    int used_buffers_count();
+};
+
+HailoBucket::HailoBucket(size_t buffer_size, size_t num_buffers, HailoMemoryType memory_type, std::string name)
+    : m_buffer_size(buffer_size), m_num_buffers(num_buffers), m_memory_type(memory_type), m_name(name)
+#ifdef HAVE_PERFETTO
+      ,
+      m_counter_track(perfetto::DynamicString(m_name), BUFFER_POOLS_TRACK)
+#endif
 {
     m_bucket_mutex = std::make_shared<std::mutex>();
     m_used_buffers.reserve(m_num_buffers);
@@ -42,12 +84,12 @@ media_library_return HailoBucket::allocate()
     std::unique_lock<std::mutex> lock(*m_bucket_mutex);
     if (m_available_buffers.size() >= m_num_buffers)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Exeeded max buffers");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "{}: Exeeded max buffers", m_name);
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
     size_t buffers_to_allocate = m_num_buffers - m_available_buffers.size();
-
+    std::vector<intptr_t> tmp_allocated_buffers;
     for (size_t i = 0; i < buffers_to_allocate; i++)
     {
         void *buffer = NULL;
@@ -55,10 +97,22 @@ media_library_return HailoBucket::allocate()
 
         if (result != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create buffer with status code {}", result);
+            for (intptr_t buffer : tmp_allocated_buffers)
+            {
+                media_library_return result =
+                    DmaMemoryAllocator::get_instance().free_dma_buffer(reinterpret_cast<void *>(buffer));
+                if (result != MEDIA_LIBRARY_SUCCESS)
+                {
+                    LOGGER__MODULE__ERROR(MODULE_NAME, "{}: Failed to release buffer. status code {}", m_name, result);
+                }
+            }
+            LOGGER__MODULE__ERROR(MODULE_NAME, "{}: Failed to create buffer with status code {}", m_name, result);
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
-
+        tmp_allocated_buffers.push_back((intptr_t)buffer);
+    }
+    for (intptr_t buffer : tmp_allocated_buffers)
+    {
         m_available_buffers.push_front((intptr_t)buffer);
     }
 
@@ -72,11 +126,11 @@ media_library_return HailoBucket::free(bool fail_on_used_buffers)
     bool used_buffers_exist = !m_used_buffers.empty();
     if (used_buffers_exist)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "There are still {} used buffers in the bucket, {} are free",
+        LOGGER__MODULE__ERROR(MODULE_NAME, "{}: There are still {} used buffers in the bucket, {} are free", m_name,
                               m_used_buffers.size(), m_available_buffers.size());
         for (intptr_t buffer_ptr : m_used_buffers)
         {
-            LOGGER__MODULE__INFO(MODULE_NAME, "Freeing bucket: buffer {} still used", (void *)buffer_ptr);
+            LOGGER__MODULE__INFO(MODULE_NAME, "{}: Freeing bucket: buffer {} still used", m_name, (void *)buffer_ptr);
             if (!fail_on_used_buffers)
                 m_available_buffers.push_front(buffer_ptr);
         }
@@ -92,7 +146,7 @@ media_library_return HailoBucket::free(bool fail_on_used_buffers)
 
         if (result != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to release buffer. status code {}", result);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "{}: Failed to release buffer. status code {}", m_name, result);
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
 
@@ -105,8 +159,8 @@ media_library_return HailoBucket::free(bool fail_on_used_buffers)
     }
 
     LOGGER__MODULE__DEBUG(MODULE_NAME,
-                          "After freeing bucket of size {} num of buffers {}, used buffers {} available buffers {}",
-                          m_buffer_size, m_num_buffers, m_used_buffers.size(), m_available_buffers.size());
+                          "{}: After freeing bucket of size {} num of buffers {}, used buffers {} available buffers {}",
+                          m_name, m_buffer_size, m_num_buffers, m_used_buffers.size(), m_available_buffers.size());
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -118,9 +172,9 @@ media_library_return HailoBucket::acquire(intptr_t *buffer_ptr)
     if (m_available_buffers.empty())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME,
-                              "Buffer acquire failed - no available buffers remaining, "
+                              "{}: Buffer acquire failed - no available buffers remaining, "
                               "please validate the max buffers size you set ({})",
-                              m_num_buffers);
+                              m_name, m_num_buffers);
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
@@ -128,8 +182,9 @@ media_library_return HailoBucket::acquire(intptr_t *buffer_ptr)
     m_available_buffers.pop_front();
     m_used_buffers.insert(*buffer_ptr);
 
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "After acquiring buffer {}, available_buffers={} used_buffers={}", *buffer_ptr,
-                          m_available_buffers.size(), m_used_buffers.size());
+    HAILO_MEDIA_LIBRARY_TRACE_CUSTOM_COUNTER(m_used_buffers.size(), m_counter_track);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: After acquiring buffer {}, available_buffers={} used_buffers={}", m_name,
+                          *buffer_ptr, m_available_buffers.size(), m_used_buffers.size());
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -144,9 +199,10 @@ media_library_return HailoBucket::release(intptr_t buffer_ptr)
         m_available_buffers.push_front(buffer_ptr);
     }
 
-    LOGGER__MODULE__DEBUG(MODULE_NAME,
-                          "After release buffer {}, total_buffers={}  available_buffers={} used_buffers={}, removed={}",
-                          buffer_ptr, m_num_buffers, m_available_buffers.size(), m_used_buffers.size(), num_erased);
+    HAILO_MEDIA_LIBRARY_TRACE_CUSTOM_COUNTER(m_used_buffers.size(), m_counter_track);
+    LOGGER__MODULE__DEBUG(
+        MODULE_NAME, "{}: After release buffer {}, total_buffers={}  available_buffers={} used_buffers={}, removed={}",
+        m_name, buffer_ptr, m_num_buffers, m_available_buffers.size(), m_used_buffers.size(), num_erased);
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -174,14 +230,22 @@ MediaLibraryBufferPool::MediaLibraryBufferPool(uint width, uint height, HailoFor
     switch (format)
     {
     case HAILO_FORMAT_NV12:
-        m_buckets.emplace_back(std::make_shared<HailoBucket>(bytes_per_line * height, max_buffers, memory_type));
-        m_buckets.emplace_back(std::make_shared<HailoBucket>(bytes_per_line * (height / 2), max_buffers, memory_type));
+        m_buckets.emplace_back(
+            std::make_shared<HailoBucket>(bytes_per_line * height, max_buffers, memory_type, m_name + "_y"));
+        m_buckets.emplace_back(
+            std::make_shared<HailoBucket>(bytes_per_line * (height / 2), max_buffers, memory_type, m_name + "_uv"));
         break;
     case HAILO_FORMAT_RGB:
-        m_buckets.emplace_back(std::make_shared<HailoBucket>(bytes_per_line * height * 3, max_buffers, memory_type));
+        m_buckets.emplace_back(
+            std::make_shared<HailoBucket>(bytes_per_line * height * 3, max_buffers, memory_type, m_name));
         break;
     case HAILO_FORMAT_GRAY8:
-        m_buckets.emplace_back(std::make_shared<HailoBucket>(bytes_per_line * height, max_buffers, memory_type));
+        m_buckets.emplace_back(
+            std::make_shared<HailoBucket>(bytes_per_line * height, max_buffers, memory_type, m_name));
+        break;
+    case HAILO_FORMAT_GRAY16:
+        m_buckets.emplace_back(
+            std::make_shared<HailoBucket>(bytes_per_line * height * 2, max_buffers, memory_type, m_name));
         break;
     default:
         // TODO: error
@@ -201,7 +265,7 @@ MediaLibraryBufferPool::~MediaLibraryBufferPool()
     free();
 }
 
-media_library_return MediaLibraryBufferPool::wait_for_used_buffers(uint timeout_in_ms)
+media_library_return MediaLibraryBufferPool::wait_for_used_buffers(const std::chrono::milliseconds &timeout_ms)
 {
     std::unique_lock<std::mutex> lock(*m_buffer_pool_mutex);
     for (uint8_t i = 0; i < m_buckets.size(); i++)
@@ -210,10 +274,9 @@ media_library_return MediaLibraryBufferPool::wait_for_used_buffers(uint timeout_
         LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: Waiting for bucket {} of size {} num of buffers {}", m_name, i,
                               bucket->m_buffer_size, bucket->m_num_buffers);
 
-        if (!m_pool_cv.wait_for(lock, std::chrono::milliseconds(timeout_in_ms),
-                                [&bucket]() { return bucket->used_buffers_count() == 0; }))
+        if (!m_pool_cv.wait_for(lock, timeout_ms, [&bucket]() { return bucket->used_buffers_count() == 0; }))
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "{}: Timeout waiting for used buffers to be released", m_name);
+            LOGGER__MODULE__INFO(MODULE_NAME, "{}: Timeout waiting for used buffers to be released", m_name);
             return MEDIA_LIBRARY_ERROR;
         }
     }
@@ -223,6 +286,9 @@ media_library_return MediaLibraryBufferPool::wait_for_used_buffers(uint timeout_
 media_library_return MediaLibraryBufferPool::free(bool fail_on_used_buffers)
 {
     std::unique_lock<std::mutex> lock(*m_buffer_pool_mutex);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: Starting free operation, DMA free memory: {} MB", m_name,
+                          DmaMemoryAllocator::get_instance().get_free_memory_mb());
+
     for (uint8_t i = 0; i < m_buckets.size(); i++)
     {
         HailoBucketPtr &bucket = m_buckets[i];
@@ -235,12 +301,18 @@ media_library_return MediaLibraryBufferPool::free(bool fail_on_used_buffers)
         }
     }
 
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: Finished free operation, DMA free memory: {} MB", m_name,
+                          DmaMemoryAllocator::get_instance().get_free_memory_mb());
+
     return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return MediaLibraryBufferPool::init()
 {
     std::unique_lock<std::mutex> lock(*m_buffer_pool_mutex);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: Starting init operation, DMA free memory: {} MB", m_name,
+                          DmaMemoryAllocator::get_instance().get_free_memory_mb());
+
     for (HailoBucketPtr &bucket : m_buckets)
     {
         LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: allocating bucket of size {} num of buffers {}", m_name,
@@ -251,6 +323,10 @@ media_library_return MediaLibraryBufferPool::init()
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
     }
+
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: Finished init operation, DMA free memory: {} MB", m_name,
+                          DmaMemoryAllocator::get_instance().get_free_memory_mb());
+
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -398,8 +474,17 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
         // TODO: implement
         break;
     }
-    case HAILO_FORMAT_GRAY8: {
-        size_t image_stride = m_bytes_per_line;
+    case HAILO_FORMAT_GRAY8:
+    case HAILO_FORMAT_GRAY16: {
+        size_t image_stride;
+        if (m_format == HAILO_FORMAT_GRAY8)
+        {
+            image_stride = m_bytes_per_line;
+        }
+        else
+        {
+            image_stride = m_bytes_per_line * 2;
+        }
         size_t image_size = image_stride * m_height;
         intptr_t data_ptr;
 
@@ -431,16 +516,34 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
         }
 
         // Fill in buffer_data values
-        HailoBufferDataPtr buffer_data =
-            std::make_shared<hailo_buffer_data_t>((size_t)m_width, (size_t)m_height, (size_t)1, HAILO_FORMAT_GRAY8,
-                                                  memory_type, std::vector<hailo_data_plane_t>{plane_data});
+        HailoBufferDataPtr buffer_data;
+        if (m_format == HAILO_FORMAT_GRAY8)
+        {
+            buffer_data =
+                std::make_shared<hailo_buffer_data_t>((size_t)m_width, (size_t)m_height, (size_t)1, HAILO_FORMAT_GRAY8,
+                                                      memory_type, std::vector<hailo_data_plane_t>{plane_data});
+        }
+        else
+        {
+            buffer_data =
+                std::make_shared<hailo_buffer_data_t>((size_t)m_width, (size_t)m_height, (size_t)1, HAILO_FORMAT_GRAY16,
+                                                      memory_type, std::vector<hailo_data_plane_t>{plane_data});
+        }
 
         ret = buffer->create(shared_from_this(), buffer_data);
         if (ret != MEDIA_LIBRARY_SUCCESS)
             return ret;
 
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: GRAY8 Buffer width {} height {} acquired", m_name,
-                              buffer->buffer_data->width, buffer->buffer_data->height);
+        if (m_format == HAILO_FORMAT_GRAY8)
+        {
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: GRAY8 Buffer width {} height {} acquired", m_name,
+                                  buffer->buffer_data->width, buffer->buffer_data->height);
+        }
+        else
+        {
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: GRAY16 Buffer width {} height {} acquired", m_name,
+                                  buffer->buffer_data->width, buffer->buffer_data->height);
+        }
         break;
     }
     default: {

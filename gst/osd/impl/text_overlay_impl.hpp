@@ -35,8 +35,6 @@ class TextOverlayImpl : public OverlayImpl
 {
   public:
     static tl::expected<TextOverlayImplPtr, media_library_return> create(const osd::TextOverlay &overlay);
-    static std::shared_future<tl::expected<TextOverlayImplPtr, media_library_return>> create_async(
-        const osd::TextOverlay &overlay);
     TextOverlayImpl(const osd::TextOverlay &overlay, media_library_return &status);
     TextOverlayImpl(const osd::BaseTextOverlay &overlay, media_library_return &status);
     virtual ~TextOverlayImpl() = default;

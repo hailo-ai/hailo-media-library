@@ -12,6 +12,7 @@
 #include "gyro_device.hpp"
 #include "eis.hpp"
 #include "isp_utils.hpp"
+#include "env_vars.hpp"
 
 #define LDC_VSM_CONFIG "/usr/bin/media_server_cfg.json"
 
@@ -25,6 +26,7 @@ class LdcMeshContext
     uint64_t m_last_threshold_timestamp;
     std::time_t m_last_eis_update_time;
     std::shared_ptr<v4l2::v4l2ControlRepository> m_v4l2_ctrl_repo;
+    bool m_dsp_optimization;
 
     // configuration manager
     std::shared_ptr<ConfigManager> m_config_manager;
@@ -61,7 +63,6 @@ class LdcMeshContext
     media_library_return on_frame_vsm_update(struct hailo15_vsm &vsm);
     media_library_return on_frame_eis_update(uint64_t curr_frame_isp_timestamp_ns, uint64_t curr_frame_integration_time,
                                              uint32_t curr_fps, bool enabled);
-    media_library_return set_optical_zoom(float magnification);
     std::shared_ptr<angular_dis_params_t> get_angular_dis_params();
     dsp_dewarp_mesh_t *get();
 };

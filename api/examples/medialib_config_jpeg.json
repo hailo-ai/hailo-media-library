@@ -1,14 +1,18 @@
 {
-	"default_profile": "Indoor",
-	"profiles": [
-		{
-			"name": "Indoor",
-			"config_file": "/usr/bin/profile_jpeg.json"
-		},
-		{
-			"name": "HDR",
-			"config_file": "/usr/bin/profile_hdr_jpeg.json"
-		}
-	],
-	"checksum": "7cd9ae3fddcbf0d349c20b18066140a8"
+    "version": "1.0.0",
+    "default_profile": "Daylight",
+    "profiles": [
+        {
+            "name": "Daylight",
+            "config_file": "/usr/bin/profile_jpeg.json"
+        },
+        {
+            "name": "High_Dynamic_Range",
+            "config_file": "/usr/bin/profile_hdr_jpeg.json"
+        },
+        {
+            "name": "Lowlight",
+            "config_file": "/usr/bin/lowlight_r0225c8_profile_jpeg.json"
+        }
+    ]
 }

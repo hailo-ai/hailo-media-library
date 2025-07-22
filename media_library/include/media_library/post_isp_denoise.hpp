@@ -20,113 +20,42 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-/**
- * @file denoise.hpp
- * @brief MediaLibrary Denoise CPP API module
- **/
-
 #pragma once
-#include <stdint.h>
-#include <vector>
-#include <string>
-#include <functional>
-#include <memory>
-#include <tl/expected.hpp>
 
+#include "denoise.hpp"
 #include "buffer_pool.hpp"
 #include "media_library_types.hpp"
 
-/** @defgroup denoise_type_definitions MediaLibrary Denoise CPP API definitions
- *  @{
- */
-class MediaLibraryPostIspDenoise;
-using MediaLibraryPostIspDenoisePtr = std::shared_ptr<MediaLibraryPostIspDenoise>;
+#include <linux/v4l2-controls.h>
+#include <linux/v4l2-subdev.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <tl/expected.hpp>
+#include <ctime>
 
-class MediaLibraryPostIspDenoise
+class MediaLibraryPostIspDenoise final : public MediaLibraryDenoise
 {
-  protected:
-    class Impl;
-    std::unique_ptr<Impl> m_impl;
-
   public:
-    class callbacks_t
-    {
-      public:
-        std::function<void(bool)> on_enable_changed = nullptr;
-        std::function<void(HailoMediaLibraryBufferPtr)> on_buffer_ready = nullptr;
-        std::function<void(bool)> send_event = nullptr;
-    };
-
-    /**
-     * @brief Constructor for the denoise module
-     */
     MediaLibraryPostIspDenoise();
-
-    /**
-     * @brief Destructor for the denoise module
-     */
     ~MediaLibraryPostIspDenoise();
 
-    /**
-     * @brief Configure the denoise module with new json string
-     *
-     * Read the json string and decode it to create the denoise_config_t object
-     * @param[in] config_string - configuration json as string
-     * @return media_library_return - status of the configuration operation
-     */
-    media_library_return configure(const std::string &config_string);
+  private:
+    // output buffer pool
+    static constexpr const char *BUFFER_POOL_NAME = "post_isp_denoise_output";
+    std::shared_ptr<MediaLibraryBufferPool> m_output_buffer_pool;
 
-    /**
-     * @brief Configure the denoise module with denoise_config_t object
-     *
-     * Update the denoise_config_t object
-     * @param[in] denoise_config_t - denoise_config_t object
-     * @param[in] hailort_t - hailort_t object
-     * @return media_library_return - status of the configuration operation
-     */
-    media_library_return configure(const denoise_config_t &denoise_configs, const hailort_t &hailort_configs);
-
-    /**
-     * @brief Perform low-light-enhancement on the input frame and return the output frame
-     *
-     * @param[in] input_frame - pointer to the input frame to be pre-processed
-     * @param[out] output_frames - output frame after denoise
-     *
-     * @return media_library_return - status of the denoise operation
-     */
-    media_library_return handle_frame(HailoMediaLibraryBufferPtr input_frame, HailoMediaLibraryBufferPtr output_frame);
-
-    /**
-     * @brief get the denoise configurations object
-     *
-     * @return denoise_config_t - denoise configurations
-     */
-    denoise_config_t get_denoise_configs();
-
-    /**
-     * @brief get the hailort configurations object
-     *
-     * @return hailort_t - hailort configurations
-     */
-    hailort_t get_hailort_configs();
-
-    /**
-     * @brief check enabled flag
-     *
-     * @return bool - enabled config flag
-     */
-    bool is_enabled();
-
-    /**
-     * @brief Observes the media library by registering the provided callbacks.
-     *
-     * This function allows the user to observe the media library by registering
-     * callbacks that will be called when certain events occur.
-     *
-     * @param callbacks The callbacks to be registered for observation.
-     * @return media_library_return - status of the observation operation
-     */
-    media_library_return observe(const callbacks_t &callbacks);
+    // virtual functions to override
+    bool currently_enabled() override;
+    bool enabled(const denoise_config_t &denoise_configs) override;
+    bool disabled(const denoise_config_t &denoise_configs) override;
+    bool enable_changed(const denoise_config_t &denoise_configs) override;
+    bool network_changed(const denoise_config_t &denoise_configs, const hailort_t &hailort_configs) override;
+    media_library_return create_and_initialize_buffer_pools(const input_video_config_t &input_video_configs) override;
+    media_library_return close_buffer_pools() override;
+    media_library_return acquire_output_buffer(HailoMediaLibraryBufferPtr output_buffer) override;
+    bool process_inference(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr loopback_buffer,
+                           HailoMediaLibraryBufferPtr output_buffer) override;
+    void copy_meta(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr output_buffer) override;
+    media_library_return generate_startup_buffer() override;
 };
-
-/** @} */ // end of denoise_type_definitions
+using MediaLibraryPostIspDenoisePtr = std::shared_ptr<MediaLibraryPostIspDenoise>;

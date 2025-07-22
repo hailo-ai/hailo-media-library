@@ -89,12 +89,12 @@ int main(int argc, char **argv)
     PrivacyMaskBlenderPtr privacy_mask_blender = blender_expected.value();
     privacy_mask_blender->set_color({23, 161, 231});
 
-    privacy_mask_blender->add_privacy_mask(example_polygon);
-    privacy_mask_blender->add_privacy_mask(example_polygon2);
-    privacy_mask_blender->add_privacy_mask(example_polygon3);
-    privacy_mask_blender->add_privacy_mask(example_polygon4);
+    privacy_mask_blender->add_static_privacy_mask(example_polygon);
+    privacy_mask_blender->add_static_privacy_mask(example_polygon2);
+    privacy_mask_blender->add_static_privacy_mask(example_polygon3);
+    privacy_mask_blender->add_static_privacy_mask(example_polygon4);
 
-    privacy_mask_blender->blend();
+    privacy_mask_blender->get_updated_privacy_masks(0);
 
     return 0;
 }

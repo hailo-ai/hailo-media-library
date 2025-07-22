@@ -27,6 +27,8 @@
 #include "media_library_types.hpp"
 #include "media_library_logger.hpp"
 #include "encoder_config.hpp"
+#include "imaging/aaa_config_type_convertions.hpp"
+#include "privacy_mask_types.hpp"
 
 using json = nlohmann::json;
 #define MODULE_NAME LoggerType::Config
@@ -130,11 +132,6 @@ MEDIALIB_JSON_SERIALIZE_ENUM(deblocking_filter_type_t, {
                                                             "DEBLOCKING_FILTER_DISABLED_ON_SLICE_EDGES"},
                                                        })
 
-MEDIALIB_JSON_SERIALIZE_ENUM(hdr_resolution_t, {
-                                                   {HDR_RESOLUTION_FHD, "fhd"},
-                                                   {HDR_RESOLUTION_4K, "4k"},
-                                               })
-
 MEDIALIB_JSON_SERIALIZE_ENUM(hdr_dol_t, {
                                             {HDR_DOL_2, 2},
                                             {HDR_DOL_3, 3},
@@ -147,6 +144,17 @@ MEDIALIB_JSON_SERIALIZE_ENUM(motion_detection_sensitivity_levels_t, {
                                                                         {HIGH, "HIGH"},
                                                                         {HIGHEST, "HIGHEST"},
                                                                     })
+
+MEDIALIB_JSON_SERIALIZE_ENUM(PrivacyMaskType, {
+                                                  {PrivacyMaskType::COLOR, "COLOR"},
+                                                  {PrivacyMaskType::PIXELIZATION, "PIXELIZATION"},
+                                              })
+
+MEDIALIB_JSON_SERIALIZE_ENUM(ScalingMode, {
+                                              {ScalingMode::STRETCH, "STRETCH"},
+                                              {ScalingMode::LETTERBOX_MIDDLE, "LETTERBOX_MIDDLE"},
+                                              {ScalingMode::LETTERBOX_UP_LEFT, "LETTERBOX_UP_LEFT"},
+                                          })
 
 //------------------------ roi_t ------------------------
 
@@ -770,6 +778,14 @@ void to_json(nlohmann::json &j, const output_resolution_t &out_res)
     {
         j["pool_max_buffers"] = out_res.pool_max_buffers;
     }
+    if (out_res.keep_aspect_ratio)
+    {
+        j["keep_aspect_ratio"] = out_res.keep_aspect_ratio;
+    }
+    if (!out_res.stream_id.empty())
+    {
+        j["stream_id"] = out_res.stream_id;
+    }
 }
 
 void from_json(const nlohmann::json &j, output_resolution_t &out_res)
@@ -781,6 +797,7 @@ void from_json(const nlohmann::json &j, output_resolution_t &out_res)
         j.value("keep_aspect_ratio", false);                   // not a mandatory property, if not set, default to false
     out_res.pool_max_buffers = j.value("pool_max_buffers", 0); // not a mandatory property for input video
     out_res.dimensions.perform_crop = false;
+    out_res.stream_id = j.value("stream_id", "");
 }
 
 //------------------------ application_input_streams_config_t ------------------------
@@ -1042,12 +1059,27 @@ void from_json(const nlohmann::json &j, network_config_t &net_conf)
 
 void to_json(nlohmann::json &j, const bayer_network_config_t &net_conf)
 {
-    j = nlohmann::json{
-        {"network_path", net_conf.network_path},
-        {"bayer_channel", net_conf.bayer_channel},
-        {"feedback_bayer_channel", net_conf.feedback_bayer_channel},
-        {"output_bayer_channel", net_conf.output_bayer_channel},
-    };
+    if (net_conf.dgain_channel.empty() && net_conf.bls_channel.empty())
+    {
+        // If dgain and bls channels are not set, we don't include them in the JSON
+        j = nlohmann::json{
+            {"network_path", net_conf.network_path},
+            {"bayer_channel", net_conf.bayer_channel},
+            {"feedback_bayer_channel", net_conf.feedback_bayer_channel},
+            {"output_bayer_channel", net_conf.output_bayer_channel},
+        };
+    }
+    else
+    {
+        j = nlohmann::json{
+            {"network_path", net_conf.network_path},
+            {"bayer_channel", net_conf.bayer_channel},
+            {"feedback_bayer_channel", net_conf.feedback_bayer_channel},
+            {"dgain_channel", net_conf.dgain_channel},
+            {"bls_channel", net_conf.bls_channel},
+            {"output_bayer_channel", net_conf.output_bayer_channel},
+        };
+    }
 }
 
 void from_json(const nlohmann::json &j, bayer_network_config_t &net_conf)
@@ -1056,6 +1088,16 @@ void from_json(const nlohmann::json &j, bayer_network_config_t &net_conf)
     j.at("bayer_channel").get_to(net_conf.bayer_channel);
     j.at("feedback_bayer_channel").get_to(net_conf.feedback_bayer_channel);
     j.at("output_bayer_channel").get_to(net_conf.output_bayer_channel);
+    if (j.contains("dgain_channel") && j.contains("bls_channel"))
+    {
+        j.at("dgain_channel").get_to(net_conf.dgain_channel);
+        j.at("bls_channel").get_to(net_conf.bls_channel);
+    }
+    else
+    {
+        net_conf.dgain_channel = "";
+        net_conf.bls_channel = "";
+    }
 }
 
 //------------------------ denoise_config_t ------------------------
@@ -1218,6 +1260,137 @@ void from_json(const nlohmann::json &j, codec_config_t &codec_conf)
     j.at("config_path").get_to(codec_conf.config_path);
 }
 
+//------------------------ label_t ------------------------
+
+void to_json(nlohmann::json &j, const label_t &label)
+{
+    j = nlohmann::json{
+        {"label", label.label},
+        {"id", label.id},
+    };
+}
+
+void from_json(const nlohmann::json &j, label_t &label)
+{
+    j.at("label").get_to(label.label);
+    j.at("id").get_to(label.id);
+}
+
+//------------------------ detection_analytics_config_t ------------------------
+
+void to_json(nlohmann::json &j, const detection_analytics_config_t &config)
+{
+    j = nlohmann::json{
+        {"analytics_data_id", config.analytics_data_id},
+        {"scaling_mode", config.scaling_mode},
+        {"width", config.width},
+        {"height", config.height},
+        {"original_width_ratio", config.original_width_ratio},
+        {"original_height_ratio", config.original_height_ratio},
+        {"labels", config.labels},
+        {"max_entries", config.max_entries},
+    };
+}
+
+void from_json(const nlohmann::json &j, detection_analytics_config_t &config)
+{
+    j.at("analytics_data_id").get_to(config.analytics_data_id);
+    j.at("scaling_mode").get_to(config.scaling_mode);
+    j.at("width").get_to(config.width);
+    j.at("height").get_to(config.height);
+    j.at("original_width_ratio").get_to(config.original_width_ratio);
+    j.at("original_height_ratio").get_to(config.original_height_ratio);
+    j.at("labels").get_to(config.labels);
+    j.at("max_entries").get_to(config.max_entries);
+}
+
+//------------------------ instance_segmentation_analytics_config_t ------------------------
+
+void to_json(nlohmann::json &j, const instance_segmentation_analytics_config_t &config)
+{
+    j = nlohmann::json{
+        {"analytics_data_id", config.analytics_data_id},
+        {"scaling_mode", config.scaling_mode},
+        {"width", config.width},
+        {"height", config.height},
+        {"original_width_ratio", config.original_width_ratio},
+        {"original_height_ratio", config.original_height_ratio},
+        {"labels", config.labels},
+        {"max_entries", config.max_entries},
+    };
+}
+
+void from_json(const nlohmann::json &j, instance_segmentation_analytics_config_t &config)
+{
+    j.at("analytics_data_id").get_to(config.analytics_data_id);
+    j.at("scaling_mode").get_to(config.scaling_mode);
+    j.at("width").get_to(config.width);
+    j.at("height").get_to(config.height);
+    j.at("original_width_ratio").get_to(config.original_width_ratio);
+    j.at("original_height_ratio").get_to(config.original_height_ratio);
+    j.at("labels").get_to(config.labels);
+    j.at("max_entries").get_to(config.max_entries);
+}
+
+//------------------------ application_analytics_config_t ------------------------
+
+inline void to_json(nlohmann::json &j, const application_analytics_config_t &config)
+{
+    nlohmann::json analytics_content = nlohmann::json(nlohmann::json::value_t::object);
+
+    if (!config.detection_analytics_config.empty())
+    {
+        analytics_content["detection"] = nlohmann::json::array();
+        for (const auto &[key, value] : config.detection_analytics_config)
+        {
+            nlohmann::json detection_entry = value;
+            detection_entry["analytics_data_id"] = key;
+            analytics_content["detection"].push_back(detection_entry);
+        }
+    }
+
+    if (!config.instance_segmentation_analytics_config.empty())
+    {
+        analytics_content["instance_segmentation"] = nlohmann::json::array();
+        for (const auto &[key, value] : config.instance_segmentation_analytics_config)
+        {
+            nlohmann::json segmentation_entry = value;
+            segmentation_entry["analytics_data_id"] = key;
+            analytics_content["instance_segmentation"].push_back(segmentation_entry);
+        }
+    }
+
+    j = nlohmann::json{{"application_analytics", analytics_content}};
+}
+
+inline void from_json(const nlohmann::json &j, application_analytics_config_t &config)
+{
+    const auto &analytics_content = j.at("application_analytics");
+
+    config.detection_analytics_config.clear();
+    config.instance_segmentation_analytics_config.clear();
+
+    if (analytics_content.contains("detection"))
+    {
+        for (const auto &detection_entry : analytics_content.at("detection"))
+        {
+            detection_analytics_config_t detection_config = detection_entry;
+            std::string analytics_data_id = detection_entry.at("analytics_data_id").get<std::string>();
+            config.detection_analytics_config[analytics_data_id] = detection_config;
+        }
+    }
+
+    if (analytics_content.contains("instance_segmentation"))
+    {
+        for (const auto &segmentation_entry : analytics_content.at("instance_segmentation"))
+        {
+            instance_segmentation_analytics_config_t segmentation_config = segmentation_entry;
+            std::string analytics_data_id = segmentation_entry.at("analytics_data_id").get<std::string>();
+            config.instance_segmentation_analytics_config[analytics_data_id] = segmentation_config;
+        }
+    }
+}
+
 //------------------------ profile_config_t ------------------------
 
 void to_json(json &j, const profile_config_t &profile_conf)
@@ -1232,6 +1405,7 @@ void to_json(json &j, const profile_config_t &profile_conf)
         {"input_video", profile_conf.input_config},
         {"codec_configs", profile_conf.codec_configs},
         {"isp_config_files", profile_conf.isp_config_files},
+        {"application_analytics", profile_conf.application_analytics_config},
     };
 }
 
@@ -1246,6 +1420,7 @@ void from_json(const nlohmann::json &j, profile_config_t &profile_conf)
     j.get_to(profile_conf.input_config);
     j.at("encoded_output_streams").get_to(profile_conf.codec_configs);
     j.get_to(profile_conf.isp_config_files);
+    j.get_to(profile_conf.application_analytics_config);
 }
 
 // ------------------------ frontend_config_t --------------------------------
@@ -1271,5 +1446,134 @@ void from_json(const json &j, frontend_config_t &f_conf)
     j.get_to(f_conf.hdr_config);
     j.get_to(f_conf.hailort_config);
     j.get_to(f_conf.isp_config);
+}
+
+// ------------------------ hailo aaa_config_t ------------------------
+
+void to_json(nlohmann::json &j, const aaa_config_t &aaa_conf)
+{
+    j = nlohmann::json{{"automatic_algorithms", aaa_conf.automatic_algorithms_config}};
+}
+
+void from_json(const nlohmann::json &j, aaa_config_t &aaa_conf)
+{
+    j.at("automatic_algorithms").get_to(aaa_conf.automatic_algorithms_config);
+}
+
+//------------------------ rgb_color_t ------------------------
+
+void to_json(nlohmann::json &j, const rgb_color_t &color)
+{
+    j = nlohmann::json{color.r, color.g, color.b};
+}
+
+void from_json(const nlohmann::json &j, rgb_color_t &color)
+{
+    j.at(0).get_to(color.r);
+    j.at(1).get_to(color.g);
+    j.at(2).get_to(color.b);
+}
+
+//------------------------ dynamic_privacy_mask_config_t ------------------------
+
+void to_json(nlohmann::json &j, const dynamic_privacy_mask_config_t &dynamic_mask)
+{
+    j = nlohmann::json{{"enabled", dynamic_mask.enabled},
+                       {"analytics_data_id", dynamic_mask.analytics_data_id},
+                       {"masked_labels", dynamic_mask.masked_labels},
+                       {"dilation_size", dynamic_mask.dilation_size}};
+}
+
+void from_json(const nlohmann::json &j, dynamic_privacy_mask_config_t &dynamic_mask)
+{
+    j.at("enabled").get_to(dynamic_mask.enabled);
+    j.at("analytics_data_id").get_to(dynamic_mask.analytics_data_id);
+    j.at("masked_labels").get_to(dynamic_mask.masked_labels);
+    j.at("dilation_size").get_to(dynamic_mask.dilation_size);
+}
+
+//------------------------ vertex ------------------------
+void to_json(nlohmann::json &j, const vertex &v)
+{
+    j = nlohmann::json{
+        {"x", v.x},
+        {"y", v.y},
+    };
+}
+
+void from_json(const nlohmann::json &j, vertex &v)
+{
+    j.at("x").get_to(v.x);
+    j.at("y").get_to(v.y);
+}
+
+//------------------------ polygon ------------------------
+
+void to_json(nlohmann::json &j, const polygon &p)
+{
+    j = nlohmann::json{
+        {"name", p.id},
+        {"polygon_points", p.vertices},
+    };
+}
+
+void from_json(const nlohmann::json &j, polygon &p)
+{
+    j.at("name").get_to(p.id);
+    j.at("polygon_points").get_to(p.vertices);
+}
+
+//------------------------ static_privacy_mask_config_t ------------------------
+
+void to_json(nlohmann::json &j, const static_privacy_mask_config_t &spm_conf)
+{
+    j = nlohmann::json{
+        {"enabled", spm_conf.enabled},
+        {"masks", spm_conf.masks},
+    };
+}
+
+void from_json(const nlohmann::json &j, static_privacy_mask_config_t &spm_conf)
+{
+    j.at("enabled").get_to(spm_conf.enabled);
+    j.at("masks").get_to(spm_conf.masks);
+}
+
+//------------------------ privacy_mask_config_t ------------------------
+
+void to_json(nlohmann::json &j, const privacy_mask_config_t &pm_conf)
+{
+    j = nlohmann::json{
+        {"mask_type", pm_conf.mask_type},
+        {"pixelization_size", pm_conf.pixelization_size},
+        {"color_value", pm_conf.color_value},
+    };
+
+    if (pm_conf.static_privacy_mask_config.has_value())
+    {
+        j["static_privacy_mask"] = pm_conf.static_privacy_mask_config.value();
+    }
+
+    if (pm_conf.dynamic_privacy_mask_config.has_value())
+    {
+        j["dynamic_privacy_mask"] = pm_conf.dynamic_privacy_mask_config.value();
+    }
+}
+
+void from_json(const nlohmann::json &j, privacy_mask_config_t &pm_conf)
+{
+    j.at("mask_type").get_to(pm_conf.mask_type);
+    j.at("pixelization_size").get_to(pm_conf.pixelization_size);
+    j.at("color_value").get_to(pm_conf.color_value);
+
+    if (j.contains("static_privacy_mask"))
+    {
+        pm_conf.static_privacy_mask_config = j.at("static_privacy_mask").get<static_privacy_mask_config_t>();
+    }
+
+    if (j.contains("dynamic_privacy_mask"))
+    {
+        pm_conf.dynamic_privacy_mask_config = j.at("dynamic_privacy_mask").get<dynamic_privacy_mask_config_t>();
+    }
 }
 #undef MODULE_NAME

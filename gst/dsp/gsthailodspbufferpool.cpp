@@ -1,21 +1,20 @@
 #include <gst/gst.h>
 #include <iostream>
 
+#include "common/gstmedialibcommon.hpp"
 #include "dsp/gsthailodspbufferpool.hpp"
 
 G_DEFINE_TYPE(GstHailoDspBufferPool, gst_hailo_dsp_buffer_pool, GST_TYPE_BUFFER_POOL)
 
 static GstFlowReturn gst_hailo_dsp_buffer_pool_alloc_buffer(GstBufferPool *pool, GstBuffer **output_buffer_ptr,
                                                             GstBufferPoolAcquireParams *params);
-static void gst_hailo_dsp_buffer_pool_free_buffer(GstBufferPool *pool, GstBuffer *buffer);
+static void gst_hailo_dsp_buffer_pool_free_buffer(GstBufferPool *pool, GstBuffer *gst_buffer);
 static void gst_hailo_dsp_buffer_pool_dispose(GObject *object);
 
 static void gst_hailo_dsp_buffer_pool_class_init(GstHailoDspBufferPoolClass *klass)
 {
     GObjectClass *const object_class = G_OBJECT_CLASS(klass);
     GstBufferPoolClass *const pool_class = GST_BUFFER_POOL_CLASS(klass);
-
-    GST_INFO_OBJECT(object_class, "Hailo DSP buffer pool class init");
 
     pool_class->alloc_buffer = GST_DEBUG_FUNCPTR(gst_hailo_dsp_buffer_pool_alloc_buffer);
     pool_class->free_buffer = GST_DEBUG_FUNCPTR(gst_hailo_dsp_buffer_pool_free_buffer);
@@ -68,14 +67,16 @@ static GstFlowReturn gst_hailo_dsp_buffer_pool_alloc_buffer(GstBufferPool *pool,
 {
     GstHailoDspBufferPool *hailo_dsp_pool = GST_HAILO_DSP_BUFFER_POOL(pool);
     guint buffer_size = 0;
-    GstCaps *caps = NULL;
+    GstCapsPtr caps;
 
     // Get the size and caps of a buffer from the config of the pool
     if (!hailo_dsp_pool->params->config)
     {
         hailo_dsp_pool->params->config = gst_buffer_pool_get_config(pool);
     }
-    gst_buffer_pool_config_get_params(hailo_dsp_pool->params->config, &caps, &buffer_size, NULL, NULL);
+    auto get_params_result = glib_cpp::ptrs::buffer_pool_config_get_params(hailo_dsp_pool->params->config);
+    caps = std::move(get_params_result.caps);
+    buffer_size = get_params_result.size;
     if (caps == NULL)
     {
         GST_ERROR_OBJECT(hailo_dsp_pool, "Failed to get caps from buffer pool config");
@@ -163,10 +164,12 @@ static GstFlowReturn gst_hailo_dsp_buffer_pool_alloc_buffer(GstBufferPool *pool,
     return GST_FLOW_OK;
 }
 
-static void gst_hailo_dsp_buffer_pool_free_buffer(GstBufferPool *pool, GstBuffer *buffer)
+static void gst_hailo_dsp_buffer_pool_free_buffer(GstBufferPool *pool, GstBuffer *gst_buffer)
 {
+    GstBufferPtr buffer = gst_buffer;
     GstHailoDspBufferPool *hailo_dsp_pool = GST_HAILO_DSP_BUFFER_POOL(pool);
-    GST_DEBUG_OBJECT(hailo_dsp_pool, "Freeing buffer %p with padding %d", buffer, hailo_dsp_pool->params->padding);
+    GST_DEBUG_OBJECT(hailo_dsp_pool, "Freeing buffer %p with padding %d", buffer.get(),
+                     hailo_dsp_pool->params->padding);
     guint memory_count = gst_buffer_n_memory(buffer);
     for (guint i = 0; i < memory_count; i++)
     {
@@ -190,6 +193,4 @@ static void gst_hailo_dsp_buffer_pool_free_buffer(GstBufferPool *pool, GstBuffer
 
         gst_memory_unmap(memory, &memory_map_info);
     }
-
-    gst_buffer_unref(buffer);
 }

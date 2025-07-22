@@ -29,6 +29,7 @@
 
 #include "media_library/hailo_encoder.hpp"
 #include "media_library/media_library_utils.hpp"
+#include "common/gstmedialibcommon.hpp"
 #include <gst/gst.h>
 #include <gst/video/video.h>
 
@@ -44,9 +45,9 @@ typedef struct _GstHailoEncClass GstHailoEncClass;
 #define GST_IS_HAILO_ENC_CLASS(obj) (G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_HAILO_ENC))
 #define GST_HAILO_ENC_GET_CLASS(obj) (G_TYPE_INSTANCE_GET_CLASS((obj), GST_TYPE_HAILO_ENC, GstHailoEncClass))
 
-struct _GstHailoEncParams
+struct __attribute__((visibility("hidden"))) _GstHailoEncParams
 {
-    GstVideoCodecState *input_state;
+    GstVideoCodecStatePtr input_state;
     GstBuffer *header_buffer;
     VCEncApiVersion apiVer;
     VCEncBuild encBuild;
@@ -77,15 +78,10 @@ struct _GstHailoEncParams
                 dts_queue = NULL;
             }
         }
-        if (input_state)
-        {
-            gst_video_codec_state_unref(input_state);
-            input_state = NULL;
-        }
     }
 };
 
-struct _GstHailoEnc
+struct __attribute__((visibility("hidden"))) _GstHailoEnc
 {
     GstVideoEncoder parent;
     GstHailoEncParams *params = nullptr;

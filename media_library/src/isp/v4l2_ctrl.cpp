@@ -30,7 +30,17 @@ const std::unordered_map<Video0Ctrl, std::pair<std::string, uint32_t>> m_video0_
     {Video0Ctrl::WDR_CONTRAST, {"isp_wdr_contrast", 0}},
     {Video0Ctrl::AWB_MODE, {"isp_awb_mode", 0}},
     {Video0Ctrl::AWB_ILLUM_INDEX, {"isp_awb_illum_index", 0}},
+    {Video0Ctrl::WB_R_GAIN, {"isp_wb_r_gain", 0}},
+    {Video0Ctrl::WB_GR_GAIN, {"isp_wb_gr_gain", 0}},
+    {Video0Ctrl::WB_GB_GAIN, {"isp_wb_gb_gain", 0}},
+    {Video0Ctrl::WB_B_GAIN, {"isp_wb_b_gain", 0}},
     {Video0Ctrl::HDR_RATIOS, {"isp_hdr_ratio", 0}},
+    {Video0Ctrl::BLS_RED, {"isp_bls_red", 0}},
+    {Video0Ctrl::BLS_GREEN_RED, {"isp_bls_green_red", 0}},
+    {Video0Ctrl::BLS_GREEN_BLUE, {"isp_bls_green_blue", 0}},
+    {Video0Ctrl::BLS_BLUE, {"isp_bls_blue", 0}},
+    {Video0Ctrl::DG_ENABLE, {"isp_dg_enable", 0}},
+    {Video0Ctrl::DG_GAIN, {"isp_dg_gain", 0}},
     {Video0Ctrl::HDR_FORWARD_TIMESTAMPS, {"timestamp_mode", _IOW('D', BASE_VIDIOC_PRIVATE + 5, bool)}},
 };
 

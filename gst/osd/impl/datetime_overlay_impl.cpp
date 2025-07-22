@@ -44,12 +44,6 @@ tl::expected<DateTimeOverlayImplPtr, media_library_return> DateTimeOverlayImpl::
     return osd_overlay;
 }
 
-std::shared_future<tl::expected<DateTimeOverlayImplPtr, media_library_return>> DateTimeOverlayImpl::create_async(
-    const osd::DateTimeOverlay &overlay)
-{
-    return std::async(std::launch::async, [overlay]() { return create(overlay); }).share();
-}
-
 tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> DateTimeOverlayImpl::create_dsp_overlays(
     int frame_width, int frame_height)
 {

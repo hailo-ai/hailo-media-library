@@ -84,6 +84,15 @@ class Blender::Impl final
     media_library_return remove_overlay_internal(const std::string &id);
     media_library_return add_overlay_internal(const OverlayImplPtr overlay);
 
+    // Configure overlay methods - create the overlay object but don't add it to collections
+    tl::expected<OverlayImplPtr, media_library_return> configure_overlay(const ImageOverlay &overlay);
+    tl::expected<OverlayImplPtr, media_library_return> configure_overlay(const TextOverlay &overlay);
+    tl::expected<OverlayImplPtr, media_library_return> configure_overlay(const DateTimeOverlay &overlay);
+    tl::expected<OverlayImplPtr, media_library_return> configure_overlay(const CustomOverlay &overlay);
+    media_library_return configure_overlay(const OverlayImplPtr &overlay); // Base configuration for all overlay types
+
+    media_library_return batch_replace_overlays(const std::vector<OverlayImplPtr> &new_overlays);
+
     void initialize_overlay_images();
 
     std::unordered_map<std::string, OverlayImplPtr> m_overlays;

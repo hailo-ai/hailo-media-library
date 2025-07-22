@@ -14,9 +14,9 @@ utils_sources = [
     'buffer_utils/gsthailobuffermeta.cpp',
     'osd/osd.cpp',
     'osd/alignment.cpp',
-    'utils/gsthailodmabufferpoolutils.cpp',
     'utils/gsthailodmabufallocator.cpp',
     'utils/gsthailodmabufferpool.cpp',
+    'common/gstmedialibptrs.cpp',
     'common/gstmedialibcommon.cpp',
     'osd/impl/blender_impl.cpp',
     'osd/impl/custom_overlay_impl.cpp',
@@ -44,7 +44,8 @@ gstmedialibutils_lib = shared_library('gstmedialibutils',
     cpp_args : common_args,
     link_args: ['-lm', '-Wl,-rpath,/usr/lib/gstreamer-1.0'],
     dependencies : gstreamer_deps + 
-                   [dsp_dep, media_library_common_dep, opencv_dep, spdlog_dep, v4l_dep, freetype_dep, harfbuzz_dep],
+                   [dsp_dep, media_library_common_dep, opencv_dep, spdlog_dep, v4l_dep, freetype_dep, harfbuzz_dep, fmt_dep],
+    link_whole: git_metadata_lib,
     gnu_symbol_visibility : 'default',
     version: meson.project_version(),
     install: true,
@@ -68,6 +69,7 @@ pkgc.generate(
 )
 
 install_headers('common/gstmedialibcommon.hpp')
+install_headers('common/gstmedialibptrs.hpp')
 install_headers('buffer_utils/buffer_utils.hpp')
 install_headers('buffer_utils/gsthailobuffermeta.hpp')
 install_headers('osd/osd.hpp')
@@ -98,12 +100,6 @@ plugin_sources = [
 
 hailort_inc_dirs = include_directories(
     sysroot + '/usr/include/hailo',
-    sysroot + '/usr/include/gst-hailo',
-    is_system: true
-)
-
-imaging_inc_dirs = include_directories(
-    sysroot + '/usr/include/imaging',
     is_system: true
 )
 
@@ -111,17 +107,14 @@ shared_library('gstmedialib',
     plugin_sources,
     cpp_args : common_args,
     link_args: ['-lhantro_vc8000e', '-lm'],
-    include_directories: hailort_inc_dirs,
+    include_directories: [hailort_inc_dirs],
     dependencies : gstreamer_deps + [opencv_dep, rapidjson_dep] + hailort_dep +
                    [dsp_dep, gstmedialibrary_utils_dep, encoder_dep,
-                   media_library_common_dep, media_library_frontend_dep, media_library_encoder_dep, imaging_hdr_dep],
+                   media_library_common_dep, media_library_frontend_dep, media_library_encoder_dep, fmt_dep],
+    link_whole: git_metadata_lib,
     gnu_symbol_visibility : 'default',
     version: meson.project_version(),
     install: true,
     install_dir: get_option('libdir') / 'gstreamer-1.0',
     install_rpath: '/usr/lib/gstreamer-1.0',
 )
-
-if get_option('include_unit_tests')
-  subdir('tests')
-endif

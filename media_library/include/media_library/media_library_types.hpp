@@ -29,6 +29,8 @@
 #include "dis_common.h"
 #include "dsp_utils.hpp"
 #include "encoder_config_types.hpp"
+#include "imaging/aaa_config_types.hpp"
+#include <cstdint>
 #include <tl/expected.hpp>
 #include <functional>
 #include <string>
@@ -52,6 +54,7 @@ enum media_library_return
     MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS,
     MEDIA_LIBRARY_BUFFER_NOT_FOUND,
     MEDIA_LIBRARY_FREETYPE_ERROR,
+    MEDIA_LIBRARY_PROFILE_IS_RESTRICTED,
 
     /** Max enum value to maintain ABI Integrity */
     MEDIA_LIBRARY_MAX = INT_MAX
@@ -125,6 +128,12 @@ enum class EncoderType
     Jpeg
 };
 
+enum class PrivacyMaskType
+{
+    COLOR,
+    PIXELIZATION
+};
+
 enum motion_detection_sensitivity_levels_t
 {
     LOWEST = 64,
@@ -162,12 +171,6 @@ struct isp_t
 struct hailort_t
 {
     std::string device_id;
-};
-
-enum hdr_resolution_t
-{
-    HDR_RESOLUTION_FHD = 0,
-    HDR_RESOLUTION_4K = 1,
 };
 
 enum hdr_dol_t
@@ -216,12 +219,14 @@ struct bayer_network_config_t
     bool operator==(const bayer_network_config_t &other) const
     {
         return (network_path == other.network_path) && (bayer_channel == other.bayer_channel) &&
-               (feedback_bayer_channel == other.feedback_bayer_channel) &&
-               (output_bayer_channel == other.output_bayer_channel);
+               (feedback_bayer_channel == other.feedback_bayer_channel) && (dgain_channel == other.dgain_channel) &&
+               (bls_channel == other.bls_channel) && (output_bayer_channel == other.output_bayer_channel);
     }
     std::string network_path;
     std::string bayer_channel;
     std::string feedback_bayer_channel;
+    std::string dgain_channel;
+    std::string bls_channel;
     std::string output_bayer_channel;
 };
 
@@ -304,13 +309,14 @@ struct output_resolution_t
     uint32_t framerate;
     uint32_t pool_max_buffers;
     dsp_utils::crop_resize_dims_t dimensions;
+    std::string stream_id;
     bool keep_aspect_ratio;
 
     bool operator==(const output_resolution_t &other) const
     {
         return framerate == other.framerate && dimensions.destination_width == other.dimensions.destination_width &&
                dimensions.destination_height == other.dimensions.destination_height &&
-               keep_aspect_ratio == other.keep_aspect_ratio;
+               keep_aspect_ratio == other.keep_aspect_ratio && stream_id == other.stream_id;
     }
     bool operator!=(const output_resolution_t &other) const
     {
@@ -332,6 +338,17 @@ struct output_resolution_t
                    dimensions.destination_height == other.dimensions.destination_width;
         return dimensions.destination_width == other.dimensions.destination_width &&
                dimensions.destination_height == other.dimensions.destination_height;
+    }
+
+    bool dimensions_and_aspect_ratio_equal(const output_resolution_t &other, bool rotated = false) const
+    {
+        if (rotated)
+            return dimensions.destination_width == other.dimensions.destination_height &&
+                   dimensions.destination_height == other.dimensions.destination_width &&
+                   keep_aspect_ratio == other.keep_aspect_ratio;
+        return dimensions.destination_width == other.dimensions.destination_width &&
+               dimensions.destination_height == other.dimensions.destination_height &&
+               keep_aspect_ratio == other.keep_aspect_ratio;
     }
 };
 
@@ -404,6 +421,7 @@ struct multi_resize_config_t
             output_resolution_t &current_res = application_input_streams_config.resolutions[i];
             output_resolution_t &new_res = mresize_config.application_input_streams_config.resolutions[i];
             current_res.framerate = new_res.framerate;
+            current_res.dimensions = new_res.dimensions;
         }
 
         // rotate if necessary
@@ -414,7 +432,6 @@ struct multi_resize_config_t
     {
         rotation_angle_t current_rotation_angle = rotation_config.effective_value();
         rotation_angle_t new_rotation_angle = new_rotation_config.effective_value();
-
         if (current_rotation_angle % 2 == new_rotation_angle % 2)
         {
             // new frame maybe rotated but has the same dimensions as current frame
@@ -425,10 +442,36 @@ struct multi_resize_config_t
         // need to rotate frame dimensions
         for (output_resolution_t &current_res : application_input_streams_config.resolutions)
         {
-            std::swap(current_res.dimensions.destination_width, current_res.dimensions.destination_height);
+            if ((!is_portrait(current_res.dimensions) && is_portrait(new_rotation_angle)) ||
+                (is_portrait(current_res.dimensions) && !is_portrait(new_rotation_angle)))
+            {
+                std::swap(current_res.dimensions.destination_width, current_res.dimensions.destination_height);
+            }
         }
         rotation_config = new_rotation_config;
+        if ((is_portrait(new_rotation_angle) &&
+             !is_portrait(digital_zoom_config.roi.width, digital_zoom_config.roi.height)) ||
+            (!is_portrait(new_rotation_angle) &&
+             is_portrait(digital_zoom_config.roi.width, digital_zoom_config.roi.height)))
+        {
+            // rotate zoom
+            std::swap(digital_zoom_config.roi.width, digital_zoom_config.roi.height);
+            std::swap(digital_zoom_config.roi.x, digital_zoom_config.roi.y);
+        }
         return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    bool is_portrait(rotation_angle_t rotation_angle)
+    {
+        return (rotation_angle == ROTATION_ANGLE_90 || rotation_angle == ROTATION_ANGLE_270);
+    }
+    bool is_portrait(dsp_utils::crop_resize_dims_t &dimensions)
+    {
+        return dimensions.destination_width < dimensions.destination_height;
+    }
+    bool is_portrait(size_t width, size_t height)
+    {
+        return width <= height;
     }
 
     tl::expected<std::reference_wrapper<output_resolution_t>, media_library_return> get_output_resolution_by_index(
@@ -501,47 +544,9 @@ struct ldc_config_t
         application_input_streams_config.dimensions.destination_height = 0;
     }
 
-    media_library_return update(ldc_config_t &ldc_configs)
-    {
-        bool disable_dewarp =
-            ldc_configs.optical_zoom_config.enabled && ldc_configs.optical_zoom_config.magnification >=
-                                                           ldc_configs.optical_zoom_config.max_dewarping_magnification;
+    media_library_return update(ldc_config_t &ldc_configs);
 
-        dewarp_config.enabled = disable_dewarp ? false : ldc_configs.dewarp_config.enabled;
-        dewarp_config.camera_type = dewarp_config.enabled ? CAMERA_TYPE_PINHOLE : CAMERA_TYPE_INPUT_DISTORTIONS;
-        dis_config = ldc_configs.dis_config;
-        eis_config = ldc_configs.eis_config;
-        gyro_config = ldc_configs.gyro_config;
-        optical_zoom_config = ldc_configs.optical_zoom_config;
-
-        // TODO: can we change interpolation type?
-        if (dewarp_config != ldc_configs.dewarp_config)
-        {
-            // Update dewarp configuration is restricted
-            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-        }
-
-        update_flip_rotate(ldc_configs);
-        return MEDIA_LIBRARY_SUCCESS;
-    }
-
-    void update_flip_rotate(ldc_config_t &ldc_configs)
-    {
-        flip_config = ldc_configs.flip_config;
-
-        rotation_angle_t current_rotation_angle = rotation_config.effective_value();
-        rotation_angle_t new_rotation_angle = ldc_configs.rotation_config.effective_value();
-        if (current_rotation_angle != new_rotation_angle)
-        {
-            if (current_rotation_angle % 2 !=
-                new_rotation_angle % 2) // if the rotation angle is not aligned, rotate the output resolutions
-            {
-                rotate_output_dimensions();
-            }
-        }
-
-        rotation_config = ldc_configs.rotation_config;
-    }
+    void update_flip_rotate(ldc_config_t &ldc_configs);
 
     bool check_ops_enabled(bool dewarp_actions_only = false)
     {
@@ -637,6 +642,61 @@ struct codec_config_t
     std::string config_path;
 };
 
+struct label_t
+{
+    std::string label;
+    uint32_t id;
+};
+
+enum class AnalyticsType
+{
+    DETECTION,
+    INSTANCE_SEGMENTATION,
+
+    /** Max enum value to maintain ABI Integrity */
+    ANALYTICS_TYPE_MAX = INT_MAX
+};
+
+enum class ScalingMode
+{
+    STRETCH,
+    LETTERBOX_MIDDLE,
+    LETTERBOX_UP_LEFT,
+
+    /** Max enum value to maintain ABI Integrity */
+    SCALING_MODE_MAX = INT_MAX
+};
+
+struct detection_analytics_config_t
+{
+    std::string analytics_data_id;
+    ScalingMode scaling_mode;
+    uint32_t width;
+    uint32_t height;
+    uint32_t original_width_ratio;
+    uint32_t original_height_ratio;
+    std::vector<label_t> labels;
+    size_t max_entries;
+};
+
+struct instance_segmentation_analytics_config_t
+{
+    std::string analytics_data_id;
+    ScalingMode scaling_mode;
+    uint32_t width;
+    uint32_t height;
+    uint32_t original_width_ratio;
+    uint32_t original_height_ratio;
+    std::vector<label_t> labels;
+    size_t max_entries;
+};
+
+struct application_analytics_config_t
+{
+    std::unordered_map<std::string, detection_analytics_config_t> detection_analytics_config;
+    std::unordered_map<std::string, instance_segmentation_analytics_config_t> instance_segmentation_analytics_config;
+};
+
 struct profile_config_t
 {
     multi_resize_config_t multi_resize_config;
@@ -648,10 +708,11 @@ struct profile_config_t
     input_video_config_t input_config;
     std::vector<codec_config_t> codec_configs;
     isp_config_files_t isp_config_files;
+    application_analytics_config_t application_analytics_config;
 
     profile_config_t()
         : multi_resize_config(), ldc_config(), hailort_config(), isp_config(), hdr_config(), denoise_config(),
-          input_config(), codec_configs(), isp_config_files()
+          input_config(), codec_configs(), isp_config_files(), application_analytics_config()
     {
     }
 };
@@ -666,10 +727,11 @@ struct frontend_config_t
     hdr_config_t hdr_config;
     hailort_t hailort_config;
     isp_t isp_config;
+    application_analytics_config_t application_analytics_config;
 
     frontend_config_t()
         : input_config(), ldc_config(), denoise_config(), multi_resize_config(), hdr_config(), hailort_config(),
-          isp_config()
+          isp_config(), application_analytics_config()
     {
     }
 
@@ -695,6 +757,7 @@ struct frontend_config_t
         hdr_config = profile_conf.hdr_config;
         hailort_config = profile_conf.hailort_config;
         isp_config = profile_conf.isp_config;
+        application_analytics_config = profile_conf.application_analytics_config;
         return *this;
     }
 };
@@ -754,6 +817,59 @@ struct medialib_config_t
         }
         return tl::unexpected(MEDIA_LIBRARY_ERROR);
     }
+};
+//------------------- AAA Configs -------------------
+
+struct aaa_config_t
+{
+    automatic_algorithms_config_t automatic_algorithms_config;
+};
+
+struct rgb_color_t
+{
+    uint r, g, b;
+};
+
+struct vertex
+{
+    int x, y;
+
+    vertex() : x(0), y(0)
+    {
+    }
+    vertex(int x, int y) : x(x), y(y)
+    {
+    }
+};
+
+struct polygon
+{
+    std::string id;
+    std::vector<vertex> vertices;
+};
+using PolygonPtr = std::shared_ptr<polygon>;
+
+struct static_privacy_mask_config_t
+{
+    bool enabled;
+    std::vector<polygon> masks;
+};
+
+struct dynamic_privacy_mask_config_t
+{
+    bool enabled;
+    std::string analytics_data_id;
+    std::vector<std::string> masked_labels;
+    size_t dilation_size;
+};
+
+struct privacy_mask_config_t
+{
+    PrivacyMaskType mask_type;
+    uint32_t pixelization_size; // Range: 2 to 64
+    rgb_color_t color_value;
+    std::optional<dynamic_privacy_mask_config_t> dynamic_privacy_mask_config;
+    std::optional<static_privacy_mask_config_t> static_privacy_mask_config;
 };
 
 /** @} */ // end of media_library_types_definitions

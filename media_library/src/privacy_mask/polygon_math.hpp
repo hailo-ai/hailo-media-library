@@ -46,9 +46,9 @@
  * @param frame_height The height of the frame.
  * @param privacy_mask_data The privacy mask data structure to fill.
  */
-media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mask_types::PolygonPtr> &polygons,
-                                                         const uint &frame_width, const uint &frame_height,
-                                                         privacy_mask_types::PrivacyMaskDataPtr privacy_mask_data);
+media_library_return write_polygons_to_privacy_mask_data(
+    std::vector<PolygonPtr> &polygons, const uint &frame_width, const uint &frame_height,
+    privacy_mask_types::StaticPrivacyMaskDataPtr privacy_mask_data);
 
 /**
  * @brief Rotates a vector of polygons.
@@ -56,8 +56,8 @@ media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mas
  * @param polygons Vector of polygons to rotate.
  * @param rotation_angle The rotation angle.
  */
-media_library_return rotate_polygons(std::vector<privacy_mask_types::PolygonPtr> &polygons, double rotation_angle,
-                                     uint frame_width, uint frame_height);
+media_library_return rotate_polygons(std::vector<PolygonPtr> &polygons, double rotation_angle, uint frame_width,
+                                     uint frame_height);
 
 /**
  * @brief Rotates a polygon.
@@ -65,5 +65,4 @@ media_library_return rotate_polygons(std::vector<privacy_mask_types::PolygonPtr>
  * @param polygon The polygon to rotate.
  * @param rotation_angle The rotation angle.
  */
-media_library_return rotate_polygon(privacy_mask_types::PolygonPtr polygon, double rotation_angle, uint frame_width,
-                                    uint frame_height);
+media_library_return rotate_polygon(PolygonPtr polygon, double rotation_angle, uint frame_width, uint frame_height);

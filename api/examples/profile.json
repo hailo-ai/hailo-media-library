@@ -26,8 +26,9 @@
             }
         ]
     },
+    "application_analytics": {},
     "dewarp": {
-        "enabled": false,
+        "enabled": true,
         "color_interpolation": "INTERPOLATION_TYPE_BILINEAR",
         "sensor_calib_path": "/home/root/apps/resources/cam_intrinsics.txt",
         "camera_type": "CAMERA_TYPE_PINHOLE"

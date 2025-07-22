@@ -1,4 +1,9 @@
 {
+    "privacy_mask": {
+        "mask_type": "COLOR",
+        "pixelization_size": 60,
+        "color_value": [0, 0, 0]
+    },
     "osd": {
         "image": [
             {
@@ -17,11 +22,7 @@
             {
                 "id": "example_datetime",
                 "font_size": 100,
-                "text_color": [
-                    255,
-                    0,
-                    0
-                ],
+                "text_color": [255, 0, 0],
                 "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
                 "x": 0.1,
                 "y": 0.7,
@@ -35,11 +36,7 @@
                 "id": "example_text1",
                 "label": "HailoAI",
                 "font_size": 100,
-                "text_color": [
-                    255,
-                    255,
-                    255
-                ],
+                "text_color": [255, 255, 255],
                 "x": 0.7,
                 "y": 0.05,
                 "z-index": 2,
@@ -51,11 +48,7 @@
                 "id": "example_text2",
                 "label": "camera name",
                 "font_size": 100,
-                "text_color": [
-                    102,
-                    0,
-                    51
-                ],
+                "text_color": [102, 0, 51],
                 "x": 0.05,
                 "y": 0.1,
                 "z-index": 1,

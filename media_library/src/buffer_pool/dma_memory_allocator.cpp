@@ -24,8 +24,10 @@
 #include "dma_memory_allocator.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
+#include "files_utils.hpp"
 #include "common.hpp"
 #include "env_vars.hpp"
+#include <fstream>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -38,7 +40,6 @@
 #include <sys/user.h>
 #include <unistd.h>
 
-#define DEVPATH "/dev/dma_heap/hailo_media_buf,cma"
 #define MODULE_NAME LoggerType::BufferPool
 
 DmaMemoryAllocator::DmaMemoryAllocator()
@@ -66,6 +67,8 @@ DmaMemoryAllocator::~DmaMemoryAllocator()
 
 media_library_return DmaMemoryAllocator::dmabuf_fd_open()
 {
+    static constexpr const char *DEVPATH = "/dev/dma_heap/hailo_media_buf,cma";
+
     std::unique_lock<std::mutex> lock(*m_allocator_mutex);
     if (m_dma_heap_fd_open)
     {
@@ -299,6 +302,35 @@ media_library_return DmaMemoryAllocator::free_dma_buffer(void *buffer)
                           fmt::ptr(buffer), length, fd_count);
 
     return MEDIA_LIBRARY_SUCCESS;
+}
+
+size_t DmaMemoryAllocator::get_free_memory_mb()
+{
+    static constexpr const char *CMA_PATH_BASE = "/sys/kernel/debug/cma/cma-hailo_media";
+    static constexpr std::string_view COUNT_FILE_PATH = "/count";
+    static constexpr std::string_view USED_FILE_PATH = "/used";
+    static constexpr size_t BYTES_PER_PAGE = 4096;
+    static constexpr size_t BYTES_PER_MB = 1024 * 1024;
+
+    auto count = files_utils::read_int_from_file(std::string(CMA_PATH_BASE) + std::string(COUNT_FILE_PATH));
+    auto used = files_utils::read_int_from_file(std::string(CMA_PATH_BASE) + std::string(USED_FILE_PATH));
+
+    if (!count || !used)
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Failed to read CMA statistics");
+        return 0;
+    }
+
+    if (*count < *used)
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Invalid CMA values: count={}, used={}", *count, *used);
+        return 0;
+    }
+
+    auto free_pages = *count - *used;
+    auto free_mb = (free_pages * BYTES_PER_PAGE) / BYTES_PER_MB;
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Free memory in CMA: {} MB ({} pages)", free_mb, free_pages);
+    return free_mb;
 }
 
 media_library_return DmaMemoryAllocator::dmabuf_sync(int fd, dma_buf_sync &sync)

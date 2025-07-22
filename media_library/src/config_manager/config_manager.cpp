@@ -48,6 +48,20 @@ class config_manager_error_handler : public nlohmann::json_schema::basic_error_h
     }
 };
 
+class config_manager_error_handler_does_not_throw : public nlohmann::json_schema::basic_error_handler
+{
+  public:
+    bool valid = true;
+    void error(const nlohmann::json_pointer<nlohmann::basic_json<>> &pointer, const nlohmann::json &instance,
+               const std::string &message) override
+    {
+        (void)pointer;
+        (void)instance;
+        (void)message;
+        valid = false;
+    }
+};
+
 class ConfigManager::ConfigManagerImpl
 {
   public:
@@ -67,6 +81,9 @@ class ConfigManager::ConfigManagerImpl
             break;
         case ConfigSchema::CONFIG_SCHEMA_OSD:
             m_config_validator.set_root_schema(config_schemas::osd_config_schema);
+            break;
+        case ConfigSchema::CONFIG_SCHEMA_PRIVACY_MASK:
+            m_config_validator.set_root_schema(config_schemas::privacy_mask_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_LDC:
             m_config_validator.set_root_schema(config_schemas::ldc_config_schema);
@@ -92,6 +109,9 @@ class ConfigManager::ConfigManagerImpl
         case ConfigSchema::CONFIG_SCHEMA_INPUT_VIDEO:
             m_config_validator.set_root_schema(config_schemas::input_video_config_schema);
             break;
+        case ConfigSchema::CONFIG_SCHEMA_APPLICATION_ANALYTICS:
+            m_config_validator.set_root_schema(config_schemas::application_analytics_config_schema);
+            break;
         case ConfigSchema::CONFIG_SCHEMA_FRONTEND:
             m_config_validator.set_root_schema(config_schemas::frontend_config_schema);
             break;
@@ -100,6 +120,15 @@ class ConfigManager::ConfigManagerImpl
             break;
         case ConfigSchema::CONFIG_SCHEMA_PROFILE:
             m_config_validator.set_root_schema(config_schemas::profile_config_schema);
+            break;
+        case ConfigSchema::CONFIG_SCHEMA_AAACONFIG:
+            m_config_validator.set_root_schema(config_schemas::aaa_config_schema);
+            break;
+        case ConfigSchema::CONFIG_SCHEMA_OLD_AAACONFIG:
+            m_config_validator.set_root_schema(config_schemas::old_aaa_config_schema);
+            break;
+        case ConfigSchema::CONFIG_SCHEMA_NONE:
+            m_config_validator.set_root_schema(config_schemas::empty_config_schema);
             break;
         }
     };
@@ -136,6 +165,14 @@ class ConfigManager::ConfigManagerImpl
      * @return media_library_return
      */
     media_library_return validate_config_string(const std::string &user_config_string);
+
+    /**
+     * @brief Validate the user's configuration json string against internal schema
+     *
+     * @param[in] user_config_string - the user's configuration (as a json string)
+     * @return bool - true if the configuration string is valid, false otherwise
+     */
+    bool is_valid_configuration(const std::string &user_config_string);
 
     /**
      * @brief Validate a json string and populate a configuration struct
@@ -179,9 +216,19 @@ class ConfigManager::ConfigManagerImpl
      * @brief Validate the user's configuration json against internal schema
      *
      * @param[in] user_config - the user's configuration
+     * @param[in] treat_invalid_as_error - if true, treat invalid configurations as errors
      * @return media_library_return
      */
-    media_library_return validate_config(const nlohmann::json &user_config);
+    media_library_return validate_config(const nlohmann::json &user_config, bool treat_invalid_as_error = true);
+    /**
+     * @brief Validate a configuration string and populate a configuration struct
+     *
+     * @param[in] user_config_string - the user's configuration (as a json string)
+     * @param[out] conf - the user's configuration (as a json string)
+     * @param treat_invalid_as_error - if true, treat invalid configurations as errors
+     * @return media_library_return
+     */
+    media_library_return validate_config_string(const std::string &user_config_string, bool treat_invalid_as_error);
 };
 
 //------------------------ ConfigManager ------------------------
@@ -198,6 +245,11 @@ ConfigManager::~ConfigManager()
 media_library_return ConfigManager::validate_configuration(const std::string &user_config_string)
 {
     return m_config_manager_impl->validate_config_string(user_config_string);
+}
+
+bool ConfigManager::is_valid_configuration(const std::string &user_config_string)
+{
+    return m_config_manager_impl->is_valid_configuration(user_config_string);
 }
 
 template <typename TConf>
@@ -236,12 +288,20 @@ template media_library_return ConfigManager::config_string_to_struct<vsm_config_
     const std::string &user_config_string, vsm_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<codec_config_t>(
     const std::string &user_config_string, codec_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<application_analytics_config_t>(
+    const std::string &user_config_string, application_analytics_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<frontend_config_t>(
     const std::string &user_config_string, frontend_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<medialib_config_t>(
     const std::string &user_config_string, medialib_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<profile_config_t>(
     const std::string &user_config_string, profile_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<automatic_algorithms_config_t>(
+    const std::string &user_config_string, automatic_algorithms_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<aaa_config_t>(
+    const std::string &user_config_string, aaa_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<privacy_mask_config_t>(
+    const std::string &user_config_string, privacy_mask_config_t &conf);
 
 template std::string ConfigManager::config_struct_to_string<input_video_config_t>(const input_video_config_t &conf);
 template std::string ConfigManager::config_struct_to_string<multi_resize_config_t>(const multi_resize_config_t &conf);
@@ -256,9 +316,17 @@ template std::string ConfigManager::config_struct_to_string<encoder_config_t>(co
 template std::string ConfigManager::config_struct_to_string<vsm_config_t>(const vsm_config_t &conf);
 template std::string ConfigManager::config_struct_to_string<isp_config_files_t>(const isp_config_files_t &conf);
 template std::string ConfigManager::config_struct_to_string<codec_config_t>(const codec_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<application_analytics_config_t>(
+    const application_analytics_config_t &conf);
 template std::string ConfigManager::config_struct_to_string<medialib_config_t>(const medialib_config_t &conf);
 template std::string ConfigManager::config_struct_to_string<profile_config_t>(const profile_config_t &conf);
 template std::string ConfigManager::config_struct_to_string<frontend_config_t>(const frontend_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<automatic_algorithms_config_t>(
+    const automatic_algorithms_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<aaa_config_t>(const aaa_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<isp_format_aaa_config_t>(
+    const isp_format_aaa_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<privacy_mask_config_t>(const privacy_mask_config_t &conf);
 
 tl::expected<std::string, media_library_return> ConfigManager::parse_config(std::string config_string,
                                                                             std::string entry)
@@ -273,19 +341,37 @@ EncoderType ConfigManager::get_encoder_type(const nlohmann::json &config_json)
 
 //------------------------ ConfigManagerImpl ------------------------
 
-media_library_return ConfigManager::ConfigManagerImpl::validate_config(const nlohmann::json &user_config)
+media_library_return ConfigManager::ConfigManagerImpl::validate_config(const nlohmann::json &user_config,
+                                                                       bool treat_invalid_as_error)
 {
-    config_manager_error_handler err;
-    m_config_validator.validate(user_config, err); // validate the document
-    if (err)
+    if (treat_invalid_as_error)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to validate given json against schema");
-        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+        config_manager_error_handler err;
+        m_config_validator.validate(user_config, err);
+        if (err)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to validate given json against schema");
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+        }
+        return MEDIA_LIBRARY_SUCCESS;
     }
-    return MEDIA_LIBRARY_SUCCESS;
+    config_manager_error_handler_does_not_throw err_f;
+    m_config_validator.validate(user_config, err_f);
+    return err_f.valid ? MEDIA_LIBRARY_SUCCESS : MEDIA_LIBRARY_CONFIGURATION_ERROR;
+}
+
+bool ConfigManager::ConfigManagerImpl::is_valid_configuration(const std::string &user_config_string)
+{
+    return validate_config_string(user_config_string, false) == MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return ConfigManager::ConfigManagerImpl::validate_config_string(const std::string &user_config_string)
+{
+    return validate_config_string(user_config_string, true);
+}
+
+media_library_return ConfigManager::ConfigManagerImpl::validate_config_string(const std::string &user_config_string,
+                                                                              bool treat_invalid_as_error)
 {
     const nlohmann::json user_config_json = nlohmann::json::parse(user_config_string, nullptr, false);
     if (user_config_json.is_discarded())
@@ -293,7 +379,7 @@ media_library_return ConfigManager::ConfigManagerImpl::validate_config_string(co
         LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to parse string as JSON");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-    media_library_return ret = validate_config(user_config_json);
+    media_library_return ret = validate_config(user_config_json, treat_invalid_as_error);
     return ret;
 }
 

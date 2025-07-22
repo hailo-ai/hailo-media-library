@@ -25,16 +25,16 @@ class MediaLibraryFrontend::Impl final
     media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
     media_library_return set_config(const std::string &json_config);
     media_library_return set_config(const frontend_config_t &config);
-    tl::expected<GstElement *, media_library_return> get_frontend_element();
+    tl::expected<GstElementPtr, media_library_return> get_frontend_element();
     tl::expected<frontend_config_t, media_library_return> get_config();
     media_library_return set_freeze(bool freeze);
     void on_need_data(GstAppSrc *appsrc, guint size);
     bool is_started();
+    bool wait_for_main_loop(std::chrono::milliseconds timeout);
     void on_enough_data(GstAppSrc *appsrc);
     GstFlowReturn on_new_sample(output_stream_id_t id, GstAppSink *appsink);
     void on_fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps);
 
-    PrivacyMaskBlenderPtr get_privacy_mask_blender();
     std::unordered_map<output_stream_id_t, float> get_output_streams_current_fps();
     gboolean on_bus_call(GstMessage *msg);
 
@@ -65,7 +65,7 @@ class MediaLibraryFrontend::Impl final
         return fe->on_bus_call(msg);
     }
 
-    bool set_gst_callbacks(GstElement *pipeline, frontend_src_element_t source_type,
+    bool set_gst_callbacks(GstElementPtr &pipeline, frontend_src_element_t source_type,
                            std::vector<frontend_output_stream_t> &output_streams);
     std::string create_pipeline_string(const std::string &frontend_json_config, frontend_src_element_t source_type,
                                        uint16_t input_width, uint16_t input_height,
@@ -73,7 +73,6 @@ class MediaLibraryFrontend::Impl final
     bool init_pipeline(const std::string &frontend_json_config, frontend_src_element_t source_type,
                        uint16_t input_width, uint16_t input_height,
                        std::vector<frontend_output_stream_t> &output_streams);
-    void deinit_pipeline();
 
     static std::optional<std::vector<frontend_output_stream_t>> create_output_streams(
         const nlohmann::json &output_streams_json);
@@ -84,17 +83,16 @@ class MediaLibraryFrontend::Impl final
     bool is_config_change_allowed(nlohmann::json old_output_streams_config, nlohmann::json new_output_streams_config,
                                   frontend_src_element_t new_config_input_stream_type);
 
-    GstAppSrc *m_appsrc = nullptr;
-    GstCaps *m_appsrc_caps = nullptr;
-    GMainLoop *m_main_loop = nullptr;
-    GstElement *m_pipeline = nullptr;
+    GstAppSrcPtr m_appsrc;
+    GstCapsPtr m_appsrc_caps;
+    GMainLoopPtr m_main_loop;
+    GstElementPtr m_pipeline;
 
     frontend_src_element_t m_src_element;
     std::string m_json_config_str;
     std::vector<frontend_output_stream_t> m_output_streams;
     guint m_send_buffer_id;
     std::map<output_stream_id_t, std::vector<FrontendWrapperCallback>> m_callbacks;
-    PrivacyMaskBlenderPtr m_privacy_blender;
     std::shared_ptr<std::thread> m_main_loop_thread;
     ConfigManager m_config_manager;
 };

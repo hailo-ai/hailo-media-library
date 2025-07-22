@@ -59,6 +59,9 @@ enum HailoFormat
      */
     HAILO_FORMAT_ARGB,
 
+    /** Grayscale format. One plane, each pixel is 12bit */
+    HAILO_FORMAT_GRAY12,
+
     /** Grayscale format. One plane, each pixel is 16bit */
     HAILO_FORMAT_GRAY16
 };

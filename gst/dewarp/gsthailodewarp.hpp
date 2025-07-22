@@ -29,6 +29,7 @@
 #pragma once
 
 #include "media_library/dewarp.hpp"
+#include "common/gstmedialibcommon.hpp"
 #include <fstream>
 #include <gst/gst.h>
 #include <memory>
@@ -49,10 +50,10 @@ typedef struct _GstHailoDewarp GstHailoDewarp;
 typedef struct _GstHailoDewarpParams GstHailoDewarpParams;
 typedef struct _GstHailoDewarpClass GstHailoDewarpClass;
 
-struct _GstHailoDewarpParams
+struct __attribute__((visibility("hidden"))) _GstHailoDewarpParams
 {
-    GstPad *sinkpad = nullptr;
-    GstPad *srcpad = nullptr;
+    GstPadPtr sinkpad;
+    GstPadPtr srcpad;
     std::string config_file_path;
     std::string config_string;
 
@@ -60,7 +61,7 @@ struct _GstHailoDewarpParams
     std::shared_ptr<MediaLibraryDewarp> medialib_dewarp;
 };
 
-struct _GstHailoDewarp
+struct __attribute__((visibility("hidden"))) _GstHailoDewarp
 {
     GstElement element;
     GstHailoDewarpParams *params = nullptr;

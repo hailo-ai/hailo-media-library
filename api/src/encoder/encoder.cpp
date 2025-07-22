@@ -87,13 +87,8 @@ MediaLibraryEncoder::Impl::Impl(media_library_return &status, std::string name)
 
 MediaLibraryEncoder::Impl::~Impl()
 {
-    deinit_pipeline();
-
-    if (m_main_loop != nullptr)
-    {
-        g_main_loop_unref(m_main_loop);
-        m_main_loop = nullptr;
-    }
+    LOGGER__MODULE__INFO(MODULE_NAME, "Cleaning encoder gst pipeline");
+    stop();
 }
 
 tl::expected<MediaLibraryEncoderPtr, media_library_return> MediaLibraryEncoder::create(std::string name)
@@ -140,17 +135,20 @@ media_library_return MediaLibraryEncoder::Impl::start()
 
     m_main_loop_thread = std::make_shared<std::thread>([this]() { g_main_loop_run(m_main_loop); });
 
-    GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
+    GstElementPtr encoder_bin = glib_cpp::ptrs::get_bin_by_name(m_pipeline, m_name);
     if (encoder_bin == nullptr)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get encoder bin");
         return MEDIA_LIBRARY_ERROR;
     }
     gpointer value = nullptr;
-    g_object_get(encoder_bin, "blender", &value, NULL);
-    osd::Blender *blender = static_cast<osd::Blender *>(value);
-    m_blender = blender->shared_from_this();
-    gst_object_unref(encoder_bin);
+    g_object_get(encoder_bin, "osd-blender", &value, NULL);
+    osd::Blender *osd_blender = static_cast<osd::Blender *>(value);
+    m_osd_blender = osd_blender->shared_from_this();
+    value = nullptr;
+    g_object_get(encoder_bin, "privacy-mask-blender", &value, NULL);
+    PrivacyMaskBlender *privacy_mask_blender = static_cast<PrivacyMaskBlender *>(value);
+    m_privacy_mask_blender = privacy_mask_blender->shared_from_this();
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -186,9 +184,8 @@ media_library_return MediaLibraryEncoder::Impl::stop()
         g_main_loop_quit(m_main_loop);
     }
 
-    GstBus *bus = gst_element_get_bus(m_pipeline);
+    GstBusPtr bus = gst_element_get_bus(m_pipeline);
     gst_bus_remove_watch(bus);
-    gst_object_unref(bus);
 
     g_main_context_wakeup(m_main_context);
     if (m_main_loop_thread->joinable())
@@ -228,7 +225,7 @@ std::string MediaLibraryEncoder::Impl::create_pipeline_string(const std::string 
         "text-overlay=false sync=false video-sink=\"appsink wait-on-eos=false max-buffers=1 qos=false "
         "name=encoder_sink\"";
 
-    LOGGER__MODULE__INFO(MODULE_NAME, "Pipeline: gst-launch-1.0 {}", pipeline);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Pipeline: gst-launch-1.0 {}", pipeline);
 
     return pipeline;
 }
@@ -279,12 +276,12 @@ static void on_queue_overrun(GstElement *queue, gpointer)
  *                           false if any element could not be found or there was an error.
  * @note Sets the new_sample callback, without callback user data (NULL).
  */
-bool MediaLibraryEncoder::Impl::set_gst_callbacks(GstElement *pipeline)
+bool MediaLibraryEncoder::Impl::set_gst_callbacks(GstElementPtr &pipeline)
 {
     GstAppSinkCallbacks appsink_callbacks = {};
 
     const gchar *gst_element_name = "fpsdisplaysink";
-    GstElement *fpssink = gst_bin_get_by_name(GST_BIN(pipeline), gst_element_name);
+    GstElementPtr fpssink = glib_cpp::ptrs::get_bin_by_name(pipeline, gst_element_name);
     if (fpssink == nullptr)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Could not find gst element {}", gst_element_name);
@@ -292,35 +289,27 @@ bool MediaLibraryEncoder::Impl::set_gst_callbacks(GstElement *pipeline)
     }
 
     gst_element_name = "encoder_sink";
-    GstElement *appsink = gst_bin_get_by_name(GST_BIN(pipeline), gst_element_name);
+    GstElementPtr appsink = glib_cpp::ptrs::get_bin_by_name(pipeline, gst_element_name);
     if (appsink == nullptr)
     {
-        gst_object_unref(fpssink);
         LOGGER__MODULE__ERROR(MODULE_NAME, "Could not find gst element {}", gst_element_name);
         return false;
     }
 
     gst_element_name = ENCODER_QUEUE_NAME;
-    GstElement *encoder_queue = gst_bin_get_by_name(GST_BIN(pipeline), gst_element_name);
+    GstElementPtr encoder_queue = glib_cpp::ptrs::get_bin_by_name(pipeline, gst_element_name);
     if (encoder_queue == nullptr)
     {
-        gst_object_unref(appsink);
-        gst_object_unref(fpssink);
         LOGGER__MODULE__ERROR(MODULE_NAME, "Could not find gst element {}", gst_element_name);
         return false;
     }
 
     g_signal_connect(fpssink, "fps-measurements", G_CALLBACK(fps_measurement), this);
     appsink_callbacks.new_sample = this->new_sample;
-    gst_app_sink_set_callbacks(GST_APP_SINK(appsink), &appsink_callbacks, (void *)this, NULL);
+    gst_app_sink_set_callbacks(GST_APP_SINK(appsink.get()), &appsink_callbacks, (void *)this, NULL);
 
     // Connect to the "overrun" signal of the queue
     g_signal_connect(encoder_queue, "overrun", G_CALLBACK(on_queue_overrun), NULL);
-
-    gst_object_unref(encoder_queue);
-    gst_object_unref(appsink);
-    gst_object_unref(fpssink);
-
     return true;
 }
 
@@ -350,26 +339,22 @@ gboolean MediaLibraryEncoder::Impl::on_bus_call(GstMessage *msg)
 media_library_return MediaLibraryEncoder::Impl::force_keyframe()
 {
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
-    GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
+    GstElementPtr encoder_bin = glib_cpp::ptrs::get_bin_by_name(m_pipeline, m_name);
     if (encoder_bin == nullptr)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Got null encoder bin element in get_config");
-        gst_object_unref(encoder_bin);
         return MEDIA_LIBRARY_ERROR;
     }
 
     LOGGER__MODULE__INFO(MODULE_NAME, "Force Keyframe requested from Encoder API");
     GstEvent *event = gst_video_event_new_downstream_force_key_unit(GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE,
                                                                     GST_CLOCK_TIME_NONE, TRUE, 1);
-    GstPad *sinkpad = gst_element_get_static_pad(encoder_bin, "sink");
+    GstPadPtr sinkpad = gst_element_get_static_pad(encoder_bin, "sink");
     if (!gst_pad_send_event(sinkpad, event))
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to send force key unit event to encoder");
         ret = MEDIA_LIBRARY_ERROR;
     }
-
-    gst_object_unref(sinkpad);
-    gst_object_unref(encoder_bin);
 
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Force Keyframe sent to encoder");
     return ret;
@@ -377,12 +362,12 @@ media_library_return MediaLibraryEncoder::Impl::force_keyframe()
 
 media_library_return MediaLibraryEncoder::Impl::add_buffer(HailoMediaLibraryBufferPtr ptr)
 {
-    GstBuffer *gst_buffer = gst_buffer_from_hailo_buffer(ptr, m_appsrc_caps);
-    if (!gst_buffer)
+    GstBufferPtr buffer = gst_buffer_from_hailo_buffer(ptr, m_appsrc_caps);
+    if (!buffer)
     {
         return MEDIA_LIBRARY_ERROR;
     }
-    GstFlowReturn ret = this->add_buffer_internal(gst_buffer);
+    GstFlowReturn ret = this->add_buffer_internal(buffer);
     if (ret != GST_FLOW_OK)
     {
         return MEDIA_LIBRARY_ERROR;
@@ -390,17 +375,12 @@ media_library_return MediaLibraryEncoder::Impl::add_buffer(HailoMediaLibraryBuff
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-GstFlowReturn MediaLibraryEncoder::Impl::add_gst_buffer(GstBuffer *buffer)
+GstFlowReturn MediaLibraryEncoder::Impl::add_buffer_internal(GstBufferPtr &buffer)
 {
-    return this->add_buffer_internal(buffer);
-}
-
-GstFlowReturn MediaLibraryEncoder::Impl::add_buffer_internal(GstBuffer *buffer)
-{
-    GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(m_appsrc), buffer);
+    GstFlowReturn ret = glib_cpp::ptrs::push_buffer_to_app_src(m_appsrc, buffer);
     if (ret != GST_FLOW_OK)
     {
-        GST_ERROR_OBJECT(m_appsrc, "Failed to push buffer to appsrc");
+        GST_ERROR_OBJECT(m_appsrc.get(), "Failed to push buffer to appsrc");
         return ret;
     }
     return ret;
@@ -412,8 +392,8 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
     {
         return GST_FLOW_OK;
     }
-    GstSample *sample;
-    GstBuffer *buffer;
+    GstSamplePtr sample;
+    GstBufferPtr buffer;
     GstHailoBufferMeta *buffer_meta;
     HailoMediaLibraryBufferPtr buffer_ptr;
     uint32_t used_size;
@@ -423,11 +403,10 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
         GST_ERROR("Failed to get sample from appsink May be EOS!");
         return GST_FLOW_OK;
     }
-    buffer = gst_sample_get_buffer(sample);
+    buffer = glib_cpp::ptrs::get_buffer_from_sample(sample);
     if (!buffer)
     {
         GST_ERROR("Failed to get buffer from sample");
-        gst_sample_unref(sample);
         return GST_FLOW_OK;
     }
     switch (m_encoder_type)
@@ -437,7 +416,6 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
         if (!buffer_meta)
         {
             GST_ERROR("Failed to get hailo buffer meta");
-            gst_sample_unref(sample);
             return GST_FLOW_ERROR;
         }
 
@@ -446,11 +424,10 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
         if (!buffer_ptr)
         {
             GST_ERROR("Failed to get hailo buffer ptr");
-            gst_sample_unref(sample);
             return GST_FLOW_ERROR;
         }
 
-        if (gst_buffer_is_writable(buffer))
+        if (gst_buffer_is_writable(buffer.get()))
             gst_buffer_remove_meta(buffer, &buffer_meta->meta);
         break;
     }
@@ -469,7 +446,6 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
         if (!hailo_buffer)
         {
             GST_ERROR("Failed to get hailo buffer ptr from jpeg");
-            gst_sample_unref(sample);
             return GST_FLOW_ERROR;
         }
         used_size = input_size;
@@ -478,7 +454,6 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
     }
     default:
         GST_ERROR("Invalid encoder type");
-        gst_sample_unref(sample);
         return GST_FLOW_ERROR;
     }
 
@@ -486,8 +461,6 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
     {
         callback(buffer_ptr, used_size);
     }
-
-    gst_sample_unref(sample);
 
     return GST_FLOW_OK;
 }
@@ -512,21 +485,31 @@ media_library_return MediaLibraryEncoder::add_buffer(HailoMediaLibraryBufferPtr 
     return m_impl->add_buffer(ptr);
 }
 
-std::shared_ptr<osd::Blender> MediaLibraryEncoder::Impl::get_blender()
+std::shared_ptr<osd::Blender> MediaLibraryEncoder::Impl::get_osd_blender()
 {
-    return m_blender;
+    return m_osd_blender;
 }
 
-std::shared_ptr<osd::Blender> MediaLibraryEncoder::get_blender()
+std::shared_ptr<osd::Blender> MediaLibraryEncoder::get_osd_blender()
 {
-    return m_impl->get_blender();
+    return m_impl->get_osd_blender();
+}
+
+std::shared_ptr<PrivacyMaskBlender> MediaLibraryEncoder::Impl::get_privacy_mask_blender()
+{
+    return m_privacy_mask_blender;
+}
+
+std::shared_ptr<PrivacyMaskBlender> MediaLibraryEncoder::get_privacy_mask_blender()
+{
+    return m_impl->get_privacy_mask_blender();
 }
 
 bool MediaLibraryEncoder::Impl::init_pipeline(const std::string &encoder_json_config, const InputParams &input_params,
                                               EncoderType encoder_type)
 {
     LOGGER__MODULE__INFO(MODULE_NAME, "Initializing encoder gst pipeline");
-    GstElement *pipeline =
+    GstElementPtr pipeline =
         gst_parse_launch(create_pipeline_string(encoder_json_config, input_params, encoder_type).c_str(), NULL);
     if (pipeline == nullptr)
     {
@@ -534,23 +517,19 @@ bool MediaLibraryEncoder::Impl::init_pipeline(const std::string &encoder_json_co
         return false;
     }
 
-    GstBus *bus = gst_element_get_bus(pipeline);
+    GstBusPtr bus = gst_element_get_bus(pipeline);
     gst_bus_add_watch(bus, (GstBusFunc)bus_call, this);
-    gst_object_unref(bus);
 
     const gchar *gst_element_name = "encoder_src";
-    GstElement *appsrc = gst_bin_get_by_name(GST_BIN(pipeline), gst_element_name);
+    GstElementPtr appsrc = glib_cpp::ptrs::get_bin_by_name(pipeline, gst_element_name);
     if (appsrc == nullptr)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Could not find gst element {}", gst_element_name);
-        gst_object_unref(pipeline);
         return false;
     }
 
     if (!set_gst_callbacks(pipeline))
     {
-        gst_object_unref(appsrc);
-        gst_object_unref(pipeline);
         return false;
     }
 
@@ -558,8 +537,6 @@ bool MediaLibraryEncoder::Impl::init_pipeline(const std::string &encoder_json_co
     {
         if (init_buffer_pool(input_params) != MEDIA_LIBRARY_SUCCESS)
         {
-            gst_object_unref(appsrc);
-            gst_object_unref(pipeline);
             return MEDIA_LIBRARY_ERROR;
         }
     }
@@ -568,31 +545,10 @@ bool MediaLibraryEncoder::Impl::init_pipeline(const std::string &encoder_json_co
         m_buffer_pool = nullptr;
     }
 
-    m_appsrc = GST_APP_SRC(appsrc);
-    m_pipeline = pipeline;
+    m_appsrc = glib_cpp::ptrs::element_to_app_src(appsrc);
+    m_pipeline = std::move(pipeline);
 
     return true;
-}
-
-void MediaLibraryEncoder::Impl::deinit_pipeline()
-{
-    LOGGER__MODULE__INFO(MODULE_NAME, "Cleaning encoder gst pipeline");
-    stop();
-    if (m_appsrc_caps != nullptr)
-    {
-        gst_caps_unref(m_appsrc_caps);
-        m_appsrc_caps = nullptr;
-    }
-    if (m_appsrc != nullptr)
-    {
-        gst_object_unref(m_appsrc);
-        m_appsrc = nullptr;
-    }
-    if (m_pipeline != nullptr)
-    {
-        gst_object_unref(m_pipeline);
-        m_pipeline = nullptr;
-    }
 }
 
 bool MediaLibraryEncoder::Impl::is_started()
@@ -648,28 +604,22 @@ media_library_return MediaLibraryEncoder::Impl::set_config(const std::string &js
     }
     else
     {
-        auto encoderbinsrc = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
+        GstElementPtr encoderbinsrc = glib_cpp::ptrs::get_bin_by_name(m_pipeline, m_name);
         if (encoderbinsrc == nullptr)
         {
             LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get encoderbinsrc");
             return MEDIA_LIBRARY_UNINITIALIZED;
         }
 
-        g_object_set(G_OBJECT(encoderbinsrc), "config-string", json_config_str.c_str(), NULL);
-        gst_object_unref(encoderbinsrc);
-    }
-
-    if (m_appsrc_caps != nullptr)
-    {
-        gst_caps_unref(m_appsrc_caps);
-        m_appsrc_caps = nullptr;
+        g_object_set(encoderbinsrc.as_g_object(), "config-string", json_config_str.c_str(), NULL);
     }
 
     m_appsrc_caps =
         gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, new_input_params.format.c_str(), "width",
                             G_TYPE_INT, new_input_params.width, "height", G_TYPE_INT, new_input_params.height,
                             "framerate", GST_TYPE_FRACTION, new_input_params.framerate, 1, NULL);
-    g_object_set(G_OBJECT(m_appsrc), "caps", m_appsrc_caps, NULL);
+    LOGGER__MODULE__INFO(MODULE_NAME, "Setting appsrc caps to {}", gst_caps_to_string(m_appsrc_caps.get()));
+    g_object_set(m_appsrc.as_g_object(), "caps", m_appsrc_caps.get(), NULL);
 
     m_input_params = new_input_params;
     m_json_config_str = json_config_str;
@@ -688,19 +638,14 @@ media_library_return MediaLibraryEncoder::Impl::set_config(const encoder_config_
         m_input_params.height = config_input_stream.height;
         m_input_params.framerate = config_input_stream.framerate;
 
-        if (m_appsrc_caps != nullptr)
-        {
-            gst_caps_unref(m_appsrc_caps);
-            m_appsrc_caps = nullptr;
-        }
         m_appsrc_caps =
             gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, m_input_params.format.c_str(), "width",
                                 G_TYPE_INT, m_input_params.width, "height", G_TYPE_INT, m_input_params.height,
                                 "framerate", GST_TYPE_FRACTION, m_input_params.framerate, 1, NULL);
-        g_object_set(G_OBJECT(m_appsrc), "caps", m_appsrc_caps, NULL);
+        g_object_set(m_appsrc.as_g_object(), "caps", m_appsrc_caps.get(), NULL);
     }
 
-    GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
+    GstElementPtr encoder_bin = glib_cpp::ptrs::get_bin_by_name(m_pipeline, m_name);
     if (encoder_bin == nullptr)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Got null encoder bin element in set_config");
@@ -708,7 +653,6 @@ media_library_return MediaLibraryEncoder::Impl::set_config(const encoder_config_
     }
 
     g_object_set(encoder_bin, "user-config", config, NULL);
-    gst_object_unref(encoder_bin);
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -721,7 +665,7 @@ encoder_config_t MediaLibraryEncoder::Impl::get_config()
     }
 
     encoder_config_t config;
-    GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
+    GstElementPtr encoder_bin = glib_cpp::ptrs::get_bin_by_name(m_pipeline, m_name);
     if (encoder_bin == nullptr)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Got null encoder bin element in get_config");
@@ -730,14 +674,13 @@ encoder_config_t MediaLibraryEncoder::Impl::get_config()
     gpointer value = nullptr;
     g_object_get(encoder_bin, "config", &value, NULL);
     config = *static_cast<encoder_config_t *>(value);
-    gst_object_unref(encoder_bin);
     return config;
 }
 
 encoder_config_t MediaLibraryEncoder::Impl::get_user_config()
 {
     encoder_config_t config;
-    GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
+    GstElementPtr encoder_bin = glib_cpp::ptrs::get_bin_by_name(m_pipeline, m_name);
     if (encoder_bin == nullptr)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Got null encoder bin element in get_user_config");
@@ -746,7 +689,6 @@ encoder_config_t MediaLibraryEncoder::Impl::get_user_config()
     gpointer value = nullptr;
     g_object_get(encoder_bin, "user-config", &value, NULL);
     config = *static_cast<encoder_config_t *>(value);
-    gst_object_unref(encoder_bin);
     return config;
 }
 
@@ -798,7 +740,7 @@ float MediaLibraryEncoder::get_current_fps()
 encoder_monitors MediaLibraryEncoder::Impl::get_encoder_monitors()
 {
     encoder_monitors monitors;
-    GstElement *encoder_bin = gst_bin_get_by_name(GST_BIN(m_pipeline), m_name.c_str());
+    GstElementPtr encoder_bin = glib_cpp::ptrs::get_bin_by_name(m_pipeline, m_name);
     if (encoder_bin == nullptr)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Got null encoder bin element in get_encoder_monitors");
@@ -807,7 +749,6 @@ encoder_monitors MediaLibraryEncoder::Impl::get_encoder_monitors()
     gpointer value = nullptr;
     g_object_get(encoder_bin, "encoder-monitors", &value, NULL);
     monitors = *static_cast<encoder_monitors *>(value);
-    gst_object_unref(encoder_bin);
     return monitors;
 }
 

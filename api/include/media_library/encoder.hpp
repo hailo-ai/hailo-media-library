@@ -28,6 +28,7 @@
 #include "media_library/buffer_pool.hpp"
 #include "media_library/media_library_types.hpp"
 #include "media_library/encoder_config.hpp"
+#include "media_library/privacy_mask.hpp"
 #include "osd.hpp"
 #include <functional>
 #include <memory>
@@ -133,7 +134,14 @@ class MediaLibraryEncoder
      * @return :shared_ptr containing the object
      * @ref osd::Blender
      */
-    std::shared_ptr<osd::Blender> get_blender();
+    std::shared_ptr<osd::Blender> get_osd_blender();
+
+    /**
+     * @brief Get a privacy mask manager object
+     * @return :shared_ptr containing the object
+     * @ref PrivacyMaskBlender
+     */
+    std::shared_ptr<PrivacyMaskBlender> get_privacy_mask_blender();
 
     /**
      * @brief

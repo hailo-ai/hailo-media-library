@@ -1,11 +1,11 @@
 {
-	"vsm": {
-			"vsm_h_size" : 1920,
-			"vsm_h_offset" : 960,
-			"vsm_v_size" : 1080,
-			"vsm_v_offset" : 540
-		},
-	"3dnr": {
-			"enable" : true
-		}
+    "vsm": {
+        "vsm_h_size": 1920,
+        "vsm_h_offset": 960,
+        "vsm_v_size": 1080,
+        "vsm_v_offset": 540
+    },
+    "3dnr": {
+        "enable": true
+    }
 }

@@ -1,7 +1,9 @@
 #include "media_library/media_library.hpp"
+#include "media_library/media_library_logger.hpp"
 #include "media_library/utils.hpp"
 #include "media_library/logger_macros.hpp"
-#include "media_library/media_library_logger.hpp"
+#include "media_library/env_vars.hpp"
+#include "media_library/common.hpp"
 #include <iostream>
 #include <string>
 #include <vector>
@@ -19,6 +21,12 @@
 
 MediaLibrary::MediaLibrary() : m_media_lib_config_manager()
 {
+    m_pipeline_state_change_callback = nullptr;
+    m_profile_restricted_callback = nullptr;
+    m_profile_restriction_done_callback = nullptr;
+    m_media_lib_config_manager.m_restricted_profile_type = restricted_profile_type_t::RESTICTED_PROFILE_NONE;
+    m_pipeline_state = media_library_pipeline_state_t::PIPELINE_STATE_UNINITIALIZED;
+    m_enable_profile_restriction = true;
     LOGGER__MODULE__DEBUG(MODULE_NAME, "MediaLibrary instance created");
 }
 
@@ -41,6 +49,8 @@ media_library_return MediaLibrary::create_frontend(std::string frontend_config_s
         return config_return;
     }
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Frontend configured successfully");
+    update_frontend_config();
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Frontend config updated successfully");
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -59,6 +69,8 @@ media_library_return MediaLibrary::create_frontend(frontend_config_t frontend_co
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure frontend");
         return config_return;
     }
+    update_frontend_config();
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Frontend config updated successfully");
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -94,9 +106,67 @@ media_library_return MediaLibrary::create_encoders(std::map<output_stream_id_t, 
     LOGGER__MODULE__DEBUG(MODULE_NAME, "All encoders created and configured successfully");
     return MEDIA_LIBRARY_SUCCESS;
 }
+
+media_library_return MediaLibrary::initialize_thermal_throttling_monitor()
+{
+    if (!m_enable_profile_restriction)
+    {
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    // Use the factory to create a ThrottlingStateMonitor instance
+    m_throttling_monitor = ThrottlingStateMonitor::create();
+    m_throttling_monitor->subscribe(throttling_state_t::FULL_PERFORMANCE,
+                                    [this]() { on_throttling_state_change(throttling_state_t::FULL_PERFORMANCE); });
+    m_throttling_monitor->subscribe(throttling_state_t::FULL_PERFORMANCE_COOLING, [this]() {
+        on_throttling_state_change(throttling_state_t::FULL_PERFORMANCE_COOLING);
+    });
+    m_throttling_monitor->subscribe(throttling_state_t::THROTTLING_S0_HEATING, [this]() {
+        on_throttling_state_change(throttling_state_t::THROTTLING_S0_HEATING);
+    });
+    m_throttling_monitor->subscribe(throttling_state_t::THROTTLING_S3_COOLING, [this]() {
+        on_throttling_state_change(throttling_state_t::THROTTLING_S3_COOLING);
+    });
+    m_throttling_monitor->subscribe(throttling_state_t::THROTTLING_S4_HEATING, [this]() {
+        on_throttling_state_change(throttling_state_t::THROTTLING_S4_HEATING);
+    });
+    m_throttling_monitor->subscribe(throttling_state_t::THROTTLING_S4_COOLING, [this]() {
+        on_throttling_state_change(throttling_state_t::THROTTLING_S4_COOLING);
+    });
+
+    // TODO: add the rest throttling states S2, S1
+
+#ifdef ENABLE_THROTTLING_MANAGER
+    if (m_throttling_monitor->start() != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to start throttling monitor");
+        return MEDIA_LIBRARY_ERROR;
+    }
+#endif
+
+    on_throttling_state_change(m_throttling_monitor->get_active_state());
+    LOGGER__MODULE__INFO(MODULE_NAME, "Throttling monitor started successfully");
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return MediaLibrary::on_profile_restricted(std::function<void(ProfileConfig, ProfileConfig)> callback)
+{
+    m_profile_restricted_callback = callback;
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return MediaLibrary::on_profile_restriction_done(std::function<void()> callback)
+{
+    m_profile_restriction_done_callback = callback;
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
 media_library_return MediaLibrary::initialize(std::string medialib_config_string)
 {
     LOGGER__MODULE__TRACE(MODULE_NAME, "Initializing MediaLibrary with config string");
+
+    m_media_lib_config_manager.m_restricted_profile_type = restricted_profile_type_t::RESTICTED_PROFILE_NONE;
+
     m_media_lib_config_manager.configure_medialib(medialib_config_string);
 
     if (create_frontend(m_media_lib_config_manager.get_frontend_config_as_string()) != MEDIA_LIBRARY_SUCCESS)
@@ -112,15 +182,40 @@ media_library_return MediaLibrary::initialize(std::string medialib_config_string
     }
 
     LOGGER__MODULE__DEBUG(MODULE_NAME, "MediaLibrary initialized successfully");
-    set_override_profile(m_media_lib_config_manager.m_current_profile);
+    set_override_parameters(m_media_lib_config_manager.m_current_profile);
     configure_isp(m_media_lib_config_manager.get_3a_config(), m_media_lib_config_manager.get_sensor_entry());
+    auto &analytics_db = get_analytics_db();
+    analytics_db.initialize(m_media_lib_config_manager.m_current_profile.application_analytics_config);
 
+    if (initialize_thermal_throttling_monitor() != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to start throttling monitor");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    m_pipeline_state = media_library_pipeline_state_t::PIPELINE_STATE_STOPPED;
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return MediaLibrary::update_frontend_config()
+{
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Updating frontend config");
+    tl::expected<frontend_config_t, media_library_return> updated_frontend_config = m_frontend->get_config();
+    if (!updated_frontend_config.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get updated frontend config");
+        return MEDIA_LIBRARY_ERROR;
+    }
+    m_media_lib_config_manager.set_frontend_config(updated_frontend_config.value());
     return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return MediaLibrary::initialize(std::string frontend_config_json_string,
                                               std::map<output_stream_id_t, encoder_config_t> encoders_config_paths)
 {
+    m_media_lib_config_manager.m_restricted_profile_type = restricted_profile_type_t::RESTICTED_PROFILE_NONE;
+
     if (create_frontend(frontend_config_json_string) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create frontend");
@@ -132,6 +227,15 @@ media_library_return MediaLibrary::initialize(std::string frontend_config_json_s
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create encoders");
         return MEDIA_LIBRARY_ERROR;
     }
+
+    if (initialize_thermal_throttling_monitor() != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to start throttling monitor");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    m_pipeline_state = media_library_pipeline_state_t::PIPELINE_STATE_STOPPED;
+
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -144,6 +248,8 @@ media_library_return MediaLibrary::configure_frontend_encoder(
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure frontend");
         return frontend_config_return;
     }
+    update_frontend_config();
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Frontend config updated successfully");
     for (const auto &entry : m_encoders)
     {
         media_library_return encoder_config_return = entry.second->set_config(encoders_config[entry.first]);
@@ -152,6 +258,106 @@ media_library_return MediaLibrary::configure_frontend_encoder(
             LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure encoder for stream {}", entry.first);
             return encoder_config_return;
         }
+    }
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "All encoders configured successfully");
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return MediaLibrary::restrict_profile_denoise_off()
+{
+    ProfileConfig previous_profile = m_media_lib_config_manager.m_current_profile;
+    if (m_media_lib_config_manager.m_restricted_profile_type !=
+            restricted_profile_type_t::RESTICTED_PROFILE_DENOISE_OFF &&
+        previous_profile.denoise_config.enabled)
+    {
+        LOGGER__MODULE__WARNING(MODULE_NAME,
+                                "Restricting current profile including AI denoise enabled - setting default profile");
+        ProfileConfig restricted_profile = m_media_lib_config_manager.get_default_profile();
+        if (restricted_profile.denoise_config.enabled)
+        {
+            LOGGER__MODULE__WARNING(MODULE_NAME, "Default profile has denoise enabled - disabling denoise");
+            restricted_profile.denoise_config.enabled = false;
+        }
+        if (set_override_parameters(restricted_profile) != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set restricted profile");
+            return MEDIA_LIBRARY_ERROR;
+        }
+
+        LOGGER__MODULE__DEBUG(MODULE_NAME,
+                              "Restricted profile with denoise off set successfully - notifying user callback");
+        m_profile_restricted_callback(previous_profile, restricted_profile);
+    }
+
+    m_media_lib_config_manager.m_restricted_profile_type = restricted_profile_type_t::RESTICTED_PROFILE_DENOISE_OFF;
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return MediaLibrary::on_throttling_state_change(throttling_state_t state)
+{
+    switch (state)
+    {
+    case throttling_state_t::FULL_PERFORMANCE: {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Handling thermal state change to FULL_PERFORMANCE");
+        if (m_media_lib_config_manager.m_restricted_profile_type ==
+            restricted_profile_type_t::RESTICTED_PROFILE_DENOISE_OFF)
+        {
+            LOGGER__MODULE__WARNING(MODULE_NAME, "Profile restriction off AI denoise has been removed");
+            m_media_lib_config_manager.m_restricted_profile_type = restricted_profile_type_t::RESTICTED_PROFILE_NONE;
+            m_profile_restriction_done_callback();
+        }
+        break;
+    }
+    case throttling_state_t::FULL_PERFORMANCE_COOLING: {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Handling thermal state change to FULL_PERFORMANCE_COOLING");
+        restrict_profile_denoise_off();
+        break;
+    }
+    case throttling_state_t::THROTTLING_S0_HEATING: {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Handling thermal state change to THROTTLING_S0_HEATING");
+        restrict_profile_denoise_off();
+        break;
+    }
+    case throttling_state_t::THROTTLING_S3_COOLING: {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Handling thermal state change to THROTTLING_S3_COOLING");
+        if (m_media_lib_config_manager.m_restricted_profile_type ==
+            restricted_profile_type_t::RESTICTED_PROFILE_STREAMING_OFF)
+        {
+            LOGGER__MODULE__WARNING(MODULE_NAME, "Pipeline is back to normal thermal state - streaming is enabled");
+            start_pipeline_internal();
+        }
+        restrict_profile_denoise_off();
+        break;
+    }
+    case throttling_state_t::THROTTLING_S4_HEATING: {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Handling thermal state change to THROTTLING_S4_HEATING");
+        if (m_media_lib_config_manager.m_restricted_profile_type !=
+            restricted_profile_type_t::RESTICTED_PROFILE_STREAMING_OFF)
+        {
+            LOGGER__MODULE__WARNING(MODULE_NAME, "Pipeline in critical thermal state - streaming is disabled");
+            // TODO: Check if already stopped
+            stop_pipeline_internal();
+            m_media_lib_config_manager.m_restricted_profile_type =
+                restricted_profile_type_t::RESTICTED_PROFILE_STREAMING_OFF;
+        }
+        break;
+    }
+    case throttling_state_t::THROTTLING_S4_COOLING: {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Handling thermal state change to THROTTLING_S4_COOLING");
+        if (m_media_lib_config_manager.m_restricted_profile_type ==
+            restricted_profile_type_t::RESTICTED_PROFILE_STREAMING_OFF)
+        {
+            LOGGER__MODULE__WARNING(MODULE_NAME, "Pipeline is back to normal thermal state - streaming is enabled");
+            // TODO: check if already started
+            start_pipeline();
+        }
+        restrict_profile_denoise_off();
+        break;
+    }
+    default:
+        break;
     }
 
     return MEDIA_LIBRARY_SUCCESS;
@@ -165,22 +371,30 @@ media_library_return MediaLibrary::configure_isp(const std::string &_3aconfig, c
     // Get current timestamp
     auto now = std::chrono::system_clock::now();
     auto time_t_now = std::chrono::system_clock::to_time_t(now);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
     std::stringstream timestamp;
-    timestamp << std::put_time(std::localtime(&time_t_now), "%Y%m%d%H%M%S");
+    timestamp << std::put_time(std::localtime(&time_t_now), "%Y%m%d%H%M%S") << std::setw(3) << std::setfill('0')
+              << ms.count();
 
     // Construct destination file paths in /tmp/
     std::string new_3aconfig = "/tmp/" + fs::path(_3aconfig).filename().string() + "_" + timestamp.str();
     std::string new_sensor_entry = "/tmp/" + fs::path(sensor_entry).filename().string() + "_" + timestamp.str();
 
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Copying 3A config to {}", new_3aconfig);
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Copying sensor entry to {}", new_sensor_entry);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Dumping 3A config to {}", new_3aconfig);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Dumping sensor entry to {}", new_sensor_entry);
 
-    // Copy files to /tmp/
-    if (!fs::copy_file(_3aconfig, new_3aconfig, fs::copy_options::overwrite_existing))
+    // dump isp config to /tmp/
+    auto isp_format_json = m_media_lib_config_manager.get_3a_config_as_string();
+    std::ofstream out_3aconfig(new_3aconfig);
+    if (!out_3aconfig.is_open())
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to copy 3A config to {}", new_3aconfig);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to open file for writing: {}", new_3aconfig);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
+    out_3aconfig << isp_format_json;
+    out_3aconfig.close();
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "3A config written to {}", new_3aconfig);
+
     if (!fs::copy_file(sensor_entry, new_sensor_entry, fs::copy_options::overwrite_existing))
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to copy sensor entry to {}", new_sensor_entry);
@@ -217,12 +431,20 @@ media_library_return MediaLibrary::configure_isp(const std::string &_3aconfig, c
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibrary::set_override_profile(ProfileConfig profile)
+media_library_return MediaLibrary::set_override_parameters(ProfileConfig profile)
 {
     ProfileConfig previous_profile = m_media_lib_config_manager.m_current_profile;
     // Verify that denoise / hdr / didn't change
     // Schema profile codec_configs entire encoder_config_t
     m_media_lib_config_manager.set_profile(profile);
+
+    // Check if profile is valid in this thermal state
+    if (!validate_profile_restrictions(m_media_lib_config_manager.m_current_profile))
+    {
+        m_media_lib_config_manager.set_profile(previous_profile);
+        return MEDIA_LIBRARY_PROFILE_IS_RESTRICTED;
+    }
+
     bool restart_required = stream_restart_required(previous_profile);
     if (restart_required)
     {
@@ -240,6 +462,51 @@ media_library_return MediaLibrary::set_override_profile(ProfileConfig profile)
     return MEDIA_LIBRARY_SUCCESS;
 }
 
+media_library_pipeline_state_t MediaLibrary::get_pipeline_state() const
+{
+    return m_pipeline_state;
+}
+
+media_library_return MediaLibrary::on_pipeline_state_change(
+    std::function<void(media_library_pipeline_state_t)> callback)
+{
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Setting pipeline state change callback");
+    m_pipeline_state_change_callback = callback;
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+bool MediaLibrary::validate_profile_restrictions(const ProfileConfig &profile)
+{
+    if (!m_enable_profile_restriction)
+    {
+        return true;
+    }
+
+    std::unique_lock<std::mutex> lock(m_mutex);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Validating profile restrictions");
+    switch (m_media_lib_config_manager.m_restricted_profile_type)
+    {
+    case restricted_profile_type_t::RESTICTED_PROFILE_DENOISE_OFF: {
+        if (profile.denoise_config.enabled)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME,
+                                  "Validation of profile against restriction failed - requested AI Denoise enabled = "
+                                  "true. this is a restricted profile on this thermal state");
+            return false;
+        }
+        break;
+    }
+    case restricted_profile_type_t::RESTICTED_PROFILE_STREAMING_OFF: {
+        LOGGER__MODULE__ERROR(MODULE_NAME,
+                              "Pipeline in critical thermal state - streaming is disabled - cannot change profile");
+        return false;
+    }
+    default:
+        break;
+    }
+    return true;
+}
+
 bool MediaLibrary::stream_restart_required(ProfileConfig previous_profile)
 {
     ProfileConfig new_profile = m_media_lib_config_manager.m_current_profile;
@@ -250,9 +517,11 @@ bool MediaLibrary::stream_restart_required(ProfileConfig previous_profile)
     // Res changes
     for (const auto &resolution : previous_profile.multi_resize_config.application_input_streams_config.resolutions)
     {
-        if (std::find(new_profile.multi_resize_config.application_input_streams_config.resolutions.begin(),
-                      new_profile.multi_resize_config.application_input_streams_config.resolutions.end(),
-                      resolution) == new_profile.multi_resize_config.application_input_streams_config.resolutions.end())
+        if (std::find_if(new_profile.multi_resize_config.application_input_streams_config.resolutions.begin(),
+                         new_profile.multi_resize_config.application_input_streams_config.resolutions.end(),
+                         [&resolution](const auto &res) {
+                             return resolution.dimensions_and_aspect_ratio_equal(res);
+                         }) == new_profile.multi_resize_config.application_input_streams_config.resolutions.end())
         {
             restart_required |= true;
             break;
@@ -274,10 +543,21 @@ media_library_return MediaLibrary::set_profile(std::string profile_name)
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
-    return set_override_profile(m_media_lib_config_manager.m_medialib_config.profiles[profile_name]);
+    return set_override_parameters(m_media_lib_config_manager.m_medialib_config.profiles[profile_name]);
 }
 
-tl::expected<ProfileConfig, media_library_return> MediaLibrary::get_current_profile() const
+tl::expected<ProfileConfig, media_library_return> MediaLibrary::get_profile(const std::string &profile_name)
+{
+    auto it = m_media_lib_config_manager.m_medialib_config.profiles.find(profile_name);
+    if (it != m_media_lib_config_manager.m_medialib_config.profiles.end())
+    {
+        return it->second;
+    }
+
+    return tl::unexpected(MEDIA_LIBRARY_INVALID_ARGUMENT);
+}
+
+tl::expected<ProfileConfig, media_library_return> MediaLibrary::get_current_profile()
 {
     // TODO: sync encoder config sync frontend config
     return m_media_lib_config_manager.m_current_profile;
@@ -297,6 +577,31 @@ media_library_return MediaLibrary::subscribe_to_encoder_output(output_stream_id_
 
 media_library_return MediaLibrary::start_pipeline()
 {
+    if (m_pipeline_state == media_library_pipeline_state_t::PIPELINE_STATE_UNINITIALIZED)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Pipeline is not initialized");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    if (m_pipeline_state == media_library_pipeline_state_t::PIPELINE_STATE_RUNNING)
+    {
+        LOGGER__MODULE__WARNING(MODULE_NAME, "Pipeline is already running");
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    if (m_media_lib_config_manager.m_restricted_profile_type ==
+        restricted_profile_type_t::RESTICTED_PROFILE_STREAMING_OFF)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Pipeline in critical thermal state - streaming is disabled");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    return start_pipeline_internal();
+}
+
+media_library_return MediaLibrary::start_pipeline_internal()
+{
+    std::unique_lock<std::mutex> lock(m_mutex);
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Starting pipeline");
     for (const auto &entry : m_encoders)
     {
@@ -304,12 +609,36 @@ media_library_return MediaLibrary::start_pipeline()
         entry.second->start();
     }
     m_frontend->start();
+
+    m_pipeline_state = media_library_pipeline_state_t::PIPELINE_STATE_RUNNING;
+    if (m_pipeline_state_change_callback)
+    {
+        m_pipeline_state_change_callback(m_pipeline_state);
+    }
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Pipeline started successfully");
     return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return MediaLibrary::stop_pipeline()
 {
+    if (m_pipeline_state == media_library_pipeline_state_t::PIPELINE_STATE_UNINITIALIZED)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Pipeline is not initialized");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    if (m_pipeline_state == media_library_pipeline_state_t::PIPELINE_STATE_STOPPED)
+    {
+        LOGGER__MODULE__WARNING(MODULE_NAME, "Pipeline is already stopped");
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    return stop_pipeline_internal();
+}
+
+media_library_return MediaLibrary::stop_pipeline_internal()
+{
+    std::unique_lock<std::mutex> lock(m_mutex);
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Stopping pipeline");
     m_frontend->stop();
     for (const auto &entry : m_encoders)
@@ -317,8 +646,19 @@ media_library_return MediaLibrary::stop_pipeline()
         LOGGER__MODULE__TRACE(MODULE_NAME, "Stopping encoder for stream {}", entry.first);
         entry.second->stop();
     }
+
+    m_pipeline_state = media_library_pipeline_state_t::PIPELINE_STATE_STOPPED;
+    if (m_pipeline_state_change_callback)
+    {
+        m_pipeline_state_change_callback(m_pipeline_state);
+    }
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Pipeline stopped successfully");
     return MEDIA_LIBRARY_SUCCESS;
+}
+
+AnalyticsDB &MediaLibrary::get_analytics_db()
+{
+    return AnalyticsDB::instance();
 }
 
 MediaLibrary::~MediaLibrary()
@@ -326,6 +666,9 @@ MediaLibrary::~MediaLibrary()
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Destroying MediaLibrary instance");
     m_frontend = nullptr;
     m_encoders.clear();
+#ifdef ENABLE_THROTTLING_MANAGER
+    m_throttling_monitor->stop();
+#endif
     std::string symlink_3aconfig = "/usr/bin/isp_3aconfig_0";
     std::string symlink_sensor = "/usr/bin/isp_sensor_0_entry";
     safe_remove_symlink_target(symlink_3aconfig);

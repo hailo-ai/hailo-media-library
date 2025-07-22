@@ -38,6 +38,7 @@
 enum ConfigSchema
 {
     CONFIG_SCHEMA_OSD,
+    CONFIG_SCHEMA_PRIVACY_MASK,
     CONFIG_SCHEMA_ENCODER,
     CONFIG_SCHEMA_MULTI_RESIZE,
     CONFIG_SCHEMA_LDC,
@@ -51,6 +52,10 @@ enum ConfigSchema
     CONFIG_SCHEMA_MEDIALIB_CONFIG,
     CONFIG_SCHEMA_PROFILE,
     CONFIG_SCHEMA_ISP_CONFIG,
+    CONFIG_SCHEMA_APPLICATION_ANALYTICS,
+    CONFIG_SCHEMA_AAACONFIG,
+    CONFIG_SCHEMA_OLD_AAACONFIG,
+    CONFIG_SCHEMA_NONE,
 };
 
 class ConfigManager
@@ -96,6 +101,15 @@ class ConfigManager
      * @return media_library_return
      */
     media_library_return validate_configuration(const std::string &user_config_string);
+
+    /**
+     * @brief Check if the user's configuration json string is valid
+     *
+     * @param[in] user_config_string - the user's configuration (as a json
+     * string)
+     * @return true if valid, false otherwise
+     */
+    bool is_valid_configuration(const std::string &user_config_string);
 
     /**
      * @brief Validate a json string and populate a configuration struct

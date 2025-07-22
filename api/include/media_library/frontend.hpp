@@ -174,13 +174,6 @@ class MediaLibraryFrontend
     media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
 
     /**
-     * @brief Get a privacy mask manager object
-     * @return :pointer containing the privacy mask blender object
-     * @ref PrivacyMaskBlenderPtr
-     */
-    PrivacyMaskBlenderPtr get_privacy_mask_blender();
-
-    /**
      * @brief Retrieves the IDs of the output streams.
      *
      * This function returns a tl::expected object containing a vector of output_stream_id_t.

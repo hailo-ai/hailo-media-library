@@ -29,6 +29,7 @@
 #include <gst/video/video.h>
 #include <iostream>
 #include <map>
+#include <optional>
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailoosd_debug_category);
 #define GST_CAT_DEFAULT gst_hailoosd_debug_category
@@ -52,7 +53,8 @@ enum
     PROP_CONFIG_FILE_PATH,
     PROP_CONFIG_STR,
     PROP_WAIT_FOR_WRITABLE_BUFFER,
-    PROP_BLENDER,
+    PROP_OSD_BLENDER,
+    PROP_PM_BLENDER,
 };
 
 G_DEFINE_TYPE_WITH_CODE(GstHailoOsd, gst_hailoosd, GST_TYPE_BASE_TRANSFORM,
@@ -91,8 +93,13 @@ static void gst_hailoosd_class_init(GstHailoOsdClass *klass)
                              "Enables the element thread to wait until incoming buffer is writable", FALSE,
                              (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY)));
 
-    g_object_class_install_property(gobject_class, PROP_BLENDER,
-                                    g_param_spec_pointer("blender", "Blender object", "Pointer to blender object",
+    g_object_class_install_property(gobject_class, PROP_OSD_BLENDER,
+                                    g_param_spec_pointer("osd-blender", "OSD blender object",
+                                                         "Pointer to OSD blender object",
+                                                         (GParamFlags)(G_PARAM_READABLE)));
+    g_object_class_install_property(gobject_class, PROP_PM_BLENDER,
+                                    g_param_spec_pointer("privacy-mask-blender", "Privacy mask blender object",
+                                                         "Pointer to privacy mask blender object",
                                                          (GParamFlags)(G_PARAM_READABLE)));
 
     gobject_class->dispose = gst_hailoosd_dispose;
@@ -120,12 +127,25 @@ void gst_hailoosd_set_property(GObject *object, guint property_id, const GValue 
     {
     case PROP_CONFIG_FILE_PATH:
         hailoosd->params->config_path = glib_cpp::get_string_from_gvalue(value);
+        if (hailoosd->params->initialized)
+        {
+            std::ifstream config_file(hailoosd->params->config_path);
+            std::stringstream buffer;
+            if (config_file.is_open())
+            {
+                buffer << config_file.rdbuf();
+                config_file.close();
+            }
+            hailoosd->params->osd_blender->configure(buffer.str());
+            hailoosd->params->pm_blender->configure(buffer.str());
+        }
         break;
     case PROP_CONFIG_STR: {
         hailoosd->params->config_str = glib_cpp::get_string_from_gvalue(value);
         if (hailoosd->params->initialized)
         {
-            hailoosd->params->blender->configure(std::string(hailoosd->params->config_str));
+            hailoosd->params->osd_blender->configure(std::string(hailoosd->params->config_str));
+            hailoosd->params->pm_blender->configure(std::string(hailoosd->params->config_str));
         }
         break;
     }
@@ -155,8 +175,11 @@ void gst_hailoosd_get_property(GObject *object, guint property_id, GValue *value
     case PROP_WAIT_FOR_WRITABLE_BUFFER:
         g_value_set_boolean(value, hailoosd->params->wait_for_writable_buffer);
         break;
-    case PROP_BLENDER:
-        g_value_set_pointer(value, hailoosd->params->blender.get());
+    case PROP_OSD_BLENDER:
+        g_value_set_pointer(value, hailoosd->params->osd_blender.get());
+        break;
+    case PROP_PM_BLENDER:
+        g_value_set_pointer(value, hailoosd->params->pm_blender.get());
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
@@ -185,17 +208,76 @@ void gst_hailoosd_finalize(GObject *object)
     G_OBJECT_CLASS(gst_hailoosd_parent_class)->finalize(object);
 }
 
+static gboolean init_blenders(GstHailoOsd *hailoosd, const std::optional<std::string> &config)
+{
+
+    if (hailoosd->params->osd_blender == nullptr)
+    {
+        tl::expected<std::shared_ptr<osd::Blender>, media_library_return> osd_blender_expected;
+        if (config.has_value())
+        {
+            osd_blender_expected = osd::Blender::create(config.value());
+        }
+        else
+        {
+            osd_blender_expected = osd::Blender::create();
+        }
+
+        if (osd_blender_expected.has_value())
+        {
+            hailoosd->params->osd_blender = osd_blender_expected.value();
+        }
+        else
+        {
+            GST_ERROR_OBJECT(hailoosd, "Failed to create OSD blender");
+            return FALSE;
+        }
+    }
+    else
+    {
+        GST_DEBUG_OBJECT(hailoosd, "OSD Blender object already exists, skipping creation");
+    }
+
+    if (hailoosd->params->pm_blender == nullptr)
+    {
+        tl::expected<std::shared_ptr<PrivacyMaskBlender>, media_library_return> pm_blender_expected;
+        if (config.has_value())
+        {
+            pm_blender_expected = PrivacyMaskBlender::create(config.value());
+        }
+        else
+        {
+            pm_blender_expected = PrivacyMaskBlender::create();
+        }
+        if (pm_blender_expected.has_value())
+        {
+            hailoosd->params->pm_blender = pm_blender_expected.value();
+        }
+        else
+        {
+            GST_ERROR_OBJECT(hailoosd, "Failed to create privacy mask blender");
+            return FALSE;
+        }
+    }
+    else
+    {
+        GST_DEBUG_OBJECT(hailoosd, "Privacy Mask Blender object already exists, skipping creation");
+    }
+
+    return TRUE;
+}
+
 static gboolean gst_hailoosd_start(GstBaseTransform *trans)
 {
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
 
-    if (hailoosd->params->blender != nullptr)
+    GST_DEBUG_OBJECT(hailoosd, "start");
+
+    if (hailoosd->params->initialized)
     {
-        GST_DEBUG_OBJECT(hailoosd, "Blender object already exists, skipping creation");
+        GST_DEBUG_OBJECT(hailoosd, "HailoOSD already initialized, skipping initialization");
         return TRUE;
     }
-
-    hailoosd->params->initialized = true;
 
     if (hailoosd->params->config_str != "" && hailoosd->params->config_path == "")
     {
@@ -206,15 +288,12 @@ static gboolean gst_hailoosd_start(GstBaseTransform *trans)
         {
             clean_config = clean_config.substr(1, hailoosd->params->config_str.size() - 2);
         }
-        tl::expected<std::shared_ptr<osd::Blender>, media_library_return> blender_expected =
-            osd::Blender::create(clean_config);
 
-        if (!blender_expected.has_value())
+        if (!init_blenders(hailoosd, clean_config))
         {
-            GST_ERROR_OBJECT(hailoosd, "Failed to create OSD from config str");
+            GST_ERROR_OBJECT(hailoosd, "Failed to initialize blenders from config string");
             return FALSE;
         }
-        hailoosd->params->blender = blender_expected.value();
     }
     else if (hailoosd->params->config_str == "" && hailoosd->params->config_path != "")
     {
@@ -231,35 +310,29 @@ static gboolean gst_hailoosd_start(GstBaseTransform *trans)
             buffer << config_file.rdbuf();
             config_file.close();
         }
-        tl::expected<std::shared_ptr<osd::Blender>, media_library_return> blender_expected =
-            osd::Blender::create(buffer.str());
-        if (!blender_expected.has_value())
+        if (!init_blenders(hailoosd, buffer.str()))
         {
-            GST_ERROR_OBJECT(hailoosd, "Failed to create OSD from config file");
+            GST_ERROR_OBJECT(hailoosd, "Failed to initialize blenders from config file");
             return FALSE;
         }
-        hailoosd->params->blender = blender_expected.value();
     }
     else if (hailoosd->params->config_str != "" && hailoosd->params->config_path != "")
     {
         GST_ERROR_OBJECT(hailoosd, "Both config string and config path are not empty, please choose only one");
+        return FALSE;
     }
     else
     {
         // Load with default config
         GST_WARNING_OBJECT(hailoosd, "Both config string and config path are empty, using default config");
-
-        tl::expected<std::shared_ptr<osd::Blender>, media_library_return> blender_expected = osd::Blender::create();
-        if (!blender_expected.has_value())
+        if (!init_blenders(hailoosd, std::nullopt))
         {
-            GST_ERROR_OBJECT(hailoosd, "Failed to create OSD without config");
+            GST_ERROR_OBJECT(hailoosd, "Failed to initialize blenders from config file");
             return FALSE;
         }
-        hailoosd->params->blender = blender_expected.value();
     }
 
-    GST_DEBUG_OBJECT(hailoosd, "start");
-
+    hailoosd->params->initialized = true;
     return TRUE;
 }
 
@@ -312,16 +385,21 @@ static gboolean gst_hailoosd_set_caps(GstBaseTransform *trans, GstCaps *incaps, 
     // now that caps are negotiated, get the size of the image for relative scaling
     GstVideoInfo *full_image_info = gst_video_info_new();
     gst_video_info_from_caps(full_image_info, incaps);
-
-    media_library_return ret = hailoosd->params->blender->set_frame_size(GST_VIDEO_INFO_WIDTH(full_image_info),
-                                                                         GST_VIDEO_INFO_HEIGHT(full_image_info));
-
+    auto width = GST_VIDEO_INFO_WIDTH(full_image_info);
+    auto height = GST_VIDEO_INFO_HEIGHT(full_image_info);
     gst_video_info_free(full_image_info);
 
+    media_library_return ret = hailoosd->params->osd_blender->set_frame_size(width, height);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-        GST_DEBUG_OBJECT(hailoosd, "Failed to init OSD with frame size %dX%d", GST_VIDEO_INFO_WIDTH(full_image_info),
-                         GST_VIDEO_INFO_HEIGHT(full_image_info));
+        GST_DEBUG_OBJECT(hailoosd, "Failed to init OSD blender with frame size %dX%d", width, height);
+        return FALSE;
+    }
+
+    ret = hailoosd->params->pm_blender->set_frame_size(width, height);
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        GST_DEBUG_OBJECT(hailoosd, "Failed to init privacy mask blender with frame size %dX%d", width, height);
         return FALSE;
     }
     return TRUE;
@@ -341,7 +419,7 @@ static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans, GstBuffe
 {
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
     GstHailoOsd *hailoosd = GST_HAILO_OSD(trans);
-    GstCaps *caps;
+    GstCapsPtr caps;
     GST_DEBUG_OBJECT(hailoosd, "transform_ip");
 
     caps = gst_pad_get_current_caps(trans->sinkpad);
@@ -351,15 +429,22 @@ static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans, GstBuffe
         GST_ERROR_OBJECT(trans, "Cannot create hailo buffer from GstBuffer");
         return GST_FLOW_ERROR;
     }
-    gst_caps_unref(caps);
 
-    // perform blending
-    ret = hailoosd->params->blender->blend(media_library_buffer);
+    // perform privacy mask blending
+    ret = hailoosd->params->pm_blender->blend(media_library_buffer);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-        GST_ERROR_OBJECT(trans, "Failed to do blend (%d)", ret);
+        GST_ERROR_OBJECT(trans, "Failed to blend privacy mask (%d)", ret);
     }
-    GST_DEBUG_OBJECT(trans, "blend done");
+    GST_DEBUG_OBJECT(trans, "Privacy mask blend done");
+
+    // perform osd blending
+    ret = hailoosd->params->osd_blender->blend(media_library_buffer);
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        GST_ERROR_OBJECT(trans, "Failed to blend OSD (%d)", ret);
+    }
+    GST_DEBUG_OBJECT(trans, "OSD blend done");
 
     // check success status
     if (ret != MEDIA_LIBRARY_SUCCESS)

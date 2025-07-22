@@ -44,7 +44,7 @@ typedef struct _GstHailoH265EncClass GstHailoH265EncClass;
 #define GST_HAILO_H265_ENC_GET_CLASS(obj)                                                                              \
     (G_TYPE_INSTANCE_GET_CLASS((obj), GST_TYPE_HAILO_H265_ENC, GstHailoH265EncClass))
 
-struct _GstHailoH265Enc
+struct __attribute__((visibility("hidden"))) _GstHailoH265Enc
 {
     GstHailoEnc parent;
 };

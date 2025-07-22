@@ -82,6 +82,14 @@ typedef struct
     uint64_t hmax;
 } isp_hdr_sensor_params_t;
 
+enum class SensorType
+{
+    IMX334,
+    IMX675,
+    IMX678,
+    IMX715
+};
+
 extern bool m_auto_configure;
 void set_auto_configure(bool auto_configure);
 void set_isp_config_files_path(std::string &path);
@@ -89,16 +97,17 @@ void override_file(const std::string &src, const std::string &dst);
 void set_daylight_configuration();
 void set_lowlight_configuration();
 void set_hdr_configuration();
-std::string find_sensor_name();
-void setup_hdr(bool is_4k, hdr_dol_t dol);
-void setup_sdr(bool is_4k);
+std::optional<SensorType> get_sensor_type();
+void setup_hdr(const output_resolution_t &input_resolution, const hdr_config_t &hdr_config, const int stitch_mode);
+void setup_sdr(const output_resolution_t &input_resolution);
+void setup_pre_isp_denoise(const output_resolution_t &input_resolution);
 void set_hdr_ratios(float ls_ratio, float vs_ratio);
 /* When HDR is on, set the offeset to be the time of the frame capture in the sensor, so NNC timings will not effect it
  */
 void set_hdr_forward_timestamp(bool enabled);
 tl::expected<isp_hdr_sensor_params_t, media_library_return> get_hdr_isp_params(
-    uint8_t num_exposures, uint64_t line_readout_time, std::shared_ptr<v4l2::v4l2ControlRepository> v4l2_ctrl_repo,
-    bool force_refresh = false);
+    uint8_t num_exposures, uint64_t line_readout_time, uint64_t num_readout_lines,
+    std::shared_ptr<v4l2::v4l2ControlRepository> v4l2_ctrl_repo, bool force_refresh = false);
 } // namespace isp_utils
 
 /** @} */ // end of isp_utils_definitions

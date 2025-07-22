@@ -31,8 +31,6 @@ class CustomOverlayImpl : public OverlayImpl
 {
   public:
     static tl::expected<CustomOverlayImplPtr, media_library_return> create(const osd::CustomOverlay &overlay);
-    static std::shared_future<tl::expected<CustomOverlayImplPtr, media_library_return>> create_async(
-        const osd::CustomOverlay &overlay);
     CustomOverlayImpl(const osd::CustomOverlay &overlay, media_library_return &status);
     virtual ~CustomOverlayImpl() = default;
 

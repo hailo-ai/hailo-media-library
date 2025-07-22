@@ -22,6 +22,7 @@
  */
 
 #include "gsthailofrontend.hpp"
+#include "media_library/media_library_types.hpp"
 #include "multi_resize/gsthailomultiresize.hpp"
 #include "common/gstmedialibcommon.hpp"
 #include "media_library/privacy_mask.hpp"
@@ -48,7 +49,6 @@ enum
     PROP_0,
     PROP_CONFIG_FILE_PATH,
     PROP_CONFIG_STRING,
-    PROP_PRIVACY_MASK,
     PROP_CONFIG,
     PROP_DEWARP_CONFIG,
     PROP_DENOISE_CONFIG,
@@ -94,10 +94,6 @@ static void gst_hailofrontend_class_init(GstHailoFrontendClass *klass)
                             (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
                                           GST_PARAM_MUTABLE_PLAYING)));
 
-    g_object_class_install_property(gobject_class, PROP_PRIVACY_MASK,
-                                    g_param_spec_pointer("privacy-mask", "Privacy Mask",
-                                                         "Pointer to privacy mask blender",
-                                                         (GParamFlags)(G_PARAM_READABLE)));
     g_object_class_install_property(
         gobject_class, PROP_CONFIG,
         g_param_spec_pointer("config", "Frontend config", "Fronted config as frontend_element_config_t",
@@ -174,16 +170,12 @@ static void gst_hailofrontend_init(GstHailoFrontend *hailofrontend)
                      hailofrontend->params->m_freeze_mresize_queue, hailofrontend->params->m_multi_resize, NULL);
 
     // Get the connecting pad
-    GstPad *pad = gst_element_get_static_pad(hailofrontend->params->m_denoise, "sink");
+    GstPadPtr pad = gst_element_get_static_pad(hailofrontend->params->m_denoise, "sink");
     // Create a ghostpad and connect it to the bin
-    GstPadTemplate *pad_tmpl = gst_static_pad_template_get(&sink_template);
+    GstPadTemplatePtr pad_tmpl = gst_static_pad_template_get(&sink_template);
     hailofrontend->params->sinkpad = gst_ghost_pad_new_from_template("sink", pad, pad_tmpl);
     gst_pad_set_active(hailofrontend->params->sinkpad, TRUE);
-    gst_element_add_pad(GST_ELEMENT(hailofrontend), hailofrontend->params->sinkpad);
-
-    // Cleanup
-    gst_object_unref(pad_tmpl);
-    gst_object_unref(pad);
+    glib_cpp::ptrs::add_pad_to_element(GST_ELEMENT(hailofrontend), hailofrontend->params->sinkpad);
 }
 
 static GstElement *gst_hailofrontend_init_queue(GstHailoFrontend *hailofrontend, bool leaky)
@@ -236,8 +228,8 @@ void gst_hailofrontend_set_property(GObject *object, guint property_id, const GV
     }
     case PROP_CONFIG: {
         // Set the config for the sub elements
-        frontend_element_config_t *config = static_cast<frontend_element_config_t *>(g_value_get_pointer(value));
-        g_object_set(hailofrontend->params->m_denoise, "config", &(config->denoise_config), NULL);
+        frontend_config_t *config = static_cast<frontend_config_t *>(g_value_get_pointer(value));
+        g_object_set(hailofrontend->params->m_denoise, "config", config, NULL);
         g_object_set(hailofrontend->params->m_dis_dewarp, "config", &(config->ldc_config), NULL);
         g_object_set(hailofrontend->params->m_multi_resize, "config", &(config->multi_resize_config), NULL);
 
@@ -249,7 +241,7 @@ void gst_hailofrontend_set_property(GObject *object, guint property_id, const GV
         break;
     }
     case PROP_DENOISE_CONFIG: {
-        denoise_config_t *config = static_cast<denoise_config_t *>(g_value_get_pointer(value));
+        frontend_config_t *config = static_cast<frontend_config_t *>(g_value_get_pointer(value));
         g_object_set(hailofrontend->params->m_denoise, "config", config, NULL);
         break;
     }
@@ -281,12 +273,6 @@ void gst_hailofrontend_get_property(GObject *object, guint property_id, GValue *
     }
     case PROP_CONFIG_STRING: {
         g_value_set_string(value, hailofrontend->params->config_string.c_str());
-        break;
-    }
-    case PROP_PRIVACY_MASK: {
-        gpointer blender;
-        g_object_get(hailofrontend->params->m_multi_resize, "privacy-mask", &blender, NULL);
-        g_value_set_pointer(value, blender);
         break;
     }
     case PROP_CONFIG: {
@@ -370,30 +356,28 @@ static GstStateChangeReturn gst_hailofrontend_change_state(GstElement *element, 
 static GstPad *gst_hailofrontend_request_new_pad(GstElement *element, GstPadTemplate *templ, const gchar *name,
                                                  const GstCaps *caps)
 {
-    GstPad *srcpad;
+    GstPadPtr srcpad;
     GstHailoFrontend *self = GST_HAILO_FRONTEND(element);
     GST_DEBUG_OBJECT(self, "Frontend request new pad name: %s", name);
 
     // Get the source pad from GstHailoMultiResize that you want to expose
-    GstPad *multi_resize_srcpad = gst_element_request_pad(self->params->m_multi_resize, templ, name, caps);
-    GST_DEBUG_OBJECT(self, "Frontend requested multi_resize_srcpad: %s", GST_PAD_NAME(multi_resize_srcpad));
+    GstPadPtr multi_resize_srcpad = gst_element_request_pad(self->params->m_multi_resize, templ, name, caps);
+    const char *multi_resize_srcpad_name = glib_cpp::ptrs::get_pad_name(multi_resize_srcpad);
+    GST_DEBUG_OBJECT(self, "Frontend requested multi_resize_srcpad: %s", multi_resize_srcpad_name);
 
     // Create a new ghost pad and target GstHailoMultiResize source pad
     srcpad = gst_ghost_pad_new_no_target(NULL, GST_PAD_SRC);
-    gboolean link_status = gst_ghost_pad_set_target(GST_GHOST_PAD(srcpad), multi_resize_srcpad);
-    GST_DEBUG_OBJECT(self, "Frontend setting %s to target %s", GST_PAD_NAME(srcpad), GST_PAD_NAME(multi_resize_srcpad));
+    const char *srcpad_name = glib_cpp::ptrs::get_pad_name(srcpad);
+    gboolean link_status = gst_ghost_pad_set_target(GST_GHOST_PAD(srcpad.get()), multi_resize_srcpad.get());
+    GST_DEBUG_OBJECT(self, "Frontend setting %s to target %s", srcpad_name, multi_resize_srcpad_name);
     if (!link_status)
     {
-        GST_ERROR_OBJECT(self, "Frontend failed to set %s to target %s", GST_PAD_NAME(srcpad),
-                         GST_PAD_NAME(multi_resize_srcpad));
+        GST_ERROR_OBJECT(self, "Frontend failed to set %s to target %s", srcpad_name, multi_resize_srcpad_name);
     }
-
-    // Unreference the multi_resize_srcpad when you're done with it
-    gst_object_unref(multi_resize_srcpad);
 
     // Set the new ghostpad to active and add it to the bin
     gst_pad_set_active(srcpad, TRUE);
-    gst_element_add_pad(element, srcpad);
+    glib_cpp::ptrs::add_pad_to_element(element, srcpad);
 
     return srcpad;
 }
@@ -406,7 +390,7 @@ static void gst_hailofrontend_release_pad(GstElement *element, GstPad *pad)
     GST_OBJECT_LOCK(self);
 
     // Find the corresponding source pad in GstHailoMultiResize
-    GstPad *multi_resize_srcpad = gst_ghost_pad_get_target(GST_GHOST_PAD(pad));
+    GstPadPtr multi_resize_srcpad = gst_ghost_pad_get_target(GST_GHOST_PAD(pad));
 
     // Release the source pad in GstHailoMultiResize
     gst_element_release_request_pad(self->params->m_multi_resize, multi_resize_srcpad);
@@ -415,9 +399,6 @@ static void gst_hailofrontend_release_pad(GstElement *element, GstPad *pad)
     gst_element_remove_pad(element, pad);
 
     GST_OBJECT_UNLOCK(self);
-
-    // Unreference the multi_resize_srcpad when you're done with it
-    gst_object_unref(multi_resize_srcpad);
 }
 
 static gboolean gst_hailofrontend_link_elements(GstElement *element)

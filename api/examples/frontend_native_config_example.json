@@ -42,6 +42,7 @@
             }
         ]
     },
+    "application_analytics": {},
     "dewarp": {
         "enabled": true,
         "color_interpolation": "INTERPOLATION_TYPE_BILINEAR",

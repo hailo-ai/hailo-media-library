@@ -4,12 +4,13 @@
 #include "utils/gsthailodmabufferpool.hpp"
 #include "media_library/media_library_types.hpp"
 #include "buffer_utils/buffer_utils.hpp"
+#include "common/gstmedialibcommon.hpp"
 
 G_DEFINE_TYPE(GstHailoDmaBufferPool, gst_hailo_dma_buffer_pool, GST_TYPE_BUFFER_POOL)
 
 static GstFlowReturn gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool, GstBuffer **output_buffer_ptr,
                                                             GstBufferPoolAcquireParams *params);
-static void gst_hailo_dma_buffer_pool_free_buffer(GstBufferPool *pool, GstBuffer *buffer);
+static void gst_hailo_dma_buffer_pool_free_buffer(GstBufferPool *pool, GstBuffer *gst_buffer);
 static void gst_hailo_dma_buffer_pool_dispose(GObject *object);
 
 #define ALIGNMENT                                                                                                      \
@@ -61,14 +62,17 @@ static GstFlowReturn gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool,
 {
     GstHailoDmaBufferPool *hailo_dmabuf_pool = GST_HAILO_DMA_BUFFER_POOL(pool);
     guint buffer_size = 0;
-    GstCaps *caps = NULL;
+    GstCapsPtr caps;
 
     // Get the size and caps of a buffer from the config of the pool
     if (!hailo_dmabuf_pool->params->config)
     {
         hailo_dmabuf_pool->params->config = gst_buffer_pool_get_config(pool);
     }
-    gst_buffer_pool_config_get_params(hailo_dmabuf_pool->params->config, &caps, &buffer_size, NULL, NULL);
+    auto get_params_result = glib_cpp::ptrs::buffer_pool_config_get_params(hailo_dmabuf_pool->params->config);
+    caps = std::move(get_params_result.caps);
+    buffer_size = get_params_result.size;
+
     if (caps == NULL)
     {
         GST_ERROR_OBJECT(hailo_dmabuf_pool, "Failed to get caps from buffer pool config");
@@ -142,10 +146,10 @@ static GstFlowReturn gst_hailo_dma_buffer_pool_alloc_buffer(GstBufferPool *pool,
     return GST_FLOW_OK;
 }
 
-static void gst_hailo_dma_buffer_pool_free_buffer(GstBufferPool *pool, GstBuffer *buffer)
+static void gst_hailo_dma_buffer_pool_free_buffer(GstBufferPool *pool, GstBuffer *gst_buffer)
 {
+    GstBufferPtr buffer = gst_buffer;
     GstHailoDmaBufferPool *hailo_dmabuf_pool = GST_HAILO_DMA_BUFFER_POOL(pool);
-    GST_DEBUG_OBJECT(hailo_dmabuf_pool, "Freeing buffer %p with padding %d", buffer,
+    GST_DEBUG_OBJECT(hailo_dmabuf_pool, "Freeing buffer %p with padding %d", buffer.get(),
                      hailo_dmabuf_pool->params->padding);
-    gst_buffer_unref(buffer);
 }

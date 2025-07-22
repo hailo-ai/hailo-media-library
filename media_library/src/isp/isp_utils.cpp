@@ -21,9 +21,10 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include "isp_utils.hpp"
+#include "media_library_types.hpp"
 #include "v4l2_ctrl.hpp"
 #include "media_library_logger.hpp"
-#include "common.hpp"
+#include <cstdint>
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <regex>
@@ -35,12 +36,21 @@
  *  @{
  */
 
-#define NUM_READOUT_LINES_4K 2160 // 4k only
-
+#define MEDIA_SERVER_VSM_ENTRY "vsm"
+#define MEDIA_SERVER_VSM_H_OFFSET_ENTRY "vsm_h_offset"
+#define MEDIA_SERVER_VSM_V_OFFSET_ENTRY "vsm_v_offset"
+#define MEDIA_SERVER_VSM_H_OFFSET_4K 960
+#define MEDIA_SERVER_VSM_V_OFFSET_4K 540
+#define MEDIA_SERVER_VSM_H_OFFSET_5MP 336
+#define MEDIA_SERVER_VSM_V_OFFSET_5MP 432
+#define MEDIA_SERVER_VSM_H_OFFSET_DEFAULT MEDIA_SERVER_VSM_H_OFFSET_4K
+#define MEDIA_SERVER_VSM_V_OFFSET_DEFAULT MEDIA_SERVER_VSM_V_OFFSET_4K
 #define MEDIA_SERVER_AWB_ENTRY "awb"
 #define MEDIA_SERVER_AWB_STITCH_MODE_ENTRY "stitch_mode"
-#define MEDIA_SERVER_STITCH_MODE_COMPENSATION 2
-#define MEDIA_SERVER_STITCH_MODE_ISP_PIPELINE 0
+#define MEDIA_SERVER_DGAIN_ENTRY "dgain"
+#define MEDIA_SERVER_DGAIN_DUMMY_ENTRY "dummy"
+#define MEDIA_SERVER_BLS_ENTRY "bls"
+#define MEDIA_SERVER_BLS_DUMMY_ENTRY "dummy"
 #define SENSOR_ENTRY_HDR_ENABLE_ENTRY "hdr_enable"
 #define SENSOR_ENTRY_MODE_ENTRY "mode"
 #define SENSOR_ENTRY_HDR_4K_MODE_DOL2 4
@@ -49,6 +59,21 @@
 #define SENSOR_ENTRY_HDR_FHD_MODE_DOL3 2
 #define SENSOR_ENTRY_SDR_4K_MODE 0
 #define SENSOR_ENTRY_SDR_FHD_MODE 1
+
+static constexpr int IMX675_SENSOR_ENTRY_MODE_SDR = 0;
+static constexpr int IMX675_SENSOR_ENTRY_MODE_HDR_2DOL = 4;
+
+static constexpr int IMX675_CSI_MODE_SDR = 0;
+static constexpr int IMX675_CSI_MODE_HDR_2DOL = 1;
+
+static constexpr int IMX_DEFAULT_CSI_MODE_SDR = 0;
+static constexpr int IMX_DEFAULT_CSI_MODE_HDR_FHD = 1;
+static constexpr int IMX_DEFAULT_CSI_MODE_HDR_4K = 2;
+
+static constexpr int SDR_STITCH_MODE = 0;
+
+static constexpr bool SDR_DGAIN_MODE = false;
+static constexpr bool PRE_ISP_DENOISE_DGAIN_MODE = true;
 
 #define REGEX_INTEGER "\\d+"
 #define REGEX_XML_FILENAME "\\w+\\.xml"
@@ -64,7 +89,7 @@ namespace isp_utils
 bool m_auto_configure = false;
 std::string m_isp_config_files_path;
 
-std::string find_sensor_name()
+std::optional<SensorType> get_sensor_type()
 {
     for (const auto &entry : std::filesystem::directory_iterator("/sys/class/video4linux/"))
     {
@@ -73,13 +98,26 @@ std::string find_sensor_name()
             std::ifstream name_file(entry.path() / "name");
             std::string name;
             name_file >> name;
-            if (name.find("imx") != std::string::npos)
+            if (name.starts_with("imx678"))
             {
-                return name.substr(0, name.find(" "));
+                return SensorType::IMX678;
+            }
+            if (name.starts_with("imx675"))
+            {
+                return SensorType::IMX675;
+            }
+            if (name.starts_with("imx715"))
+            {
+                return SensorType::IMX715;
+            }
+            if (name.starts_with("imx334"))
+            {
+                return SensorType::IMX334;
             }
         }
     }
-    return "";
+    LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to find sensor type");
+    return std::nullopt;
 }
 
 void set_auto_configure(bool auto_configure)
@@ -149,9 +187,42 @@ void set_hdr_configuration()
         override_file(ISP_HDR_2DOL_SENSOR0_CONFIG, SENSOR0_ENTRY_CONFIG_PATH);
     }
 }
-
-void edit_media_server_cfg(const std::string &path, bool hdr_enable)
+typedef struct
 {
+    size_t h_offset;
+    size_t v_offset;
+} vsm_offsets_t;
+
+inline vsm_offsets_t get_vsm_offsets(const output_resolution_t &input_resolution)
+{
+    vsm_offsets_t offsets;
+
+    if (input_resolution.dimensions.destination_width == 3840 &&
+        input_resolution.dimensions.destination_height == 2160) // 4K
+    {
+        offsets.h_offset = MEDIA_SERVER_VSM_H_OFFSET_4K;
+        offsets.v_offset = MEDIA_SERVER_VSM_V_OFFSET_4K;
+    }
+    else if (input_resolution.dimensions.destination_width == 2592 &&
+             input_resolution.dimensions.destination_height == 1944) // 5MP
+    {
+        offsets.h_offset = MEDIA_SERVER_VSM_H_OFFSET_5MP;
+        offsets.v_offset = MEDIA_SERVER_VSM_V_OFFSET_5MP;
+    }
+    else
+    {
+        offsets.h_offset = MEDIA_SERVER_VSM_H_OFFSET_DEFAULT;
+        offsets.v_offset = MEDIA_SERVER_VSM_V_OFFSET_DEFAULT;
+    }
+
+    return offsets;
+}
+
+void edit_media_server_cfg(const std::string &path, const int stitch_mode, const output_resolution_t &input_resolution)
+{
+    // Get VSM offsets using the refactored function that returns a struct
+    vsm_offsets_t vsm_offsets = isp_utils::get_vsm_offsets(input_resolution);
+
     std::ifstream if_cfg(path.c_str());
 
     if (!if_cfg.is_open())
@@ -161,13 +232,42 @@ void edit_media_server_cfg(const std::string &path, bool hdr_enable)
     }
 
     json cfg = json::parse(if_cfg);
-    cfg[MEDIA_SERVER_AWB_ENTRY][MEDIA_SERVER_AWB_STITCH_MODE_ENTRY] =
-        hdr_enable ? MEDIA_SERVER_STITCH_MODE_COMPENSATION : MEDIA_SERVER_STITCH_MODE_ISP_PIPELINE;
+
+    cfg[MEDIA_SERVER_AWB_ENTRY][MEDIA_SERVER_AWB_STITCH_MODE_ENTRY] = stitch_mode;
+    cfg[MEDIA_SERVER_VSM_ENTRY][MEDIA_SERVER_VSM_H_OFFSET_ENTRY] = vsm_offsets.h_offset;
+    cfg[MEDIA_SERVER_VSM_ENTRY][MEDIA_SERVER_VSM_V_OFFSET_ENTRY] = vsm_offsets.v_offset;
+
     if_cfg.close();
     std::ofstream of_cfg(path.c_str(), std::ofstream::trunc);
     if (!of_cfg.is_open())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "HDR: can't open {} for writing", path);
+        return;
+    }
+    of_cfg << std::setw(4) << cfg << std::endl;
+    of_cfg.close();
+}
+
+void edit_media_server_pre_isp_denoise_cfg(const std::string &path, const bool mode)
+{
+    std::ifstream if_cfg(path.c_str());
+
+    if (!if_cfg.is_open())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "ISP Utils: can't open {} for reading", path);
+        return;
+    }
+
+    json cfg = json::parse(if_cfg);
+
+    cfg[MEDIA_SERVER_DGAIN_ENTRY][MEDIA_SERVER_DGAIN_DUMMY_ENTRY] = mode;
+    cfg[MEDIA_SERVER_BLS_ENTRY][MEDIA_SERVER_BLS_DUMMY_ENTRY] = mode;
+
+    if_cfg.close();
+    std::ofstream of_cfg(path.c_str(), std::ofstream::trunc);
+    if (!of_cfg.is_open())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "ISP Utils: can't open {} for writing", path);
         return;
     }
     of_cfg << std::setw(4) << cfg << std::endl;
@@ -189,27 +289,72 @@ inline std::string replace_by_regex(const std::string &file_content, const std::
     return std::regex_replace(file_content, std::regex(regex_pattern_find), replaced_find);
 }
 
-inline int get_sensor_mode(bool hdr_enable, bool is_4k, hdr_dol_t dol)
+inline int get_sensor_mode_imx675(const hdr_config_t &hdr_config)
 {
-    int mode;
-
-    if (!hdr_enable)
+    if (hdr_config.enabled && hdr_config.dol == HDR_DOL_2)
     {
-        mode = is_4k ? SENSOR_ENTRY_SDR_4K_MODE : SENSOR_ENTRY_SDR_FHD_MODE;
-    }
-    else
-    {
-        if (dol == HDR_DOL_2)
-        {
-            mode = is_4k ? SENSOR_ENTRY_HDR_4K_MODE_DOL2 : SENSOR_ENTRY_HDR_FHD_MODE_DOL2;
-        }
-        else
-        {
-            mode = is_4k ? SENSOR_ENTRY_HDR_4K_MODE_DOL3 : SENSOR_ENTRY_HDR_FHD_MODE_DOL3;
-        }
+        return IMX675_SENSOR_ENTRY_MODE_HDR_2DOL;
     }
 
-    return mode;
+    return IMX675_SENSOR_ENTRY_MODE_SDR;
+}
+
+inline int get_csi_mode(SensorType sensor_type, const output_resolution_t &input_resolution,
+                        const hdr_config_t &hdr_config)
+{
+    if (sensor_type == SensorType::IMX675)
+    {
+        return hdr_config.enabled ? IMX675_CSI_MODE_HDR_2DOL : IMX675_CSI_MODE_SDR;
+    }
+    if (!hdr_config.enabled)
+    {
+        return IMX_DEFAULT_CSI_MODE_SDR;
+    }
+    if (input_resolution.dimensions.destination_width == 3840 && input_resolution.dimensions.destination_height == 2160)
+    {
+        return IMX_DEFAULT_CSI_MODE_HDR_4K;
+    }
+    return IMX_DEFAULT_CSI_MODE_HDR_FHD;
+}
+
+inline int get_sensor_mode_default(const hdr_config_t &hdr_config, const output_resolution_t &input_resolution)
+{
+    const bool is_4k = (input_resolution.dimensions.destination_width == 3840) &&
+                       (input_resolution.dimensions.destination_height == 2160);
+
+    if (!hdr_config.enabled)
+    {
+        return is_4k ? SENSOR_ENTRY_SDR_4K_MODE : SENSOR_ENTRY_SDR_FHD_MODE;
+    }
+    if (hdr_config.dol == HDR_DOL_2)
+    {
+        return is_4k ? SENSOR_ENTRY_HDR_4K_MODE_DOL2 : SENSOR_ENTRY_HDR_FHD_MODE_DOL2;
+    }
+    return is_4k ? SENSOR_ENTRY_HDR_4K_MODE_DOL3 : SENSOR_ENTRY_HDR_FHD_MODE_DOL3;
+}
+
+inline int get_sensor_mode(SensorType sensor_type, const hdr_config_t &hdr_config,
+                           const output_resolution_t &input_resolution)
+{
+    if (sensor_type == SensorType::IMX675)
+    {
+        return get_sensor_mode_imx675(hdr_config);
+    }
+
+    return get_sensor_mode_default(hdr_config, input_resolution);
+}
+
+std::string edit_sensor_entry_mode(const std::string &file_content, SensorType sensor_type,
+                                   const output_resolution_t &input_resolution, const hdr_config_t &hdr_config)
+{
+    const int mode = get_sensor_mode(sensor_type, hdr_config, input_resolution);
+    return replace_by_regex(file_content, MODE_REGEX, REGEX_INTEGER, std::to_string(mode));
+}
+
+std::string edit_sensor_entry_hdr_mode(const std::string &file_content, const hdr_config_t &hdr_config)
+{
+    const int hdr_mode = hdr_config.enabled ? 1 : 0;
+    return replace_by_regex(file_content, HDR_ENABLE_REGEX, REGEX_INTEGER, std::to_string(hdr_mode));
 }
 
 /**
@@ -231,7 +376,8 @@ inline int get_sensor_mode(bool hdr_enable, bool is_4k, hdr_dol_t dol)
  *   to correspond with the new mode.
  * - Logs warnings if the file or specific entries cannot be located.
  */
-void edit_sensor_entry(const std::string &path, bool hdr_enable, bool is_4k, hdr_dol_t dol = HDR_DOL_2)
+void edit_sensor_entry(const std::string &path, SensorType sensor_type, const output_resolution_t &input_resolution,
+                       const hdr_config_t &hdr_config)
 {
     if (!m_auto_configure)
     {
@@ -248,30 +394,8 @@ void edit_sensor_entry(const std::string &path, bool hdr_enable, bool is_4k, hdr
     std::string file_content = std::string(std::istreambuf_iterator<char>(if_entry), std::istreambuf_iterator<char>());
     if_entry.close();
 
-    // Replace Sensor Mode
-    int mode = get_sensor_mode(hdr_enable, is_4k, dol);
-
-    file_content = replace_by_regex(file_content, MODE_REGEX, REGEX_INTEGER, std::to_string(mode));
-
-    // Replace HDR Enable
-    file_content = replace_by_regex(file_content, HDR_ENABLE_REGEX, REGEX_INTEGER, hdr_enable ? "1" : "0");
-
-    // Replace Mode 3 XML with Mode 0 XML
-    if (hdr_enable)
-    {
-        std::smatch mode_sdr_xml_match;
-        if (!std::regex_search(
-                file_content, mode_sdr_xml_match,
-                std::regex(MODE_XML_REGEX(is_4k ? SENSOR_ENTRY_SDR_4K_MODE : SENSOR_ENTRY_SDR_FHD_MODE))))
-        {
-            LOGGER__MODULE__WARN(MODULE_NAME, "HDR: can't find mode 0 xml in {} mode 3 xml will need to change", path);
-        }
-        else
-        {
-            std::string mode_sdr_xml_str = mode_sdr_xml_match[2].str(); // the xml name is in the 2nd regex group
-            file_content = replace_by_regex(file_content, MODE_XML_REGEX(mode), REGEX_XML_FILENAME, mode_sdr_xml_str);
-        }
-    }
+    file_content = edit_sensor_entry_mode(file_content, sensor_type, input_resolution, hdr_config);
+    file_content = edit_sensor_entry_hdr_mode(file_content, hdr_config);
 
     std::ofstream of_entry(path.c_str(), std::ofstream::trunc);
     if (!of_entry.is_open())
@@ -283,36 +407,59 @@ void edit_sensor_entry(const std::string &path, bool hdr_enable, bool is_4k, hdr
     of_entry.close();
 }
 
-void setup_hdr(bool is_4k, hdr_dol_t dol)
+void setup_hdr(const output_resolution_t &input_resolution, const hdr_config_t &hdr_config, const int stitch_mode)
 {
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Setting up HDR configuration");
-    edit_media_server_cfg(m_isp_config_files_path + std::string("/") + std::string(_MEDIA_SERVER_CONFIG), true);
+
+    auto sensor_type = get_sensor_type();
+    if (!sensor_type.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get sensor type");
+        return;
+    }
+
+    edit_media_server_cfg(m_isp_config_files_path + std::string("/") + std::string(_MEDIA_SERVER_CONFIG), stitch_mode,
+                          input_resolution);
     if (m_auto_configure)
     {
-        edit_sensor_entry(m_isp_config_files_path + std::string("/") + std::string(ISP_SENSOR0_ENTRY_CONFIG), true,
-                          is_4k, dol);
+        edit_sensor_entry(m_isp_config_files_path + std::string("/") + std::string(ISP_SENSOR0_ENTRY_CONFIG),
+                          sensor_type.value(), input_resolution, hdr_config);
     }
     if (!v4l2::ext_ctrl_set(v4l2::ImxCtrl::IMX_WDR, true))
     {
         LOGGER__MODULE__WARN(MODULE_NAME, "Failed to set IMX_WDR");
     }
 
-    auto mode_sel = is_4k ? 2 : 1;
-    if (!v4l2::ext_ctrl_set(v4l2::CsiCtrl::CSI_MODE_SEL, mode_sel))
+    if (!v4l2::ext_ctrl_set(v4l2::CsiCtrl::CSI_MODE_SEL,
+                            get_csi_mode(sensor_type.value(), input_resolution, hdr_config)))
     {
         LOGGER__MODULE__WARN(MODULE_NAME, "Failed to set CSI_MODE_SEL");
     }
 }
 
-void setup_sdr(bool is_4k)
+void setup_sdr(const output_resolution_t &input_resolution)
 {
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Setting up SDR configuration");
-    edit_media_server_cfg(m_isp_config_files_path + std::string("/") + std::string(_MEDIA_SERVER_CONFIG), false);
+
+    auto sensor_type = get_sensor_type();
+    if (!sensor_type.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get sensor type");
+        return;
+    }
+
+    hdr_config_t hdr_config;
+    hdr_config.enabled = false;
+
+    edit_media_server_cfg(m_isp_config_files_path + std::string("/") + std::string(_MEDIA_SERVER_CONFIG),
+                          SDR_STITCH_MODE, input_resolution);
+    edit_media_server_pre_isp_denoise_cfg(
+        m_isp_config_files_path + std::string("/") + std::string(_MEDIA_SERVER_CONFIG), SDR_DGAIN_MODE);
     if (m_auto_configure)
     {
 
-        edit_sensor_entry(m_isp_config_files_path + std::string("/") + std::string(ISP_SENSOR0_ENTRY_CONFIG), false,
-                          is_4k);
+        edit_sensor_entry(m_isp_config_files_path + std::string("/") + std::string(ISP_SENSOR0_ENTRY_CONFIG),
+                          sensor_type.value(), input_resolution, hdr_config);
     }
 
     if (!v4l2::ext_ctrl_set(v4l2::ImxCtrl::IMX_WDR, false))
@@ -320,10 +467,20 @@ void setup_sdr(bool is_4k)
         LOGGER__MODULE__WARN(MODULE_NAME, "Failed to set IMX_WDR");
     }
 
-    if (!v4l2::ext_ctrl_set(v4l2::CsiCtrl::CSI_MODE_SEL, 0))
+    if (!v4l2::ext_ctrl_set(v4l2::CsiCtrl::CSI_MODE_SEL,
+                            get_csi_mode(sensor_type.value(), input_resolution, hdr_config)))
     {
         LOGGER__MODULE__WARN(MODULE_NAME, "Failed to set CSI_MODE_SEL");
     }
+}
+
+void setup_pre_isp_denoise(const output_resolution_t &input_resolution)
+{
+    setup_sdr(input_resolution);
+
+    // set dgain and bls to manual control
+    edit_media_server_pre_isp_denoise_cfg(
+        m_isp_config_files_path + std::string("/") + std::string(_MEDIA_SERVER_CONFIG), PRE_ISP_DENOISE_DGAIN_MODE);
 }
 
 void set_hdr_ratios(float ls_ratio, float vs_ratio)
@@ -335,37 +492,9 @@ void set_hdr_ratios(float ls_ratio, float vs_ratio)
     }
 }
 
-void set_hdr_forward_timestamp(bool enabled)
-{
-    auto fd_opt = v4l2::get_device_fd(v4l2::Device::VIDEO0);
-    if (!fd_opt.has_value())
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "set_hdr_forward_timestamp Failed to get device fd");
-        return;
-    }
-    auto fd = fd_opt.value();
-
-    auto ioctl_id_opt = v4l2::get_ctrl_id(fd->get_fd(), v4l2::Video0Ctrl::HDR_FORWARD_TIMESTAMPS);
-    if (!ioctl_id_opt.has_value())
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "set_hdr_forward_timestamp Failed to get ioctl id");
-        return;
-    }
-    uint32_t ioctl_id = ioctl_id_opt.value();
-
-    if (ioctl(fd->get_fd(), ioctl_id, &enabled) < 0)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "set_hdr_forward_timestamp ioctl failed: {}", strerror(errno));
-    }
-    else
-    {
-        LOGGER__MODULE__INFO(MODULE_NAME, "set_hdr_forward_timestamp to {} success", enabled);
-    }
-}
-
 tl::expected<isp_hdr_sensor_params_t, media_library_return> get_hdr_isp_params(
-    uint8_t num_exposures, uint64_t line_readout_time, std::shared_ptr<v4l2::v4l2ControlRepository> v4l2_ctrl_repo,
-    bool force_refresh)
+    uint8_t num_exposures, uint64_t line_readout_time, uint64_t num_readout_lines,
+    std::shared_ptr<v4l2::v4l2ControlRepository> v4l2_ctrl_repo, bool force_refresh)
 {
     isp_hdr_sensor_params_t hdr_params;
 
@@ -388,7 +517,7 @@ tl::expected<isp_hdr_sensor_params_t, media_library_return> get_hdr_isp_params(
     hdr_params.hmax *= line_readout_time;
     uint64_t val;
     // calculate long readout time
-    hdr_params.rhs_times.push_back(NUM_READOUT_LINES_4K * line_readout_time * (num_exposures == 1 ? 1 : 2));
+    hdr_params.rhs_times.push_back(num_readout_lines * line_readout_time * (num_exposures == 1 ? 1 : 2));
     // get long exposure time
     if (!v4l2_ctrl_repo->get(v4l2::ImxCtrl::SHUTTER_TIMING_LONG, val, force_refresh))
     {

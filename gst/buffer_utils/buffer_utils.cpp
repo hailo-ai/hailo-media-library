@@ -77,11 +77,22 @@ HailoMediaLibraryBufferPtr hailo_buffer_from_gst_buffer(GstBuffer *buffer, GstCa
     GstHailoBufferMeta *hailo_buffer_meta = gst_buffer_get_hailo_buffer_meta(buffer);
     GstVideoInfo *video_info;
     GstVideoFrame video_frame;
-    HailoMediaLibraryBufferPtr hailo_buffer = std::make_shared<hailo_media_library_buffer>();
+
     if (hailo_buffer_meta)
     {
         return hailo_buffer_meta->buffer_ptr;
     }
+
+    // Create a custom deleter that will also decrease the refcount of the GstBuffer
+    auto buffer_deleter = [buffer](hailo_media_library_buffer *ptr) {
+        gst_buffer_unref(buffer);
+        delete ptr;
+    };
+
+    HailoMediaLibraryBufferPtr hailo_buffer(new hailo_media_library_buffer(), buffer_deleter);
+
+    // Increase refcount of the GstBuffer since we'll be holding onto it
+    gst_buffer_ref(buffer);
 
     video_info = gst_video_info_new_from_caps(caps);
     if (!video_info)

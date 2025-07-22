@@ -49,11 +49,16 @@ struct __attribute__((packed)) isp_image_enhancement_params_t
     uint8_t auto_target_low;
     uint8_t auto_target_high;
     float auto_low_pass_filter_alpha;
+    bool bilateral_denoise;
     uint8_t blur_level;
+    uint8_t bilateral_sigma;
     uint8_t sharpness_level;
     float sharpness_amount;
     uint8_t sharpness_threshold;
     float saturation;
+    bool histogram_equalization;
+    float histogram_equalization_alpha;
+    float histogram_equalization_clip_threshold;
 };
 
 class DspImageEnhancement
@@ -64,13 +69,27 @@ class DspImageEnhancement
                                                                          uint32_t sample_size = histogram_sample_size);
     static std::pair<uint8_t, uint8_t> find_percentile_pixels(const Histogram &histogram, float percentile_low,
                                                               float percentile_high);
+    static std::vector<double> clip_histogram(const Histogram &histogram, double clip_threshold);
 
     DspImageEnhancement();
     ~DspImageEnhancement();
     dsp_image_enhancement_params_t get_dsp_params();
-    void update_dsp_params_from_histogram(const Histogram &histogram);
+    void update_dsp_params_from_histogram(bool is_denoise_enabled, const Histogram &histogram);
     bool is_enabled();
     bool m_denoise_element_enabled;
+    dsp_image_enhancement_params_t get_default_disabled_dsp_params();
+
+    /* These getters and setters are currently only used for the Unit tests */
+    double get_histogram_clip_thr();
+    void set_histogram_clip_thr(double clip_thr);
+
+    double get_histogram_alpha();
+    void set_histogram_alpha(double alpha);
+
+    bool is_histogram_equalization_enabled();
+    void set_histogram_equalization_enabled(bool enabled);
+
+    const dsp_histogram_equalization_params_t *get_histogram_eq_params() const;
 
   private:
     // queue name from which the image enhancement parameters are read from the ISP
@@ -83,12 +102,17 @@ class DspImageEnhancement
                                                                    uint8_t high_percentile_pixel);
     void contrast_brightness_lowpass_filter(float contrast, int16_t brightness, float &new_contrast,
                                             float &new_brightness);
+    void update_lut(const Histogram &histogram);
 
     std::atomic<bool> m_enabled;
     std::atomic<bool> m_running;
     isp_image_enhancement_params_t m_isp_params;
-    dsp_image_enhancement_params_t m_dsp_params;
     dsp_image_enhancement_histogram_t m_dsp_histogram_params;
+    dsp_histogram_equalization_params_t m_histogram_eq_params;
+    dsp_image_enhancement_params_t m_dsp_params;
+    bool m_do_histogram_equalization;
+    double m_histogram_clip_thr;
+    double m_histogram_alpha;
 
     std::thread m_isp_params_update_thread;
     std::shared_mutex m_dsp_params_lock;

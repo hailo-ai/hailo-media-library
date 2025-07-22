@@ -90,5 +90,10 @@
                 }
             }
         }
+    },
+    "privacy_mask": {
+        "mask_type": "PIXELIZATION",
+        "pixelization_size": 60,
+        "color_value": "#000000"
     }
 }

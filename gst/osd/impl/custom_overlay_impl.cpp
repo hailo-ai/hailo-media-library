@@ -47,12 +47,6 @@ tl::expected<CustomOverlayImplPtr, media_library_return> CustomOverlayImpl::crea
     return osd_overlay;
 }
 
-std::shared_future<tl::expected<CustomOverlayImplPtr, media_library_return>> CustomOverlayImpl::create_async(
-    const osd::CustomOverlay &overlay)
-{
-    return std::async(std::launch::async, [overlay]() { return create(overlay); }).share();
-}
-
 tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> CustomOverlayImpl::get_dsp_overlays()
 {
     if (!get_enabled())

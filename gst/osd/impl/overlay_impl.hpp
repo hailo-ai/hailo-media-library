@@ -73,8 +73,6 @@ class OverlayImpl
     static GstVideoFrame gst_video_frame_from_mat_bgra(cv::Mat mat);
     static media_library_return convert_2_dma_video_frame(GstVideoFrame *src_frame, GstVideoFrame *dest_frame,
                                                           GstVideoFormat dest_format);
-    static media_library_return create_gst_video_frame(uint width, uint height, std::string format,
-                                                       GstVideoFrame *frame);
     void free_resources();
     static media_library_return create_dma_video_frame(uint width, uint height, std::string format,
                                                        GstVideoFrame *frame);

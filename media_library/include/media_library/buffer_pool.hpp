@@ -54,38 +54,6 @@ class HailoBucket;
 struct hailo_media_library_buffer;
 using HailoMediaLibraryBufferPtr = std::shared_ptr<hailo_media_library_buffer>;
 
-class HailoBucket
-{
-  private:
-    size_t m_buffer_size;
-    size_t m_num_buffers;
-    HailoMemoryType m_memory_type;
-
-    // Keep track of used and free buffers
-    std::unordered_set<intptr_t> m_used_buffers;
-    std::deque<intptr_t> m_available_buffers;
-    std::shared_ptr<std::mutex> m_bucket_mutex;
-
-    media_library_return allocate();
-    media_library_return free(bool fail_on_used_buffers = true);
-    media_library_return acquire(intptr_t *buffer_ptr);
-    media_library_return release(intptr_t buffer_ptr);
-
-  public:
-    HailoBucket(size_t buffer_size, size_t num_buffers, HailoMemoryType memory_type);
-    ~HailoBucket();
-    // remove copy assigment
-    HailoBucket &operator=(const HailoBucket &) = delete;
-    // remove copy constructor
-    HailoBucket(const HailoBucket &) = delete;
-    // remove move constructor
-    HailoBucket(HailoBucket &&) = delete;
-    // remove move assignment
-    HailoBucket &operator=(HailoBucket &&) = delete;
-    friend class MediaLibraryBufferPool;
-    int available_buffers_count();
-    int used_buffers_count();
-};
 using HailoBucketPtr = std::shared_ptr<HailoBucket>;
 
 /**
@@ -257,7 +225,8 @@ class MediaLibraryBufferPool : public std::enable_shared_from_this<MediaLibraryB
      *
      * @return media_library_return Returns MEDIA_LIBRARY_SUCCESS if all the buffers are used within the timeout.
      */
-    media_library_return wait_for_used_buffers(uint32_t timeout_ms);
+    media_library_return wait_for_used_buffers(
+        const std::chrono::milliseconds &timeout_ms = std::chrono::milliseconds(1000));
 
     /**
      * @brief Swaps the width and height of the buffer.
@@ -300,6 +269,16 @@ class MediaLibraryBufferPool : public std::enable_shared_from_this<MediaLibraryB
     std::string get_name()
     {
         return m_name;
+    }
+
+    /**
+     * @brief Gets the format of the buffer pool.
+     *
+     * @return The format of the buffer pool as a HailoFormat enum.
+     */
+    HailoFormat get_format()
+    {
+        return m_format;
     }
 };
 

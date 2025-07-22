@@ -22,6 +22,7 @@
  */
 
 #include "overlay_impl.hpp"
+#include "common/gstmedialibcommon.hpp"
 #include "buffer_utils/buffer_utils.hpp"
 #include "media_library/media_library_logger.hpp"
 #include "media_library/threadpool.hpp"
@@ -81,55 +82,19 @@ OverlayImpl::OverlayImpl(std::string id, float x, float y, float width, float he
 GstVideoFrame OverlayImpl::gst_video_frame_from_mat_bgra(cv::Mat mat)
 {
     // Create caps at BGRA format and required size
-    GstCaps *caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "BGRA", "width", G_TYPE_INT, mat.cols,
-                                        "height", G_TYPE_INT, mat.rows, NULL);
+    GstCapsPtr caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "BGRA", "width", G_TYPE_INT, mat.cols,
+                                          "height", G_TYPE_INT, mat.rows, NULL);
     // Create GstVideoInfo meta from those caps
     GstVideoInfo *image_info = gst_video_info_new();
     gst_video_info_from_caps(image_info, caps);
     // Create a GstBuffer from the cv::mat, allowing for contiguous memory
-    GstBuffer *buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, mat.data, mat.total() * mat.elemSize(), 0,
-                                                    mat.total() * mat.elemSize(), NULL, NULL);
+    GstBufferPtr buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, mat.data, mat.total() * mat.elemSize(),
+                                                      0, mat.total() * mat.elemSize(), NULL, NULL);
     // Create and map a GstVideoFrame from the GstVideoInfo and GstBuffer
     GstVideoFrame frame;
     gst_video_frame_map(&frame, image_info, buffer, GST_MAP_READ);
     gst_video_info_free(image_info);
-    gst_caps_unref(caps);
     return frame;
-}
-
-media_library_return OverlayImpl::create_gst_video_frame(uint width, uint height, std::string format,
-                                                         GstVideoFrame *frame)
-{
-    media_library_return ret = MEDIA_LIBRARY_SUCCESS;
-    // Create caps at format and required size
-    GstCaps *caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, format.c_str(), "width", G_TYPE_INT,
-                                        width, "height", G_TYPE_INT, height, NULL);
-
-    void *buffer_ptr = NULL;
-
-    // Create GstVideoInfo meta from those caps
-    GstVideoInfo *image_info = gst_video_info_new();
-    gst_video_info_from_caps(image_info, caps);
-    uint buffer_size = image_info->size;
-    dsp_status buffer_status = dsp_utils::create_hailo_dsp_buffer(buffer_size, &buffer_ptr, true);
-
-    if (buffer_status != DSP_SUCCESS)
-    {
-        gst_caps_unref(caps);
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Error: create_hailo_dsp_buffer - failed to create buffer");
-        return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
-    }
-
-    // Create a GstBuffer from the cv::mat, allowing for contiguous memory
-    GstBuffer *buffer = gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, buffer_ptr, buffer_size, 0, buffer_size,
-                                                    buffer_ptr, GDestroyNotify(dsp_utils::release_hailo_dsp_buffer));
-
-    // Create and map a GstVideoFrame from the GstVideoInfo and GstBuffer
-    gst_video_frame_map(frame, image_info, buffer, GST_MAP_READ);
-    gst_buffer_unref(buffer);
-    gst_video_info_free(image_info);
-    gst_caps_unref(caps);
-    return ret;
 }
 
 media_library_return OverlayImpl::end_sync_buffer(GstVideoFrame *video_frame)
@@ -169,15 +134,15 @@ media_library_return OverlayImpl::create_dma_video_frame(uint width, uint height
 {
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
     // Create caps at format and required size
-    GstCaps *caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, format.c_str(), "width", G_TYPE_INT,
-                                        width, "height", G_TYPE_INT, height, NULL);
+    GstCapsPtr caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, format.c_str(), "width", G_TYPE_INT,
+                                          width, "height", G_TYPE_INT, height, NULL);
 
     // Create GstVideoInfo meta from those caps
     GstVideoInfo *image_info = gst_video_info_new();
     gst_video_info_from_caps(image_info, caps);
 
     // Create a GstBuffer from the dma buffers, allowing for contiguous memory
-    GstBuffer *buffer = gst_buffer_new();
+    GstBufferPtr buffer = gst_buffer_new();
     size_t channel_stride = 0;
     size_t channel_size = 0;
     int num_planes = GST_VIDEO_INFO_N_PLANES(image_info);
@@ -209,7 +174,6 @@ media_library_return OverlayImpl::create_dma_video_frame(uint width, uint height
         media_library_return status = DmaMemoryAllocator::get_instance().allocate_dma_buffer(channel_size, &buffer_ptr);
         if (status != MEDIA_LIBRARY_SUCCESS)
         {
-            gst_caps_unref(caps);
             LOGGER__MODULE__ERROR(MODULE_NAME, "Error: create_hailo_dsp_buffer - failed to create buffer for plane ",
                                   i);
             return MEDIA_LIBRARY_DSP_OPERATION_ERROR;
@@ -229,9 +193,7 @@ media_library_return OverlayImpl::create_dma_video_frame(uint width, uint height
 
     // Create and map a GstVideoFrame from the GstVideoInfo and GstBuffer
     gst_video_frame_map(frame, image_info, buffer, GST_MAP_WRITE);
-    gst_buffer_unref(buffer);
     gst_video_info_free(image_info);
-    gst_caps_unref(caps);
     return ret;
 }
 
@@ -376,8 +338,6 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
 
     GstVideoFrame gst_bgra_image = gst_video_frame_from_mat_bgra(mat);
     status = convert_2_dma_video_frame(&gst_bgra_image, &dest_frame, GST_VIDEO_FORMAT_A420);
-
-    gst_buffer_unref(gst_bgra_image.buffer);
     gst_video_frame_unmap(&gst_bgra_image);
 
     if (status != MEDIA_LIBRARY_SUCCESS)

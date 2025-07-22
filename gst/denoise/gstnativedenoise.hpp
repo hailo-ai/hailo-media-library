@@ -29,6 +29,7 @@
 #pragma once
 
 #include "media_library/post_isp_denoise.hpp"
+#include "common/gstmedialibcommon.hpp"
 #include <fstream>
 #include <gst/gst.h>
 #include <memory>
@@ -54,10 +55,10 @@ typedef struct _GstHailoDenoise GstHailoDenoise;
 typedef struct _GstHailoDenoiseParams GstHailoDenoiseParams;
 typedef struct _GstHailoDenoiseClass GstHailoDenoiseClass;
 
-struct _GstHailoDenoiseParams
+struct __attribute__((visibility("hidden"))) _GstHailoDenoiseParams
 {
-    GstPad *sinkpad;
-    GstPad *srcpad;
+    GstPadPtr sinkpad;
+    GstPadPtr srcpad;
     std::string config_file_path;
     std::string config_string;
 
@@ -65,18 +66,19 @@ struct _GstHailoDenoiseParams
     std::condition_variable m_condvar;
     std::mutex m_mutex;
     size_t m_queue_size = DENOISE_DEFAULT_QUEUE_SIZE;
-    std::queue<GstBuffer *> m_staging_queue;
+    std::queue<GstBufferPtr> m_staging_queue;
 
     std::shared_ptr<MediaLibraryPostIspDenoise> medialib_denoise = nullptr;
-    denoise_config_t denoise_config;
+    std::unique_ptr<ConfigManager> m_config_manager;
+    std::unique_ptr<frontend_config_t> m_frontend_config;
 
-    media_library_return observe(const MediaLibraryPostIspDenoise::callbacks_t &callback)
+    media_library_return observe(const MediaLibraryDenoise::callbacks_t &callback)
     {
         return medialib_denoise->observe(callback);
     }
 };
 
-struct _GstHailoDenoise
+struct __attribute__((visibility("hidden"))) _GstHailoDenoise
 {
     GstElement element;
     GstHailoDenoiseParams *params = nullptr;

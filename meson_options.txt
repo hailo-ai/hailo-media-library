@@ -1,5 +1,6 @@
 # Targets
 option('targets', type : 'array', choices : ['core', 'gst', 'api', 'docs'], value : ['core', 'gst','api'])
-
+# Platform
+option('platform', type : 'combo', choices : ['15l', '15h'], value : '15h')
 # Unit tests
 option('include_unit_tests', type : 'boolean', value : true)

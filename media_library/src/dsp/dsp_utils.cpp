@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2024 Hailo Technologies Ltd. All rights reserved.
+ * Copyright (c) 2017-2025 Hailo Technologies Ltd. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -24,6 +24,7 @@
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
 #include "dma_memory_allocator.hpp"
+#include "hailo_media_library_perfetto.hpp"
 
 #define MODULE_NAME LoggerType::Dsp
 
@@ -306,7 +307,9 @@ dsp_status perform_resize(dsp_image_properties_t *input_image_properties,
         letterbox_params.color.v = 128;
     }
 
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_crop_and_resize_letterbox", DSP_THREADED_TRACK);
     dsp_status status = dsp_crop_and_resize_letterbox(device, &resize_params, &crop_params, &letterbox_params);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
 
     if (status != DSP_SUCCESS)
     {
@@ -368,11 +371,15 @@ dsp_status perform_crop_and_resize(dsp_image_properties_t *input_image_propertie
             .end_x = args.crop_end_x,
             .end_y = args.crop_end_y,
         };
+        HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_crop_and_resize_letterbox", DSP_THREADED_TRACK);
         status = dsp_crop_and_resize_letterbox(device, &resize_params, &crop_params, &letterbox_params);
+        HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
     }
     else
     {
+        HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_crop_and_resize_letterbox", DSP_THREADED_TRACK);
         status = dsp_crop_and_resize_letterbox(device, &resize_params, nullptr, &letterbox_params);
+        HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
     }
 
     if (status != DSP_SUCCESS)
@@ -450,7 +457,11 @@ dsp_status perform_crop_and_resize(hailo_buffer_data_t *input_buffer_data, hailo
  */
 dsp_status perform_dsp_multi_resize(dsp_multi_crop_resize_params_t *multi_crop_resize_params)
 {
-    return dsp_multi_crop_and_resize(device, multi_crop_resize_params);
+    dsp_status status;
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_multi_crop_and_resize", DSP_THREADED_TRACK);
+    status = dsp_multi_crop_and_resize(device, multi_crop_resize_params);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
+    return status;
 }
 
 /**
@@ -465,7 +476,11 @@ dsp_status perform_dsp_multi_resize(dsp_multi_crop_resize_params_t *multi_crop_r
 dsp_status perform_dsp_multi_resize(dsp_multi_crop_resize_params_t *multi_crop_resize_params,
                                     dsp_privacy_mask_t *privacy_mask_params)
 {
-    return dsp_multi_crop_and_resize_privacy_mask(device, multi_crop_resize_params, privacy_mask_params);
+    dsp_status status;
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_multi_crop_and_resize_privacy_mask", DSP_THREADED_TRACK);
+    status = dsp_multi_crop_and_resize_privacy_mask(device, multi_crop_resize_params, privacy_mask_params);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
+    return status;
 }
 
 /**
@@ -486,7 +501,11 @@ dsp_status perform_dsp_telescopic_multi_resize(dsp_multi_crop_resize_params_t *m
         .image_enhancement_params = nullptr,
         .flip_rotate_params = nullptr,
     };
-    return dsp_frontend_process(device, &frontend_params);
+    dsp_status status;
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_telescopic_multi_resize", DSP_THREADED_TRACK);
+    status = dsp_frontend_process(device, &frontend_params);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
+    return status;
 }
 
 /**
@@ -508,7 +527,11 @@ dsp_status perform_dsp_telescopic_multi_resize(dsp_multi_crop_resize_params_t *m
         .image_enhancement_params = nullptr,
         .flip_rotate_params = nullptr,
     };
-    return dsp_frontend_process(device, &frontend_params);
+    dsp_status status;
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_telescopic_multi_resize", DSP_THREADED_TRACK);
+    status = dsp_frontend_process(device, &frontend_params);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
+    return status;
 }
 
 /**
@@ -529,7 +552,11 @@ dsp_status perform_dsp_telescopic_multi_resize(dsp_multi_crop_resize_params_t *m
         .image_enhancement_params = image_enhancement_params,
         .flip_rotate_params = nullptr,
     };
-    return dsp_frontend_process(device, &frontend_params);
+    dsp_status status;
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_telescopic_multi_resize", DSP_THREADED_TRACK);
+    status = dsp_frontend_process(device, &frontend_params);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
+    return status;
 }
 
 /**
@@ -548,7 +575,11 @@ dsp_status perform_dsp_telescopic_multi_resize(dsp_multi_crop_resize_params_t *m
         .image_enhancement_params = image_enhancement_params,
         .flip_rotate_params = nullptr,
     };
-    return dsp_frontend_process(device, &frontend_params);
+    dsp_status status;
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_telescopic_multi_resize", DSP_THREADED_TRACK);
+    status = dsp_frontend_process(device, &frontend_params);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
+    return status;
 }
 
 /**
@@ -563,7 +594,36 @@ dsp_status perform_dsp_telescopic_multi_resize(dsp_multi_crop_resize_params_t *m
  */
 dsp_status perform_dsp_frontend_process(const dsp_frontend_params_t &frontend_params)
 {
-    return dsp_frontend_process(device, &frontend_params);
+    dsp_status status;
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_frontend_process", DSP_THREADED_TRACK);
+    status = dsp_frontend_process(device, &frontend_params);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
+    return status;
+}
+
+/**
+ * @brief Apply privacy masks on an image
+ * @details The function applies one or more privacy masks on an image.
+ * @param image pointer to input image to apply the privacy masks on.
+ * @param privacy_mask_params Pointer to the required privacy mask parameters.
+ * @return dsp_status The status of the DSP operation.
+ */
+dsp_status perform_dsp_privacy_mask(hailo_buffer_data_t *input_buffer_data,
+                                    const unified_dsp_privacy_mask_t *privacy_mask_params)
+{
+    if (privacy_mask_params->dynamic_privacy_mask_params == nullptr &&
+        privacy_mask_params->static_privacy_mask_params == nullptr)
+    {
+        // No privacy masks to apply
+        return DSP_SUCCESS;
+    }
+
+    dsp_status status;
+    hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_privacy_mask", DSP_THREADED_TRACK);
+    status = dsp_privacy_mask(device, &input_dsp_buffer_data.properties, privacy_mask_params);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
+    return status;
 }
 
 dsp_status perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
@@ -590,14 +650,22 @@ dsp_status perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
             },
         .filter_angle = filter_angle,
     };
-    return dsp_rot_dis_dewarp(device, &dewarp_params);
+    dsp_status status;
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_rot_dis_dewarp", DSP_THREADED_TRACK);
+    status = dsp_rot_dis_dewarp(device, &dewarp_params);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
+    return status;
 }
 
 dsp_status perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
                               dsp_image_properties_t *output_image_properties, dsp_dewarp_mesh_t *mesh,
                               dsp_interpolation_type_t interpolation)
 {
-    return dsp_dewarp(device, input_image_properties, output_image_properties, mesh, interpolation);
+    dsp_status status;
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_dewarp", DSP_THREADED_TRACK);
+    status = dsp_dewarp(device, input_image_properties, output_image_properties, mesh, interpolation);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
+    return status;
 }
 
 /**
@@ -614,7 +682,11 @@ dsp_status perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
 dsp_status perform_dsp_multiblend(dsp_image_properties_t *image_frame, dsp_overlay_properties_t *overlay,
                                   size_t overlays_count)
 {
-    return dsp_blend(device, image_frame, overlay, overlays_count);
+    dsp_status status;
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_blend", DSP_THREADED_TRACK);
+    status = dsp_blend(device, image_frame, overlay, overlays_count);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
+    return status;
 }
 
 dsp_status perform_dsp_dewarp(hailo_buffer_data_t *input_buffer_data, hailo_buffer_data_t *output_buffer_data,
@@ -636,8 +708,12 @@ dsp_status perform_dsp_dewarp(hailo_buffer_data_t *input_buffer_data, hailo_buff
 {
     hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
     hailo_dsp_buffer_data_t output_dsp_buffer_data = output_buffer_data->As<hailo_dsp_buffer_data_t>();
-    return dsp_dewarp(device, &input_dsp_buffer_data.properties, &output_dsp_buffer_data.properties, mesh,
-                      interpolation);
+    dsp_status status;
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_dewarp", DSP_THREADED_TRACK);
+    status =
+        dsp_dewarp(device, &input_dsp_buffer_data.properties, &output_dsp_buffer_data.properties, mesh, interpolation);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
+    return status;
 }
 
 /**
@@ -655,7 +731,11 @@ dsp_status perform_dsp_multiblend(hailo_buffer_data_t *input_buffer_data, dsp_ov
                                   size_t overlays_count)
 {
     hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
-    return dsp_blend(device, &input_dsp_buffer_data.properties, overlay, overlays_count);
+    dsp_status status;
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_blend", DSP_THREADED_TRACK);
+    status = dsp_blend(device, &input_dsp_buffer_data.properties, overlay, overlays_count);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
+    return status;
 }
 
 /**

@@ -118,12 +118,6 @@ tl::expected<TextOverlayImplPtr, media_library_return> TextOverlayImpl::create(c
     return osd_overlay;
 }
 
-std::shared_future<tl::expected<TextOverlayImplPtr, media_library_return>> TextOverlayImpl::create_async(
-    const osd::TextOverlay &overlay)
-{
-    return std::async(std::launch::async, [overlay]() { return create(overlay); }).share();
-}
-
 std::shared_ptr<osd::Overlay> TextOverlayImpl::get_metadata()
 {
     auto text_size = m_foreground_text->get_text_size();

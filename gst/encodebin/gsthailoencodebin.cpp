@@ -56,7 +56,8 @@ typedef enum
     PROP_CONFIG_STRING,
     PROP_CONFIG,
     PROP_WAIT_FOR_WRITABLE_BUFFER,
-    PROP_BLENDER,
+    PROP_OSD_BLENDER,
+    PROP_PM_BLENDER,
     PROP_QUEUE_SIZE,
     PROP_ENFORCE_CAPS,
     PROP_USER_CONFIG,
@@ -110,8 +111,14 @@ static void gst_hailoencodebin_class_init(GstHailoEncodeBinClass *klass)
                              (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
                                            GST_PARAM_MUTABLE_PLAYING)));
 
-    g_object_class_install_property(gobject_class, PROP_BLENDER,
-                                    g_param_spec_pointer("blender", "Blender object", "Pointer to blender object",
+    g_object_class_install_property(gobject_class, PROP_OSD_BLENDER,
+                                    g_param_spec_pointer("osd-blender", "OSD blender object",
+                                                         "Pointer to OSD blender object",
+                                                         (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READABLE)));
+
+    g_object_class_install_property(gobject_class, PROP_PM_BLENDER,
+                                    g_param_spec_pointer("privacy-mask-blender", "Privacy mask blender object",
+                                                         "Pointer to privacy mask blender object",
                                                          (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READABLE)));
 
     g_object_class_install_property(
@@ -185,16 +192,18 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id, const G
         hailoencodebin->params->config_file_path = glib_cpp::get_string_from_gvalue(value);
         GST_DEBUG_OBJECT(hailoencodebin, "config_file_path: %s", hailoencodebin->params->config_file_path.c_str());
 
+        nlohmann::json config_json = gst_hailoencodebin_get_encoder_json(g_value_get_string(value), true);
+        std::string config_json_str = config_json.dump();
+
         // set params for sub elements here
-        g_object_set(hailoencodebin->params->m_osd, "config-file-path", g_value_get_string(value), NULL);
+        g_object_set(hailoencodebin->params->m_osd, "config-string", config_json_str.c_str(), NULL);
         if (hailoencodebin->params->m_encoder)
         {
-            nlohmann::json config_json = gst_hailoencodebin_get_encoder_json(g_value_get_string(value), false);
             EncoderType encoder_type = gst_hailoencodebin_get_encoder_type(config_json);
+
             if (hailoencodebin->params->encoder_type == encoder_type)
             {
-                gst_hailoencodebin_set_encoder_properties(hailoencodebin, "config-file-path",
-                                                          g_value_get_string(value));
+                gst_hailoencodebin_set_encoder_properties(hailoencodebin, "config-string", config_json_str.c_str());
             }
             else
             {
@@ -323,10 +332,16 @@ void gst_hailoencodebin_get_property(GObject *object, guint property_id, GValue 
         g_value_set_boolean(value, wait_for_writable_buffer);
         break;
     }
-    case PROP_BLENDER: {
-        gpointer blender;
-        g_object_get(hailoencodebin->params->m_osd, "blender", &blender, NULL);
-        g_value_set_pointer(value, blender);
+    case PROP_OSD_BLENDER: {
+        gpointer osd_blender;
+        g_object_get(hailoencodebin->params->m_osd, "osd-blender", &osd_blender, NULL);
+        g_value_set_pointer(value, osd_blender);
+        break;
+    }
+    case PROP_PM_BLENDER: {
+        gpointer pm_blender;
+        g_object_get(hailoencodebin->params->m_osd, "privacy-mask-blender", &pm_blender, NULL);
+        g_value_set_pointer(value, pm_blender);
         break;
     }
     case PROP_QUEUE_SIZE: {
@@ -365,34 +380,26 @@ void gst_hailoencodebin_init_ghost_sink(GstHailoEncodeBin *hailoencodebin)
 {
     // Get the connecting pad
     const gchar *pad_name = "sink";
-    GstPad *pad = gst_element_get_static_pad(hailoencodebin->params->m_osd, pad_name);
+    GstPadPtr pad = gst_element_get_static_pad(hailoencodebin->params->m_osd, pad_name);
 
     // Create a ghostpad and connect it to the bin
-    GstPadTemplate *pad_tmpl = gst_static_pad_template_get(&sink_template);
+    GstPadTemplatePtr pad_tmpl = gst_static_pad_template_get(&sink_template);
     hailoencodebin->params->sinkpad = gst_ghost_pad_new_from_template(pad_name, pad, pad_tmpl);
     gst_pad_set_active(hailoencodebin->params->sinkpad, TRUE);
-    gst_element_add_pad(GST_ELEMENT(hailoencodebin), hailoencodebin->params->sinkpad);
-
-    // Cleanup
-    gst_object_unref(pad_tmpl);
-    gst_object_unref(pad);
+    glib_cpp::ptrs::add_pad_to_element(GST_ELEMENT(hailoencodebin), hailoencodebin->params->sinkpad);
 }
 
 void gst_hailoencodebin_init_ghost_src(GstHailoEncodeBin *hailoencodebin)
 {
     // Get the connecting pad
     const gchar *pad_name = "src";
-    GstPad *pad = gst_element_get_static_pad(hailoencodebin->params->m_encoder, pad_name);
+    GstPadPtr pad = gst_element_get_static_pad(hailoencodebin->params->m_encoder, pad_name);
 
     // Create a ghostpad and connect it to the bin
-    GstPadTemplate *pad_tmpl = gst_static_pad_template_get(&src_template);
+    GstPadTemplatePtr pad_tmpl = gst_static_pad_template_get(&src_template);
     hailoencodebin->params->srcpad = gst_ghost_pad_new_from_template(pad_name, pad, pad_tmpl);
     gst_pad_set_active(hailoencodebin->params->srcpad, TRUE);
-    gst_element_add_pad(GST_ELEMENT(hailoencodebin), hailoencodebin->params->srcpad);
-
-    // Cleanup
-    gst_object_unref(pad_tmpl);
-    gst_object_unref(pad);
+    glib_cpp::ptrs::add_pad_to_element(GST_ELEMENT(hailoencodebin), hailoencodebin->params->srcpad);
 }
 
 static const char *gst_hailoencodebin_get_encoder_element_name(const EncoderType encoder_type)

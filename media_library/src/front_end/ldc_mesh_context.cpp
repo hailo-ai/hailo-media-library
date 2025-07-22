@@ -7,17 +7,24 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <tl/expected.hpp>
+#include <iomanip>
 #include <mutex>
+#include <memory>
 #include <thread>
+#include <memory>
 #include <stdio.h>
 #include <algorithm>
 #include <vector>
 #include <opencv2/opencv.hpp>
 #include "isp_utils.hpp"
 #include "v4l2_ctrl.hpp"
+#include "media_library_utils.hpp"
+#include "ldc_mesh_context.hpp"
+#include "dis_interface.h"
+#include "media_library_logger.hpp"
+#include "gyro_device.hpp"
 #include "common.hpp"
-#include <tl/expected.hpp>
-#include <iomanip>
 
 #define MODULE_NAME LoggerType::LdcMesh
 #define CALIBRATION_VECOTR_SIZE 1024
@@ -511,9 +518,9 @@ media_library_return LdcMeshContext::initialize_dewarp_mesh()
 
     flip_direction_t flip_dir = FLIP_DIRECTION_NONE;
     rotation_angle_t rotation_angle = ROTATION_ANGLE_0;
-    if (m_ldc_configs.flip_config.enabled)
+    if (m_dsp_optimization && m_ldc_configs.flip_config.enabled)
         flip_dir = m_ldc_configs.flip_config.direction;
-    if (m_ldc_configs.rotation_config.enabled)
+    if (m_dsp_optimization && m_ldc_configs.rotation_config.enabled)
         rotation_angle = m_ldc_configs.rotation_config.angle;
     FlipMirrorRot flip_mirror_rot = get_flip_value(flip_dir, rotation_angle);
     DmaMemoryAllocator::get_instance().dmabuf_sync_start((void *)m_dewarp_mesh.mesh_table);
@@ -543,6 +550,7 @@ media_library_return LdcMeshContext::configure(ldc_config_t &ldc_configs)
     m_input_height = m_ldc_configs.input_video_config.resolution.dimensions.destination_height;
     m_magnification = m_ldc_configs.optical_zoom_config.magnification;
     m_last_threshold_timestamp = 0;
+    m_dsp_optimization = is_env_variable_on(MEDIALIB_DEWARP_DSP_OPTIMIZATION_ENV_VAR);
 
     if (!ldc_configs.check_ops_enabled())
         return MEDIA_LIBRARY_SUCCESS;
@@ -643,10 +651,15 @@ media_library_return LdcMeshContext::on_frame_vsm_update(struct hailo15_vsm &vsm
 
     flip_direction_t flip_dir = FLIP_DIRECTION_NONE;
     rotation_angle_t rotation_angle = ROTATION_ANGLE_0;
-    if (m_ldc_configs.flip_config.enabled)
+    if (m_dsp_optimization && m_ldc_configs.flip_config.enabled)
         flip_dir = m_ldc_configs.flip_config.direction;
-    if (m_ldc_configs.rotation_config.enabled)
+    if (m_dsp_optimization && m_ldc_configs.rotation_config.enabled)
         rotation_angle = m_ldc_configs.rotation_config.angle;
+    if (!m_dsp_optimization && m_ldc_configs.rotation_config.enabled)
+    {
+        LOGGER__MODULE__WARNING(MODULE_NAME,
+                                "Rotation is configured as enabled, but DSP optimization is currently disabled. ");
+    }
     FlipMirrorRot flip_mirror_rot = get_flip_value(flip_dir, rotation_angle);
 
     DmaMemoryAllocator::get_instance().dmabuf_sync_start((void *)m_dewarp_mesh.mesh_table);
@@ -677,24 +690,16 @@ static std::vector<gyro_sample_t> get_gyro_samples(GyroDevice *gyroApi, EIS *eis
                                                    uint64_t *threshold_timestamp, uint64_t *middle_exposure_timestamp,
                                                    float exposures_ratio)
 {
-    std::vector<gyro_sample_t>::iterator closest_vsync_sample;
-    bool found_vsync_sample = gyroApi->get_closest_vsync_sample(curr_frame_isp_timestamp_ns, closest_vsync_sample);
+    std::optional<gyro_sample_t> closest_vsync_sample = gyroApi->get_closest_vsync_sample(curr_frame_isp_timestamp_ns);
 
-    std::vector<gyro_sample_t> gyro_samples;
-    uint64_t timestamp = found_vsync_sample ? (*closest_vsync_sample).timestamp_ns : curr_frame_isp_timestamp_ns;
+    uint64_t timestamp =
+        closest_vsync_sample.has_value() ? closest_vsync_sample.value().timestamp_ns : curr_frame_isp_timestamp_ns;
 
     (void)integration_time;
     *middle_exposure_timestamp =
         eisApi->get_middle_exposure_timestamp(timestamp, hdr_sensor_params, exposures_ratio, *threshold_timestamp);
 
-    if (found_vsync_sample)
-    {
-        gyro_samples = gyroApi->get_gyro_samples_for_frame_vsync(closest_vsync_sample, *threshold_timestamp);
-    }
-    else
-    {
-        gyro_samples = gyroApi->get_gyro_samples_for_frame_isp_timestamp(*threshold_timestamp);
-    }
+    std::vector<gyro_sample_t> gyro_samples = gyroApi->get_gyro_samples_by_threshold(*threshold_timestamp);
 
     return gyro_samples;
 }
@@ -710,7 +715,8 @@ media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp
     }
 
     auto isp_params_expected = isp_utils::get_hdr_isp_params(
-        m_ldc_configs.eis_config.num_exposures, m_ldc_configs.eis_config.line_readout_time, m_v4l2_ctrl_repo);
+        m_ldc_configs.eis_config.num_exposures, m_ldc_configs.eis_config.line_readout_time,
+        m_ldc_configs.input_video_config.resolution.dimensions.destination_height, m_v4l2_ctrl_repo);
     if (!isp_params_expected.has_value())
     {
         LOGGER__ERROR("Failed to get ISP params for EIS");
@@ -729,9 +735,11 @@ media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp
     std::vector<unbiased_gyro_sample_t> unbiased_gyro_samples;
     DewarpT grid = {(int)m_dewarp_mesh.mesh_width, (int)m_dewarp_mesh.mesh_height, (int *)m_dewarp_mesh.mesh_table};
 
-    FlipMirrorRot flip_mirror_rot =
-        get_flip_value(m_ldc_configs.flip_config.enabled ? m_ldc_configs.flip_config.direction : FLIP_DIRECTION_NONE,
-                       m_ldc_configs.rotation_config.enabled ? m_ldc_configs.rotation_config.angle : ROTATION_ANGLE_0);
+    FlipMirrorRot flip_mirror_rot = get_flip_value(
+        (m_dsp_optimization && m_ldc_configs.flip_config.enabled) ? m_ldc_configs.flip_config.direction
+                                                                  : FLIP_DIRECTION_NONE,
+        (m_dsp_optimization && m_ldc_configs.rotation_config.enabled) ? m_ldc_configs.rotation_config.angle
+                                                                      : ROTATION_ANGLE_0);
 
     std::vector<std::pair<uint64_t, cv::Mat>> current_orientations = {{0, cv::Mat::eye(3, 3, CV_64F)}};
     std::vector<cv::Mat> rolling_shutter_rotations(m_dewarp_mesh.mesh_height, cv::Mat::eye(3, 3, CV_32F));
@@ -799,24 +807,6 @@ generate_grid:
     m_dewarp_mesh.mesh_height = grid.mesh_height;
 
     return MEDIA_LIBRARY_SUCCESS;
-}
-
-media_library_return LdcMeshContext::set_optical_zoom(float magnification)
-{
-    std::unique_lock<std::shared_mutex> lock(m_mutex);
-    media_library_return ret = MEDIA_LIBRARY_SUCCESS;
-    m_magnification = magnification;
-
-    // upon optical zoom, dis_library should be reinitialized with modified calibration
-    ret = free_dis_context();
-    if (ret != MEDIA_LIBRARY_SUCCESS)
-        return ret;
-
-    ret = initialize_dis_context();
-    if (ret != MEDIA_LIBRARY_SUCCESS)
-        return ret;
-
-    return initialize_dewarp_mesh();
 }
 
 dsp_dewarp_mesh_t *LdcMeshContext::get()

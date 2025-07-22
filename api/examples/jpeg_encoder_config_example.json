@@ -1,4 +1,9 @@
 {
+    "privacy_mask": {
+        "mask_type": "COLOR",
+        "pixelization_size": 60,
+        "color_value": [0, 0, 0]
+    },
     "osd": {
         "image": [
             {
@@ -18,11 +23,7 @@
                 "id": "example_datetime",
                 "font_size": 100,
                 "datetime_format": "%d-%m-%Y %H:%M:%S",
-                "text_color": [
-                    255,
-                    0,
-                    0
-                ],
+                "text_color": [255, 0, 0],
                 "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
                 "x": 0.1,
                 "y": 0.7,
@@ -37,11 +38,7 @@
                 "label": "HailoAI",
                 "font_size": 100,
                 "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
-                "text_color": [
-                    255,
-                    255,
-                    255
-                ],
+                "text_color": [255, 255, 255],
                 "x": 0.7,
                 "y": 0.05,
                 "z-index": 2,
@@ -53,16 +50,8 @@
                 "label": "camera name",
                 "font_size": 100,
                 "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
-                "text_color": [
-                    102,
-                    0,
-                    51
-                ],
-                "background_color": [
-                    0,
-                    0,
-                    0
-                ],
+                "text_color": [102, 0, 51],
+                "background_color": [0, 0, 0],
                 "x": 0.05,
                 "y": 0.1,
                 "z-index": 1,
@@ -71,7 +60,7 @@
             }
         ]
     },
-    "encoding" : {
+    "encoding": {
         "input_stream": {
             "width": 1280,
             "height": 720,

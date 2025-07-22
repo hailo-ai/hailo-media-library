@@ -28,8 +28,6 @@ typedef struct _GstHailoJpegEncParams
     std::unique_ptr<EncoderConfig> encoder_config;
     encoder_config_t encoder_user_config;
     uint num_of_threads = DEFAULT_NUM_OF_THREADS;
-    GstPad *srcpad = nullptr;
-    GstPad *sinkpad = nullptr;
     GstElement *m_roundrobin = nullptr;
     GstElement *m_hailoroundrobin = nullptr;
     std::vector<GstElement *> m_jpegencs;

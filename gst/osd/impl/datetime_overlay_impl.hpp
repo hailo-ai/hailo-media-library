@@ -32,8 +32,6 @@ class DateTimeOverlayImpl : public TextOverlayImpl
 {
   public:
     static tl::expected<DateTimeOverlayImplPtr, media_library_return> create(const osd::DateTimeOverlay &overlay);
-    static std::shared_future<tl::expected<DateTimeOverlayImplPtr, media_library_return>> create_async(
-        const osd::DateTimeOverlay &overlay);
     DateTimeOverlayImpl(const osd::DateTimeOverlay &overlay, media_library_return &status);
     virtual ~DateTimeOverlayImpl() = default;
 

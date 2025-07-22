@@ -24,6 +24,8 @@
 #include "media_library_logger.hpp"
 #include "polygon_math.hpp"
 
+#define MODULE_NAME LoggerType::PrivacyMask
+
 using namespace cv;
 
 // Local definitions - Use enum becuase they are only valid within the scope in which they are defined
@@ -256,8 +258,8 @@ static void fill_edge_collection(Mat &img, std::vector<PolyEdge> &edges, uint st
     }
 }
 
-static std::vector<Point> convert_vertices_to_points(const std::vector<privacy_mask_types::vertex> &vertices,
-                                                     roi_t &roi, const uint &frame_width, const uint &frame_height)
+static std::vector<Point> convert_vertices_to_points(const std::vector<vertex> &vertices, roi_t &roi,
+                                                     const uint &frame_width, const uint &frame_height)
 {
     int min_x = INT_MAX;
     int min_y = INT_MAX;
@@ -424,8 +426,7 @@ media_library_return fill_poly_packaged_array(InputOutputArray img, InputArrayOf
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return rotate_polygon(privacy_mask_types::PolygonPtr polygon, double rotation_angle, uint frame_width,
-                                    uint frame_height)
+media_library_return rotate_polygon(PolygonPtr polygon, double rotation_angle, uint frame_width, uint frame_height)
 {
     double xm = static_cast<double>(frame_width) / 2;
     double ym = static_cast<double>(frame_height) / 2;
@@ -445,8 +446,8 @@ media_library_return rotate_polygon(privacy_mask_types::PolygonPtr polygon, doub
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return rotate_polygons(std::vector<privacy_mask_types::PolygonPtr> &polygons, double rotation_angle,
-                                     uint frame_width, uint frame_height)
+media_library_return rotate_polygons(std::vector<PolygonPtr> &polygons, double rotation_angle, uint frame_width,
+                                     uint frame_height)
 {
     for (auto &polygon : polygons)
     {
@@ -458,9 +459,9 @@ media_library_return rotate_polygons(std::vector<privacy_mask_types::PolygonPtr>
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mask_types::PolygonPtr> &polygons,
-                                                         const uint &frame_width, const uint &frame_height,
-                                                         privacy_mask_types::PrivacyMaskDataPtr privacy_mask_data)
+media_library_return write_polygons_to_privacy_mask_data(std::vector<PolygonPtr> &polygons, const uint &frame_width,
+                                                         const uint &frame_height,
+                                                         privacy_mask_types::StaticPrivacyMaskDataPtr privacy_mask_data)
 {
     struct timespec start_fill_polly, end_fill_polly;
     clock_gettime(CLOCK_MONOTONIC, &start_fill_polly);
@@ -499,7 +500,7 @@ media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mas
         if (fill_poly_packaged_array(mask, pts, white, 8, 0, mask_width_with_stride, packaged_array) !=
             media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__ERROR("Failed to fill polygon");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to fill polygon");
             return media_library_return::MEDIA_LIBRARY_ERROR;
         }
         i++;
@@ -508,7 +509,8 @@ media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mas
 
     if (privacy_mask_data->bitmask->buffer_data->planes[0].bytesused != packaged_array_size)
     {
-        LOGGER__ERROR("Failed to fill polygon - privacy mask buffer size is not equal to the packaged array size");
+        LOGGER__MODULE__ERROR(
+            MODULE_NAME, "Failed to fill polygon - privacy mask buffer size is not equal to the packaged array size");
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
     // memcopy packaged array to privacy_mask_data void pointer bit mask
@@ -516,7 +518,7 @@ media_library_return write_polygons_to_privacy_mask_data(std::vector<privacy_mas
 
     clock_gettime(CLOCK_MONOTONIC, &end_fill_polly);
     [[maybe_unused]] long ms = (long)media_library_difftimespec_ms(end_fill_polly, start_fill_polly);
-    LOGGER__DEBUG("perform fill polygon took {} milliseconds ({} fps)", ms, (1000 / ms));
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "perform fill polygon took {} milliseconds ({} fps)", ms, (1000 / ms));
 
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }

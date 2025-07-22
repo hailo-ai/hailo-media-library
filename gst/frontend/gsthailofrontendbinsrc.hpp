@@ -35,11 +35,11 @@
 #include <gst/gst.h>
 #include <tl/expected.hpp>
 #include "media_library/isp_utils.hpp"
-#include "media_library/post_isp_denoise.hpp"
 #include "media_library/media_library_types.hpp"
 #include "media_library/config_manager.hpp"
+#include "media_library/post_isp_denoise.hpp"
 #include "media_library/pre_isp_denoise.hpp"
-#include "imaging/hailo_hdr.hpp"
+#include "media_library/hdr_manager.hpp"
 #include "gsthailofrontend.hpp"
 
 G_BEGIN_DECLS
@@ -69,15 +69,9 @@ struct _GstHailoFrontendBinSrcParams
     GstElement *m_capsfilter = nullptr;
     GstElement *m_queue = nullptr;
     GstElement *m_frontend = nullptr;
-    std::shared_ptr<ConfigManager> m_input_config_manager;
-    std::shared_ptr<ConfigManager> m_isp_config_manager;
-    std::shared_ptr<ConfigManager> m_hailort_config_manager;
-    std::shared_ptr<ConfigManager> m_hdr_config_manager;
-    input_video_config_t m_input_config;
-    hailort_t m_hailort_config;
-    isp_t m_isp_config;
-    hdr_config_t m_hdr_config;
-    std::unique_ptr<HDR::HDRManager> m_hdr;
+    std::shared_ptr<ConfigManager> m_frontend_config_manager;
+    frontend_config_t m_frontend_config;
+    std::unique_ptr<HdrManager> m_hdr;
     MediaLibraryPreIspDenoisePtr m_pre_isp_denoise;
     std::mutex m_config_mutex;
 };

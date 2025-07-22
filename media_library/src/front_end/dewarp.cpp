@@ -28,6 +28,7 @@
 #include "ldc_mesh_context.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_utils.hpp"
+#include "snapshot.hpp"
 #include <iostream>
 #include <linux/v4l2-controls.h>
 #include <linux/v4l2-subdev.h>
@@ -39,13 +40,59 @@
 #include <tl/expected.hpp>
 #include <vector>
 #include <shared_mutex>
+#include <fstream>
 #include "media_library/v4l2_ctrl.hpp"
 #include "media_library/isp_utils.hpp"
+#include "env_vars.hpp"
+#include "common.hpp"
+#include "hailo_media_library_perfetto.hpp"
 
 #define HAILO15_ISP_CID_LSC_BASE (V4L2_CID_USER_BASE + 0x3200)
 #define HAILO15_ISP_CID_LSC_OPTICAL_ZOOM (HAILO15_ISP_CID_LSC_BASE + 0x0009)
 
 #define EIS_NUM_FRAMES_PULL_INTEGRATION_TIME (120)
+#define VSM_PRINTS_FILE_PATH ("/tmp/dis_vsm_output.txt")
+
+struct VSMPrintFile
+{
+    std::ofstream outfile;
+    bool env_print_vsm_to_file;
+
+    VSMPrintFile(const std::string &fname = VSM_PRINTS_FILE_PATH)
+    {
+        auto var_result = get_env_variable<bool>(MEDIALIB_VSM_PRINT_ENV_VAR);
+        if (var_result.has_value())
+        {
+            env_print_vsm_to_file = var_result.value();
+        }
+        else
+        {
+            env_print_vsm_to_file = false;
+        }
+
+        if (env_print_vsm_to_file)
+        {
+            outfile.open(fname);
+        }
+    }
+
+    void writeToFile(struct hailo15_vsm::hailo15_vsm &vsm)
+    {
+        if (outfile.is_open() && env_print_vsm_to_file)
+        {
+            outfile << "dx = " << vsm.dx << "; dy = " << vsm.dy << "\n";
+        }
+    }
+
+    ~VSMPrintFile()
+    {
+        if (outfile.is_open())
+        {
+            outfile.close();
+        }
+    }
+};
+VSMPrintFile vsm_fh;
 
 #define MODULE_NAME LoggerType::Dewarp
 
@@ -81,9 +128,6 @@ class MediaLibraryDewarp::Impl final
     // get the output video configurations object
     output_resolution_t get_application_input_streams_config();
 
-    // set magnification level of optical zoom
-    media_library_return set_optical_zoom(float magnification);
-
     // set the input video configurations
     media_library_return set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate,
                                                 HailoFormat format);
@@ -114,6 +158,9 @@ class MediaLibraryDewarp::Impl final
     uint64_t m_curr_ae_integration_time_counter;
 
     std::vector<MediaLibraryDewarp::callbacks_t> m_callbacks;
+
+    // Sets the optical zoom value to adjust the lens shading correction.
+    media_library_return set_optical_zoom(float magnification);
     media_library_return decode_config_json_string(ldc_config_t &ldc_configs, std::string config_string);
     media_library_return create_and_initialize_buffer_pools();
     media_library_return validate_input_frame(HailoMediaLibraryBufferPtr input_frame);
@@ -156,7 +203,11 @@ media_library_return MediaLibraryDewarp::configure(ldc_config_t &ldc_configs)
 media_library_return MediaLibraryDewarp::handle_frame(HailoMediaLibraryBufferPtr input_frame,
                                                       HailoMediaLibraryBufferPtr output_frame)
 {
-    return m_impl->handle_frame(input_frame, output_frame);
+    media_library_return status;
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("MediaLibraryDewarp::handle_frame", DSP_THREADED_TRACK);
+    status = m_impl->handle_frame(input_frame, output_frame);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
+    return status;
 }
 
 ldc_config_t MediaLibraryDewarp::get_ldc_configs()
@@ -172,11 +223,6 @@ input_video_config_t MediaLibraryDewarp::get_input_video_config()
 output_resolution_t MediaLibraryDewarp::get_application_input_streams_config()
 {
     return m_impl->get_application_input_streams_config();
-}
-
-media_library_return MediaLibraryDewarp::set_optical_zoom(float magnification)
-{
-    return m_impl->set_optical_zoom(magnification);
 }
 
 media_library_return MediaLibraryDewarp::set_input_video_config(uint32_t width, uint32_t height, uint32_t framerate,
@@ -274,6 +320,7 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
     // first check changes in ldc config relevant to multi resize (flip rotate)
     // and notify the multi resize element if needed
     std::unique_lock<std::shared_mutex> lock(rw_lock);
+    bool dsp_optimization = is_env_variable_on(MEDIALIB_DEWARP_DSP_OPTIMIZATION_ENV_VAR);
 
     auto prev_do_flip_rotate = !m_ldc_configs.check_ops_enabled(true);
     auto prev_flip_config = m_ldc_configs.flip_config;
@@ -282,10 +329,9 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
     auto do_flip_rotate = !ldc_configs.check_ops_enabled(true);
 
     // if output config has changed, call callback
-    bool do_flip_rotate_changed = !m_configured || do_flip_rotate != prev_do_flip_rotate;
-    bool flip_changed = !m_configured || ldc_configs.flip_config != prev_flip_config;
-    bool rot_changed = !m_configured || ldc_configs.rotation_config != prev_rot_config;
-
+    bool do_flip_rotate_changed = dsp_optimization && (!m_configured || do_flip_rotate != prev_do_flip_rotate);
+    bool flip_changed = (!m_configured || ldc_configs.flip_config != prev_flip_config);
+    bool rot_changed = dsp_optimization && (!m_configured || ldc_configs.rotation_config != prev_rot_config);
     m_ldc_configs.update_flip_rotate(ldc_configs);
 
     lock.unlock();
@@ -358,13 +404,27 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
         return ret;
     }
 
+    bool optical_zoom_enabled =
+        m_ldc_configs.optical_zoom_config.enabled && m_ldc_configs.optical_zoom_config.magnification != 1.0;
+
+    if (optical_zoom_enabled)
+    {
+        auto ret = set_optical_zoom(m_ldc_configs.optical_zoom_config.magnification);
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set optical zoom, err: {}", ret);
+            return ret;
+        }
+    }
+
     // Create and initialize buffer pools
     ret = create_and_initialize_buffer_pools();
     if (ret != MEDIA_LIBRARY_SUCCESS)
         return ret;
 
     // if output config has changed, call callback
-    bool out_changed = !m_ldc_configs.application_input_streams_config.dimensions_equal(prev_out_config);
+    bool out_changed =
+        dsp_optimization && (!m_ldc_configs.application_input_streams_config.dimensions_equal(prev_out_config));
 
     if (!m_ldc_configs.gyro_config.enabled && m_ldc_configs.eis_config.enabled)
     {
@@ -584,10 +644,10 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBuf
     // Update mesh context if dis is enabled and vsm has changed
     else if (m_ldc_configs.dis_config.enabled)
     {
+        vsm_fh.writeToFile(input_frame->vsm);
         LOGGER__MODULE__DEBUG(MODULE_NAME, "Updating vsm to dx {} dy {}", input_frame->vsm.dx, input_frame->vsm.dy);
         m_dewarp_mesh_ctx->on_frame_vsm_update(input_frame->vsm);
     }
-
     if (m_ldc_configs.gyro_config.enabled)
     {
         /* Pull the integration time each time we are not converged or every 120 frames */
@@ -617,7 +677,9 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBuf
     m_last_vsm.dx = input_frame->vsm.dx;
     m_last_vsm.dy = input_frame->vsm.dy;
 
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("perform_dewarp", DSP_THREADED_TRACK);
     media_lib_ret = perform_dewarp(input_frame, output_frame);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
     output_frame->copy_metadata_from(input_frame);
 
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
@@ -626,6 +688,7 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBuf
     increase_frame_counter();
 
     stamp_time_and_log_fps(start_handle, end_handle);
+    SnapshotManager::get_instance().take_snapshot("dewarp", output_frame);
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -650,15 +713,9 @@ output_resolution_t MediaLibraryDewarp::Impl::get_application_input_streams_conf
 
 media_library_return MediaLibraryDewarp::Impl::set_optical_zoom(float magnification)
 {
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Setting optical zoom to {}", magnification);
+
     struct v4l2_control ctrl;
-
-    if (!m_ldc_configs.optical_zoom_config.enabled)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "optical zoom is disabled in configuration");
-        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-    }
-
-    m_dewarp_mesh_ctx->set_optical_zoom(magnification);
 
     if (m_video_fd != -1)
     {
@@ -710,4 +767,50 @@ media_library_return MediaLibraryDewarp::Impl::observe(const MediaLibraryDewarp:
 {
     m_callbacks.push_back(callbacks);
     return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return ldc_config_t::update(ldc_config_t &ldc_configs)
+{
+    bool disable_dewarp =
+        ldc_configs.optical_zoom_config.enabled &&
+        ldc_configs.optical_zoom_config.magnification >= ldc_configs.optical_zoom_config.max_dewarping_magnification;
+
+    dewarp_config.enabled = disable_dewarp ? false : ldc_configs.dewarp_config.enabled;
+    dewarp_config.camera_type = dewarp_config.enabled ? CAMERA_TYPE_PINHOLE : CAMERA_TYPE_INPUT_DISTORTIONS;
+    dis_config = ldc_configs.dis_config;
+    eis_config = ldc_configs.eis_config;
+    gyro_config = ldc_configs.gyro_config;
+    optical_zoom_config = ldc_configs.optical_zoom_config;
+
+    // TODO: can we change interpolation type?
+    if (dewarp_config != ldc_configs.dewarp_config)
+    {
+        // Update dewarp configuration is restricted
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    update_flip_rotate(ldc_configs);
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+void ldc_config_t::update_flip_rotate(ldc_config_t &ldc_configs)
+{
+    flip_config = ldc_configs.flip_config;
+    if (!is_env_variable_on(MEDIALIB_DEWARP_DSP_OPTIMIZATION_ENV_VAR))
+    {
+        return;
+    }
+
+    rotation_angle_t current_rotation_angle = rotation_config.effective_value();
+    rotation_angle_t new_rotation_angle = ldc_configs.rotation_config.effective_value();
+    if (current_rotation_angle != new_rotation_angle)
+    {
+        if (current_rotation_angle % 2 != new_rotation_angle % 2 &&
+            dewarp_config.enabled) // if the rotation angle is not aligned, rotate the output resolutions
+        {
+            rotate_output_dimensions();
+        }
+    }
+
+    rotation_config = ldc_configs.rotation_config;
 }

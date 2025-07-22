@@ -31,6 +31,7 @@
 #include "encoder_internal.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_utils.hpp"
+#include "snapshot.hpp"
 
 #define MODULE_NAME LoggerType::Encoder
 
@@ -948,6 +949,10 @@ std::vector<EncoderOutputBuffer> Encoder::Impl::handle_frame(HailoMediaLibraryBu
 {
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Start Handling Frame with plane 0 of size {} for buffer id {}",
                           buf->get_plane_size(0), buf->buffer_index);
+
+    std::string name = "encoder_" + std::to_string(m_vc_cfg.width) + "x" + std::to_string(m_vc_cfg.height);
+    SnapshotManager::get_instance().take_snapshot(name, buf);
+
     std::vector<EncoderOutputBuffer> outputs;
     outputs.clear();
     media_library_return ret = MEDIA_LIBRARY_UNINITIALIZED;
@@ -1207,12 +1212,10 @@ void Encoder::Impl::monitor_write_to_file(std::ofstream &file, const std::string
     std::time_t now = std::time(nullptr);
     std::tm *timeinfo = std::localtime(&now);
 
-    std::thread([&file, data, timeinfo]() {
-        char timestamp[24];
-        std::strftime(timestamp, sizeof(timestamp), "[%Y-%m-%d %H:%M:%S]", timeinfo);
-        std::string timestampStr(timestamp);
-        file << timestampStr << " " << data << std::endl;
-    }).detach();
+    char timestamp[24];
+    std::strftime(timestamp, sizeof(timestamp), "[%Y-%m-%d %H:%M:%S]", timeinfo);
+    std::string timestampStr(timestamp);
+    file << timestampStr << " " << data << std::endl;
 }
 
 encoder_monitors Encoder::Impl::get_monitors()

@@ -19,40 +19,25 @@ DspImageEnhancement::DspImageEnhancement()
           .auto_target_low = 5,
           .auto_target_high = 248,
           .auto_low_pass_filter_alpha = 0.95,
+          .bilateral_denoise = false,
           .blur_level = 0,
+          .bilateral_sigma = 30,
           .sharpness_level = 0,
           .sharpness_amount = 0,
           .sharpness_threshold = 0,
           .saturation = 1.0,
-      },
-      m_dsp_params{
-          .blur =
-              {
-                  .level = 0,
-              },
-          .sharpness =
-              {
-                  .level = 0,
-                  .amount = 0,
-                  .threshold = 0,
-              },
-          .color =
-              {
-                  .contrast = 1.0,
-                  .brightness = 0,
-                  .saturation_u_a = 1.0,
-                  .saturation_u_b = 0,
-                  .saturation_v_a = 1.0,
-                  .saturation_v_b = 0,
-              },
-          .histogram_params = nullptr,
+          .histogram_equalization = false,
+          .histogram_equalization_alpha = 0.5,
+          .histogram_equalization_clip_threshold = 1.0,
       },
       m_dsp_histogram_params{
           .x_sample_step = 29,
           .y_sample_step = 29,
           .histogram = {0},
       },
-      m_isp_params_update_thread(&DspImageEnhancement::read_params_from_isp, this), m_brightness(std::nullopt)
+      m_histogram_eq_params{}, m_dsp_params(get_default_disabled_dsp_params()), m_histogram_clip_thr(1.0),
+      m_histogram_alpha(0.5), m_isp_params_update_thread(&DspImageEnhancement::read_params_from_isp, this),
+      m_brightness(std::nullopt)
 {
 }
 
@@ -68,6 +53,40 @@ DspImageEnhancement::~DspImageEnhancement()
 bool DspImageEnhancement::is_enabled()
 {
     return m_enabled;
+}
+
+dsp_image_enhancement_params_t DspImageEnhancement::get_default_disabled_dsp_params()
+{
+    dsp_image_enhancement_params_t params{
+        .blur =
+            {
+                .level = 0,
+            },
+        .bilateral =
+            {
+                .enabled = false,
+                .sigma_color = 0,
+            },
+        .sharpness =
+            {
+                .level = 0,
+                .amount = 0,
+                .threshold = 0,
+            },
+        .color =
+            {
+                .contrast = 1.0,
+                .brightness = 0,
+                .saturation_u_a = 1.0,
+                .saturation_u_b = 0,
+                .saturation_v_a = 1.0,
+                .saturation_v_b = 0,
+            },
+        .histogram_params = m_do_histogram_equalization ? &m_dsp_histogram_params : nullptr,
+        .histogram_equalization_params = m_do_histogram_equalization ? &m_histogram_eq_params : nullptr,
+    };
+
+    return params;
 }
 
 dsp_image_enhancement_params_t DspImageEnhancement::get_dsp_params()
@@ -138,8 +157,66 @@ std::pair<float, int16_t> DspImageEnhancement::contrast_brightness_from_percenti
     return std::make_pair(contrast, brightness);
 }
 
-void DspImageEnhancement::update_dsp_params_from_histogram(const Histogram &histogram)
+std::vector<double> DspImageEnhancement::clip_histogram(const Histogram &histogram, double clip_threshold)
 {
+    std::vector<double> clipped_hist(DSP_HISTOGRAM_SIZE);
+    std::transform(std::begin(histogram), std::end(histogram), clipped_hist.begin(),
+                   [](auto h) { return static_cast<double>(h); });
+
+    double sum_pixels_in_hist = std::accumulate(clipped_hist.begin(), clipped_hist.end(), 0.0);
+    double actual_clip_limit = clip_threshold * sum_pixels_in_hist / DSP_HISTOGRAM_SIZE;
+
+    double excess = 0;
+    for (auto &curr : clipped_hist)
+    {
+        if (curr > actual_clip_limit)
+        {
+            excess += curr - actual_clip_limit;
+            curr = actual_clip_limit;
+        }
+    }
+
+    /* Redistribute the excess between all the indeces in the histogram */
+    double redist = excess / DSP_HISTOGRAM_SIZE;
+    for (auto &curr : clipped_hist)
+    {
+        curr += redist;
+    }
+
+    return clipped_hist;
+}
+
+void DspImageEnhancement::update_lut(const Histogram &histogram)
+{
+    auto clipped_hist = clip_histogram(histogram, m_histogram_clip_thr);
+
+    /* Compute CDF */
+    std::vector<double> cdf(DSP_HISTOGRAM_SIZE);
+    /* cdf[i] = cdf[i - 1] + clipped_hist[i] */
+    std::partial_sum(clipped_hist.begin(), clipped_hist.end(), cdf.begin());
+
+    /* Normalize CDF and create LUT */
+    double cdf_max = cdf.back();
+    for (size_t i = 0; i < DSP_HISTOGRAM_SIZE; i++)
+    {
+        m_histogram_eq_params.lut[i] =
+            static_cast<uint8_t>(m_histogram_alpha * m_histogram_eq_params.lut[i] +
+                                 (1 - m_histogram_alpha) * (((cdf[i] * 255.0) / cdf_max) + 0.5));
+    }
+}
+
+void DspImageEnhancement::update_dsp_params_from_histogram(bool is_denoise_enabled, const Histogram &histogram)
+{
+    if (m_do_histogram_equalization)
+    {
+        update_lut(histogram);
+    }
+
+    if (!is_denoise_enabled)
+    {
+        return;
+    }
+
     auto [low_percentile_pixel, high_percentile_pixel] =
         find_percentile_pixels(histogram, m_isp_params.auto_percentile_low, m_isp_params.auto_percentile_high);
     auto [contrast, brightness] = contrast_brightness_from_percentiles(low_percentile_pixel, high_percentile_pixel);
@@ -147,8 +224,9 @@ void DspImageEnhancement::update_dsp_params_from_histogram(const Histogram &hist
     brightness = std::clamp(static_cast<int>(brightness), -128, 128);
 
     std::shared_lock<std::shared_mutex> lock(m_dsp_params_lock);
-    // check if we've switched to manual mode in the meantime
-    if (!m_dsp_params.histogram_params)
+    // if histogram equalization is enabled, or if we are in manual mode, we don't need to update the
+    // contrast and brightness parameters from the histogram
+    if (!m_dsp_params.histogram_params || m_do_histogram_equalization)
     {
         return;
     }
@@ -187,58 +265,49 @@ void DspImageEnhancement::update_dsp_params_from_isp()
     float saturation_a = m_isp_params.saturation;
     int16_t saturation_b = static_cast<int16_t>(128 * (1 - m_isp_params.saturation));
 
-    if (m_isp_params.auto_luma)
+    std::unique_lock<std::shared_mutex> lock(m_dsp_params_lock);
+    if (m_isp_params.bilateral_denoise)
     {
-        LOGGER__MODULE__TRACE(MODULE_NAME,
-                              "image enhancement parameters received from the ISP: "
-                              "auto_luma {} percentile_low {} percentile_high {} target_low {}  target_high {}, "
-                              "saturation {},"
-                              "blur level {}, "
-                              "sharpness level {} amount {} threshold {}",
-                              m_isp_params.auto_luma, static_cast<float>(m_isp_params.auto_percentile_low),
-                              static_cast<float>(m_isp_params.auto_percentile_high), m_isp_params.auto_target_low,
-                              m_isp_params.auto_target_high, static_cast<float>(m_isp_params.saturation),
-                              m_isp_params.blur_level, m_isp_params.sharpness_level,
-                              static_cast<float>(m_isp_params.sharpness_amount), m_isp_params.sharpness_threshold);
-
-        std::unique_lock<std::shared_mutex> lock(m_dsp_params_lock);
-        m_dsp_params.blur.level = m_isp_params.blur_level;
-        m_dsp_params.sharpness.level = m_isp_params.sharpness_level;
-        m_dsp_params.sharpness.amount = m_isp_params.sharpness_amount;
-        m_dsp_params.sharpness.threshold = m_isp_params.sharpness_threshold;
-        m_dsp_params.color.saturation_u_a = saturation_a;
-        m_dsp_params.color.saturation_u_b = saturation_b;
-        m_dsp_params.color.saturation_v_a = saturation_a;
-        m_dsp_params.color.saturation_v_b = saturation_b;
-        m_dsp_params.histogram_params = &m_dsp_histogram_params;
+        m_dsp_params.bilateral.enabled = m_isp_params.bilateral_denoise;
+        m_dsp_params.bilateral.sigma_color = m_isp_params.bilateral_sigma;
+        m_dsp_params.blur.level = 0;
     }
     else
     {
-        LOGGER__MODULE__TRACE(MODULE_NAME,
-                              "image enhancement parameters received from the ISP: "
-                              "auto_luma {} manual_contrast {} manual_brightness {}, "
-                              "saturation {}, "
-                              "blur level {}, "
-                              "sharpness level {} amount {} threshold {}",
-                              m_isp_params.auto_luma, static_cast<float>(m_isp_params.manual_contrast),
-                              static_cast<int16_t>(m_isp_params.manual_brightness),
-                              static_cast<float>(m_isp_params.saturation), m_isp_params.blur_level,
-                              m_isp_params.sharpness_level, static_cast<float>(m_isp_params.sharpness_amount),
-                              m_isp_params.sharpness_threshold);
-
-        std::unique_lock<std::shared_mutex> lock(m_dsp_params_lock);
+        m_dsp_params.bilateral.enabled = false;
         m_dsp_params.blur.level = m_isp_params.blur_level;
-        m_dsp_params.sharpness.level = m_isp_params.sharpness_level;
-        m_dsp_params.sharpness.amount = m_isp_params.sharpness_amount;
-        m_dsp_params.sharpness.threshold = m_isp_params.sharpness_threshold;
+    }
+    m_dsp_params.sharpness.level = m_isp_params.sharpness_level;
+    m_dsp_params.sharpness.amount = m_isp_params.sharpness_amount;
+    m_dsp_params.sharpness.threshold = m_isp_params.sharpness_threshold;
+    m_dsp_params.color.saturation_u_a = saturation_a;
+    m_dsp_params.color.saturation_u_b = saturation_b;
+    m_dsp_params.color.saturation_v_a = saturation_a;
+    m_dsp_params.color.saturation_v_b = saturation_b;
+    m_do_histogram_equalization = m_isp_params.histogram_equalization;
+    m_histogram_clip_thr = m_isp_params.histogram_equalization_clip_threshold;
+    m_histogram_alpha = m_isp_params.histogram_equalization_alpha;
+
+    if (m_isp_params.histogram_equalization)
+    {
+        m_dsp_params.histogram_params = &m_dsp_histogram_params;
+        m_dsp_params.histogram_equalization_params = &m_histogram_eq_params;
+        m_dsp_params.color.contrast = 1;   // "Disable" contrast for histogram equalization
+        m_dsp_params.color.brightness = 0; // "Disable" brightness for histogram equalization
+        m_brightness = std::nullopt;
+    }
+    else if (m_isp_params.auto_luma)
+    {
+        m_dsp_params.histogram_params = &m_dsp_histogram_params;
+        m_dsp_params.histogram_equalization_params = nullptr;
+    }
+    else
+    {
         m_dsp_params.color.contrast = m_isp_params.manual_contrast;
         m_dsp_params.color.brightness = m_isp_params.manual_brightness;
-        m_dsp_params.color.saturation_u_a = saturation_a;
-        m_dsp_params.color.saturation_u_b = saturation_b;
-        m_dsp_params.color.saturation_v_a = saturation_a;
-        m_dsp_params.color.saturation_v_b = saturation_b;
         m_dsp_params.histogram_params = nullptr;
         m_brightness = std::nullopt;
+        m_dsp_params.histogram_equalization_params = nullptr;
     }
 }
 
@@ -287,7 +356,77 @@ void DspImageEnhancement::read_params_from_isp()
             }
         }
         m_enabled = m_isp_params.enabled;
+        // NOTE: static_cast is required here because packed struct fields cannot be passed by reference
+        // to variadic functions (such as the logger macro) due to alignment restrictions. Casting to the
+        // appropriate value type ensures safe passing by value.
+        LOGGER__MODULE__TRACE(
+            MODULE_NAME,
+            "Received post denoise filter data from ISP:\n"
+            "  enabled: {}\n"
+            "  auto_luma: {}\n"
+            "  manual_contrast: {}\n"
+            "  manual_brightness: {}\n"
+            "  auto_percentile_low: {}\n"
+            "  auto_percentile_high: {}\n"
+            "  auto_target_low: {}\n"
+            "  auto_target_high: {}\n"
+            "  auto_low_pass_filter_alpha: {}\n"
+            "  bilateral_denoise: {}\n"
+            "  blur_level: {}\n"
+            "  bilateral_sigma: {}\n"
+            "  sharpness_level: {}\n"
+            "  sharpness_amount: {}\n"
+            "  sharpness_threshold: {}\n"
+            "  saturation: {}\n"
+            "  histogram_equalization: {}\n"
+            "  histogram_equalization_alpha: {}\n"
+            "  histogram_equalization_clip_threshold: {}",
+            m_isp_params.enabled, m_isp_params.auto_luma, static_cast<float>(m_isp_params.manual_contrast),
+            static_cast<int16_t>(m_isp_params.manual_brightness), static_cast<float>(m_isp_params.auto_percentile_low),
+            static_cast<float>(m_isp_params.auto_percentile_high), static_cast<uint8_t>(m_isp_params.auto_target_low),
+            static_cast<uint8_t>(m_isp_params.auto_target_high),
+            static_cast<float>(m_isp_params.auto_low_pass_filter_alpha), m_isp_params.bilateral_denoise,
+            static_cast<uint8_t>(m_isp_params.blur_level), static_cast<uint8_t>(m_isp_params.bilateral_sigma),
+            static_cast<uint8_t>(m_isp_params.sharpness_level), static_cast<float>(m_isp_params.sharpness_amount),
+            static_cast<uint8_t>(m_isp_params.sharpness_threshold), static_cast<float>(m_isp_params.saturation),
+            m_isp_params.histogram_equalization, static_cast<float>(m_isp_params.histogram_equalization_alpha),
+            static_cast<float>(m_isp_params.histogram_equalization_clip_threshold));
         update_dsp_params_from_isp();
     }
     mq_close(mq);
+}
+
+double DspImageEnhancement::get_histogram_clip_thr()
+{
+    return m_histogram_clip_thr;
+}
+
+void DspImageEnhancement::set_histogram_clip_thr(double clip_thr)
+{
+    m_histogram_clip_thr = clip_thr;
+}
+
+double DspImageEnhancement::get_histogram_alpha()
+{
+    return m_histogram_alpha;
+}
+
+void DspImageEnhancement::set_histogram_alpha(double alpha)
+{
+    m_histogram_alpha = alpha;
+}
+
+bool DspImageEnhancement::is_histogram_equalization_enabled()
+{
+    return m_do_histogram_equalization;
+}
+
+void DspImageEnhancement::set_histogram_equalization_enabled(bool enabled)
+{
+    m_do_histogram_equalization = enabled;
+}
+
+const dsp_histogram_equalization_params_t *DspImageEnhancement::get_histogram_eq_params() const
+{
+    return &m_histogram_eq_params;
 }
