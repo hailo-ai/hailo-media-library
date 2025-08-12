@@ -41,8 +41,12 @@
 #define MEDIA_SERVER_VSM_V_OFFSET_ENTRY "vsm_v_offset"
 #define MEDIA_SERVER_VSM_H_OFFSET_4K 960
 #define MEDIA_SERVER_VSM_V_OFFSET_4K 540
+#define MEDIA_SERVER_VSM_H_OFFSET_FHD 0
+#define MEDIA_SERVER_VSM_V_OFFSET_FHD 0
 #define MEDIA_SERVER_VSM_H_OFFSET_5MP 336
 #define MEDIA_SERVER_VSM_V_OFFSET_5MP 432
+#define MEDIA_SERVER_VSM_H_OFFSET_4MP 384
+#define MEDIA_SERVER_VSM_V_OFFSET_4MP 220
 #define MEDIA_SERVER_VSM_H_OFFSET_DEFAULT MEDIA_SERVER_VSM_H_OFFSET_4K
 #define MEDIA_SERVER_VSM_V_OFFSET_DEFAULT MEDIA_SERVER_VSM_V_OFFSET_4K
 #define MEDIA_SERVER_AWB_ENTRY "awb"
@@ -109,6 +113,10 @@ std::optional<SensorType> get_sensor_type()
             if (name.starts_with("imx715"))
             {
                 return SensorType::IMX715;
+            }
+            if (name.starts_with("imx664"))
+            {
+                return SensorType::IMX664;
             }
             if (name.starts_with("imx334"))
             {
@@ -203,11 +211,23 @@ inline vsm_offsets_t get_vsm_offsets(const output_resolution_t &input_resolution
         offsets.h_offset = MEDIA_SERVER_VSM_H_OFFSET_4K;
         offsets.v_offset = MEDIA_SERVER_VSM_V_OFFSET_4K;
     }
+    else if (input_resolution.dimensions.destination_width == 1920 &&
+             input_resolution.dimensions.destination_height == 1080) // FHD
+    {
+        offsets.h_offset = MEDIA_SERVER_VSM_H_OFFSET_FHD;
+        offsets.v_offset = MEDIA_SERVER_VSM_V_OFFSET_FHD;
+    }
     else if (input_resolution.dimensions.destination_width == 2592 &&
              input_resolution.dimensions.destination_height == 1944) // 5MP
     {
         offsets.h_offset = MEDIA_SERVER_VSM_H_OFFSET_5MP;
         offsets.v_offset = MEDIA_SERVER_VSM_V_OFFSET_5MP;
+    }
+    else if (input_resolution.dimensions.destination_width == 2688 &&
+             input_resolution.dimensions.destination_height == 1520) // 4MP
+    {
+        offsets.h_offset = MEDIA_SERVER_VSM_H_OFFSET_4MP;
+        offsets.v_offset = MEDIA_SERVER_VSM_V_OFFSET_4MP;
     }
     else
     {

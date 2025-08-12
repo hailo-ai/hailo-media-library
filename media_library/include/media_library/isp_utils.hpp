@@ -85,6 +85,7 @@ typedef struct
 enum class SensorType
 {
     IMX334,
+    IMX664,
     IMX675,
     IMX678,
     IMX715

@@ -140,7 +140,7 @@ media_library_return DmaMemoryAllocator::dmabuf_heap_alloc(dma_heap_allocation_d
     // F_DUPFD is used to ensure that applications running in a single process do not run out of available file
     // descriptors. In Linux, a process has a limit of 1024 file descriptors. and some legacy applications might only
     // use the first 1023 file descriptors.
-    int new_fd = fcntl(heap_data.fd, F_DUPFD, min_fd_range);
+    int new_fd = fcntl(heap_data.fd, F_DUPFD_CLOEXEC, min_fd_range);
     if (new_fd < 0)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "F_DUPFD failed for fd = {} and new_fd = {} with error = {}", heap_data.fd,

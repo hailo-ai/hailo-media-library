@@ -117,6 +117,9 @@ static nlohmann::json encoding_config_schema = R"(
           },
           "format": {
             "type": "string"
+          },
+          "max_pool_size": {
+            "type": "integer"
           }
         },
         "required": [

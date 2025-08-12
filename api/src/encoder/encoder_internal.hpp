@@ -43,6 +43,7 @@ struct InputParams
     uint32_t width;
     uint32_t height;
     uint32_t framerate;
+    uint32_t max_pool_size;    
 };
 enum appsrc_state
 {

@@ -211,6 +211,10 @@ bool VideoDevice::init(const std::string &device_path, const std::string name, D
         m_width = 3840;
         m_height = 2160;
         break;
+    case RES_4MP:
+        m_width = 2688;
+        m_height = 1520;
+        break;
     default:
         LOGGER__MODULE__ERROR(LOGGER_TYPE, "{}: invalid resolution", m_name);
         return false;

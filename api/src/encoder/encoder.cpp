@@ -57,8 +57,9 @@ media_library_return MediaLibraryEncoder::Impl::init_buffer_pool(const InputPara
     std::string name = "jpeg_encoder";
     uint frame_width = input_params.width;
     uint frame_height = input_params.height;
+    size_t max_buffers = input_params.max_pool_size;
 
-    m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(frame_width, frame_height, HAILO_FORMAT_GRAY8, 5,
+    m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(frame_width, frame_height, HAILO_FORMAT_GRAY8, max_buffers,
                                                              HAILO_MEMORY_TYPE_DMABUF, name);
     if (m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
@@ -582,6 +583,7 @@ media_library_return MediaLibraryEncoder::Impl::set_config(const std::string &js
     new_input_params.width = input_stream_config["width"];
     new_input_params.height = input_stream_config["height"];
     new_input_params.framerate = input_stream_config["framerate"];
+    new_input_params.max_pool_size = input_stream_config.value("max_pool_size", 5);
 
     EncoderType config_encoder_type = ConfigManager::get_encoder_type(json_config);
     bool does_unsupported_runtime_change = (config_encoder_type != m_encoder_type) ||

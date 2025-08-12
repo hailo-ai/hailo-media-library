@@ -1,6 +1,6 @@
 # Project Declaration
 project('media-library', 'c', 'cpp',
-    version : '1.8.0',
+    version : '1.8.1',
     default_options : [ 'warning_level=2', 'werror=true',
                         'buildtype=' + get_option('buildtype'),
                         'c_std=c11', 'cpp_std=c++20']

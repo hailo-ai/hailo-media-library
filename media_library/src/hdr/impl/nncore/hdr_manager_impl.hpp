@@ -15,6 +15,7 @@ class HdrManager::Impl
     {
         RES_4K,
         RES_FHD,
+        RES_4MP,
         RES_UNSUPPORTED
     };
     struct StitchContext
@@ -58,7 +59,7 @@ class HdrManager::Impl
     std::thread m_hdr_thread;
     std::unordered_map<std::string, struct v4l2_query_ext_ctrl> m_ctrl_map;
     volatile bool m_running = false;
-
+    bool m_wb_clipping_warned = false;
     std::optional<HDR::DOL> get_dol(hdr_dol_t dol);
     static std::optional<HDR::InputResolution> get_input_resolution(const output_resolution_t &input_resolution);
     std::optional<std::string> get_hdr_hef_path(HDR::DOL dol, HDR::InputResolution resolution);

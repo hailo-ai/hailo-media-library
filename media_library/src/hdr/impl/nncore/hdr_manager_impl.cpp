@@ -1,5 +1,5 @@
 #include "hdr_manager_impl.hpp"
-
+#include "isp_utils.hpp"
 #include "hdr_manager.hpp"
 #include "logger_macros.hpp"
 #include "media_library_types.hpp"
@@ -40,6 +40,11 @@ std::optional<HDR::InputResolution> HdrManager::Impl::get_input_resolution(const
              input_resolution.dimensions.destination_height == 1080)
     {
         return std::make_optional(HDR::InputResolution::RES_FHD);
+    }
+    else if (input_resolution.dimensions.destination_width == 2688 &&
+             input_resolution.dimensions.destination_height == 1520)
+    {
+        return std::make_optional(HDR::InputResolution::RES_4MP);
     }
     return std::nullopt;
 }
@@ -84,6 +89,9 @@ std::optional<std::string> HdrManager::Impl::get_hdr_hef_path(HDR::DOL dol, HDR:
     case HDR::InputResolution::RES_FHD:
         resolution_str = "fhd";
         break;
+    case HDR::InputResolution::RES_4MP:
+        resolution_str = "4mp";
+        break;
     default:
         LOGGER__MODULE__ERROR(LOGGER_TYPE, "Unsupported HDR resolution: {}", resolution);
         return std::nullopt;
@@ -119,7 +127,18 @@ bool HdrManager::Impl::init(const frontend_config_t &frontend_config)
         deinit();
     }
 
-    auto [pixelFormat, pixelWidth] = DEFAULT_PIXEL_FORMAT;
+    int pixelFormat;
+    size_t pixelWidth = 16;
+
+    auto sensor_name = isp_utils::get_sensor_type();
+    if (sensor_name.has_value() && sensor_name.value() == isp_utils::SensorType::IMX715)
+    {
+        pixelFormat = V4L2_PIX_FMT_SGBRG12;
+    }
+    else
+    {
+        pixelFormat = V4L2_PIX_FMT_SRGGB12;
+    }
 
     m_raw_capture_device = std::make_unique<HDR::VideoCaptureDevice>();
 
@@ -198,6 +217,7 @@ void HdrManager::Impl::deinit()
 
     close(m_isp_fd);
     m_initialized = false;
+    m_wb_clipping_warned = false;
 }
 
 void HdrManager::Impl::wait_for_yuv_stream_start()
@@ -329,16 +349,33 @@ bool HdrManager::Impl::update_wb_gains(HDR::DMABuffer &dma_wb_buffer)
     channels_raw[bayer_pattern_order[2]] = wb_gb_gain.value();
     channels_raw[bayer_pattern_order[3]] = wb_b_gain.value();
 
+    bool clipping_occurred = false;
     for (int channel = 0; channel < 4; ++channel)
     {
         channels[channel] = ((float)channels_raw[channel]) / 256;
         float channel_quant = channels[channel] / WB_COMPENSATION;
         int channel_to_buffer = std::ceil(channel_quant);
+
+        // clip to 127 to avoid overflow in NN-Core
+        if (channel_to_buffer > 127)
+        {
+            channel_to_buffer = 127;
+            clipping_occurred = true;
+        }
+
         for (int plane = 0; plane < m_dol; plane++)
         {
             wb_buffer[channel + plane * 4] = channel_to_buffer;
         }
     }
+
+    // Log warning only once per stream to avoid spam
+    if (clipping_occurred && !m_wb_clipping_warned)
+    {
+        LOGGER__MODULE__WARN(LOGGER_TYPE, "White balance gains clipped to 127, possible bad WB tuning");
+        m_wb_clipping_warned = true;
+    }
+
     return true;
 }
 

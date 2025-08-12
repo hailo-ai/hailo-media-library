@@ -19,11 +19,13 @@ enum InputResolution
 {
     RES_FHD,
     RES_4K,
+    RES_4MP,
 };
 
 enum class SensorType
 {
     IMX334,
+    IMX664,
     IMX675,
     IMX678,
     IMX715,
