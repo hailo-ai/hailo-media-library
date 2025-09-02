@@ -6,8 +6,10 @@
 #include <iostream>
 #include <condition_variable>
 #include <signal.h>
+#include <tl/expected.hpp>
 #include "eis_types.hpp"
 #include "media_library/media_library_types.hpp"
+#include "common/concurrent_queue.hpp"
 
 #define FIFO_BUF_SIZE (10)
 #define MAX_CHANNEL_ID (4)
@@ -26,6 +28,7 @@ typedef enum
     GYRO_STATUS_ILLEGAL_STATE,
     GYRO_STATUS_DEVICE_INTERACTION_FAILURE,
     GYRO_STATUS_CHAN_INTERACTION_FAILURE,
+    GYRO_STATUS_SATURATED,
 
     GYRO_STATUS_UNKNOWN_ERROR
 } gyro_status_t;
@@ -44,13 +47,14 @@ class GyroDevice
   private:
     struct iio_context *m_ctx = NULL;
     struct iio_device *m_iio_dev;
-    std::vector<gyro_sample_t> m_vector_samples;
+    std::unique_ptr<ConcurrentQueue<gyro_sample_t>> m_vector_samples;
     std::string m_device_freq;
     double m_gyro_scale;
     sig_atomic_t m_stopRunning;
     volatile bool m_stopRunningAck;
     struct iio_device_data m_iio_device_data;
     std::mutex m_mtx;
+    size_t m_gyro_saturated_count;
 
     gyro_status_t start();
     void shutdown();
@@ -68,6 +72,7 @@ class GyroDevice
   public:
     std::condition_variable cv;
     GyroDevice(std::string name, std::string device_freq, double gyro_scale)
+        : m_vector_samples(std::make_unique<ConcurrentQueue<gyro_sample_t>>(MAX_VECTOR_SIZE))
     {
         m_device_freq = device_freq;
         m_gyro_scale = gyro_scale;
@@ -80,6 +85,7 @@ class GyroDevice
             .nb_attrs = 0,
             .sample_count = FIFO_BUF_SIZE * 10000,
         };
+        m_gyro_saturated_count = 0;
     };
     ~GyroDevice();
     gyro_status_t exists();
@@ -98,8 +104,6 @@ class GyroDevice
         std::lock_guard<std::mutex> lock(m_mtx);
         return m_stopRunningAck;
     }
-    bool get_closest_vsync_sample(uint64_t frame_timestamp, std::vector<gyro_sample_t>::iterator &it_closest);
-    std::vector<gyro_sample_t> get_gyro_samples_for_frame_vsync(std::vector<gyro_sample_t>::iterator odd_closest_sample,
-                                                                uint64_t threshold_timestamp);
-    std::vector<gyro_sample_t> get_gyro_samples_for_frame_isp_timestamp(uint64_t threshold_timestamp);
+    std::optional<gyro_sample_t> get_closest_vsync_sample(uint64_t frame_timestamp);
+    tl::expected<std::vector<gyro_sample_t>, gyro_status_t> get_gyro_samples_by_threshold(uint64_t threshold_timestamp);
 };

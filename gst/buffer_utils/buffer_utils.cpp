@@ -375,9 +375,9 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
             return false;
 
         // Fill in buffer_data_ values
-        buffer_data = std::make_shared<hailo_buffer_data_t>(image_width, image_height, n_planes, HAILO_FORMAT_RGB,
-                                                            HAILO_MEMORY_TYPE_DMABUF,
-                                                            std::vector<hailo_data_plane_t>{std::move(plane)});
+        buffer_data =
+            std::make_shared<hailo_buffer_data_t>(image_width, image_height, n_planes, HAILO_FORMAT_RGB,
+                                                  HAILO_MEMORY_TYPE_DMABUF, std::vector<hailo_data_plane_t>{plane});
         break;
     }
     case GST_VIDEO_FORMAT_ARGB: {
@@ -387,9 +387,9 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
             return false;
 
         // Fill in buffer_data_ values
-        buffer_data = std::make_shared<hailo_buffer_data_t>(image_width, image_height, n_planes, HAILO_FORMAT_ARGB,
-                                                            HAILO_MEMORY_TYPE_DMABUF,
-                                                            std::vector<hailo_data_plane_t>{std::move(plane)});
+        buffer_data =
+            std::make_shared<hailo_buffer_data_t>(image_width, image_height, n_planes, HAILO_FORMAT_ARGB,
+                                                  HAILO_MEMORY_TYPE_DMABUF, std::vector<hailo_data_plane_t>{plane});
 
         break;
     }
@@ -425,7 +425,7 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
         // Fill in buffer_data values
         buffer_data = std::make_shared<hailo_buffer_data_t>(
             image_width, image_height, n_planes, HAILO_FORMAT_NV12, HAILO_MEMORY_TYPE_DMABUF,
-            std::vector<hailo_data_plane_t>{std::move(y_plane_data), std::move(uv_plane_data)});
+            std::vector<hailo_data_plane_t>{y_plane_data, uv_plane_data});
 
         break;
     }
@@ -440,7 +440,7 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
         // Fill in buffer_data values
         buffer_data = std::make_shared<hailo_buffer_data_t>(image_width, image_height, n_planes, HAILO_FORMAT_GRAY8,
                                                             HAILO_MEMORY_TYPE_DMABUF,
-                                                            std::vector<hailo_data_plane_t>{std::move(plane_data)});
+                                                            std::vector<hailo_data_plane_t>{plane_data});
 
         break;
     }
@@ -462,7 +462,7 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
                 GST_CAT_ERROR(GST_CAT_DEFAULT, "Failed to create plane data for a420 channel");
                 return false;
             }
-            a420_planes.emplace_back(std::move(plane_data));
+            a420_planes.emplace_back(plane_data);
         }
 
         // Fill in buffer_data_ values

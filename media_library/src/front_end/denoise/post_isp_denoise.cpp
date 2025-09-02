@@ -75,6 +75,9 @@ class MediaLibraryPostIspDenoise::Impl final
     // get the enabled config status
     bool is_enabled();
 
+    // set input frame dimensions for dynamic buffer pool creation
+    media_library_return set_input_dimensions(uint32_t width, uint32_t height);
+
     // set the callbacks object
     media_library_return observe(const MediaLibraryPostIspDenoise::callbacks_t &callbacks);
 
@@ -86,8 +89,9 @@ class MediaLibraryPostIspDenoise::Impl final
     static constexpr int HAILORT_SCHEDULER_BATCH_SIZE = 2;
 
     static constexpr size_t BUFFER_POOL_MAX_BUFFERS = 10;
-    static constexpr size_t BUFFER_POOL_BUFFER_WIDTH = 3840;
-    static constexpr size_t BUFFER_POOL_BUFFER_HEIGHT = 2160;
+    // Default buffer pool dimensions (used as fallback)
+    static constexpr size_t DEFAULT_BUFFER_POOL_BUFFER_WIDTH = 3840;
+    static constexpr size_t DEFAULT_BUFFER_POOL_BUFFER_HEIGHT = 2160;
     static constexpr const char *BUFFER_POOL_NAME = "post_isp_denoise_output";
 
     // configured flag - to determine if first configuration was done
@@ -120,7 +124,8 @@ class MediaLibraryPostIspDenoise::Impl final
     std::mutex m_inference_callback_mutex;
     std::queue<HailoMediaLibraryBufferPtr> m_inference_callback_queue;
 
-    media_library_return create_and_initialize_buffer_pools();
+    media_library_return create_and_initialize_buffer_pools(uint32_t width = DEFAULT_BUFFER_POOL_BUFFER_WIDTH,
+                                                            uint32_t height = DEFAULT_BUFFER_POOL_BUFFER_HEIGHT);
     media_library_return decode_config_json_string(denoise_config_t &denoise_configs, hailort_t &hailort_configs,
                                                    std::string config_string);
     media_library_return perform_denoise(HailoMediaLibraryBufferPtr input_buffer,
@@ -189,6 +194,11 @@ bool MediaLibraryPostIspDenoise::is_enabled()
     return m_impl->is_enabled();
 }
 
+media_library_return MediaLibraryPostIspDenoise::set_input_dimensions(uint32_t width, uint32_t height)
+{
+    return m_impl->set_input_dimensions(width, height);
+}
+
 media_library_return MediaLibraryPostIspDenoise::observe(const MediaLibraryPostIspDenoise::callbacks_t &callbacks)
 {
     return m_impl->observe(callbacks);
@@ -199,11 +209,9 @@ media_library_return MediaLibraryPostIspDenoise::observe(const MediaLibraryPostI
 MediaLibraryPostIspDenoise::Impl::Impl()
     : m_denoise_config_manager(ConfigSchema::CONFIG_SCHEMA_DENOISE),
       m_hailort_config_manager(ConfigSchema::CONFIG_SCHEMA_HAILORT),
-      m_output_buffer_pool(std::make_shared<MediaLibraryBufferPool>(BUFFER_POOL_BUFFER_WIDTH, BUFFER_POOL_BUFFER_HEIGHT,
-                                                                    HAILO_FORMAT_NV12, BUFFER_POOL_MAX_BUFFERS,
-                                                                    HAILO_MEMORY_TYPE_DMABUF, BUFFER_POOL_NAME)),
       m_hailort_denoise([this](HailoMediaLibraryBufferPtr output_buffer) { inference_callback(output_buffer); })
 {
+    // Buffer pool will be created dynamically based on input frame dimensions
 }
 
 MediaLibraryPostIspDenoise::Impl::~Impl()
@@ -214,8 +222,6 @@ MediaLibraryPostIspDenoise::Impl::~Impl()
     m_loopback_condvar.notify_one();
     if (m_inference_callback_thread.joinable())
         m_inference_callback_thread.join();
-    m_output_buffer_pool->for_each_buffer(
-        [this](int fd, size_t size) { return m_hailort_denoise.unmap_buffer_to_hailort(fd, size); });
     clear_loopback_queue();
 }
 
@@ -283,12 +289,9 @@ media_library_return MediaLibraryPostIspDenoise::Impl::configure(const denoise_c
     // check if enabling
     if (denoise_common::post_isp_enabled(m_denoise_configs, denoise_configs))
     {
-        media_library_return ret = create_and_initialize_buffer_pools();
-        if (ret != MEDIA_LIBRARY_SUCCESS)
-        {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to allocate denoise buffer pool");
-            return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
-        }
+        // Buffer pool will be created dynamically when set_input_dimensions is called
+        // with actual frame dimensions from GStreamer caps
+        LOGGER__MODULE__INFO(MODULE_NAME, "Post ISP denoise enabled - buffer pool will be created dynamically");
         m_loop_counter = 0;
         m_loopback_batch_counter = 0;
         m_loopback_limit = denoise_configs.loopback_count;
@@ -307,15 +310,12 @@ media_library_return MediaLibraryPostIspDenoise::Impl::configure(const denoise_c
         if (m_inference_callback_thread.joinable())
             m_inference_callback_thread.join();
 
-        m_output_buffer_pool->for_each_buffer(
-            [this](int fd, size_t size) { return m_hailort_denoise.unmap_buffer_to_hailort(fd, size); });
-
         m_loopback_condvar.notify_all();
         clear_loopback_queue();
 
-        // Wait 1000 milliseconds for all used buffers to be released
-        if (m_output_buffer_pool->wait_for_used_buffers(1000) != MEDIA_LIBRARY_SUCCESS)
+        if (m_output_buffer_pool->wait_for_used_buffers() != MEDIA_LIBRARY_SUCCESS)
         {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to wait for used buffers to be released");
             return MEDIA_LIBRARY_ERROR;
         }
         if (m_output_buffer_pool->free() != MEDIA_LIBRARY_SUCCESS)
@@ -342,21 +342,22 @@ media_library_return MediaLibraryPostIspDenoise::Impl::configure(const denoise_c
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryPostIspDenoise::Impl::create_and_initialize_buffer_pools()
+media_library_return MediaLibraryPostIspDenoise::Impl::create_and_initialize_buffer_pools(uint32_t width,
+                                                                                          uint32_t height)
 {
+    // Create buffer pool with dynamic dimensions
+    m_output_buffer_pool = std::make_shared<MediaLibraryBufferPool>(
+        width, height, HAILO_FORMAT_NV12, BUFFER_POOL_MAX_BUFFERS, HAILO_MEMORY_TYPE_DMABUF, BUFFER_POOL_NAME);
+
     // Create output buffer pool
     LOGGER__MODULE__DEBUG(
         MODULE_NAME, "Initalizing buffer pool named {} for output resolution: width {} height {} in buffers size of {}",
-        BUFFER_POOL_NAME, BUFFER_POOL_BUFFER_WIDTH, BUFFER_POOL_BUFFER_HEIGHT, BUFFER_POOL_MAX_BUFFERS);
+        BUFFER_POOL_NAME, width, height, BUFFER_POOL_MAX_BUFFERS);
     if (m_output_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init buffer pool");
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
-
-    // Pre-mapping buffers to HailoRT boost performance
-    m_output_buffer_pool->for_each_buffer(
-        [this](int fd, size_t size) { return m_hailort_denoise.map_buffer_to_hailort(fd, size); });
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -548,6 +549,27 @@ bool MediaLibraryPostIspDenoise::Impl::is_enabled()
 {
     std::unique_lock<std::shared_mutex> lock(rw_lock);
     return m_denoise_configs.enabled && !m_denoise_configs.bayer;
+}
+
+media_library_return MediaLibraryPostIspDenoise::Impl::set_input_dimensions(uint32_t width, uint32_t height)
+{
+    std::unique_lock<std::shared_mutex> lock(rw_lock);
+
+    if (!m_denoise_configs.enabled || m_denoise_configs.bayer)
+    {
+        LOGGER__MODULE__DEBUG(MODULE_NAME,
+                              "Denoise is not enabled for post-ISP processing, skipping buffer pool creation");
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    if (m_output_buffer_pool != nullptr)
+    {
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Buffer pool already created, skipping re-creation");
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    LOGGER__MODULE__INFO(MODULE_NAME, "Creating buffer pool with dynamic dimensions: {}x{}", width, height);
+    return create_and_initialize_buffer_pools(width, height);
 }
 
 media_library_return MediaLibraryPostIspDenoise::Impl::observe(const MediaLibraryPostIspDenoise::callbacks_t &callbacks)

@@ -26,6 +26,7 @@
 #include "opencv2/highgui.hpp"
 #include "opencv2/core/core.hpp"
 
+#include <fstream>
 #include "multi_resize.hpp"
 #include "buffer_pool.hpp"
 #include "config_manager.hpp"
@@ -119,6 +120,7 @@ class MediaLibraryMultiResize::Impl final
   private:
     static constexpr int max_frames_jitter_multiplier = 3;
     static constexpr int max_frames_latency_multiplier = 20;
+    static constexpr std::chrono::milliseconds wait_for_pools_timeout = std::chrono::milliseconds(1000);
 
     // flip-rotate flag
     bool m_do_flip_rotate;
@@ -316,12 +318,24 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
 
 MediaLibraryMultiResize::Impl::~Impl()
 {
-
     m_multi_resize_config.application_input_streams_config.resolutions.clear();
     dsp_status status = dsp_utils::release_device();
     if (status != DSP_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to release DSP device, status: {}", status);
+    }
+
+    // Wait for all buffers to return to the pool before destruction.
+    // We use a timeout to avoid hanging if some buffers are still in use by clients.
+    // After timeout, destruction will proceed, potentially causing memory issues if buffers are accessed later.
+    for (auto &buffer_pool : m_buffer_pools)
+    {
+        if (buffer_pool->wait_for_used_buffers(wait_for_pools_timeout) != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME,
+                                  "Buffer pool {} failed to wait for used buffers, the buffer is probably in use",
+                                  buffer_pool->get_name());
+        }
     }
 }
 

@@ -461,6 +461,10 @@ struct eis_config_t
     uint64_t line_readout_time;
     uint8_t num_exposures;
     float hdr_exposure_ratio;
+    float min_angle_deg;
+    float max_angle_deg;
+    uint32_t shakes_type_buff_size;
+    uint32_t extensions_per_thr;
 };
 
 struct gyro_config_t

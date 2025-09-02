@@ -1,3 +1,4 @@
+#include "logger_macros.hpp"
 #include "media_library_logger.hpp"
 #include "gyro_device.hpp"
 #include "arguments_parser.hpp"
@@ -8,12 +9,16 @@
 #include <iomanip>
 #include "media_library/v4l2_ctrl.hpp"
 #include "media_library/isp_utils.hpp"
+#include <limits>
 
 #define MODULE_NAME LoggerType::Eis
 #define DEVICE_CLK_TIMESTAMP "monotonic_raw"
 
 #define IIO_CTX_TIMEOUT_MS (100)
 #define GYRO_USLEEP_BETWEEN_ITERATIONS (500)
+#define GYRO_SAMPLE_MAX_VALUE (std::numeric_limits<decltype(gyro_sample_t::vx)>::max())
+#define GYRO_SATURATION_THRESHOLD (GYRO_SAMPLE_MAX_VALUE * 0.99f)
+#define GYRO_SATURATION_WAIT_FRAMES (15)
 
 static gyro_sample gyro_sampled;
 std::unique_ptr<GyroDevice> gyroApi = nullptr;
@@ -104,25 +109,22 @@ void GyroDevice::dump_rec_samples(const std::string &file_path)
          << std::left << std::setw(14) << " ---------------" << std::left << std::setw(14) << " ---------------"
          << std::left << std::setw(14) << " ---------------" << std::endl;
 
-    while (!m_stopRunningAck || !m_vector_samples.empty())
+    while (!m_stopRunningAck || !m_vector_samples->empty())
     {
-        if (m_vector_samples.empty())
+        if (m_vector_samples->empty())
         {
             usleep(100000); // 100 msec delay
             continue;
         }
 
-        auto last_sample_it = m_vector_samples.end();
-        for (auto it = m_vector_samples.begin(); it != last_sample_it; ++it)
+        for (auto item = m_vector_samples->dequeue(); item.has_value(); item = m_vector_samples->dequeue())
         {
-            const auto &sample = *it;
+            const auto &sample = item.value();
             file << std::left << std::setw(16) << idx << std::left << std::setw(16) << sample.vx << std::left
                  << std::setw(16) << sample.vy << std::left << std::setw(16) << sample.vz << std::left << std::setw(16)
                  << sample.timestamp_ns << std::endl;
             idx++;
         }
-
-        m_vector_samples.erase(m_vector_samples.begin(), last_sample_it);
         usleep(100000); // 100 msec delay
     }
 
@@ -131,59 +133,36 @@ void GyroDevice::dump_rec_samples(const std::string &file_path)
     file.close();
 }
 
-bool GyroDevice::get_closest_vsync_sample(uint64_t frame_timestamp, std::vector<gyro_sample_t>::iterator &it_closest)
+std::optional<gyro_sample_t> GyroDevice::get_closest_vsync_sample(uint64_t frame_timestamp)
 {
-    it_closest = m_vector_samples.end();
-
-    for (auto it = m_vector_samples.begin(); it != m_vector_samples.end(); it++)
-    {
-        if (it->timestamp_ns > frame_timestamp)
-            break;
-
-        if (it->vx % 2 != 0)
-            it_closest = it;
-    }
-    /* Return true if a VSYNC sample was found */
-    return it_closest != m_vector_samples.end();
+    return m_vector_samples->find_last([frame_timestamp](const gyro_sample_t &sample) {
+        return sample.vx % 2 != 0 && sample.timestamp_ns <= frame_timestamp;
+    });
 }
 
-std::vector<gyro_sample_t> GyroDevice::get_gyro_samples_for_frame_vsync(
-    std::vector<gyro_sample_t>::iterator odd_closest_sample, uint64_t threshold_timestamp)
+tl::expected<std::vector<gyro_sample_t>, gyro_status_t> GyroDevice::get_gyro_samples_by_threshold(
+    uint64_t threshold_timestamp)
 {
-    /* If no odd vx sample was found, return an empty vector */
-    if (odd_closest_sample == m_vector_samples.end())
+    auto samples = m_vector_samples->dequeue_many(
+        [&threshold_timestamp](const gyro_sample_t &sample) { return sample.timestamp_ns <= threshold_timestamp; });
+
+    if (!samples.empty() && std::any_of(samples.begin(), samples.end(), [](const gyro_sample_t &sample) {
+            return std::abs(sample.vx) > GYRO_SATURATION_THRESHOLD || std::abs(sample.vy) > GYRO_SATURATION_THRESHOLD ||
+                   std::abs(sample.vz) > GYRO_SATURATION_THRESHOLD;
+        }))
     {
-        return {};
+        // found a saturated sample, go into saturation state
+        m_gyro_saturated_count = GYRO_SATURATION_WAIT_FRAMES;
+        LOGGER__MODULE__WARNING(MODULE_NAME, "Gyro is saturated, samples will not be retrieved by threshold.");
+        return tl::make_unexpected(GYRO_STATUS_SATURATED);
     }
-
-    /* We want all the gyro samples before: middle_exposure_timestamp + readout_time */
-    auto it_end = odd_closest_sample;
-    while (it_end->timestamp_ns <= threshold_timestamp && it_end != m_vector_samples.end())
+    else if (m_gyro_saturated_count > 0)
     {
-        ++it_end;
+        --m_gyro_saturated_count;
+        LOGGER__MODULE__WARNING(MODULE_NAME, "Gyro is saturated, cannot retrieve samples by threshold.");
+        return tl::make_unexpected(GYRO_STATUS_SATURATED);
     }
-
-    it_end = it_end != m_vector_samples.end() ? it_end + 1 : it_end;
-    std::vector<gyro_sample_t> result(m_vector_samples.begin(), it_end);
-    m_vector_samples.erase(m_vector_samples.begin(), it_end);
-    return result;
-}
-
-std::vector<gyro_sample_t> GyroDevice::get_gyro_samples_for_frame_isp_timestamp(uint64_t threshold_timestamp)
-{
-    auto last_relevant_sample = m_vector_samples.begin();
-
-    for (auto it = m_vector_samples.begin(); it != m_vector_samples.end(); it++)
-    {
-        if ((*it).timestamp_ns > threshold_timestamp)
-            break;
-
-        last_relevant_sample = it;
-    }
-
-    std::vector<gyro_sample_t> result(m_vector_samples.begin(), last_relevant_sample);
-    m_vector_samples.erase(m_vector_samples.begin(), last_relevant_sample);
-    return result;
+    return samples;
 }
 
 static void handle_sig(int)
@@ -538,6 +517,8 @@ gyro_status_t GyroDevice::run()
 {
     gyro_status_t rc = GYRO_STATUS_SUCCESS;
 
+    std::vector<gyro_sample_t> samples;
+    samples.reserve(FIFO_BUF_SIZE);
     if (!m_ctx)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Gyro device not initialized and run called!");
@@ -566,7 +547,9 @@ gyro_status_t GyroDevice::run()
             break;
         }
 
-        iio_buffer_foreach_sample(m_iio_device_data.buf, rd_sample_demux, (void *)&m_vector_samples);
+        iio_buffer_foreach_sample(m_iio_device_data.buf, rd_sample_demux, (void *)&samples);
+        m_vector_samples->enqueue_many(samples);
+        samples.clear();
     }
 
     shutdown();

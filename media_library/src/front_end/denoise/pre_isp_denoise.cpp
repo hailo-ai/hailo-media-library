@@ -227,8 +227,6 @@ MediaLibraryPreIspDenoise::Impl::~Impl()
 {
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Pre ISP Denoise - destructor");
     stop_isp_thread();
-    m_output_buffer_pool->for_each_buffer(
-        [this](int fd, size_t size) { return m_hailort_denoise.unmap_buffer_to_hailort(fd, size); });
     m_raw_capture_device = nullptr;
     m_isp_in_device = nullptr;
     close(m_isp_fd);
@@ -329,12 +327,10 @@ media_library_return MediaLibraryPreIspDenoise::Impl::configure(const denoise_co
     if (denoise_common::pre_isp_disabled(m_denoise_configs, denoise_configs))
     {
         stop_isp_thread();
-        m_output_buffer_pool->for_each_buffer(
-            [this](int fd, size_t size) { return m_hailort_denoise.unmap_buffer_to_hailort(fd, size); });
 
-        // Wait 1000 milliseconds for all used buffers to be released
-        if (m_output_buffer_pool->wait_for_used_buffers(1000) != MEDIA_LIBRARY_SUCCESS)
+        if (m_output_buffer_pool->wait_for_used_buffers() != MEDIA_LIBRARY_SUCCESS)
         {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to wait for used buffers to be released");
             return MEDIA_LIBRARY_ERROR;
         }
         if (m_output_buffer_pool->free() != MEDIA_LIBRARY_SUCCESS)
@@ -375,10 +371,6 @@ media_library_return MediaLibraryPreIspDenoise::Impl::create_and_initialize_buff
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init buffer pool");
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
-
-    // Pre-mapping buffers to HailoRT boost performance
-    m_output_buffer_pool->for_each_buffer(
-        [this](int fd, size_t size) { return m_hailort_denoise.map_buffer_to_hailort(fd, size); });
 
     return MEDIA_LIBRARY_SUCCESS;
 }

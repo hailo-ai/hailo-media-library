@@ -1154,13 +1154,18 @@ static nlohmann::json ldc_eis_config_schema = R"(
         "iir_hpf_coefficient": { "type": "number", "minimum": 0, "maximum": 1 },
         "camera_fov_factor": { "type": "number", "minimum": 0.1, "maximum": 1 },
         "line_readout_time": { "type": "number" },
-        "hdr_exposure_ratio": { "type": "number" }
+        "hdr_exposure_ratio": { "type": "number" },
+        "min_angle_deg": { "type": "number", "minimum": 0.0, "maximum": 360.0 },
+        "max_angle_deg": { "type": "number", "minimum": 0.0, "maximum": 360.0 },
+        "shakes_type_buff_size": { "type": "number", "minimum": 1 },
+        "extensions_per_thr": { "type": "number" }
       },
       "additionalProperties": false,
       "required": [
         "enabled", "eis_config_path", "window_size",
         "rotational_smoothing_coefficient", "iir_hpf_coefficient",
-        "camera_fov_factor", "line_readout_time", "hdr_exposure_ratio"
+        "camera_fov_factor", "line_readout_time", "hdr_exposure_ratio",
+        "min_angle_deg", "max_angle_deg"
       ]
     }
   },

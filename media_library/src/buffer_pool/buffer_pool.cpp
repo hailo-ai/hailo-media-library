@@ -21,6 +21,9 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include <thread>
+#include <regex>
+#include <iostream>
+#include <fstream>
 #include "buffer_pool.hpp"
 #include "media_library_logger.hpp"
 
@@ -81,6 +84,10 @@ media_library_return HailoBucket::free(bool fail_on_used_buffers)
 {
     std::unique_lock<std::mutex> lock(*m_bucket_mutex);
 
+    LOGGER__MODULE__WARN(MODULE_NAME,
+                         "Before freeing bucket of size {} num of buffers {}, used buffers {} available buffers {}",
+                         m_buffer_size, m_num_buffers, m_used_buffers.size(), m_available_buffers.size());
+
     bool used_buffers_exist = !m_used_buffers.empty();
     if (used_buffers_exist)
     {
@@ -116,9 +123,9 @@ media_library_return HailoBucket::free(bool fail_on_used_buffers)
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
-    LOGGER__MODULE__DEBUG(MODULE_NAME,
-                          "After freeing bucket of size {} num of buffers {}, used buffers {} available buffers {}",
-                          m_buffer_size, m_num_buffers, m_used_buffers.size(), m_available_buffers.size());
+    LOGGER__MODULE__WARN(MODULE_NAME,
+                         "After freeing bucket of size {} num of buffers {}, used buffers {} available buffers {}",
+                         m_buffer_size, m_num_buffers, m_used_buffers.size(), m_available_buffers.size());
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -140,8 +147,8 @@ media_library_return HailoBucket::acquire(intptr_t *buffer_ptr)
     m_available_buffers.pop_front();
     m_used_buffers.insert(*buffer_ptr);
 
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "After acquiring buffer {}, available_buffers={} used_buffers={}", *buffer_ptr,
-                          m_available_buffers.size(), m_used_buffers.size());
+    LOGGER__MODULE__INFO(MODULE_NAME, "After acquiring buffer {}, available_buffers={} used_buffers={}", *buffer_ptr,
+                         m_available_buffers.size(), m_used_buffers.size());
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -213,7 +220,7 @@ MediaLibraryBufferPool::~MediaLibraryBufferPool()
     free();
 }
 
-media_library_return MediaLibraryBufferPool::wait_for_used_buffers(uint timeout_in_ms)
+media_library_return MediaLibraryBufferPool::wait_for_used_buffers(const std::chrono::milliseconds &timeout_ms)
 {
     std::unique_lock<std::mutex> lock(*m_buffer_pool_mutex);
     for (uint8_t i = 0; i < m_buckets.size(); i++)
@@ -222,10 +229,9 @@ media_library_return MediaLibraryBufferPool::wait_for_used_buffers(uint timeout_
         LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: Waiting for bucket {} of size {} num of buffers {}", m_name, i,
                               bucket->m_buffer_size, bucket->m_num_buffers);
 
-        if (!m_pool_cv.wait_for(lock, std::chrono::milliseconds(timeout_in_ms),
-                                [&bucket]() { return bucket->used_buffers_count() == 0; }))
+        if (!m_pool_cv.wait_for(lock, timeout_ms, [&bucket]() { return bucket->used_buffers_count() == 0; }))
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "{}: Timeout waiting for used buffers to be released", m_name);
+            LOGGER__MODULE__INFO(MODULE_NAME, "{}: Timeout waiting for used buffers to be released", m_name);
             return MEDIA_LIBRARY_ERROR;
         }
     }
@@ -235,6 +241,9 @@ media_library_return MediaLibraryBufferPool::wait_for_used_buffers(uint timeout_
 media_library_return MediaLibraryBufferPool::free(bool fail_on_used_buffers)
 {
     std::unique_lock<std::mutex> lock(*m_buffer_pool_mutex);
+    LOGGER__MODULE__WARN(MODULE_NAME, "{}: Starting free operation, DMA free memory: {} MB", m_name,
+                         DmaMemoryAllocator::get_instance().get_free_memory_mb());
+
     for (uint8_t i = 0; i < m_buckets.size(); i++)
     {
         HailoBucketPtr &bucket = m_buckets[i];
@@ -247,12 +256,18 @@ media_library_return MediaLibraryBufferPool::free(bool fail_on_used_buffers)
         }
     }
 
+    LOGGER__MODULE__WARN(MODULE_NAME, "{}: Finished free operation, DMA free memory: {} MB", m_name,
+                         DmaMemoryAllocator::get_instance().get_free_memory_mb());
+
     return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return MediaLibraryBufferPool::init()
 {
     std::unique_lock<std::mutex> lock(*m_buffer_pool_mutex);
+    LOGGER__MODULE__WARN(MODULE_NAME, "{}: Starting init operation, DMA free memory: {} MB", m_name,
+                         DmaMemoryAllocator::get_instance().get_free_memory_mb());
+
     for (HailoBucketPtr &bucket : m_buckets)
     {
         LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: allocating bucket of size {} num of buffers {}", m_name,
@@ -263,6 +278,10 @@ media_library_return MediaLibraryBufferPool::init()
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
     }
+
+    LOGGER__MODULE__WARN(MODULE_NAME, "{}: Finished init operation, DMA free memory: {} MB", m_name,
+                         DmaMemoryAllocator::get_instance().get_free_memory_mb());
+
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -407,7 +426,50 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
         break;
     }
     case HAILO_FORMAT_RGB: {
-        // TODO: implement
+        size_t rgb_stride = m_bytes_per_line * 3;
+        size_t rgb_size = rgb_stride * m_height;
+        intptr_t rgb_ptr;
+
+        ret = m_buckets[0]->acquire(&rgb_ptr);
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+        {
+            return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+        }
+
+        hailo_data_plane_t plane_data;
+        plane_data.bytesperline = rgb_stride;
+        plane_data.bytesused = rgb_size;
+
+        int rgb_fd;
+        ret = DmaMemoryAllocator::get_instance().get_fd((void *)rgb_ptr, rgb_fd);
+
+        HailoMemoryType memory_type;
+        plane_data.userptr = (void *)rgb_ptr;
+        if (ret == MEDIA_LIBRARY_SUCCESS)
+        {
+            plane_data.fd = rgb_fd;
+            memory_type = HAILO_MEMORY_TYPE_DMABUF;
+        }
+        else
+        {
+            memory_type = HAILO_MEMORY_TYPE_CMA;
+            LOGGER__ERROR("CMA memory not supported");
+            return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+        }
+
+        // Fill in buffer_data values
+        HailoBufferDataPtr buffer_data =
+            std::make_shared<hailo_buffer_data_t>((size_t)m_width, (size_t)m_height, (size_t)1, HAILO_FORMAT_RGB,
+                                                  memory_type, std::vector<hailo_data_plane_t>{plane_data});
+
+        ret = buffer->create(shared_from_this(), buffer_data);
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+            return ret;
+        buffer->set_buffer_index(m_buffer_index);
+
+        LOGGER__DEBUG("{}: RGB Buffer width {} height {} acquired", m_name, buffer->buffer_data->width,
+                      buffer->buffer_data->height);
+
         break;
     }
     case HAILO_FORMAT_GRAY8: {

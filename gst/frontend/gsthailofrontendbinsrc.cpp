@@ -41,8 +41,15 @@ GST_DEBUG_CATEGORY_STATIC(gst_hailofrontendbinsrc_debug_category);
 #define INPUT_VIDEO_IS_FHD(frontendbinsrc)                                                                             \
     (frontendbinsrc->params->m_input_config.resolution.dimensions.destination_width == 1920 &&                         \
      frontendbinsrc->params->m_input_config.resolution.dimensions.destination_height == 1080)
+#define INPUT_VIDEO_IS_2688x1520(frontendbinsrc)                                                                       \
+    (frontendbinsrc->params->m_input_config.resolution.dimensions.destination_width == 2688 &&                         \
+     frontendbinsrc->params->m_input_config.resolution.dimensions.destination_height == 1520)
+#define INPUT_VIDEO_SUPPORTS_DENOISE(frontendbinsrc)                                                                   \
+    (INPUT_VIDEO_IS_4K(frontendbinsrc) || INPUT_VIDEO_IS_2688x1520(frontendbinsrc))
 #define HDR_IMAGING_RESOLUTION(frontendbinsrc)                                                                         \
-    INPUT_VIDEO_IS_4K(frontendbinsrc) ? HDR::InputResolution::RES_4K : HDR::InputResolution::RES_FHD
+    (INPUT_VIDEO_IS_4K(frontendbinsrc)                                                                                 \
+         ? HDR::InputResolution::RES_4K                                                                                \
+         : (INPUT_VIDEO_IS_2688x1520(frontendbinsrc) ? HDR::InputResolution::RES_4MP : HDR::InputResolution::RES_FHD))
 #define HDR_IS_3DOL(frontendbinsrc) frontendbinsrc->params->m_hdr_config.dol == HDR_DOL_3
 #define HDR_IMAGING_DOL(frontendbinsrc) HDR_IS_3DOL(frontendbinsrc) ? HDR::DOL::HDR_DOL_3 : HDR::DOL::HDR_DOL_2
 
@@ -282,11 +289,11 @@ static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, fro
         GST_ERROR_OBJECT(self, "Denoise and HDR cannot be enabled at the same time");
         return;
     }
-    if (denoise_config->enabled && !INPUT_VIDEO_IS_4K(self))
-    {
-        GST_ERROR_OBJECT(self, "Denoise is only supported for 4K resolution");
-        return;
-    }
+    // if (denoise_config->enabled && !INPUT_VIDEO_IS_4K(self))
+    // {
+    //     GST_ERROR_OBJECT(self, "Denoise is only supported for 4K resolution");
+    //     return;
+    // }
 }
 
 static media_library_return gst_hailofrontendbinsrc_load_config(GstHailoFrontendBinSrc *self, std::string config_string,
@@ -455,7 +462,20 @@ void gst_hailofrontendbinsrc_get_property(GObject *object, guint property_id, GV
 
 static std::string get_hdr_hef_path(GstHailoFrontendBinSrc *self)
 {
-    std::string resolution = INPUT_VIDEO_IS_4K(self) ? "4k" : "fhd";
+    std::string resolution;
+    if (INPUT_VIDEO_IS_4K(self))
+    {
+        resolution = "4k";
+    }
+    else if (INPUT_VIDEO_IS_2688x1520(self))
+    {
+        resolution = "4mp";
+    }
+    else
+    {
+        resolution = "fhd";
+    }
+
     std::string dol = HDR_IS_3DOL(self) ? "3" : "2";
 
     return "/usr/bin/hdr_" + resolution + "_" + dol + "_exposures.hef";
