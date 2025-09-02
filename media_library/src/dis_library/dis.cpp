@@ -458,7 +458,7 @@ RetCodes DIS::generate_grid(vec2 fmv, FlipMirrorRot flip_mirror_rot,
     return DIS_OK;
 }
 
-static void eis_update_mesh(DewarpT &grid, int x, int y, mat3 stab_rot9, const FishEye &in_cam,
+static bool eis_update_mesh(DewarpT &grid, int x, int y, mat3 stab_rot9, const FishEye &in_cam,
                             const std::vector<vec3> &out_rays)
 {
     int ind = y * grid.mesh_width + x;
@@ -468,6 +468,13 @@ static void eis_update_mesh(DewarpT &grid, int x, int y, mat3 stab_rot9, const F
 #endif
     grid.mesh_table[ind * 2] = pt.x * (1 << MESH_FRACT_BITS);     // x
     grid.mesh_table[ind * 2 + 1] = pt.y * (1 << MESH_FRACT_BITS); // y
+
+    if (pt.x < 0 || pt.y < 0 || pt.x >= in_cam.res.x || pt.y >= in_cam.res.y)
+    {
+        return false;
+    }
+
+    return true;
 }
 
 static mat3 flatten_stab_rot(const cv::Mat &stab_rot)
@@ -586,8 +593,10 @@ static bool is_mesh_valid(DewarpT &grid)
 // generate_eis_grid_rolling_shutter()
 ///////////////////////////////////////////////////////////////////////////////
 RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
-                                                const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT &grid)
+                                                const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT &grid,
+                                                uint32_t extensions_per_thr)
 {
+    RetCodes ret = DIS_OK;
     if (cfg.debug.generate_resize_grid)
     {
         gen_resize_grid(grid);
@@ -612,6 +621,7 @@ RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
         calc_out_rays(grid.mesh_width, grid.mesh_height, MESH_CELL_SIZE_PIX, flip_mirror_rot);
     }
 
+    int out_of_bounds_px_count = 0;
     for (int y = 0; y < grid.mesh_height; y++)
     {
         auto rotation = (flip_mirror_rot != FLIPV && flip_mirror_rot != FLIPV_MIRROR)
@@ -620,13 +630,22 @@ RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
         mat3 stab_rot9 = flatten_stab_rot(rotation);
         for (int x = 0; x < grid.mesh_width; x++)
         {
-            eis_update_mesh(grid, x, y, stab_rot9, in_cam, out_rays);
+            bool in_bounds = eis_update_mesh(grid, x, y, stab_rot9, in_cam, out_rays);
+
+            if (!in_bounds)
+            {
+                out_of_bounds_px_count++;
+            }
         }
     }
 
+    auto out_of_bounds_px_ratio =
+        static_cast<float>(out_of_bounds_px_count) * 100 / (grid.mesh_width * grid.mesh_height);
+
     /* If for some reason the EIS created an invalid mesh, create a mesh without EIS correction */
-    if (is_mesh_valid(grid) == false)
+    if ((out_of_bounds_px_ratio > extensions_per_thr) || (is_mesh_valid(grid) == false))
     {
+        ret = ERROR_EIS_BAD_MESH;
         mat3 stab_rot9 = flatten_stab_rot(cv::Mat::eye(3, 3, CV_32F));
         for (int y = 0; y < grid.mesh_height; y++)
         {
@@ -639,7 +658,7 @@ RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
 
     frame_cnt++;
 
-    return DIS_OK;
+    return ret;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

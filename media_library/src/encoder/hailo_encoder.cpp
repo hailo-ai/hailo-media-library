@@ -295,8 +295,8 @@ int InitEncoderCodingConfig(EncoderParams *enc_params, VCEncInst *pEnc)
 
     codingCfg.sliceSize = 0;
     codingCfg.disableDeblockingFilter = 0;
-    codingCfg.tc_Offset = -2;
-    codingCfg.beta_Offset = 5;
+    codingCfg.tc_Offset = 0;
+    codingCfg.beta_Offset = 0;
     codingCfg.enableSao = 1;
     codingCfg.enableDeblockOverride = 0;
     codingCfg.deblockOverride = 0;

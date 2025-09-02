@@ -1230,7 +1230,7 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
         break;
     default:
         GST_ERROR_OBJECT(hailoenc, "Encoder failed with error %d", enc_ret);
-        ret = GST_FLOW_ERROR;
+        ret = GST_FLOW_OK;
         if (is_dmabuf)
         {
             for (int32_t i = 0; i < num_planes; i++)

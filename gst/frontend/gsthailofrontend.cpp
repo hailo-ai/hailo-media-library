@@ -443,7 +443,7 @@ static gboolean gst_hailofrontend_link_elements(GstElement *element)
 static void gst_hailofrontend_dispose(GObject *object)
 {
     GstHailoFrontend *self = GST_HAILO_FRONTEND(object);
-    GST_DEBUG_OBJECT(self, "dispose");
+    GST_ERROR_OBJECT(self, "dispose");
     if (self->params != nullptr)
     {
         delete self->params;

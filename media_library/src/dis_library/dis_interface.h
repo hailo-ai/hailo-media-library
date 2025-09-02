@@ -112,8 +112,8 @@ extern "C"
     /// @param rolling_shutter_rotations buffer of rotaions during the last 2 frames
     /// @param grid output grid
     RetCodes dis_generate_eis_grid_rolling_shutter(void *ctx, FlipMirrorRot flip_mirror_rot,
-                                                   const std::vector<cv::Mat> &rolling_shutter_rotations,
-                                                   DewarpT *grid);
+                                                   const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT *grid,
+                                                   uint32_t extensions_per_thr);
 
 #ifdef __cplusplus
 };

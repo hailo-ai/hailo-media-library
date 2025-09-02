@@ -257,7 +257,8 @@ class MediaLibraryBufferPool : public std::enable_shared_from_this<MediaLibraryB
      *
      * @return media_library_return Returns MEDIA_LIBRARY_SUCCESS if all the buffers are used within the timeout.
      */
-    media_library_return wait_for_used_buffers(uint32_t timeout_ms);
+    media_library_return wait_for_used_buffers(
+        const std::chrono::milliseconds &timeout_ms = std::chrono::milliseconds(1000));
 
     /**
      * @brief Swaps the width and height of the buffer.

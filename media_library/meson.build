@@ -8,6 +8,7 @@ denoise_incdir = [include_directories('./src/front_end/denoise')]
 
 
 common_sourcs = [
+    'src/utils/files_utils.cpp',
     'src/dsp/dsp_utils.cpp',
     'src/isp/isp_utils.cpp',
     'src/isp/v4l2_ctrl.cpp',

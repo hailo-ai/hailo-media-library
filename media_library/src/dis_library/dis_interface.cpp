@@ -155,7 +155,8 @@ RetCodes dis_generate_eis_grid(void *ctx, FlipMirrorRot flip_mirror_rot, cv::Mat
 }
 
 RetCodes dis_generate_eis_grid_rolling_shutter(void *ctx, FlipMirrorRot flip_mirror_rot,
-                                               const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT *grid)
+                                               const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT *grid,
+                                               uint32_t extensions_per_thr)
 {
     if (ctx == nullptr)
         return ERROR_CTX;
@@ -165,7 +166,5 @@ RetCodes dis_generate_eis_grid_rolling_shutter(void *ctx, FlipMirrorRot flip_mir
     if (!dis.initialized)
         return ERROR_INIT;
 
-    dis.generate_eis_grid_rolling_shutter(flip_mirror_rot, rolling_shutter_rotations, *grid);
-
-    return DIS_OK;
+    return dis.generate_eis_grid_rolling_shutter(flip_mirror_rot, rolling_shutter_rotations, *grid, extensions_per_thr);
 }

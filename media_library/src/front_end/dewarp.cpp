@@ -309,8 +309,6 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
             (*callbacks.on_rotation_change)(rot_val);
         }
     }
-    if (no_rotation_in_dewarp)
-        ldc_configs.flip_config.enabled = false;
 
     lock.lock();
 

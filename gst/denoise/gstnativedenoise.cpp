@@ -23,6 +23,7 @@
 #include "gstnativedenoise.hpp"
 #include "common/gstmedialibcommon.hpp"
 #include "buffer_utils/buffer_utils.hpp"
+#include "gst/gstbuffer.h"
 #include "hailo_v4l2/hailo_v4l2_meta.h"
 #include <gst/video/video.h>
 #include <tl/expected.hpp>
@@ -321,7 +322,7 @@ static GstFlowReturn gst_hailo_denoise_chain(GstPad *pad, GstObject *parent, Gst
 
     GstCaps *input_caps = gst_pad_get_current_caps(pad);
 
-    // check that caps have width and height of 4k
+    // Extract frame dimensions from caps for dynamic buffer pool creation
     GstVideoInfo *video_info;
     video_info = gst_video_info_new_from_caps(input_caps);
     if (!video_info)
@@ -329,12 +330,19 @@ static GstFlowReturn gst_hailo_denoise_chain(GstPad *pad, GstObject *parent, Gst
         GST_CAT_ERROR(GST_CAT_DEFAULT, "Failed to get video info from caps");
         return GST_FLOW_ERROR;
     }
-    else if (video_info->width != 3840 || video_info->height != 2160)
+
+    // Set input dimensions for dynamic buffer pool creation
+    // This should be called once when processing the first frame
+    if (self->params->medialib_denoise->set_input_dimensions(video_info->width, video_info->height) !=
+        MEDIA_LIBRARY_SUCCESS)
     {
-        GST_CAT_ERROR(GST_CAT_DEFAULT, "Post ISP Denoising currently only supported in 4k, check CAPS.");
+        GST_ERROR_OBJECT(self, "Failed to set input dimensions for denoise: %dx%d", video_info->width,
+                         video_info->height);
         gst_video_info_free(video_info);
         return GST_FLOW_ERROR;
     }
+
+    GST_DEBUG_OBJECT(self, "Set denoise input dimensions: %dx%d", video_info->width, video_info->height);
     gst_video_info_free(video_info);
 
     HailoMediaLibraryBufferPtr input_frame_ptr = hailo_buffer_from_gst_buffer(buffer, input_caps);
@@ -355,7 +363,12 @@ static GstFlowReturn gst_hailo_denoise_chain(GstPad *pad, GstObject *parent, Gst
         if (media_lib_ret == MEDIA_LIBRARY_UNINITIALIZED)
         {
             GST_DEBUG_OBJECT(self, "Post ISP Denoise disabled, pushing buffer to srcpad");
-            gst_pad_push(self->params->srcpad, buffer);
+            // After getting hailo_buffer from input frame, in case of sending it we have to wrap it:
+            // If we don't input_frame_ptr will be destructed and so its mmap, which might be in use in
+            // a downstream gst element
+            GstBuffer *mmapped_input_as_gst_buf = gst_buffer_from_hailo_buffer(input_frame_ptr, input_caps);
+            gst_pad_push(self->params->srcpad, mmapped_input_as_gst_buf);
+            gst_buffer_unref(buffer);
             return ret;
         }
 
@@ -366,7 +379,9 @@ static GstFlowReturn gst_hailo_denoise_chain(GstPad *pad, GstObject *parent, Gst
     if (output_frame_ptr->buffer_data == nullptr)
     {
         GST_DEBUG_OBJECT(self, "Post ISP Denoise disabled, pushing buffer to srcpad");
-        gst_pad_push(self->params->srcpad, buffer);
+        GstBuffer *mmapped_input_as_gst_buf = gst_buffer_from_hailo_buffer(input_frame_ptr, input_caps);
+        gst_pad_push(self->params->srcpad, mmapped_input_as_gst_buf);
+        gst_buffer_unref(buffer);
         return GST_FLOW_OK;
     }
 

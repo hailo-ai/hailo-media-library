@@ -880,7 +880,11 @@ void to_json(nlohmann::json &j, const eis_config_t &eis_conf)
                        {"iir_hpf_coefficient", eis_conf.iir_hpf_coefficient},
                        {"camera_fov_factor", eis_conf.camera_fov_factor},
                        {"line_readout_time", eis_conf.line_readout_time},
-                       {"hdr_exposure_ratio", eis_conf.hdr_exposure_ratio}};
+                       {"hdr_exposure_ratio", eis_conf.hdr_exposure_ratio},
+                       {"min_angle_deg", eis_conf.min_angle_deg},
+                       {"max_angle_deg", eis_conf.max_angle_deg},
+                       {"shakes_type_buff_size", eis_conf.shakes_type_buff_size},
+                       {"extensions_per_thr", eis_conf.extensions_per_thr}};
 }
 
 void from_json(const nlohmann::json &j, eis_config_t &eis_conf)
@@ -894,6 +898,10 @@ void from_json(const nlohmann::json &j, eis_config_t &eis_conf)
     j.at("camera_fov_factor").get_to(eis_conf.camera_fov_factor);
     j.at("line_readout_time").get_to(eis_conf.line_readout_time);
     j.at("hdr_exposure_ratio").get_to(eis_conf.hdr_exposure_ratio);
+    j.at("min_angle_deg").get_to(eis_conf.min_angle_deg);
+    j.at("max_angle_deg").get_to(eis_conf.max_angle_deg);
+    eis_conf.shakes_type_buff_size = j.value("shakes_type_buff_size", 300); // use 300 as default value
+    eis_conf.extensions_per_thr = j.value("extensions_per_thr", 30);        // use 10 as default value
 }
 
 //------------------------ gyro_config_t ------------------------

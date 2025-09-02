@@ -31,6 +31,7 @@
 #include <memory>
 #include <stdint.h>
 #include <unordered_map>
+#include <string_view>
 #include <linux/dma-heap.h>
 #include <linux/dma-buf.h>
 #include "media_library_types.hpp"
@@ -79,6 +80,7 @@ class DmaMemoryAllocator
     media_library_return dmabuf_sync_end(int fd);
     media_library_return get_fd(void *buffer, int &fd, bool include_external = true);
     media_library_return get_ptr(uint fd, void **buffer, bool include_external = true);
+    size_t get_free_memory_mb();
 };
 
 static inline void destroy_dma_buffer(void *buffer)
