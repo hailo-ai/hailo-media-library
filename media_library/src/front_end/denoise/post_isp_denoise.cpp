@@ -322,6 +322,8 @@ media_library_return MediaLibraryPostIspDenoise::Impl::configure(const denoise_c
         {
             return MEDIA_LIBRARY_ERROR;
         }
+
+	m_output_buffer_pool = nullptr;
     }
 
     // Call observing callbacks in case configuration changed
