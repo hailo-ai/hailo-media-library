@@ -312,7 +312,7 @@ static void gst_hailo_encoder_finalize(GObject *object)
 static void gst_hailo_encoder_dispose(GObject *object)
 {
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)object;
-    GST_ERROR_OBJECT(hailoencoder, "hailoencoder dispose callback");
+    GST_DEBUG_OBJECT(hailoencoder, "hailoencoder dispose callback");
     if (hailoencoder->params != nullptr)
     {
         delete hailoencoder->params;
