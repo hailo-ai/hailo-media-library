@@ -187,8 +187,25 @@ static GstFlowReturn gst_hailo_dewarp_chain(GstPad *pad, GstObject *parent, GstB
     // If Dewarp disbled, just push the buffer to srcpad
     if (!self->params->medialib_dewarp->get_ldc_configs().check_ops_enabled(true))
     {
+        GstCaps *input_caps = gst_pad_get_current_caps(pad);
+
+        HailoMediaLibraryBufferPtr input_frame_ptr = hailo_buffer_from_gst_buffer(buffer, input_caps);
+        if (!input_frame_ptr)
+        {
+            GST_ERROR_OBJECT(self, "Cannot create hailo buffer from GstBuffer");
+            return GST_FLOW_ERROR;
+        }
+        gst_caps_unref(input_caps);
+
+        input_frame_ptr->optical_zoom_magnification =
+            self->params->medialib_dewarp->get_ldc_configs().optical_zoom_config.enabled
+                ? self->params->medialib_dewarp->get_ldc_configs().optical_zoom_config.magnification
+                : 1.0f;
+
+        ret = gst_hailo_dewarp_push_output_frame(self, input_frame_ptr, buffer);
+        gst_buffer_unref(buffer);
+
         GST_DEBUG_OBJECT(self, "Dewarp operations are disabled, pushing buffer to srcpad");
-        gst_pad_push(self->params->srcpad, buffer);
         return ret;
     }
 

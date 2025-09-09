@@ -29,9 +29,9 @@
 
 #include <cstdint>
 #include <string>
+#include <optional>
 #include <variant>
 #include <unordered_map>
-#include <optional>
 
 enum codec_t
 {
@@ -54,6 +54,14 @@ enum rc_mode_t
     CVBR,
     HRD,
     CQP
+};
+
+enum zoom_bitrate_adjuster_mode_t
+{
+    ZOOM_BITRATE_ADJUSTER_DISABLED,
+    ZOOM_BITRATE_ADJUSTER_ZOOMING_PROCESS,
+    ZOOM_BITRATE_ADJUSTER_ZOOM_LEVEL,
+    ZOOM_BITRATE_ADJUSTER_BOTH
 };
 
 inline const std::unordered_map<std::string, rc_mode_t> str_to_rc_mode{
@@ -147,6 +155,36 @@ struct quantization_config_t
     std::optional<uint32_t> fixed_intra_qp;
 };
 
+struct qp_smooth_settings_t
+{
+    std::optional<int32_t> qp_delta;             /* QP smooth QP delta parameter */
+    std::optional<int32_t> qp_delta_limit;       /* QP smooth QP delta limit parameter */
+    std::optional<uint32_t> qp_delta_step;       /* QP smooth QP delta increment parameter */
+    std::optional<uint32_t> qp_delta_limit_step; /* QP smooth QP delta limit increment parameter */
+    std::optional<float> alpha;                  /* QP smooth alpha parameter */
+    std::optional<int32_t> q_step_divisor;       /* QP smooth Q step divisor parameter */
+};
+
+struct gop_anomaly_bitrate_adjuster_t
+{
+    std::optional<bool> enable;                     /* Enable smooth bitrate control */
+    std::optional<float> threshold_high;            /* High threshold for smooth bitrate */
+    std::optional<float> threshold_low;             /* Low threshold for smooth bitrate */
+    std::optional<float> max_target_bitrate_factor; /* Maximum target bitrate factor */
+    std::optional<float> adjustment_factor;         /* Bitrate adjustment factor */
+};
+
+struct zoom_bitrate_adjuster_t
+{
+    std::optional<zoom_bitrate_adjuster_mode_t> mode; // Disabled, Zooming process, Zoom level, Both
+    std::optional<float> zooming_process_bitrate_factor;
+    std::optional<uint32_t> zooming_process_timeout_ms;
+    std::optional<uint32_t> zooming_process_max_bitrate;
+    std::optional<bool> zooming_process_force_keyframe;
+    std::optional<float> zoom_level_threshold;
+    std::optional<float> zoom_level_bitrate_factor;
+};
+
 struct rate_control_config_t
 {
     rc_mode_t rc_mode;
@@ -163,6 +201,9 @@ struct rate_control_config_t
     std::optional<uint32_t> gop_length;
     quantization_config_t quantization;
     bitrate_config_t bitrate;
+    zoom_bitrate_adjuster_t zoom_bitrate_adjuster;
+    qp_smooth_settings_t qp_smooth_settings;
+    gop_anomaly_bitrate_adjuster_t gop_anomaly_bitrate_adjuster;
 };
 
 struct jpeg_encoder_config_t

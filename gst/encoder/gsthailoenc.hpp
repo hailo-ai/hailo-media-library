@@ -56,12 +56,20 @@ struct _GstHailoEncParams
     bool stream_restart;
     bool hard_restart;
     bool update_config;
+    bool update_bitrate;
     bool update_gop_size;
     GQueue *dts_queue;
     struct timespec last_timestamp;
     bool adapt_framerate;
     uint8_t framerate_counter;
     float framerate_tolerance;
+
+    /* Boost mechanism state variables */
+    bool settings_boosted;
+    u32 original_bitrate;
+    bool original_gop_anomaly_bitrate_adjuster_enable;
+    uint64_t settings_boost_start_time_ns; // nanoseconds since epoch
+    float previous_optical_zoom_magnification;
 
     ~_GstHailoEncParams()
     {

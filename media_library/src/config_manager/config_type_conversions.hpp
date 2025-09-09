@@ -140,6 +140,14 @@ MEDIALIB_JSON_SERIALIZE_ENUM(hdr_dol_t, {
                                             {HDR_DOL_3, 3},
                                         })
 
+MEDIALIB_JSON_SERIALIZE_ENUM(zoom_bitrate_adjuster_mode_t,
+                             {
+                                 {ZOOM_BITRATE_ADJUSTER_DISABLED, "DISABLED"},
+                                 {ZOOM_BITRATE_ADJUSTER_ZOOMING_PROCESS, "ZOOMING_PROCESS"},
+                                 {ZOOM_BITRATE_ADJUSTER_ZOOM_LEVEL, "ZOOM_LEVEL"},
+                                 {ZOOM_BITRATE_ADJUSTER_BOTH, "BOTH"},
+                             })
+
 MEDIALIB_JSON_SERIALIZE_ENUM(motion_detection_sensitivity_levels_t, {
                                                                         {LOWEST, "LOWEST"},
                                                                         {LOW, "LOW"},
@@ -480,12 +488,192 @@ void from_json(const nlohmann::json &j, quantization_config_t &q_conf)
     }
 }
 
+void to_json(nlohmann::json &j, const qp_smooth_settings_t &qp_conf)
+{
+    j = nlohmann::json{};
+
+    if (qp_conf.qp_delta != std::nullopt)
+    {
+        j["qp_delta"] = qp_conf.qp_delta.value();
+    }
+    if (qp_conf.qp_delta_limit != std::nullopt)
+    {
+        j["qp_delta_limit"] = qp_conf.qp_delta_limit.value();
+    }
+    if (qp_conf.qp_delta_step != std::nullopt)
+    {
+        j["qp_delta_step"] = qp_conf.qp_delta_step.value();
+    }
+    if (qp_conf.qp_delta_limit_step != std::nullopt)
+    {
+        j["qp_delta_limit_step"] = qp_conf.qp_delta_limit_step.value();
+    }
+    if (qp_conf.alpha != std::nullopt)
+    {
+        j["alpha"] = qp_conf.alpha.value();
+    }
+    if (qp_conf.q_step_divisor != std::nullopt)
+    {
+        j["q_step_divisor"] = qp_conf.q_step_divisor.value();
+    }
+}
+
+void from_json(const nlohmann::json &j, qp_smooth_settings_t &qp_conf)
+{
+    if (j.count("qp_delta") != 0)
+    {
+        qp_conf.qp_delta = j.at("qp_delta").get<int32_t>();
+    }
+    if (j.count("qp_delta_limit") != 0)
+    {
+        qp_conf.qp_delta_limit = j.at("qp_delta_limit").get<int32_t>();
+    }
+    if (j.count("qp_delta_step") != 0)
+    {
+        qp_conf.qp_delta_step = j.at("qp_delta_step").get<uint32_t>();
+    }
+    if (j.count("qp_delta_limit_step") != 0)
+    {
+        qp_conf.qp_delta_limit_step = j.at("qp_delta_limit_step").get<uint32_t>();
+    }
+    if (j.count("alpha") != 0)
+    {
+        qp_conf.alpha = j.at("alpha").get<float>();
+    }
+    if (j.count("q_step_divisor") != 0)
+    {
+        qp_conf.q_step_divisor = j.at("q_step_divisor").get<int32_t>();
+    }
+}
+
+void to_json(nlohmann::json &j, const gop_anomaly_bitrate_adjuster_t &bitrate_conf)
+{
+    j = nlohmann::json{};
+
+    if (bitrate_conf.enable != std::nullopt)
+    {
+        j["enable"] = bitrate_conf.enable.value();
+    }
+    if (bitrate_conf.threshold_high != std::nullopt)
+    {
+        j["threshold_high"] = bitrate_conf.threshold_high.value();
+    }
+    if (bitrate_conf.threshold_low != std::nullopt)
+    {
+        j["threshold_low"] = bitrate_conf.threshold_low.value();
+    }
+    if (bitrate_conf.max_target_bitrate_factor != std::nullopt)
+    {
+        j["max_target_bitrate_factor"] = bitrate_conf.max_target_bitrate_factor.value();
+    }
+    if (bitrate_conf.adjustment_factor != std::nullopt)
+    {
+        j["adjustment_factor"] = bitrate_conf.adjustment_factor.value();
+    }
+}
+
+void from_json(const nlohmann::json &j, gop_anomaly_bitrate_adjuster_t &bitrate_conf)
+{
+    if (j.count("enable") != 0)
+    {
+        bitrate_conf.enable = j.at("enable").get<bool>();
+    }
+    if (j.count("threshold_high") != 0)
+    {
+        bitrate_conf.threshold_high = j.at("threshold_high").get<float>();
+    }
+    if (j.count("threshold_low") != 0)
+    {
+        bitrate_conf.threshold_low = j.at("threshold_low").get<float>();
+    }
+    if (j.count("max_target_bitrate_factor") != 0)
+    {
+        bitrate_conf.max_target_bitrate_factor = j.at("max_target_bitrate_factor").get<float>();
+    }
+    if (j.count("adjustment_factor") != 0)
+    {
+        bitrate_conf.adjustment_factor = j.at("adjustment_factor").get<float>();
+    }
+}
+
+void to_json(nlohmann::json &j, const zoom_bitrate_adjuster_t &zoom_conf)
+{
+    j = nlohmann::json{};
+
+    if (zoom_conf.mode != std::nullopt)
+    {
+        j["mode"] = zoom_conf.mode.value();
+    }
+    if (zoom_conf.zooming_process_bitrate_factor != std::nullopt)
+    {
+        j["zooming_process_bitrate_factor"] = zoom_conf.zooming_process_bitrate_factor.value();
+    }
+    if (zoom_conf.zooming_process_timeout_ms != std::nullopt)
+    {
+        j["zooming_process_timeout_ms"] = zoom_conf.zooming_process_timeout_ms.value();
+    }
+    if (zoom_conf.zooming_process_max_bitrate != std::nullopt)
+    {
+        j["zooming_process_max_bitrate"] = zoom_conf.zooming_process_max_bitrate.value();
+    }
+    if (zoom_conf.zooming_process_force_keyframe != std::nullopt)
+    {
+        j["zooming_process_force_keyframe"] = zoom_conf.zooming_process_force_keyframe.value();
+    }
+    if (zoom_conf.zoom_level_threshold != std::nullopt)
+    {
+        j["zoom_level_threshold"] = zoom_conf.zoom_level_threshold.value();
+    }
+    if (zoom_conf.zoom_level_bitrate_factor != std::nullopt)
+    {
+        j["zoom_level_bitrate_factor"] = zoom_conf.zoom_level_bitrate_factor.value();
+    }
+}
+
+void from_json(const nlohmann::json &j, zoom_bitrate_adjuster_t &zoom_conf)
+{
+    if (j.count("mode") != 0)
+    {
+        zoom_conf.mode = j.at("mode").get<zoom_bitrate_adjuster_mode_t>();
+    }
+    if (j.count("zooming_process_bitrate_factor") != 0)
+    {
+        zoom_conf.zooming_process_bitrate_factor = j.at("zooming_process_bitrate_factor").get<float>();
+    }
+    if (j.count("zooming_process_timeout_ms") != 0)
+    {
+        zoom_conf.zooming_process_timeout_ms = j.at("zooming_process_timeout_ms").get<uint32_t>();
+    }
+    if (j.count("zooming_process_max_bitrate") != 0)
+    {
+        zoom_conf.zooming_process_max_bitrate = j.at("zooming_process_max_bitrate").get<uint32_t>();
+    }
+    if (j.count("zooming_process_force_keyframe") != 0)
+    {
+        zoom_conf.zooming_process_force_keyframe = j.at("zooming_process_force_keyframe").get<bool>();
+    }
+    if (j.count("zoom_level_threshold") != 0)
+    {
+        zoom_conf.zoom_level_threshold = j.at("zoom_level_threshold").get<float>();
+    }
+    if (j.count("zoom_level_bitrate_factor") != 0)
+    {
+        zoom_conf.zoom_level_bitrate_factor = j.at("zoom_level_bitrate_factor").get<float>();
+    }
+}
+
 void to_json(nlohmann::json &j, const rate_control_config_t &rc_conf)
 {
     j = nlohmann::json{
-        {"rc_mode", rc_conf.rc_mode},           {"picture_rc", rc_conf.picture_rc},
-        {"picture_skip", rc_conf.picture_skip}, {"intra_pic_rate", rc_conf.intra_pic_rate},
-        {"bitrate", rc_conf.bitrate},           {"quantization", rc_conf.quantization},
+        {"rc_mode", rc_conf.rc_mode},
+        {"picture_rc", rc_conf.picture_rc},
+        {"picture_skip", rc_conf.picture_skip},
+        {"intra_pic_rate", rc_conf.intra_pic_rate},
+        {"bitrate", rc_conf.bitrate},
+        {"quantization", rc_conf.quantization},
+        {"zoom_bitrate_adjuster", rc_conf.zoom_bitrate_adjuster},
+        {"qp_smooth_settings", rc_conf.qp_smooth_settings},
+        {"gop_anomaly_bitrate_adjuster", rc_conf.gop_anomaly_bitrate_adjuster},
     };
 
     if (rc_conf.ctb_rc != std::nullopt)
@@ -530,6 +718,9 @@ void from_json(const nlohmann::json &j, rate_control_config_t &rc_conf)
     j.at("intra_pic_rate").get_to(rc_conf.intra_pic_rate);
     j.at("bitrate").get_to(rc_conf.bitrate);
     j.at("quantization").get_to(rc_conf.quantization);
+    j.at("zoom_bitrate_adjuster").get_to(rc_conf.zoom_bitrate_adjuster);
+    j.at("qp_smooth_settings").get_to(rc_conf.qp_smooth_settings);
+    j.at("gop_anomaly_bitrate_adjuster").get_to(rc_conf.gop_anomaly_bitrate_adjuster);
 
     if (j.count("ctb_rc") != 0)
     {

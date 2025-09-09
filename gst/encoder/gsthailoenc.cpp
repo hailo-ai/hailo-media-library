@@ -29,6 +29,8 @@
 #include <sstream>
 #include <thread>
 #include <vector>
+#include <chrono>
+#include <mutex>
 #include <sys/resource.h>
 #include <gst/allocators/gstfdmemory.h>
 #include "gsthailoenc.hpp"
@@ -69,6 +71,33 @@ enum
     PROP_ADAPT_FRAMERATE,
     PROP_FRAMERATE_TOLERANCE,
     NUM_OF_PROPS,
+
+    /* Smooth bitrate adjustment parameters */
+    PROP_ENABLE_GOP_BITRATE_ADJUSTER,
+    PROP_THRESHOLD_HIGH,
+    PROP_THRESHOLD_LOW,
+    PROP_MAX_TARGET_BITRATE_FACTOR,
+    PROP_BITRATE_ADJUSTMENT_FACTOR,
+
+    /* QP smooth settings */
+    PROP_QP_SMOOTH_QP_DELTA,
+    PROP_QP_SMOOTH_QP_DELTA_LIMIT,
+    PROP_QP_SMOOTH_QP_DELTA_INCREMENT,
+    PROP_QP_SMOOTH_QP_DELTA_LIMIT_INCREMENT,
+    PROP_QP_SMOOTH_QP_ALPHA,
+    PROP_QP_SMOOTH_Q_STEP_DIVISOR,
+
+    /* Boost parameters */
+    PROP_BOOST_ENABLED,
+    PROP_BOOST_FACTOR,
+    PROP_BOOST_TIMEOUT_MS,
+    PROP_BOOST_MAX_BITRATE,
+    PROP_FORCE_KEYFRAME_ON_ZOOM,
+
+    /* Constant optical zoom boost parameters */
+    PROP_CONSTANT_OPTICAL_ZOOM_BOOST,
+    PROP_CONSTANT_OPTICAL_ZOOM_BOOST_THRESHOLD,
+    PROP_CONSTANT_OPTICAL_ZOOM_BOOST_FACTOR,
 };
 
 #define MIN_FRAMERATE_TOLERANCE (0)
@@ -302,6 +331,112 @@ static void gst_hailoenc_class_init(GstHailoEncClass *klass)
                           MIN_FRAMERATE_TOLERANCE, MAX_FRAMERATE_TOLERANCE, (guint)DEFAULT_FRAMERATE_TOLERANCE,
                           (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 
+    /* Smooth bitrate adjustment parameters */
+    g_object_class_install_property(
+        gobject_class, PROP_ENABLE_GOP_BITRATE_ADJUSTER,
+        g_param_spec_boolean("gop-anomaly-bitrate-adjuster-enable", "Enable GOP Anomaly Bitrate Adjuster",
+                             "Enable/disable gop anomaly bitrate adjuster", DEFAULT_ENABLE_GOP_BITRATE_ADJUSTER,
+                             (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_THRESHOLD_HIGH,
+        g_param_spec_float("gop-anomaly-bitrate-adjuster-high-threshold", "High Threshold",
+                           "High threshold for GOP frame analysis", 0.0, 1.0, DEFAULT_THRESHOLD_HIGH,
+                           (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_THRESHOLD_LOW,
+        g_param_spec_float("gop-anomaly-bitrate-adjuster-low-threshold", "Low Threshold",
+                           "Low threshold for GOP frame analysis", 0.0, 1.0, DEFAULT_THRESHOLD_LOW,
+                           (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_MAX_TARGET_BITRATE_FACTOR,
+        g_param_spec_float("gop-anomaly-bitrate-adjuster-max-factor", "Max Target Bitrate Factor",
+                           "Maximum target bitrate factor", 1.0, 10.0, DEFAULT_MAX_TARGET_BITRATE_FACTOR,
+                           (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_BITRATE_ADJUSTMENT_FACTOR,
+        g_param_spec_float("gop-anomaly-bitrate-adjuster-factor", "Bitrate Adjustment Factor",
+                           "Bitrate adjustment factor", 0.0, 1.0, DEFAULT_BITRATE_ADJUSTMENT_FACTOR,
+                           (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+
+    /* QP smooth settings */
+    g_object_class_install_property(
+        gobject_class, PROP_QP_SMOOTH_QP_DELTA,
+        g_param_spec_int("smooth-qp-delta", "Smooth QP Delta", "smooth QP delta parameter", 0, 300,
+                         DEFAULT_QP_SMOOTH_QP_DELTA,
+                         (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_QP_SMOOTH_QP_DELTA_LIMIT,
+        g_param_spec_int("smooth-qp-delta-limit", "Smooth QP Delta Limit", "Smooth QP delta limit parameter", 0, 4000,
+                         DEFAULT_QP_SMOOTH_QP_DELTA_LIMIT,
+                         (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_QP_SMOOTH_QP_DELTA_INCREMENT,
+        g_param_spec_uint("smooth-qp-delta-step", "Smooth QP Delta step", "smooth QP delta step parameter", 0, 300,
+                          DEFAULT_QP_SMOOTH_QP_DELTA_INCREMENT,
+                          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_QP_SMOOTH_QP_DELTA_LIMIT_INCREMENT,
+        g_param_spec_uint("smooth-qp-delta-limit-step", "Smooth QP Delta Limit step",
+                          "smooth QP delta limit step parameter", 0, 1000, DEFAULT_QP_SMOOTH_QP_DELTA_LIMIT_INCREMENT,
+                          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_QP_SMOOTH_QP_ALPHA,
+        g_param_spec_float("smooth-qp-alpha", "Smooth QP Alpha", "smooth alpha parameter", 0.0, 1.0,
+                           DEFAULT_QP_SMOOTH_QP_ALPHA,
+                           (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_QP_SMOOTH_Q_STEP_DIVISOR,
+        g_param_spec_int("smooth-qp-step-divisor", "Smooth Qp Step divisor ", "smooth Qp step divisor parameter", 1, 5,
+                         2, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+
+    /* Boost parameters */
+    g_object_class_install_property(
+        gobject_class, PROP_BOOST_ENABLED,
+        g_param_spec_boolean("zoom-bitrate-adjuster-zooming-enable", "Enable zoom bitrate adjuster",
+                             "Enable/disable zoom bitrate adjuster for optical zoom", DEFAULT_BOOST_ENABLED,
+                             (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_BOOST_FACTOR,
+        g_param_spec_float("zoom-bitrate-adjuster-zooming-bitrate-factor", "Boost Factor",
+                           "Bitrate adjustment factor for optical zoom", 1.0, 10.0, DEFAULT_BOOST_FACTOR,
+                           (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_BOOST_TIMEOUT_MS,
+        g_param_spec_uint("zoom-bitrate-adjuster-zooming-timeout-ms", "Boost Timeout",
+                          "Zoom bitrate adjust timeout in milliseconds", 0, 60000, DEFAULT_BOOST_TIMEOUT_MS,
+                          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_BOOST_MAX_BITRATE,
+        g_param_spec_uint("zoom-bitrate-adjuster-zooming-max-bitrate", "Boost Max Bitrate",
+                          "Maximum bitrate when adjusting in optical zoom (0 = no limit)", 0, 400000000,
+                          DEFAULT_BOOST_MAX_BITRATE,
+                          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_FORCE_KEYFRAME_ON_ZOOM,
+        g_param_spec_boolean("zoom-bitrate-adjuster-zooming-force-keyframe", "Force Keyframe on Zoom",
+                             "Force keyframe when optical zoom changes", DEFAULT_FORCE_KEYFRAME_ON_ZOOM,
+                             (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+
+    /* Constant optical zoom boost parameters */
+    g_object_class_install_property(
+        gobject_class, PROP_CONSTANT_OPTICAL_ZOOM_BOOST,
+        g_param_spec_boolean("zoom-bitrate-adjuster-zoom-level-enable", "Constant Optical Zoom Boost",
+                             "Enable/disable constant bitrate boost for high optical zoom levels",
+                             DEFAULT_CONSTANT_OPTICAL_ZOOM_BOOST,
+                             (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_CONSTANT_OPTICAL_ZOOM_BOOST_THRESHOLD,
+        g_param_spec_float("zoom-bitrate-adjuster-zoom-level-threshold", "Constant Boost Threshold",
+                           "Optical zoom level threshold for activating constant boost", 1.0, 20.0,
+                           DEFAULT_CONSTANT_OPTICAL_ZOOM_BOOST_THRESHOLD,
+                           (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_CONSTANT_OPTICAL_ZOOM_BOOST_FACTOR,
+        g_param_spec_float("zoom-bitrate-adjuster-zoom-level-bitrate-factor", "Constant Boost Factor",
+                           "Bitrate boost factor for constant optical zoom boost", 1.0, 10.0,
+                           DEFAULT_CONSTANT_OPTICAL_ZOOM_BOOST_FACTOR,
+                           (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+
     venc_class->start = gst_hailoenc_start;
     venc_class->stop = gst_hailoenc_stop;
     venc_class->finish = gst_hailoenc_finish;
@@ -327,9 +462,17 @@ static void gst_hailoenc_init(GstHailoEnc *hailoenc)
     hailoenc->params->encoder_instance = NULL;
     enc_params->encIn.gopConfig.pGopPicCfg = hailoenc->params->gopPicCfg;
     hailoenc->params->adapt_framerate = FALSE;
+    hailoenc->params->update_bitrate = FALSE;
     hailoenc->params->framerate_tolerance = 1.15f;
     hailoenc->params->dts_queue = g_queue_new();
     g_queue_init(hailoenc->params->dts_queue);
+
+    /* Initialize boost mechanism state */
+    hailoenc->params->settings_boosted = false;
+    hailoenc->params->original_bitrate = 0;
+    hailoenc->params->original_gop_anomaly_bitrate_adjuster_enable = false;
+    hailoenc->params->settings_boost_start_time_ns = 0;
+    hailoenc->params->previous_optical_zoom_magnification = 1.0f;
 }
 
 /************************
@@ -493,6 +636,101 @@ static void gst_hailoenc_get_property(GObject *object, guint prop_id, GValue *va
         g_value_set_uint(value, (guint)((hailoenc->params->framerate_tolerance - 1.0f) * 100.0f));
         GST_OBJECT_UNLOCK(hailoenc);
         break;
+    case PROP_ENABLE_GOP_BITRATE_ADJUSTER:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_boolean(value, hailoenc->params->enc_params.gop_anomaly_bitrate_adjuster_enable);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_THRESHOLD_HIGH:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_float(value, hailoenc->params->enc_params.gop_anomaly_bitrate_adjuster_high_threshold);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_THRESHOLD_LOW:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_float(value, hailoenc->params->enc_params.gop_anomaly_bitrate_adjuster_low_threshold);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_MAX_TARGET_BITRATE_FACTOR:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_float(value, hailoenc->params->enc_params.gop_anomaly_bitrate_adjuster_max_factor);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_BITRATE_ADJUSTMENT_FACTOR:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_float(value, hailoenc->params->enc_params.gop_anomaly_bitrate_adjuster_factor);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_QP_SMOOTH_QP_DELTA:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_int(value, hailoenc->params->enc_params.qp_smooth_qp_delta);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_QP_SMOOTH_QP_DELTA_LIMIT:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_int(value, hailoenc->params->enc_params.qp_smooth_qp_delta_limit);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_QP_SMOOTH_QP_DELTA_INCREMENT:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_uint(value, hailoenc->params->enc_params.qp_smooth_qp_delta_step);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_QP_SMOOTH_QP_DELTA_LIMIT_INCREMENT:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_uint(value, hailoenc->params->enc_params.qp_smooth_qp_delta_limit_step);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_QP_SMOOTH_QP_ALPHA:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_float(value, hailoenc->params->enc_params.qp_smooth_qp_alpha);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_QP_SMOOTH_Q_STEP_DIVISOR:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_int(value, hailoenc->params->enc_params.qp_smooth_q_step_divisor);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_BOOST_ENABLED:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_boolean(value, hailoenc->params->enc_params.zoom_bitrate_adjuster_enable);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_BOOST_FACTOR:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_float(value, hailoenc->params->enc_params.zoom_bitrate_adjuster_factor);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_BOOST_TIMEOUT_MS:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_uint(value, hailoenc->params->enc_params.zoom_bitrate_adjuster_timeout_ms);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_BOOST_MAX_BITRATE:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_uint(value, hailoenc->params->enc_params.zoom_bitrate_adjuster_max_bitrate);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_FORCE_KEYFRAME_ON_ZOOM:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_boolean(value, hailoenc->params->enc_params.zoom_bitrate_adjuster_force_keyframe);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_CONSTANT_OPTICAL_ZOOM_BOOST:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_boolean(value, hailoenc->params->enc_params.constant_optical_zoom_boost);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_CONSTANT_OPTICAL_ZOOM_BOOST_THRESHOLD:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_float(value, hailoenc->params->enc_params.constant_optical_zoom_boost_threshold);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_CONSTANT_OPTICAL_ZOOM_BOOST_FACTOR:
+        GST_OBJECT_LOCK(hailoenc);
+        g_value_set_float(value, hailoenc->params->enc_params.constant_optical_zoom_boost_factor);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
         break;
@@ -567,6 +805,7 @@ static void gst_hailoenc_set_property(GObject *object, guint prop_id, const GVal
     case PROP_BITRATE:
         GST_OBJECT_LOCK(hailoenc);
         hailoenc->params->enc_params.bitrate = g_value_get_uint(value);
+        hailoenc->params->update_bitrate = TRUE;
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_TOL_MOVING_BITRATE:
@@ -662,6 +901,101 @@ static void gst_hailoenc_set_property(GObject *object, guint prop_id, const GVal
         hailoenc->params->update_config = FALSE;
         GST_OBJECT_UNLOCK(hailoenc);
         break;
+    case PROP_ENABLE_GOP_BITRATE_ADJUSTER:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.gop_anomaly_bitrate_adjuster_enable = g_value_get_boolean(value) ? 1 : 0;
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_THRESHOLD_HIGH:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.gop_anomaly_bitrate_adjuster_high_threshold = g_value_get_float(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_THRESHOLD_LOW:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.gop_anomaly_bitrate_adjuster_low_threshold = g_value_get_float(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_MAX_TARGET_BITRATE_FACTOR:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.gop_anomaly_bitrate_adjuster_max_factor = g_value_get_float(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_BITRATE_ADJUSTMENT_FACTOR:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.gop_anomaly_bitrate_adjuster_factor = g_value_get_float(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_QP_SMOOTH_QP_DELTA:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.qp_smooth_qp_delta = g_value_get_int(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_QP_SMOOTH_QP_DELTA_LIMIT:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.qp_smooth_qp_delta_limit = g_value_get_int(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_QP_SMOOTH_QP_DELTA_INCREMENT:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.qp_smooth_qp_delta_step = g_value_get_uint(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_QP_SMOOTH_QP_DELTA_LIMIT_INCREMENT:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.qp_smooth_qp_delta_limit_step = g_value_get_uint(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_QP_SMOOTH_QP_ALPHA:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.qp_smooth_qp_alpha = g_value_get_float(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_QP_SMOOTH_Q_STEP_DIVISOR:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.qp_smooth_q_step_divisor = g_value_get_int(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_BOOST_ENABLED:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.zoom_bitrate_adjuster_enable = g_value_get_boolean(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_BOOST_FACTOR:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.zoom_bitrate_adjuster_factor = g_value_get_float(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_BOOST_TIMEOUT_MS:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.zoom_bitrate_adjuster_timeout_ms = g_value_get_uint(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_BOOST_MAX_BITRATE:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.zoom_bitrate_adjuster_max_bitrate = g_value_get_uint(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_FORCE_KEYFRAME_ON_ZOOM:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.zoom_bitrate_adjuster_force_keyframe = g_value_get_boolean(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_CONSTANT_OPTICAL_ZOOM_BOOST:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.constant_optical_zoom_boost = g_value_get_boolean(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_CONSTANT_OPTICAL_ZOOM_BOOST_THRESHOLD:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.constant_optical_zoom_boost_threshold = g_value_get_float(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
+    case PROP_CONSTANT_OPTICAL_ZOOM_BOOST_FACTOR:
+        GST_OBJECT_LOCK(hailoenc);
+        hailoenc->params->enc_params.constant_optical_zoom_boost_factor = g_value_get_float(value);
+        GST_OBJECT_UNLOCK(hailoenc);
+        break;
     default:
         hailoenc->params->update_config = FALSE;
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
@@ -695,6 +1029,220 @@ static void gst_hailoenc_dispose(GObject *object)
 /*****************
 Internal Functions
 *****************/
+
+/**
+ * Get current time in nanoseconds
+ */
+static uint64_t get_current_time_ns()
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+}
+
+/**
+ * Check if boost timeout has elapsed and restore settings if needed
+ */
+static void check_and_restore_boost_settings(GstHailoEnc *hailoenc, float current_optical_zoom)
+{
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
+
+    if (!hailoenc->params->settings_boosted)
+    {
+        return;
+    }
+
+    uint64_t current_time_ns = get_current_time_ns();
+    uint64_t elapsed_ms = (current_time_ns - hailoenc->params->settings_boost_start_time_ns) / 1000000ULL;
+
+    if (elapsed_ms >= enc_params->zoom_bitrate_adjuster_timeout_ms)
+    {
+        // Restore original settings - don't modify enc_params->bitrate as it should always be the baseline
+        enc_params->gop_anomaly_bitrate_adjuster_enable =
+            hailoenc->params->original_gop_anomaly_bitrate_adjuster_enable;
+        hailoenc->params->settings_boosted = false;
+
+        GST_INFO_OBJECT(hailoenc, "Temporary boost timeout after %lu ms", (unsigned long)elapsed_ms);
+
+        // Determine what bitrate to set in the encoder
+        u32 target_encoder_bitrate = enc_params->bitrate; // Start with baseline
+
+        // Check if constant optical zoom boost should be applied instead
+        if (enc_params->constant_optical_zoom_boost &&
+            current_optical_zoom >= enc_params->constant_optical_zoom_boost_threshold)
+        {
+            // Apply constant boost to the baseline bitrate
+            target_encoder_bitrate = (u32)(enc_params->bitrate * enc_params->constant_optical_zoom_boost_factor);
+
+            GST_INFO_OBJECT(hailoenc,
+                            "Applying constant optical zoom boost after temporary boost timeout: baseline %u -> "
+                            "encoder %u (zoom: %.1fx)",
+                            enc_params->bitrate, target_encoder_bitrate, current_optical_zoom);
+        }
+        else
+        {
+            GST_INFO_OBJECT(hailoenc,
+                            "Restored to baseline bitrate %u after timeout (constant_optical_zoom_boost: %s, "
+                            "current_optical_zoom: %.1fx, threshold: %.1fx)",
+                            target_encoder_bitrate, enc_params->constant_optical_zoom_boost ? "enabled" : "disabled",
+                            current_optical_zoom, enc_params->constant_optical_zoom_boost_threshold);
+        }
+
+        // Update encoder rate control if encoder is running
+        if (hailoenc->params->encoder_instance != NULL)
+        {
+            VCEncRateCtrl rcCfg;
+            VCEncRet ret = VCEncGetRateCtrl(hailoenc->params->encoder_instance, &rcCfg);
+            if (ret == VCENC_OK)
+            {
+                rcCfg.bitPerSecond = target_encoder_bitrate;
+                ret = VCEncSetRateCtrl(hailoenc->params->encoder_instance, &rcCfg);
+                if (ret != VCENC_OK)
+                {
+                    GST_ERROR_OBJECT(hailoenc, "Failed to set bitrate after boost timeout, error: %d", ret);
+                }
+            }
+        }
+
+        // Force keyframe if requested
+        if (enc_params->zoom_bitrate_adjuster_force_keyframe)
+        {
+            ForceKeyframe(enc_params);
+            GST_DEBUG_OBJECT(hailoenc, "Forced keyframe after optical zoom timeout");
+        }
+    }
+}
+
+/**
+ * Apply boost settings when optical zoom is detected
+ *
+ * @param[in] hailoenc     The GstHailoEnc object.
+ * @param[in] optical_zoom_magnification The optical zoom magnification factor.
+ */
+static void boost_settings_for_optical_zoom(GstHailoEnc *hailoenc, float optical_zoom_magnification)
+{
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
+
+    if (!enc_params->zoom_bitrate_adjuster_enable)
+    {
+        return;
+    }
+
+    if (!hailoenc->params->settings_boosted)
+    {
+        // Use the baseline bitrate from enc_params, which should not be affected by constant boost
+        // since constant boost only modifies the encoder's rate control directly
+        u32 baseline_bitrate = enc_params->bitrate;
+        u32 boosted_bitrate = (u32)(baseline_bitrate * enc_params->zoom_bitrate_adjuster_factor);
+
+        // Apply max_bitrate limit if set (0 means no limit)
+        if (enc_params->zoom_bitrate_adjuster_max_bitrate > 0 &&
+            boosted_bitrate > enc_params->zoom_bitrate_adjuster_max_bitrate)
+        {
+            boosted_bitrate = enc_params->zoom_bitrate_adjuster_max_bitrate;
+        }
+
+        // Store original baseline values (not current potentially boosted values)
+        hailoenc->params->original_bitrate = baseline_bitrate;
+        hailoenc->params->original_gop_anomaly_bitrate_adjuster_enable =
+            enc_params->gop_anomaly_bitrate_adjuster_enable;
+
+        // Apply boost - never modify enc_params->bitrate as it should always be the baseline
+        enc_params->gop_anomaly_bitrate_adjuster_enable = false; // Disable smooth bitrate during boost
+        hailoenc->params->settings_boosted = true;
+
+        GST_INFO_OBJECT(hailoenc, "Boosted bitrate from %u to %u (factor: %.1f, max: %u) due to optical zoom %.1fx",
+                        baseline_bitrate, boosted_bitrate, enc_params->zoom_bitrate_adjuster_factor,
+                        enc_params->zoom_bitrate_adjuster_max_bitrate, optical_zoom_magnification);
+
+        // Update encoder rate control if encoder is running
+        if (hailoenc->params->encoder_instance != NULL)
+        {
+            VCEncRateCtrl rcCfg;
+            VCEncRet ret = VCEncGetRateCtrl(hailoenc->params->encoder_instance, &rcCfg);
+            if (ret == VCENC_OK)
+            {
+                if (rcCfg.bitPerSecond != boosted_bitrate)
+                {
+                    rcCfg.bitPerSecond = boosted_bitrate;
+                    ret = VCEncSetRateCtrl(hailoenc->params->encoder_instance, &rcCfg);
+                    if (ret != VCENC_OK)
+                    {
+                        GST_ERROR_OBJECT(hailoenc, "Failed to set boosted bitrate, error: %d", ret);
+                    }
+                }
+            }
+        }
+
+        // Force keyframe if requested
+        if (enc_params->zoom_bitrate_adjuster_force_keyframe)
+        {
+            ForceKeyframe(enc_params);
+            GST_DEBUG_OBJECT(hailoenc, "Forced keyframe due to optical zoom change");
+        }
+    }
+
+    // Reset or start the timer
+    hailoenc->params->settings_boost_start_time_ns = get_current_time_ns();
+}
+
+/**
+ * Apply constant boost settings based on optical zoom level when threshold is exceeded
+ *
+ * @param[in] hailoenc     The GstHailoEnc object.
+ * @param[in] optical_zoom_magnification The optical zoom magnification factor.
+ */
+static void apply_constant_optical_zoom_boost(GstHailoEnc *hailoenc, float optical_zoom_magnification)
+{
+    EncoderParams *enc_params = &(hailoenc->params->enc_params);
+
+    // Only apply constant boost if enabled and original boost is not active
+    if (!enc_params->constant_optical_zoom_boost || hailoenc->params->settings_boosted)
+    {
+        return;
+    }
+
+    // Update encoder rate control if encoder is running
+    if (hailoenc->params->encoder_instance != NULL)
+    {
+        VCEncRateCtrl rcCfg;
+        u32 current_bitrate = enc_params->bitrate;
+        u32 boosted_bitrate = (u32)(current_bitrate * enc_params->constant_optical_zoom_boost_factor);
+
+        VCEncRet ret = VCEncGetRateCtrl(hailoenc->params->encoder_instance, &rcCfg);
+        if (ret != VCENC_OK)
+        {
+            GST_WARNING_OBJECT(hailoenc, "Failed to get rate control for constant optical zoom boost, error: %d", ret);
+            return;
+        }
+
+        // Check if current zoom level exceeds threshold
+        if (optical_zoom_magnification < enc_params->constant_optical_zoom_boost_threshold)
+        {
+            // Zoom level is below threshold, ensure constant boost is not applied
+            GST_DEBUG_OBJECT(hailoenc, "Optical zoom %.1fx is below constant boost threshold %.1f",
+                             optical_zoom_magnification, enc_params->constant_optical_zoom_boost_threshold);
+            boosted_bitrate = current_bitrate; // No boost
+        }
+
+        if (rcCfg.bitPerSecond != boosted_bitrate) // Only apply if different from current
+        {
+            rcCfg.bitPerSecond = boosted_bitrate;
+            ret = VCEncSetRateCtrl(hailoenc->params->encoder_instance, &rcCfg);
+            if (ret != VCENC_OK)
+            {
+                GST_ERROR_OBJECT(hailoenc, "Failed to set constant optical zoom boost bitrate, error: %d", ret);
+            }
+            else
+            {
+                GST_DEBUG_OBJECT(hailoenc,
+                                 "Applied constant optical zoom boost: bitrate %u -> %u (factor: %.1f) for zoom %.1fx",
+                                 current_bitrate, boosted_bitrate, enc_params->constant_optical_zoom_boost_factor,
+                                 optical_zoom_magnification);
+            }
+        }
+    }
+}
 
 /**
  * Updates the encoder with the input video info.
@@ -991,7 +1539,7 @@ static GstFlowReturn gst_hailoenc_stream_restart(GstVideoEncoder *encoder)
 
 /*
  * Send a slice to the downstream element
- *
+
  * @param[in] hailoenc     The GstHailoEnc object.
  * @param[in] address      The address of the slice.
  * @param[in] size         The size of the slice.
@@ -1157,6 +1705,29 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
         return GST_FLOW_ERROR;
     }
 
+    /* Apply boost settings based on optical zoom change */
+    float current_optical_zoom = hailo_buffer->optical_zoom_magnification;
+
+    if (!hailoenc->params->update_bitrate)
+    {
+        /* Check if we need to restore settings after timeout */
+        check_and_restore_boost_settings(hailoenc, current_optical_zoom);
+
+        GST_DEBUG_OBJECT(hailoenc, "Current optical zoom magnification: %.2f and previous magnification: %.2f",
+                         current_optical_zoom, hailoenc->params->previous_optical_zoom_magnification);
+
+        if (current_optical_zoom != hailoenc->params->previous_optical_zoom_magnification)
+        {
+            GST_INFO_OBJECT(hailoenc, "Optical zoom magnification changed from %.2f to %.2f",
+                            hailoenc->params->previous_optical_zoom_magnification, current_optical_zoom);
+            hailoenc->params->previous_optical_zoom_magnification = current_optical_zoom;
+
+            boost_settings_for_optical_zoom(hailoenc, current_optical_zoom);
+            /* Apply constant optical zoom boost if enabled and threshold is exceeded */
+            apply_constant_optical_zoom_boost(hailoenc, current_optical_zoom);
+        }
+    }
+
     if (hailo_buffer->is_dmabuf())
     {
         is_dmabuf = true;
@@ -1216,13 +1787,20 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
                 if (ret != GST_FLOW_OK)
                 {
                     GST_ERROR_OBJECT(hailoenc, "Could not send frame %d", enc_params->picture_cnt);
-                    return ret;
+                    return GST_FLOW_OK;
                 }
-
+                // || (frame->system_frame_number % 2 == 0 && enc_params->nextCodingType == VCENC_INTRA_FRAME))
                 if (hailoenc->params->update_config && enc_params->nextCodingType == VCENC_INTRA_FRAME)
                 {
                     GST_INFO_OBJECT(hailoenc, "Finished GOP, restarting encoder in order to update config");
                     hailoenc->params->stream_restart = TRUE;
+                    if (hailoenc->params->update_bitrate)
+                    {
+                        // Disable zoom boost feature
+                        hailoenc->params->settings_boost_start_time_ns = 0;
+                        apply_constant_optical_zoom_boost(hailoenc, current_optical_zoom);
+                        hailoenc->params->update_bitrate = FALSE;
+                    }
                 }
             }
             UpdateEncoderGOP(enc_params);
@@ -1320,7 +1898,6 @@ static gboolean gst_hailoenc_set_format(GstVideoEncoder *encoder, GstVideoCodecS
     GstVideoCodecState *output_format;
     GstHailoEnc *hailoenc = (GstHailoEnc *)encoder;
     EncoderParams *enc_params = &(hailoenc->params->enc_params);
-
     gboolean updated_caps = gst_hailoenc_update_params(hailoenc, &(state->info));
     if (hailoenc->params->encoder_instance != NULL && updated_caps)
     {
@@ -1343,7 +1920,6 @@ static gboolean gst_hailoenc_set_format(GstVideoEncoder *encoder, GstVideoCodecS
             return FALSE;
         }
     }
-
     /* some codecs support more than one format, first auto-choose one */
     GST_DEBUG_OBJECT(hailoenc, "picking an output format ...");
     allowed_caps = gst_pad_get_allowed_caps(GST_VIDEO_ENCODER_SRC_PAD(encoder));

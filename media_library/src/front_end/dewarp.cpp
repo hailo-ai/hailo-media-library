@@ -26,6 +26,7 @@
 #include "config_manager.hpp"
 #include "dsp_utils.hpp"
 #include "ldc_mesh_context.hpp"
+#include "logger_macros.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_utils.hpp"
 #include <iostream>
@@ -289,6 +290,9 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
     bool flip_changed = (!m_configured || ldc_configs.flip_config != prev_flip_config);
     bool rot_changed = !no_rotation_in_dewarp && (!m_configured || ldc_configs.rotation_config != prev_rot_config);
     m_ldc_configs.update_flip_rotate(ldc_configs);
+
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "optical zoom magnification: {}",
+                          m_ldc_configs.optical_zoom_config.magnification);
 
     lock.unlock();
 
@@ -622,6 +626,9 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBuf
 
     media_lib_ret = perform_dewarp(input_frame, output_frame);
     output_frame->copy_metadata_from(input_frame);
+
+    output_frame->optical_zoom_magnification =
+        m_ldc_configs.optical_zoom_config.enabled ? m_ldc_configs.optical_zoom_config.magnification : 1.0f;
 
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
         return media_lib_ret;

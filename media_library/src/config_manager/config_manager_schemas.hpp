@@ -370,6 +370,87 @@ static nlohmann::json encoding_config_schema = R"(
                   "target_bitrate"
                 ],
                 "additionalProperties": false
+              },
+              "zoom_bitrate_adjuster": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": ["DISABLED", "ZOOMING_PROCESS", "ZOOM_LEVEL", "BOTH"]
+                  },
+                  "zooming_process_bitrate_factor": {
+                    "type": "number",
+                    "minimum": 1.0
+                  },
+                  "zooming_process_timeout_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "zooming_process_max_bitrate": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "zooming_process_force_keyframe": {
+                    "type": "boolean"
+                  },
+                  "zoom_level_threshold": {
+                    "type": "number",
+                    "minimum": 1.0
+                  },
+                  "zoom_level_bitrate_factor": {
+                    "type": "number",
+                    "minimum": 1.0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "qp_smooth_settings": {
+                "type": "object",
+                "properties": {
+                  "qp_delta": {
+                    "type": "integer"
+                  },
+                  "qp_delta_limit": {
+                    "type": "integer"
+                  },
+                  "qp_delta_step": {
+                    "type": "integer"
+                  },
+                  "qp_delta_limit_step": {
+                    "type": "integer"
+                  },
+                  "q_step_divisor": {
+                    "type": "integer"
+                  },
+                  "alpha": {
+                    "type": "number"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "gop_anomaly_bitrate_adjuster": {
+                "type": "object",
+                "properties": {
+                  "enable": {
+                    "type": "boolean"
+                  },
+                  "threshold_high": {
+                    "type": "number"
+                  },
+                  "threshold_low": {
+                    "type": "number"
+                  },
+                  "max_target_bitrate_factor": {
+                    "type": "number"
+                  },
+                  "adjustment_factor": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "enable"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -378,7 +459,10 @@ static nlohmann::json encoding_config_schema = R"(
               "picture_skip",
               "intra_pic_rate",
               "quantization",
-              "bitrate"
+              "bitrate",
+              "zoom_bitrate_adjuster",
+              "qp_smooth_settings",
+              "gop_anomaly_bitrate_adjuster"
             ],
             "additionalProperties": false
           },
