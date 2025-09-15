@@ -1787,7 +1787,7 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
                 if (ret != GST_FLOW_OK)
                 {
                     GST_ERROR_OBJECT(hailoenc, "Could not send frame %d", enc_params->picture_cnt);
-                    return GST_FLOW_OK;
+                    return ret;
                 }
                 // || (frame->system_frame_number % 2 == 0 && enc_params->nextCodingType == VCENC_INTRA_FRAME))
                 if (hailoenc->params->update_config && enc_params->nextCodingType == VCENC_INTRA_FRAME)
