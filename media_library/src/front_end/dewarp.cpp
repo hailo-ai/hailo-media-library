@@ -291,9 +291,6 @@ media_library_return MediaLibraryDewarp::Impl::configure(ldc_config_t &ldc_confi
     bool rot_changed = !no_rotation_in_dewarp && (!m_configured || ldc_configs.rotation_config != prev_rot_config);
     m_ldc_configs.update_flip_rotate(ldc_configs);
 
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "optical zoom magnification: {}",
-                          m_ldc_configs.optical_zoom_config.magnification);
-
     lock.unlock();
 
     for (auto &callbacks : m_callbacks)

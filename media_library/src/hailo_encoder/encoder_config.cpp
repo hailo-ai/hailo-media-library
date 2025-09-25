@@ -810,3 +810,40 @@ media_library_return Encoder::Impl::init_monitors_config()
 
     return MEDIA_LIBRARY_SUCCESS;
 }
+
+bool EncoderConfig::config_struct_equal(const encoder_config_t &old_config, const encoder_config_t &new_config)
+{
+    // Use std::visit with type-safe comparison
+    return std::visit(
+        [](const auto &old_val, const auto &new_val) -> bool {
+            using T = std::decay_t<decltype(old_val)>;
+            using U = std::decay_t<decltype(new_val)>;
+
+            // Check if both variants hold the same type
+            if constexpr (std::is_same_v<T, U>)
+            {
+                if constexpr (std::is_same_v<T, hailo_encoder_config_t>)
+                {
+                    // For hailo_encoder_config_t, use tie-based comparison
+                    return old_val == new_val;
+                }
+                else if constexpr (std::is_same_v<T, jpeg_encoder_config_t>)
+                {
+                    // For jpeg_encoder_config_t, use tie-based comparison
+                    return std::tie(old_val.config_path, old_val.input_stream, old_val.n_threads, old_val.quality) ==
+                           std::tie(new_val.config_path, new_val.input_stream, new_val.n_threads, new_val.quality);
+                }
+                else
+                {
+                    // Fallback for unknown types
+                    return false;
+                }
+            }
+            else
+            {
+                // Different types, cannot be equal
+                return false;
+            }
+        },
+        old_config, new_config);
+}

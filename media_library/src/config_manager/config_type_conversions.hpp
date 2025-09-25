@@ -718,9 +718,20 @@ void from_json(const nlohmann::json &j, rate_control_config_t &rc_conf)
     j.at("intra_pic_rate").get_to(rc_conf.intra_pic_rate);
     j.at("bitrate").get_to(rc_conf.bitrate);
     j.at("quantization").get_to(rc_conf.quantization);
-    j.at("zoom_bitrate_adjuster").get_to(rc_conf.zoom_bitrate_adjuster);
-    j.at("qp_smooth_settings").get_to(rc_conf.qp_smooth_settings);
-    j.at("gop_anomaly_bitrate_adjuster").get_to(rc_conf.gop_anomaly_bitrate_adjuster);
+
+    // Optional fields
+    if (j.count("zoom_bitrate_adjuster") != 0)
+    {
+        j.at("zoom_bitrate_adjuster").get_to(rc_conf.zoom_bitrate_adjuster);
+    }
+    if (j.count("qp_smooth_settings") != 0)
+    {
+        j.at("qp_smooth_settings").get_to(rc_conf.qp_smooth_settings);
+    }
+    if (j.count("gop_anomaly_bitrate_adjuster") != 0)
+    {
+        j.at("gop_anomaly_bitrate_adjuster").get_to(rc_conf.gop_anomaly_bitrate_adjuster);
+    }
 
     if (j.count("ctb_rc") != 0)
     {

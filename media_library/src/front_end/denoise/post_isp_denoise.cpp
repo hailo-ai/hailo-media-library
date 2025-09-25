@@ -559,21 +559,18 @@ bool MediaLibraryPostIspDenoise::Impl::is_enabled()
 
 media_library_return MediaLibraryPostIspDenoise::Impl::set_input_dimensions(uint32_t width, uint32_t height)
 {
-    LOGGER__MODULE__INFO(MODULE_NAME, "Setting input dimensions: {}x{}", width, height);
-
-
     std::unique_lock<std::shared_mutex> lock(rw_lock);
 
     if (!m_denoise_configs.enabled || m_denoise_configs.bayer)
     {
-        LOGGER__MODULE__INFO(MODULE_NAME,
+        LOGGER__MODULE__DEBUG(MODULE_NAME,
                               "Denoise is not enabled for post-ISP processing, skipping buffer pool creation");
         return MEDIA_LIBRARY_SUCCESS;
     }
 
     if (m_output_buffer_pool != nullptr)
     {
-        LOGGER__MODULE__INFO(MODULE_NAME, "Buffer pool already created, skipping re-creation");
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Buffer pool already created, skipping re-creation");
         return MEDIA_LIBRARY_SUCCESS;
     }
 

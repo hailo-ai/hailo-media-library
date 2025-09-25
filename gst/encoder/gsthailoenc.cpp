@@ -462,13 +462,13 @@ static void gst_hailoenc_init(GstHailoEnc *hailoenc)
     hailoenc->params->encoder_instance = NULL;
     enc_params->encIn.gopConfig.pGopPicCfg = hailoenc->params->gopPicCfg;
     hailoenc->params->adapt_framerate = FALSE;
-    hailoenc->params->update_bitrate = FALSE;
+    hailoenc->params->is_user_set_bitrate = FALSE;
     hailoenc->params->framerate_tolerance = 1.15f;
     hailoenc->params->dts_queue = g_queue_new();
     g_queue_init(hailoenc->params->dts_queue);
 
     /* Initialize boost mechanism state */
-    hailoenc->params->settings_boosted = false;
+    hailoenc->params->zooming_boost_enabled = false;
     hailoenc->params->original_bitrate = 0;
     hailoenc->params->original_gop_anomaly_bitrate_adjuster_enable = false;
     hailoenc->params->settings_boost_start_time_ns = 0;
@@ -805,7 +805,7 @@ static void gst_hailoenc_set_property(GObject *object, guint prop_id, const GVal
     case PROP_BITRATE:
         GST_OBJECT_LOCK(hailoenc);
         hailoenc->params->enc_params.bitrate = g_value_get_uint(value);
-        hailoenc->params->update_bitrate = TRUE;
+        hailoenc->params->is_user_set_bitrate = TRUE;
         GST_OBJECT_UNLOCK(hailoenc);
         break;
     case PROP_TOL_MOVING_BITRATE:
@@ -1045,9 +1045,9 @@ static uint64_t get_current_time_ns()
  */
 static void check_and_restore_boost_settings(GstHailoEnc *hailoenc, float current_optical_zoom)
 {
-    EncoderParams *enc_params = &(hailoenc->params->enc_params);
+    EncoderParams &enc_params = hailoenc->params->enc_params;
 
-    if (!hailoenc->params->settings_boosted)
+    if ((hailoenc->params->encoder_instance == NULL) || (!hailoenc->params->zooming_boost_enabled))
     {
         return;
     }
@@ -1055,59 +1055,55 @@ static void check_and_restore_boost_settings(GstHailoEnc *hailoenc, float curren
     uint64_t current_time_ns = get_current_time_ns();
     uint64_t elapsed_ms = (current_time_ns - hailoenc->params->settings_boost_start_time_ns) / 1000000ULL;
 
-    if (elapsed_ms >= enc_params->zoom_bitrate_adjuster_timeout_ms)
+    if (elapsed_ms >= enc_params.zoom_bitrate_adjuster_timeout_ms)
     {
-        // Restore original settings - don't modify enc_params->bitrate as it should always be the baseline
-        enc_params->gop_anomaly_bitrate_adjuster_enable =
-            hailoenc->params->original_gop_anomaly_bitrate_adjuster_enable;
-        hailoenc->params->settings_boosted = false;
+        // Restore original settings - don't modify enc_params.bitrate as it should always be the baseline
+        enc_params.gop_anomaly_bitrate_adjuster_enable = hailoenc->params->original_gop_anomaly_bitrate_adjuster_enable;
+        hailoenc->params->zooming_boost_enabled = false;
 
         GST_INFO_OBJECT(hailoenc, "Temporary boost timeout after %lu ms", (unsigned long)elapsed_ms);
 
         // Determine what bitrate to set in the encoder
-        u32 target_encoder_bitrate = enc_params->bitrate; // Start with baseline
+        u32 target_encoder_bitrate = enc_params.bitrate; // Start with baseline
 
         // Check if constant optical zoom boost should be applied instead
-        if (enc_params->constant_optical_zoom_boost &&
-            current_optical_zoom >= enc_params->constant_optical_zoom_boost_threshold)
+        if (enc_params.constant_optical_zoom_boost &&
+            current_optical_zoom >= enc_params.constant_optical_zoom_boost_threshold)
         {
             // Apply constant boost to the baseline bitrate
-            target_encoder_bitrate = (u32)(enc_params->bitrate * enc_params->constant_optical_zoom_boost_factor);
+            target_encoder_bitrate = (u32)(enc_params.bitrate * enc_params.constant_optical_zoom_boost_factor);
 
             GST_INFO_OBJECT(hailoenc,
                             "Applying constant optical zoom boost after temporary boost timeout: baseline %u -> "
                             "encoder %u (zoom: %.1fx)",
-                            enc_params->bitrate, target_encoder_bitrate, current_optical_zoom);
+                            enc_params.bitrate, target_encoder_bitrate, current_optical_zoom);
         }
         else
         {
             GST_INFO_OBJECT(hailoenc,
                             "Restored to baseline bitrate %u after timeout (constant_optical_zoom_boost: %s, "
                             "current_optical_zoom: %.1fx, threshold: %.1fx)",
-                            target_encoder_bitrate, enc_params->constant_optical_zoom_boost ? "enabled" : "disabled",
-                            current_optical_zoom, enc_params->constant_optical_zoom_boost_threshold);
+                            target_encoder_bitrate, enc_params.constant_optical_zoom_boost ? "enabled" : "disabled",
+                            current_optical_zoom, enc_params.constant_optical_zoom_boost_threshold);
         }
 
         // Update encoder rate control if encoder is running
-        if (hailoenc->params->encoder_instance != NULL)
+        VCEncRateCtrl rcCfg;
+        VCEncRet ret = VCEncGetRateCtrl(hailoenc->params->encoder_instance, &rcCfg);
+        if (ret == VCENC_OK)
         {
-            VCEncRateCtrl rcCfg;
-            VCEncRet ret = VCEncGetRateCtrl(hailoenc->params->encoder_instance, &rcCfg);
-            if (ret == VCENC_OK)
+            rcCfg.bitPerSecond = target_encoder_bitrate;
+            ret = VCEncSetRateCtrl(hailoenc->params->encoder_instance, &rcCfg);
+            if (ret != VCENC_OK)
             {
-                rcCfg.bitPerSecond = target_encoder_bitrate;
-                ret = VCEncSetRateCtrl(hailoenc->params->encoder_instance, &rcCfg);
-                if (ret != VCENC_OK)
-                {
-                    GST_ERROR_OBJECT(hailoenc, "Failed to set bitrate after boost timeout, error: %d", ret);
-                }
+                GST_ERROR_OBJECT(hailoenc, "Failed to set bitrate after boost timeout, error: %d", ret);
             }
         }
 
         // Force keyframe if requested
-        if (enc_params->zoom_bitrate_adjuster_force_keyframe)
+        if (enc_params.zoom_bitrate_adjuster_force_keyframe)
         {
-            ForceKeyframe(enc_params);
+            ForceKeyframe(&enc_params);
             GST_DEBUG_OBJECT(hailoenc, "Forced keyframe after optical zoom timeout");
         }
     }
@@ -1128,7 +1124,7 @@ static void boost_settings_for_optical_zoom(GstHailoEnc *hailoenc, float optical
         return;
     }
 
-    if (!hailoenc->params->settings_boosted)
+    if (!hailoenc->params->zooming_boost_enabled)
     {
         // Use the baseline bitrate from enc_params, which should not be affected by constant boost
         // since constant boost only modifies the encoder's rate control directly
@@ -1149,7 +1145,7 @@ static void boost_settings_for_optical_zoom(GstHailoEnc *hailoenc, float optical
 
         // Apply boost - never modify enc_params->bitrate as it should always be the baseline
         enc_params->gop_anomaly_bitrate_adjuster_enable = false; // Disable smooth bitrate during boost
-        hailoenc->params->settings_boosted = true;
+        hailoenc->params->zooming_boost_enabled = true;
 
         GST_INFO_OBJECT(hailoenc, "Boosted bitrate from %u to %u (factor: %.1f, max: %u) due to optical zoom %.1fx",
                         baseline_bitrate, boosted_bitrate, enc_params->zoom_bitrate_adjuster_factor,
@@ -1160,16 +1156,18 @@ static void boost_settings_for_optical_zoom(GstHailoEnc *hailoenc, float optical
         {
             VCEncRateCtrl rcCfg;
             VCEncRet ret = VCEncGetRateCtrl(hailoenc->params->encoder_instance, &rcCfg);
-            if (ret == VCENC_OK)
+            if (ret != VCENC_OK)
             {
-                if (rcCfg.bitPerSecond != boosted_bitrate)
+                GST_WARNING_OBJECT(hailoenc, "Failed to get rate control for optical zoom boost, error: %d", ret);
+            }
+
+            if (rcCfg.bitPerSecond != boosted_bitrate)
+            {
+                rcCfg.bitPerSecond = boosted_bitrate;
+                ret = VCEncSetRateCtrl(hailoenc->params->encoder_instance, &rcCfg);
+                if (ret != VCENC_OK)
                 {
-                    rcCfg.bitPerSecond = boosted_bitrate;
-                    ret = VCEncSetRateCtrl(hailoenc->params->encoder_instance, &rcCfg);
-                    if (ret != VCENC_OK)
-                    {
-                        GST_ERROR_OBJECT(hailoenc, "Failed to set boosted bitrate, error: %d", ret);
-                    }
+                    GST_ERROR_OBJECT(hailoenc, "Failed to set boosted bitrate, error: %d", ret);
                 }
             }
         }
@@ -1197,7 +1195,7 @@ static void apply_constant_optical_zoom_boost(GstHailoEnc *hailoenc, float optic
     EncoderParams *enc_params = &(hailoenc->params->enc_params);
 
     // Only apply constant boost if enabled and original boost is not active
-    if (!enc_params->constant_optical_zoom_boost || hailoenc->params->settings_boosted)
+    if (!enc_params->constant_optical_zoom_boost || hailoenc->params->zooming_boost_enabled)
     {
         return;
     }
@@ -1708,7 +1706,7 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
     /* Apply boost settings based on optical zoom change */
     float current_optical_zoom = hailo_buffer->optical_zoom_magnification;
 
-    if (!hailoenc->params->update_bitrate)
+    if (!hailoenc->params->is_user_set_bitrate)
     {
         /* Check if we need to restore settings after timeout */
         check_and_restore_boost_settings(hailoenc, current_optical_zoom);
@@ -1759,8 +1757,17 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
     GST_DEBUG_OBJECT(hailoenc, "Encode performance is %d cycles",
                      VCEncGetPerformance(hailoenc->params->encoder_instance));
 
+    if(enc_ret == VCENC_HW_TIMEOUT)
+    {
+        GST_ERROR_OBJECT(hailoenc, "Encode frame returned hardware timeout - Sending empty frame and restarting encoder sw");
+
+        hailoenc->params->stream_restart = TRUE;
+        hailoenc->params->hard_restart = TRUE;
+    }
+
     switch (enc_ret)
     {
+    case VCENC_HW_TIMEOUT:
     case VCENC_FRAME_READY:
         enc_params->picture_enc_cnt++;
         if (enc_params->encOut.streamSize == 0)
@@ -1794,12 +1801,12 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
                 {
                     GST_INFO_OBJECT(hailoenc, "Finished GOP, restarting encoder in order to update config");
                     hailoenc->params->stream_restart = TRUE;
-                    if (hailoenc->params->update_bitrate)
+                    if (hailoenc->params->is_user_set_bitrate)
                     {
                         // Disable zoom boost feature
                         hailoenc->params->settings_boost_start_time_ns = 0;
                         apply_constant_optical_zoom_boost(hailoenc, current_optical_zoom);
-                        hailoenc->params->update_bitrate = FALSE;
+                        hailoenc->params->is_user_set_bitrate = FALSE;
                     }
                 }
             }

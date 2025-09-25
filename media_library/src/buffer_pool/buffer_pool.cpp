@@ -138,8 +138,8 @@ media_library_return HailoBucket::acquire(intptr_t *buffer_ptr)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME,
                               "Buffer acquire failed - no available buffers remaining, "
-                              "please validate the max buffers size you set ({}) , {} - {}",
-                              m_num_buffers, m_available_buffers.size(), m_used_buffers.size());
+                              "please validate the max buffers size you set ({})",
+                              m_num_buffers);
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 

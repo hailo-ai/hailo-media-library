@@ -202,10 +202,12 @@ static GstFlowReturn gst_hailo_dewarp_chain(GstPad *pad, GstObject *parent, GstB
                 ? self->params->medialib_dewarp->get_ldc_configs().optical_zoom_config.magnification
                 : 1.0f;
 
+        GST_DEBUG_OBJECT(self, "Dewarp operations are disabled, pushing buffer to srcpad");
         ret = gst_hailo_dewarp_push_output_frame(self, input_frame_ptr, buffer);
         gst_buffer_unref(buffer);
 
         GST_DEBUG_OBJECT(self, "Dewarp operations are disabled, pushing buffer to srcpad");
+
         return ret;
     }
 

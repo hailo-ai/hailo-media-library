@@ -97,7 +97,7 @@ extern "C"
 #define DEFAULT_CVBR_MODE (0)
 
 /* Smooth bitrate adjustment parameters */
-#define DEFAULT_ENABLE_GOP_BITRATE_ADJUSTER (false) // Disable by default
+#define DEFAULT_ENABLE_GOP_BITRATE_ADJUSTER (false)
 #define DEFAULT_THRESHOLD_HIGH 0.3
 #define DEFAULT_THRESHOLD_LOW 0.125
 #define DEFAULT_MAX_TARGET_BITRATE_FACTOR 1.3
@@ -112,16 +112,16 @@ extern "C"
 #define DEFAULT_QP_SMOOTH_Q_STEP_DIVISOR (2)             /* Default Q step divisor */
 
 /* Boost parameters defaults */
-#define DEFAULT_BOOST_ENABLED (true)          // Disable boost by default
-#define DEFAULT_BOOST_FACTOR (1.4f)           // Default boost factor
-#define DEFAULT_BOOST_TIMEOUT_MS (1000)       // Default boost timeout in milliseconds
-#define DEFAULT_BOOST_MAX_BITRATE (16000000)  // Default max bitrate (0 = no limit)
-#define DEFAULT_FORCE_KEYFRAME_ON_ZOOM (true) // Disable force keyframe on zoom by default
+#define DEFAULT_BOOST_ENABLED (true)
+#define DEFAULT_BOOST_FACTOR (1.4f) 
+#define DEFAULT_BOOST_TIMEOUT_MS (1000)
+#define DEFAULT_BOOST_MAX_BITRATE (16000000)
+#define DEFAULT_FORCE_KEYFRAME_ON_ZOOM (true)
 
 /* Constant optical zoom boost parameters defaults */
-#define DEFAULT_CONSTANT_OPTICAL_ZOOM_BOOST (true)           // Disable constant optical zoom boost by default
-#define DEFAULT_CONSTANT_OPTICAL_ZOOM_BOOST_THRESHOLD (2.5f) // Default threshold for constant boost
-#define DEFAULT_CONSTANT_OPTICAL_ZOOM_BOOST_FACTOR (1.2f)    // Default constant boost factor
+#define DEFAULT_CONSTANT_OPTICAL_ZOOM_BOOST (true)
+#define DEFAULT_CONSTANT_OPTICAL_ZOOM_BOOST_THRESHOLD (2.5f)
+#define DEFAULT_CONSTANT_OPTICAL_ZOOM_BOOST_FACTOR (1.2f)
 typedef struct
 {
     i32 width;

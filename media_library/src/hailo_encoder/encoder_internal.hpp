@@ -203,11 +203,12 @@ class Encoder::Impl final
     std::condition_variable m_is_encoding_multiple_frames_cv;
 
     std::vector<encoder_config_type_t> m_update_required;
+    bool m_is_user_set_bitrate;
     float m_previous_optical_zoom_magnification;
 
     // Optical zoom settings boost management (currently bitrate, extensible for other settings)
     u32 m_original_gop_anomaly_bitrate_adjuster_enable; // TODO: Change to bool
-    bool m_settings_boosted;
+    bool m_zooming_boost_enabled;
     std::chrono::steady_clock::time_point m_settings_boost_start_time;
     std::mutex m_settings_boost_mutex;
 
@@ -215,10 +216,11 @@ class Encoder::Impl final
     Impl(std::string json_string);
     ~Impl();
     std::vector<EncoderOutputBuffer> handle_frame(HailoMediaLibraryBufferPtr buf, uint32_t frame_number);
-    void handle_hooks(HailoMediaLibraryBufferPtr buf, uint32_t frame_number);
+    media_library_return handle_bitrate_adjustment_hooks(HailoMediaLibraryBufferPtr buf, uint32_t frame_number);
     void boost_settings_for_optical_zoom();
+    u32 get_constant_optical_zoom_boost(float optical_zoom_magnification, u32 current_bitrate);
     void apply_constant_optical_zoom_boost(float optical_zoom_magnification);
-    void check_and_restore_settings();
+    void check_and_restore_settings(float current_optical_zoom);
     void force_keyframe();
     void update_stride(uint32_t stride);
     int get_gop_size();

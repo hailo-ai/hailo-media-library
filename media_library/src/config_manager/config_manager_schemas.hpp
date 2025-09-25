@@ -459,10 +459,7 @@ static nlohmann::json encoding_config_schema = R"(
               "picture_skip",
               "intra_pic_rate",
               "quantization",
-              "bitrate",
-              "zoom_bitrate_adjuster",
-              "qp_smooth_settings",
-              "gop_anomaly_bitrate_adjuster"
+              "bitrate"
             ],
             "additionalProperties": false
           },
