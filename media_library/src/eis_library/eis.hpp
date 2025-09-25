@@ -153,6 +153,10 @@ class Vec3dFifoBuffer
     {
         return m_buffer.empty();
     }
+    void clear()
+    {
+        m_buffer.clear();
+    }
 
     cv::Vec3d mean() const
     {
@@ -247,7 +251,7 @@ class EIS
     bool converged();
     std::vector<cv::Mat> get_rolling_shutter_rotations(
         const std::vector<std::pair<uint64_t, cv::Mat>> &rotations_buffer, int grid_height,
-        uint64_t middle_exposure_time_of_first_row, std::vector<uint64_t> frame_readout_times);
+        uint64_t middle_exposure_time_of_first_row, std::vector<uint64_t> frame_readout_times, float camera_fov_factor);
 
     bool check_periodic_reset(std::vector<cv::Mat> &rolling_shutter_rotations, uint32_t curr_fps);
     void reset_history(bool reset_iir_convergence, bool reset_prev_high_pass);

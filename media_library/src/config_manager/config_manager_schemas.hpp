@@ -1242,7 +1242,8 @@ static nlohmann::json ldc_eis_config_schema = R"(
         "min_angle_deg": { "type": "number", "minimum": 0.0, "maximum": 360.0 },
         "max_angle_deg": { "type": "number", "minimum": 0.0, "maximum": 360.0 },
         "shakes_type_buff_size": { "type": "number", "minimum": 1 },
-        "extensions_per_thr": { "type": "number" }
+        "max_extensions_per_thr": { "type": "number" },
+        "min_extensions_per_thr": { "type": "number" }
       },
       "additionalProperties": false,
       "required": [
@@ -1310,7 +1311,8 @@ static nlohmann::json ldc_optical_zoom_config_schema = R"(
       "properties": {
         "enabled": { "type": "boolean" },
         "magnification": { "type": "number" },
-        "max_dewarping_magnification": { "type": "number" }
+        "max_dewarping_magnification": { "type": "number" },
+        "max_zoom_level": { "type": "number" }
       },
       "additionalProperties": false,
       "required": ["magnification", "enabled"]

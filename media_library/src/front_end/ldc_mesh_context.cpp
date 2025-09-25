@@ -682,6 +682,7 @@ static tl::expected<std::vector<gyro_sample_t>, gyro_status_t> get_gyro_samples(
     uint64_t *middle_exposure_timestamp, float exposures_ratio)
 {
     std::optional<gyro_sample_t> closest_vsync_sample = gyroApi->get_closest_vsync_sample(curr_frame_isp_timestamp_ns);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Received VSYNC: {}", closest_vsync_sample.has_value());
 
     uint64_t timestamp =
         closest_vsync_sample.has_value() ? closest_vsync_sample.value().timestamp_ns : curr_frame_isp_timestamp_ns;
@@ -751,15 +752,6 @@ media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp
         goto generate_grid;
     }
 
-    if (!gyro_samples_expected.has_value())
-    {
-        // gyro samples are saturated, return identity matrix and set m_eis_is_saturated to true
-        LOGGER__MODULE__WARNING(MODULE_NAME, "Gyro samples are saturated, returning identity matrix");
-        m_eis_is_saturated = gyro_samples_expected.error() == gyro_status_t::GYRO_STATUS_SATURATED;
-        m_last_threshold_timestamp = threshold_timestamp;
-        goto generate_grid;
-    }
-
     if (!m_ldc_configs.eis_config.stabilize || m_eis_stabilize_warmup_count)
     {
         LOGGER__MODULE__DEBUG(MODULE_NAME, "EIS stabilization is off, skipping");
@@ -768,17 +760,6 @@ media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp
         {
             m_eis_stabilize_warmup_count--;
         }
-        goto generate_grid;
-    }
-
-    if (m_eis_is_saturated)
-    {
-        // if we got here after being in saturated state means we are no longer saturated and going back to normal mode,
-        // reset history
-        m_eis_is_saturated = false;
-        LOGGER__MODULE__WARNING(MODULE_NAME, "EIS gyro samples are no longer saturated, resetting EIS history");
-        m_eis_ptr->reset_history(false, false); // hard reset everything including HPF
-        m_last_threshold_timestamp = threshold_timestamp;
         goto generate_grid;
     }
 
@@ -808,7 +789,8 @@ media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp
     if ((!current_orientations.empty()) && (current_orientations[0].first != 0))
     {
         rolling_shutter_rotations = m_eis_ptr->get_rolling_shutter_rotations(
-            current_orientations, m_dewarp_mesh.mesh_height, middle_exposure_timestamp, isp_params.rhs_times);
+            current_orientations, m_dewarp_mesh.mesh_height, middle_exposure_timestamp, isp_params.rhs_times,
+            m_ldc_configs.eis_config.camera_fov_factor);
     }
     m_last_threshold_timestamp = threshold_timestamp;
 
@@ -827,7 +809,9 @@ generate_grid:
     }
 
     dis_generate_eis_grid_rolling_shutter(m_dis_ctx, flip_mirror_rot, rolling_shutter_rotations, &grid,
-                                          m_ldc_configs.eis_config.extensions_per_thr);
+                                          m_ldc_configs.eis_config.max_extensions_per_thr, m_magnification,
+                                          m_ldc_configs.eis_config.min_extensions_per_thr,
+                                          m_ldc_configs.optical_zoom_config.max_zoom_level);
 
     m_dewarp_mesh.mesh_table = grid.mesh_table;
     m_dewarp_mesh.mesh_width = grid.mesh_width;

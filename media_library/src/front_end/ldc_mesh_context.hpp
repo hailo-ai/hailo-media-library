@@ -44,7 +44,6 @@ class LdcMeshContext
     bool m_is_initialized = false;
     std::shared_mutex m_mutex;
     bool eis_prev_enabled = false;
-    bool m_eis_is_saturated = false;
     size_t m_eis_stabilize_warmup_count = 0;
 
     media_library_return initialize_dewarp_mesh();

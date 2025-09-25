@@ -113,7 +113,8 @@ extern "C"
     /// @param grid output grid
     RetCodes dis_generate_eis_grid_rolling_shutter(void *ctx, FlipMirrorRot flip_mirror_rot,
                                                    const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT *grid,
-                                                   uint32_t extensions_per_thr);
+                                                   uint32_t max_extensions_per_thr, float curr_zoom_level,
+                                                   uint32_t min_extensions_per_thr, float max_zoom_level);
 
 #ifdef __cplusplus
 };

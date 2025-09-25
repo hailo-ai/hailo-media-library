@@ -886,7 +886,8 @@ void to_json(nlohmann::json &j, const optical_zoom_config_t &oz_conf)
 {
     j = nlohmann::json{{"enabled", oz_conf.enabled},
                        {"magnification", oz_conf.magnification},
-                       {"max_dewarping_magnification", oz_conf.max_dewarping_magnification}};
+                       {"max_dewarping_magnification", oz_conf.max_dewarping_magnification},
+                       {"max_zoom_level", oz_conf.max_zoom_level}};
 }
 
 void from_json(const nlohmann::json &j, optical_zoom_config_t &oz_conf)
@@ -894,6 +895,7 @@ void from_json(const nlohmann::json &j, optical_zoom_config_t &oz_conf)
     j.at("enabled").get_to(oz_conf.enabled);
     j.at("magnification").get_to(oz_conf.magnification);
     oz_conf.max_dewarping_magnification = j.value("max_dewarping_magnification", 100.0); // use 100 as default value
+    oz_conf.max_zoom_level = j.value("max_zoom_level", 40.0);                            // use 40.0 as default value
 }
 
 //------------------------ digital_zoom_config_t ------------------------
@@ -1075,7 +1077,8 @@ void to_json(nlohmann::json &j, const eis_config_t &eis_conf)
                        {"min_angle_deg", eis_conf.min_angle_deg},
                        {"max_angle_deg", eis_conf.max_angle_deg},
                        {"shakes_type_buff_size", eis_conf.shakes_type_buff_size},
-                       {"extensions_per_thr", eis_conf.extensions_per_thr}};
+                       {"max_extensions_per_thr", eis_conf.max_extensions_per_thr},
+                       {"min_extensions_per_thr", eis_conf.min_extensions_per_thr}};
 }
 
 void from_json(const nlohmann::json &j, eis_config_t &eis_conf)
@@ -1091,8 +1094,9 @@ void from_json(const nlohmann::json &j, eis_config_t &eis_conf)
     j.at("hdr_exposure_ratio").get_to(eis_conf.hdr_exposure_ratio);
     j.at("min_angle_deg").get_to(eis_conf.min_angle_deg);
     j.at("max_angle_deg").get_to(eis_conf.max_angle_deg);
-    eis_conf.shakes_type_buff_size = j.value("shakes_type_buff_size", 300); // use 300 as default value
-    eis_conf.extensions_per_thr = j.value("extensions_per_thr", 30);        // use 10 as default value
+    eis_conf.shakes_type_buff_size = j.value("shakes_type_buff_size", 300);  // use 300 as default value
+    eis_conf.max_extensions_per_thr = j.value("max_extensions_per_thr", 30); // use 30 as default value
+    eis_conf.min_extensions_per_thr = j.value("min_extensions_per_thr", 0);  // use 0 as default value
 }
 
 //------------------------ gyro_config_t ------------------------

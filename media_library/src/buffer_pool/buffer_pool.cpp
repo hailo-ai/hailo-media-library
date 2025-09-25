@@ -222,6 +222,12 @@ MediaLibraryBufferPool::~MediaLibraryBufferPool()
 
 media_library_return MediaLibraryBufferPool::wait_for_used_buffers(const std::chrono::milliseconds &timeout_ms)
 {
+    if (!m_buffer_pool_mutex)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "{}: Buffer pool mutex is null, object may be destroyed", m_name);
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
     std::unique_lock<std::mutex> lock(*m_buffer_pool_mutex);
     for (uint8_t i = 0; i < m_buckets.size(); i++)
     {

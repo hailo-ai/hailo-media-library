@@ -119,6 +119,7 @@ class DIS
 
     /// stabilized frame counter
     int frame_cnt = 0;
+    int eis_out_of_bounds_countdown = 0;
 
   public:
     DIS() {};
@@ -174,7 +175,8 @@ class DIS
     /// @param grid output grid
     RetCodes generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
                                                const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT &grid,
-                                               uint32_t extensions_per_thr);
+                                               uint32_t max_extensions_per_thr, float zoom_level,
+                                               uint32_t min_extensions_per_thr, float max_zoom_level);
 
   private:
     /// @brief Generates grid, which only resizes the input image into the output one. Used for debug.

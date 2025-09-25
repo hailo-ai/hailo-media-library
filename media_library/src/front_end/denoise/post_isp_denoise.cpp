@@ -313,17 +313,21 @@ media_library_return MediaLibraryPostIspDenoise::Impl::configure(const denoise_c
         m_loopback_condvar.notify_all();
         clear_loopback_queue();
 
-        if (m_output_buffer_pool->wait_for_used_buffers() != MEDIA_LIBRARY_SUCCESS)
+        if (m_output_buffer_pool != nullptr)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to wait for used buffers to be released");
-            return MEDIA_LIBRARY_ERROR;
-        }
-        if (m_output_buffer_pool->free() != MEDIA_LIBRARY_SUCCESS)
-        {
-            return MEDIA_LIBRARY_ERROR;
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "Freeing output buffer pool");
+            if (m_output_buffer_pool->wait_for_used_buffers() != MEDIA_LIBRARY_SUCCESS)
+            {
+                LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to wait for used buffers to be released");
+                return MEDIA_LIBRARY_ERROR;
+            }
+            if (m_output_buffer_pool->free() != MEDIA_LIBRARY_SUCCESS)
+            {
+                return MEDIA_LIBRARY_ERROR;
+            }
         }
 
-	m_output_buffer_pool = nullptr;
+        m_output_buffer_pool = nullptr;
     }
 
     // Call observing callbacks in case configuration changed

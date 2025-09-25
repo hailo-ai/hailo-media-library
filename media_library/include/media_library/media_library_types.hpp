@@ -255,6 +255,7 @@ struct optical_zoom_config_t
     bool enabled;
     float magnification;
     float max_dewarping_magnification;
+    float max_zoom_level;
 };
 
 struct flip_config_t
@@ -464,7 +465,8 @@ struct eis_config_t
     float min_angle_deg;
     float max_angle_deg;
     uint32_t shakes_type_buff_size;
-    uint32_t extensions_per_thr;
+    uint32_t max_extensions_per_thr;
+    uint32_t min_extensions_per_thr;
 };
 
 struct gyro_config_t

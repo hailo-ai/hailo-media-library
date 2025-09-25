@@ -34,6 +34,7 @@
 
 #define DSP_MAX_MESH_WIDTH ((261 << MESH_FRACT_BITS) - ((1 << MESH_FRACT_BITS) / 2) - 1)
 #define DSP_MAX_MESH_HEIGHT ((247 << MESH_FRACT_BITS) - 1)
+#define EIS_OUT_OF_BOUNDS_COUNTDOWN (60)
 
 static constexpr LoggerType LOGGER_TYPE = LoggerType::Dis;
 
@@ -594,7 +595,8 @@ static bool is_mesh_valid(DewarpT &grid)
 ///////////////////////////////////////////////////////////////////////////////
 RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
                                                 const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT &grid,
-                                                uint32_t extensions_per_thr)
+                                                uint32_t max_extensions_per_thr, float curr_zoom_level,
+                                                uint32_t min_extensions_per_thr, float max_zoom_level)
 {
     RetCodes ret = DIS_OK;
     if (cfg.debug.generate_resize_grid)
@@ -642,9 +644,14 @@ RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
     auto out_of_bounds_px_ratio =
         static_cast<float>(out_of_bounds_px_count) * 100 / (grid.mesh_width * grid.mesh_height);
 
-    /* If for some reason the EIS created an invalid mesh, create a mesh without EIS correction */
-    if ((out_of_bounds_px_ratio > extensions_per_thr) || (is_mesh_valid(grid) == false))
-    {
+    /* Compute the threshold for allowable out-of-bounds pixels before disabling EIS.
+       The threshold scales with zoom level: at higher zooms, we allow proportionally
+       more out-of-bounds pixels (up to max_extensions_per_thr). At minimum, we enforce
+       at least min_extensions_per_thr so EIS doesn’t get disabled too aggressively. */
+    float out_of_bounds_thr =
+        MAX(min_extensions_per_thr, (curr_zoom_level) * (max_extensions_per_thr / max_zoom_level));
+
+    auto apply_identity_mesh = [&](DewarpT &grid) {
         ret = ERROR_EIS_BAD_MESH;
         mat3 stab_rot9 = flatten_stab_rot(cv::Mat::eye(3, 3, CV_32F));
         for (int y = 0; y < grid.mesh_height; y++)
@@ -654,6 +661,18 @@ RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
                 eis_update_mesh(grid, x, y, stab_rot9, in_cam, out_rays);
             }
         }
+    };
+
+    if ((out_of_bounds_px_ratio > out_of_bounds_thr) || !is_mesh_valid(grid))
+    {
+        eis_out_of_bounds_countdown = EIS_OUT_OF_BOUNDS_COUNTDOWN; // reset countdown
+    }
+
+    // If countdown is active, force identity mesh
+    if (eis_out_of_bounds_countdown > 0)
+    {
+        apply_identity_mesh(grid);
+        eis_out_of_bounds_countdown--;
     }
 
     frame_cnt++;

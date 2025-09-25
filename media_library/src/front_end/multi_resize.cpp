@@ -538,7 +538,7 @@ media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer
             height == m_buffer_pools[i]->get_height())
         {
             LOGGER__MODULE__DEBUG(MODULE_NAME, "Buffer pool already exists, skipping creation");
-            return MEDIA_LIBRARY_SUCCESS;
+            continue;
         }
 
         auto bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width(width);
@@ -555,12 +555,29 @@ media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer
             LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init buffer pool");
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
+
         if (first)
         {
             m_buffer_pools.emplace_back(buffer_pool);
         }
         else
         {
+            // Before replacing an existing pool, wait for its buffers to be returned
+            if (m_buffer_pools[i] != nullptr)
+            {
+                LOGGER__MODULE__INFO(MODULE_NAME,
+                                     "Replacing buffer pool {} - waiting for existing buffers to be returned",
+                                     m_buffer_pools[i]->get_name());
+
+                if (m_buffer_pools[i]->wait_for_used_buffers(wait_for_pools_timeout) != MEDIA_LIBRARY_SUCCESS)
+                {
+                    LOGGER__MODULE__ERROR(
+                        MODULE_NAME,
+                        "Failed to wait for used buffers in pool {} before replacement - proceeding anyway",
+                        m_buffer_pools[i]->get_name());
+                }
+            }
+
             m_buffer_pools[i] = buffer_pool;
         }
     }

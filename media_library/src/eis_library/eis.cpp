@@ -82,6 +82,7 @@ static cv::Mat euler_angles_to_rot_mat(const cv::Vec3d &angles)
 shakes_state_t EIS::get_curr_shakes_state()
 {
     double std_angle_deg = RAD_TO_DEG(cv::norm(m_rotation_buffer.standard_deviation()));
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Mean: {}", RAD_TO_DEG(cv::norm(m_rotation_buffer.mean())));
 
     if (std_angle_deg < m_min_angle_deg)
     {
@@ -181,6 +182,10 @@ std::vector<std::pair<uint64_t, cv::Mat>> EIS::integrate_rotations_rolling_shutt
         out_rotations_count = out_rotations.size();
     }
 
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Integrated {} gyro samples, current angles: {}, samples std: {}",
+                          out_rotations.size(), m_cur_angle,
+                          RAD_TO_DEG(cv::norm(m_rotation_buffer.standard_deviation())));
+
     m_last_sample = gyro_samples.back();
 
     return out_rotations;
@@ -279,7 +284,7 @@ static cv::Mat get_rotation_by_timestamp(uint64_t query_timestamp,
 
 std::vector<cv::Mat> EIS::get_rolling_shutter_rotations(
     const std::vector<std::pair<uint64_t, cv::Mat>> &rotations_buffer, int grid_height,
-    uint64_t middle_exposure_time_of_first_row, std::vector<uint64_t> frame_readout_times)
+    uint64_t middle_exposure_time_of_first_row, std::vector<uint64_t> frame_readout_times, float camera_fov_factor)
 {
     uint64_t frame_readout_time = frame_readout_times[0];
     std::vector<cv::Mat> out_rotations(grid_height);
@@ -288,9 +293,19 @@ std::vector<cv::Mat> EIS::get_rolling_shutter_rotations(
         cv::Mat stab_rot = cv::Mat::eye(3, 3, CV_32F);
         if (middle_exposure_time_of_first_row != 0)
         {
+            /* Instead of using the raw grid row index `y`, we compute a weighted row position `Y`
+               that blends between the actual row index and the image center. This adjustment accounts
+               for the camera field-of-view factor (`camera_fov_factor`):
+                - When camera_fov_factor = 1.0 → Y ≈ y (no adjustment).
+                - When camera_fov_factor < 1.0 → rows are biased toward the image center,
+                    modeling reduced sensitivity at the edges of the frame.
+                This makes the rolling-shutter row timing estimation more accurate. */
+            int Y = static_cast<int>((camera_fov_factor * y) + ((1.0f - camera_fov_factor) * (grid_height / 2.0f)));
+            double row_fraction = static_cast<double>(Y) / static_cast<double>(grid_height);
+            row_fraction = std::min(row_fraction, 1.0);
+
             uint64_t row_time =
-                middle_exposure_time_of_first_row +
-                (uint64_t)(((static_cast<double>(y) + 0.5) / static_cast<double>(grid_height)) * frame_readout_time);
+                middle_exposure_time_of_first_row + static_cast<uint64_t>(row_fraction * frame_readout_time);
             stab_rot = get_rotation_by_timestamp(row_time, rotations_buffer);
         }
         stab_rot.convertTo(out_rotations[y], CV_32F);
@@ -360,6 +375,7 @@ EIS::EIS(const std::string &config_filename, uint32_t window_size, uint32_t samp
     m_min_angle_deg = min_angle_degrees;
     m_max_angle_deg = max_angle_degrees;
     last_normal_shakes_state_orientations = cv::Mat::eye(3, 3, CV_64F);
+    m_rotation_buffer.clear();
 }
 
 bool EIS::check_periodic_reset(std::vector<cv::Mat> &rolling_shutter_rotations, uint32_t curr_fps)
