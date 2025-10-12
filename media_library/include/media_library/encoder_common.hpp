@@ -113,7 +113,7 @@ extern "C"
 
 /* Boost parameters defaults */
 #define DEFAULT_BOOST_ENABLED (true)
-#define DEFAULT_BOOST_FACTOR (1.4f) 
+#define DEFAULT_BOOST_FACTOR (1.4f)
 #define DEFAULT_BOOST_TIMEOUT_MS (1000)
 #define DEFAULT_BOOST_MAX_BITRATE (16000000)
 #define DEFAULT_FORCE_KEYFRAME_ON_ZOOM (true)

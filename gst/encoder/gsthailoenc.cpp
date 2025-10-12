@@ -1757,9 +1757,10 @@ static GstFlowReturn encode_single_frame(GstHailoEnc *hailoenc, GstVideoCodecFra
     GST_DEBUG_OBJECT(hailoenc, "Encode performance is %d cycles",
                      VCEncGetPerformance(hailoenc->params->encoder_instance));
 
-    if(enc_ret == VCENC_HW_TIMEOUT)
+    if (enc_ret == VCENC_HW_TIMEOUT)
     {
-        GST_ERROR_OBJECT(hailoenc, "Encode frame returned hardware timeout - Sending empty frame and restarting encoder sw");
+        GST_ERROR_OBJECT(hailoenc,
+                         "Encode frame returned hardware timeout - Sending empty frame and restarting encoder sw");
 
         hailoenc->params->stream_restart = TRUE;
         hailoenc->params->hard_restart = TRUE;
