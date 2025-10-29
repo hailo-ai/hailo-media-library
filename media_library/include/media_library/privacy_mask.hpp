@@ -249,6 +249,14 @@ class PrivacyMaskBlender : public std::enable_shared_from_this<PrivacyMaskBlende
      */
     media_library_return configure(const std::string &config);
 
+    /**
+     * @brief Configure the PrivacyMaskBlender object using a privacy_mask_config_t structure.
+     *
+     * @param config - privacy_mask_config_t structure.
+     * @return media_library_return - error code.
+     */
+    media_library_return configure(const std::unique_ptr<privacy_mask_config_t> &config);
+
   private:
     std::vector<PolygonPtr> m_static_privacy_masks;
 

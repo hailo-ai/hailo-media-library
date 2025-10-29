@@ -38,20 +38,17 @@
 #include <ctime>
 #include <thread>
 
-enum isp_mcm_mode
-{
-    ISP_MCM_MODE_OFF = 0,
-    ISP_MCM_MODE_STITCHING = 1, // default mode for MCM
-    ISP_MCM_MODE_INJECTION = 2, // read raw and write back to MCM, 16 bit
-    ISP_MCM_MODE_PACKED = 3,    // read raw and write back to MCM, 12 bit
-    ISP_MCM_MODE_MAX
-};
-
 class MediaLibraryPreIspDenoise final : public MediaLibraryDenoise
 {
   public:
-    MediaLibraryPreIspDenoise();
+    MediaLibraryPreIspDenoise(std::shared_ptr<v4l2::v4l2ControlManager> v4l2_ctrl_manager);
     ~MediaLibraryPreIspDenoise();
+
+    // initialize the ISP
+    media_library_return init();
+
+    // deinitialize the ISP
+    media_library_return deinit();
 
     // start the ISP thread
     media_library_return start();
@@ -79,17 +76,17 @@ class MediaLibraryPreIspDenoise final : public MediaLibraryDenoise
 
     static constexpr int RAW_CAPTURE_BUFFERS_COUNT = 5;
     static constexpr int ISP_IN_BUFFERS_COUNT = 3;
-    static constexpr const char *YUV_STREAM_PATH = "/dev/video0";
-    static constexpr const char *RAW_CAPTURE_PATH = "/dev/video2";
-    static constexpr const char *ISP_IN_PATH = "/dev/video3";
+    static constexpr const char *ISP_IN_PATH = "/dev/video10";
     static constexpr const char *DMA_HEAP_PATH = "/dev/dma_heap/linux,cma";
     static constexpr int RAW_CAPTURE_DEFAULT_FPS = 30;
     static constexpr size_t BITS_PER_INPUT = 16;
-    static constexpr size_t BITS_PER_OUTPUT = 16;
-    int m_isp_fd;
+    static constexpr size_t BITS_PER_OUTPUT = 12;
+    files_utils::SharedFd m_isp_fd;
     std::shared_ptr<HDR::VideoCaptureDevice> m_raw_capture_device;
     std::shared_ptr<HDR::VideoOutputDevice> m_isp_in_device;
     std::shared_ptr<HDR::DMABufferAllocator> m_allocator;
+    std::shared_ptr<v4l2::v4l2ControlManager> m_v4l2_ctrl_manager;
+    std::atomic<bool> m_initialized;
 
     // ISP thread
     std::thread m_isp_thread;
@@ -97,11 +94,9 @@ class MediaLibraryPreIspDenoise final : public MediaLibraryDenoise
 
     media_library_return start_isp_thread();
     media_library_return stop_isp_thread();
-    void wait_for_stream_start();
-    bool set_isp_mcm_mode(uint32_t target_mcm_mode);
+    bool wait_for_stream_start();
     uint16_t get_dgain();
     uint16_t get_bls(v4l2::Video0Ctrl ctrl);
-    std::pair<int, size_t> get_pixel_format_and_width(const size_t bits_per_pixel);
     void write_output_buffer(HailoMediaLibraryBufferPtr output_buffer);
 
     // virtual functions to override

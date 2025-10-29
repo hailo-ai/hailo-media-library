@@ -67,27 +67,28 @@ class MediaLibraryFrontend::Impl final
 
     bool set_gst_callbacks(GstElementPtr &pipeline, frontend_src_element_t source_type,
                            std::vector<frontend_output_stream_t> &output_streams);
-    std::string create_pipeline_string(const std::string &frontend_json_config, frontend_src_element_t source_type,
-                                       uint16_t input_width, uint16_t input_height,
-                                       const std::vector<frontend_output_stream_t> &output_streams);
-    bool init_pipeline(const std::string &frontend_json_config, frontend_src_element_t source_type,
-                       uint16_t input_width, uint16_t input_height,
-                       std::vector<frontend_output_stream_t> &output_streams);
+    std::string create_pipeline(const frontend_config_t &config, frontend_src_element_t source_type,
+                                uint16_t input_width, uint16_t input_height,
+                                const std::vector<frontend_output_stream_t> &output_streams);
+    bool init_pipeline(const frontend_config_t &config, frontend_src_element_t source_type, uint16_t input_width,
+                       uint16_t input_height, std::vector<frontend_output_stream_t> &output_streams);
 
-    static std::optional<std::vector<frontend_output_stream_t>> create_output_streams(
+    static std::optional<std::vector<frontend_output_stream_t>> create_output_streams_string(
         const nlohmann::json &output_streams_json);
-    static nlohmann::json get_output_streams_json(const std::string &validated_json_config);
-    static frontend_src_element_t get_input_stream_type(const std::string &validated_json_config);
-    static std::pair<uint16_t, uint16_t> get_input_resolution(const std::string &validated_json_config);
     static constexpr const char *DEFAULT_INPUT_STREAM_TYPE = "V4L2SRC";
-    bool is_config_change_allowed(nlohmann::json old_output_streams_config, nlohmann::json new_output_streams_config,
-                                  frontend_src_element_t new_config_input_stream_type);
+
+    static std::optional<std::vector<frontend_output_stream_t>> create_output_streams_from_config(
+        const frontend_config_t &cfg);
 
     GstAppSrcPtr m_appsrc;
     GstCapsPtr m_appsrc_caps;
     GMainLoopPtr m_main_loop;
     GstElementPtr m_pipeline;
+    guint m_bus_watch_id = 0;
 
+    mutable std::mutex m_config_mtx{};
+    bool m_has_config = false;
+    frontend_config_t m_current_config{};
     frontend_src_element_t m_src_element;
     std::string m_json_config_str;
     std::vector<frontend_output_stream_t> m_output_streams;

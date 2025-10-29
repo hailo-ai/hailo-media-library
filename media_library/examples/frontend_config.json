@@ -4,8 +4,7 @@
             "width": 3840,
             "height": 2160,
             "framerate": 30
-        },
-        "source": "/dev/video0"
+        }
     },
     "application_input_streams": {
         "method": "INTERPOLATION_TYPE_BILINEAR",
@@ -17,14 +16,14 @@
                 "height": 2160,
                 "framerate": 30,
                 "pool_max_buffers": 20,
-                "keep_aspect_ratio": false
+                "scaling_mode": "STRETCH"
             },
             {
                 "width": 1280,
                 "height": 720,
                 "framerate": 30,
                 "pool_max_buffers": 20,
-                "keep_aspect_ratio": false
+                "scaling_mode": "STRETCH"
             }
         ]
     },
@@ -32,7 +31,7 @@
     "dewarp": {
         "enabled": true,
         "color_interpolation": "INTERPOLATION_TYPE_BILINEAR",
-        "sensor_calib_path": "/home/root/apps/resources/cam_intrinsics.txt",
+        "sensor_calib_path": "/etc/imaging/cfg/hailo15h/imx678/kit/4k/shared/calibration/cam_intrinsics.txt",
         "camera_type": "CAMERA_TYPE_PINHOLE"
     },
     "dis": {
@@ -72,7 +71,9 @@
         "iir_hpf_coefficient": 0.997,
         "camera_fov_factor": 0.85,
         "line_readout_time": 7410,
-        "hdr_exposure_ratio": 0.2
+        "hdr_exposure_ratio": 0.2,
+        "min_angle_deg": 0.005,
+        "max_angle_deg": 6.0
     },
     "gyro": {
         "enabled": false,
@@ -124,7 +125,6 @@
         "direction": "FLIP_DIRECTION_HORIZONTAL"
     },
     "isp": {
-        "auto-configuration": false,
         "isp_config_files_path": "/usr/bin"
     },
     "hailort": {

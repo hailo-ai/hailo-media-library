@@ -14,6 +14,7 @@
 #include "gstmedialibcommon.hpp"
 #include "buffer_utils.hpp"
 #include "media_library/media_library_types.hpp"
+#include <nlohmann/json.hpp>
 
 static constexpr std::chrono::milliseconds MAIN_LOOP_WAIT_DURATION{100};
 
@@ -134,94 +135,25 @@ MediaLibraryFrontend::Impl::~Impl()
     stop();
 }
 
-frontend_src_element_t MediaLibraryFrontend::Impl::get_input_stream_type(const std::string &validated_json_config)
+std::optional<std::vector<frontend_output_stream_t>> MediaLibraryFrontend::Impl::create_output_streams_from_config(
+    const frontend_config_t &cfg)
 {
-    if (validated_json_config.empty())
+    std::vector<frontend_output_stream_t> outs;
+    const auto &res = cfg.multi_resize_config.application_input_streams_config.resolutions;
+    outs.reserve(res.size());
+
+    for (size_t i = 0; i < res.size(); ++i)
     {
-        return frontend_src_element_t::UNKNOWN;
+        const auto &o = res[i];
+        frontend_output_stream_t s{};
+        s.id = o.stream_id.empty() ? OUTPUT_SINK_ID(i) : o.stream_id;
+        s.width = static_cast<uint16_t>(o.dimensions.destination_width);
+        s.height = static_cast<uint16_t>(o.dimensions.destination_height);
+        s.target_fps = static_cast<uint16_t>(o.framerate);
+        s.current_fps = 0;
+        outs.push_back(std::move(s));
     }
-    nlohmann::json::json_pointer src_type_ptr("/input_video/source_type");
-    nlohmann::json tmp_config_json = nlohmann::json::parse(validated_json_config, nullptr, false);
-
-    std::string source_type_str = tmp_config_json.value(src_type_ptr, DEFAULT_INPUT_STREAM_TYPE);
-    if (source_type_str == "V4L2SRC")
-    {
-        return frontend_src_element_t::V4L2SRC;
-    }
-    else if (source_type_str == "APPSRC")
-    {
-        return frontend_src_element_t::APPSRC;
-    }
-
-    return frontend_src_element_t::UNKNOWN;
-}
-
-std::pair<uint16_t, uint16_t> MediaLibraryFrontend::Impl::get_input_resolution(const std::string &validated_json_config)
-{
-    if (validated_json_config.empty())
-    {
-        return {0, 0};
-    }
-    nlohmann::json::json_pointer resolution_ptr("/input_video/resolution");
-    nlohmann::json tmp_config_json = nlohmann::json::parse(validated_json_config, nullptr, false);
-
-    if (!tmp_config_json.contains(resolution_ptr))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to find resolution info in json config");
-        return {0, 0};
-    }
-
-    return {tmp_config_json.at(resolution_ptr)["width"], tmp_config_json.at(resolution_ptr)["height"]};
-}
-
-nlohmann::json MediaLibraryFrontend::Impl::get_output_streams_json(const std::string &validated_json_config)
-{
-    if (validated_json_config.empty())
-    {
-        return {};
-    }
-    nlohmann::json::json_pointer resolutions_ptr("/application_input_streams/resolutions");
-    nlohmann::json tmp_config_json = nlohmann::json::parse(validated_json_config, nullptr, false);
-
-    if (!tmp_config_json.contains(resolutions_ptr))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to find outputs info in json config");
-        return {};
-    }
-
-    return tmp_config_json.at(resolutions_ptr);
-}
-
-std::optional<std::vector<frontend_output_stream_t>> MediaLibraryFrontend::Impl::create_output_streams(
-    const nlohmann::json &output_streams_json)
-{
-    if (!output_streams_json.is_array())
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get output streams from json config");
-        return std::nullopt;
-    }
-
-    std::unordered_set<std::string> unique_stream_ids;
-    std::vector<frontend_output_stream_t> output_streams;
-    for (size_t i = 0; i < output_streams_json.size(); ++i)
-    {
-        auto output_cfg = output_streams_json[i];
-        frontend_output_stream_t output;
-        output.id = output_cfg.value("stream_id", OUTPUT_SINK_ID(i));
-        auto result = unique_stream_ids.insert(output.id);
-        if (!result.second)
-        {
-            // Duplicate stream_id is not allowed
-            LOGGER__MODULE__ERROR(MODULE_NAME, "output stream_id duplicated from frontend json config");
-            return std::nullopt;
-        }
-        output.width = output_cfg["width"];
-        output.height = output_cfg["height"];
-        output.target_fps = output_cfg["framerate"];
-        output.current_fps = 0;
-        output_streams.push_back(output);
-    }
-    return output_streams;
+    return outs;
 }
 
 tl::expected<GstElementPtr, media_library_return> MediaLibraryFrontend::Impl::get_frontend_element()
@@ -252,20 +184,47 @@ tl::expected<frontend_config_t, media_library_return> MediaLibraryFrontend::Impl
     frontend_element_config = *reinterpret_cast<frontend_element_config_t *>(value);
 
     hdr_config_t hdr_config;
-    g_object_get(frontendbinsrc, "hdr-config", &value, NULL);
-    hdr_config = *reinterpret_cast<hdr_config_t *>(value);
-
-    g_object_get(frontendbinsrc, "hailort-config", &value, NULL);
     hailort_t hailort_config;
-    hailort_config = *reinterpret_cast<hailort_t *>(value);
-
-    g_object_get(frontendbinsrc, "input-video-config", &value, NULL);
     input_video_config_t input_config;
-    input_config = *reinterpret_cast<input_video_config_t *>(value);
-
-    g_object_get(frontendbinsrc, "isp-config", &value, NULL);
     isp_t isp_config;
-    isp_config = *reinterpret_cast<isp_t *>(value);
+    application_analytics_config_t application_analytics_config;
+
+    if (ConfigManager::get_input_stream_type(m_current_config) == frontend_src_element_t::V4L2SRC)
+    {
+        // For hailofrontendbinsrc, we can get these configs directly
+        g_object_get(frontendbinsrc, "hdr-config", &value, NULL);
+        hdr_config = *reinterpret_cast<hdr_config_t *>(value);
+
+        g_object_get(frontendbinsrc, "hailort-config", &value, NULL);
+        hailort_config = *reinterpret_cast<hailort_t *>(value);
+
+        g_object_get(frontendbinsrc, "input-video-config", &value, NULL);
+        input_config = *reinterpret_cast<input_video_config_t *>(value);
+
+        g_object_get(frontendbinsrc, "isp-config", &value, NULL);
+        isp_config = *reinterpret_cast<isp_t *>(value);
+
+        application_analytics_config = m_current_config.application_analytics_config;
+    }
+    else
+    {
+        // hailofrontend (APPSRC), doesn't have these configs, so we grab the ones from the original JSON config
+        frontend_config_t config;
+        if (m_config_manager.config_string_to_struct<frontend_config_t>(m_json_config_str, config) ==
+            MEDIA_LIBRARY_SUCCESS)
+        {
+            hdr_config = config.hdr_config;
+            hailort_config = config.hailort_config;
+            input_config = config.input_config;
+            isp_config = config.isp_config;
+            application_analytics_config = config.application_analytics_config;
+        }
+        else
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to parse config from JSON for APPSRC");
+            return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
+        }
+    }
 
     frontend_config_t frontend_config;
     frontend_config.ldc_config = frontend_element_config.ldc_config;
@@ -275,6 +234,7 @@ tl::expected<frontend_config_t, media_library_return> MediaLibraryFrontend::Impl
     frontend_config.hdr_config = hdr_config;
     frontend_config.hailort_config = hailort_config;
     frontend_config.isp_config = isp_config;
+    frontend_config.application_analytics_config = application_analytics_config;
 
     return frontend_config;
 }
@@ -305,6 +265,14 @@ media_library_return MediaLibraryFrontend::Impl::start()
         LOGGER__MODULE__ERROR(MODULE_NAME, "set_config() must be called before start()");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
+
+    if (m_bus_watch_id != 0)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Cannot add bus watch, pipeline is already have a bus watch");
+        return MEDIA_LIBRARY_ERROR;
+    }
+    GstBusPtr bus = gst_element_get_bus(m_pipeline);
+    m_bus_watch_id = gst_bus_add_watch(bus, (GstBusFunc)bus_call, this);
 
     LOGGER__MODULE__TRACE(MODULE_NAME, "Starting frontend gst pipeline");
     GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
@@ -367,9 +335,11 @@ media_library_return MediaLibraryFrontend::Impl::stop()
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
         g_main_loop_quit(m_main_loop);
     }
-
-    GstBusPtr bus = gst_element_get_bus(m_pipeline);
-    gst_bus_remove_watch(bus);
+    if (0 != m_bus_watch_id)
+    {
+        g_source_remove(m_bus_watch_id);
+        m_bus_watch_id = 0;
+    }
 
     if (m_main_loop_thread->joinable())
     {
@@ -379,105 +349,67 @@ media_library_return MediaLibraryFrontend::Impl::stop()
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-bool MediaLibraryFrontend::Impl::is_config_change_allowed(nlohmann::json old_output_streams_config,
-                                                          nlohmann::json new_output_streams_config,
-                                                          frontend_src_element_t new_config_input_stream_type)
-{
-    if (new_config_input_stream_type != m_src_element)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Config change not allowed, input stream type is different");
-        return false;
-    }
-
-    // only change allowed in outputs is framerate
-    for (auto &output_stream : old_output_streams_config)
-    {
-        output_stream.erase(output_stream.find("framerate"));
-    }
-    for (auto &output_stream : new_output_streams_config)
-    {
-        output_stream.erase(output_stream.find("framerate"));
-    }
-    if (old_output_streams_config != new_output_streams_config)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Config change not allowed, output streams are different");
-        return false;
-    }
-    return true;
-}
-
 media_library_return MediaLibraryFrontend::Impl::set_config(const std::string &json_config)
 {
     if (!json_config.empty() && (json_config == m_json_config_str))
     {
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Same config string as current, no need to reconfigure");
         return MEDIA_LIBRARY_SUCCESS;
     }
 
     if (m_config_manager.validate_configuration(json_config) != MEDIA_LIBRARY_SUCCESS)
     {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to validate given json config");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
-    media_library_return rc = MEDIA_LIBRARY_SUCCESS;
-
-    const nlohmann::json old_config_output_streams = get_output_streams_json(m_json_config_str);
-    const nlohmann::json new_config_output_streams = get_output_streams_json(json_config);
-
-    const frontend_src_element_t new_config_input_stream_type = get_input_stream_type(json_config);
-    const auto [input_width, input_height] = get_input_resolution(json_config);
-
-    if (!m_json_config_str.empty() &&
-        !is_config_change_allowed(old_config_output_streams, new_config_output_streams,
-                                  new_config_input_stream_type)) // require replacing working pipeline
+    frontend_config_t frontend_config{};
+    if (m_config_manager.config_string_to_struct<frontend_config_t>(json_config, frontend_config) !=
+        MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(
-            MODULE_NAME,
-            "Failed to set config, input or output streams cannot be changed after successful frontend configure");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to convert frontend JSON config to struct");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-    if (m_json_config_str.empty())
-    {
-        auto output_streams = create_output_streams(new_config_output_streams);
-        if (!output_streams.has_value())
-        {
-            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-        }
-        if (!init_pipeline(json_config, new_config_input_stream_type, input_width, input_height,
-                           output_streams.value()))
-        {
-            return MEDIA_LIBRARY_ERROR;
-        }
-        m_src_element = new_config_input_stream_type;
-        m_output_streams = std::move(
-            output_streams.value()); // has to move, when setting fps cb in init_pipeline output_stream given as arg
-    }
-    else
-    {
-        GstElementPtr frontend = glib_cpp::ptrs::get_bin_by_name(m_pipeline, "frontend");
-        if (frontend == nullptr)
-        {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get frontend element");
-            return MEDIA_LIBRARY_UNINITIALIZED;
-        }
 
-        g_object_set(frontend.as_g_object(), "config-string", json_config.c_str(), NULL);
-    }
-
+    const std::string old_json = m_json_config_str;
     m_json_config_str = json_config;
-    return rc;
+
+    media_library_return ret = set_config(frontend_config);
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        m_json_config_str = old_json;
+    }
+
+    return ret;
 }
 
 media_library_return MediaLibraryFrontend::Impl::set_config(const frontend_config_t &config)
 {
     if (m_pipeline == nullptr)
     {
-        return MEDIA_LIBRARY_UNINITIALIZED;
+        const auto src = ConfigManager::get_input_stream_type(config);
+        const auto [w, h] = ConfigManager::get_input_resolution(config);
+        auto outputs_rt = create_output_streams_from_config(config);
+        if (!outputs_rt.has_value())
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+
+        if (!init_pipeline(config, src, w, h, outputs_rt.value()))
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+
+        // align internal state with string-path first-time init
+        m_src_element = src;
+        m_output_streams = std::move(outputs_rt.value());
+        m_current_config = config;
+        m_has_config = true;
+
+        return MEDIA_LIBRARY_SUCCESS;
     }
     auto frontendbinsrc = glib_cpp::ptrs::get_bin_by_name(m_pipeline, "frontend");
     media_library_return ret = MEDIA_LIBRARY_ERROR;
     if (frontendbinsrc != nullptr)
     {
-        g_object_set(frontendbinsrc.as_g_object(), "config", &config, NULL);
+        m_current_config = config; // keep a stable address
+        g_object_set(frontendbinsrc.as_g_object(), "config", &m_current_config, NULL);
         ret = MEDIA_LIBRARY_SUCCESS;
     }
 
@@ -528,24 +460,20 @@ tl::expected<std::vector<frontend_output_stream_t>, media_library_return> MediaL
     return m_output_streams;
 }
 
-bool MediaLibraryFrontend::Impl::init_pipeline(const std::string &frontend_json_config,
-                                               frontend_src_element_t source_type, uint16_t input_width,
-                                               uint16_t input_height,
+bool MediaLibraryFrontend::Impl::init_pipeline(const frontend_config_t &config, frontend_src_element_t source_type,
+                                               uint16_t input_width, uint16_t input_height,
                                                std::vector<frontend_output_stream_t> &output_streams)
 {
     LOGGER__MODULE__INFO(MODULE_NAME, "Initializing frontend gst pipeline");
 
-    GstElementPtr pipeline = gst_parse_launch(
-        create_pipeline_string(frontend_json_config, source_type, input_width, input_height, output_streams).c_str(),
-        NULL);
+    GstElementPtr pipeline =
+        gst_parse_launch(create_pipeline(config, source_type, input_width, input_height, output_streams).c_str(), NULL);
+
     if (pipeline == nullptr)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create pipeline");
         return false;
     }
-
-    GstBusPtr bus = gst_element_get_bus(pipeline);
-    gst_bus_add_watch(bus, (GstBusFunc)bus_call, this);
 
     GstElementPtr appsrc;
     GstCapsPtr appsrc_caps;
@@ -573,10 +501,12 @@ bool MediaLibraryFrontend::Impl::init_pipeline(const std::string &frontend_json_
     return true;
 }
 
-std::string MediaLibraryFrontend::Impl::create_pipeline_string(
-    const std::string &frontend_json_config, frontend_src_element_t source_type, uint16_t input_width,
-    uint16_t input_height, const std::vector<frontend_output_stream_t> &output_streams)
+std::string MediaLibraryFrontend::Impl::create_pipeline(const frontend_config_t &config,
+                                                        frontend_src_element_t source_type, uint16_t input_width,
+                                                        uint16_t input_height,
+                                                        const std::vector<frontend_output_stream_t> &output_streams)
 {
+    std::string frontend_json_config = m_config_manager.config_struct_to_string<frontend_config_t>(config);
     std::ostringstream pipeline;
 
     switch (source_type)

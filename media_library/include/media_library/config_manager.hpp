@@ -39,6 +39,7 @@ enum ConfigSchema
 {
     CONFIG_SCHEMA_OSD,
     CONFIG_SCHEMA_PRIVACY_MASK,
+    CONFIG_SCHEMA_ENCODER_AND_BLENDING,
     CONFIG_SCHEMA_ENCODER,
     CONFIG_SCHEMA_MULTI_RESIZE,
     CONFIG_SCHEMA_LDC,
@@ -51,11 +52,13 @@ enum ConfigSchema
     CONFIG_SCHEMA_FRONTEND,
     CONFIG_SCHEMA_MEDIALIB_CONFIG,
     CONFIG_SCHEMA_PROFILE,
-    CONFIG_SCHEMA_ISP_CONFIG,
     CONFIG_SCHEMA_APPLICATION_ANALYTICS,
-    CONFIG_SCHEMA_AAACONFIG,
-    CONFIG_SCHEMA_OLD_AAACONFIG,
     CONFIG_SCHEMA_NONE,
+    CONFIG_SCHEMA_SENSOR_CONFIG,
+    CONFIG_SCHEMA_APPLICATION_SETTINGS,
+    CONFIG_SCHEMA_STABILIZER_SETTINGS,
+    CONFIG_SCHEMA_AUTOMATIC_ALGORITHMS,
+    CONFIG_SCHEMA_IQ_SETTINGS,
 };
 
 class ConfigManager
@@ -125,9 +128,10 @@ class ConfigManager
      * @brief Convert a configuration struct to a json string
      *
      * @param[in] conf - the configuration struct
+     * @param[in] spaces - number of spaces for JSON indentation (default: 0)
      * @return std::string
      */
-    template <typename TConf> std::string config_struct_to_string(const TConf &conf);
+    template <typename TConf> std::string config_struct_to_string(const TConf &conf, int spaces = 0);
 
     /**
      * @brief Retrieve an entry from an input JSON string
@@ -145,6 +149,31 @@ class ConfigManager
      * @return EncoderType
      */
     static EncoderType get_encoder_type(const nlohmann::json &config_json);
+
+    /**
+     * @brief Retrieve the input source element type from a frontend configuration
+     *
+     * @param[in] cfg - the user's frontend configuration (as a struct)
+     * @return frontend_src_element_t
+     */
+    static frontend_src_element_t get_input_stream_type(const frontend_config_t &cfg);
+
+    /**
+     * @brief Retrieve the input resolution (width, height) from a frontend configuration
+     *
+     * @param[in] cfg - the user's frontend configuration (as a struct)
+     * @return std::pair<uint16_t, uint16_t> as {width, height} in pixels
+     */
+    static std::pair<uint16_t, uint16_t> get_input_resolution(const frontend_config_t &cfg);
+
+    /**
+     * @brief Check whether changing from old_config to new_config is allowed without rebuilding the pipeline.
+     *
+     * @param[in] old_config The previously applied frontend configuration.
+     * @param[in] new_config The candidate frontend configuration to switch to.
+     * @return true if the change is allowed (i.e., only framerate may differ); false otherwise.
+     */
+    static bool is_config_change_allowed(const frontend_config_t &old_config, const frontend_config_t &new_config);
 
   private:
     class ConfigManagerImpl; // internal implementation class

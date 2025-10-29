@@ -6,6 +6,7 @@ sources = [
   'src/frontend/frontend.cpp',
   'src/media_library/media_library.cpp',
   'src/media_library/medialib_config_manager.cpp',
+  'src/media_library/media_library_api_types.cpp',
   'src/utils/utils.cpp'
   ]
 
@@ -105,3 +106,18 @@ executable('calc_osd_text_size',
 )
 
 install_subdir('include/media_library', install_dir: get_option('includedir') + '/hailo')
+
+################################################
+# Config Tuning Gstreamer Applications
+################################################
+config_tuning_gst_application_src = ['examples/config_tuning_gst_application.cpp']
+
+executable('config_tuning_gst_application',
+  config_tuning_gst_application_src,
+  cpp_args : common_args,
+  dependencies : gstreamer_deps + [media_library_frontend_dep, gstmedialibrary_utils_dep, media_library_api_dep, media_library_common_dep],
+  link_whole: git_metadata_lib,
+  gnu_symbol_visibility : 'default',
+  install: true,
+  install_dir: get_option('bindir'),
+)

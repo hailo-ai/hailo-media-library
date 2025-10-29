@@ -15,12 +15,11 @@ class VideoBuffer
     static constexpr int MAX_NUM_OF_PLANES = 3;
 
   public:
-    ~VideoBuffer();
     VideoBuffer();
 
   public:
     bool init(DMABufferAllocator &allocator, v4l2_buf_type fmt_type, size_t index, size_t planes, size_t plane_size,
-              bool timestamp_copy);
+              bool timestamp_copy, int v4l_fd);
 
     inline int *get_planes()
     {
@@ -34,9 +33,8 @@ class VideoBuffer
 
   private:
     static constexpr LoggerType LOGGER_TYPE = LoggerType::Hdr;
-    void destroy();
-
     unsigned int m_num_planes;
+    DMABuffer m_dma_buffers[VideoBuffer::MAX_NUM_OF_PLANES];
     int m_plane_fds[VideoBuffer::MAX_NUM_OF_PLANES];
     struct v4l2_plane m_v4l2_planes[VideoBuffer::MAX_NUM_OF_PLANES];
     struct v4l2_buffer m_v4l2_buffer;

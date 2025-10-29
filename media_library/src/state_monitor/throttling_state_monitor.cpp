@@ -1,10 +1,34 @@
 #include "media_library_logger.hpp"
 #include "throttling_state_monitor.hpp"
+#include "common.hpp"
+#include "env_vars.hpp"
 #include <iostream>
+#include <map>
 
 #define MODULE_NAME LoggerType::ThrottlingMonitor
 
-// Implementation of ThrottlingManagerWrapper
+/*!
+ * @brief ThrottlingManagerWrapper class implementation
+ */
+
+ThrottlingManagerWrapper::ThrottlingManagerWrapper()
+    : m_cooling_wait_time_in_minutes(DEFAULT_TOTAL_COOLING_WAIT_TIME_IN_MINUTES)
+{
+
+    auto cooling_wait_time = get_env_variable<float>(MEDIALIB_DEFAULT_TOTAL_COOLING_WAIT_TIME_IN_MINUTES_ENV_VAR);
+    if (cooling_wait_time.has_value())
+    {
+        m_cooling_wait_time_in_minutes = cooling_wait_time.value();
+        LOGGER__MODULE__INFO(MODULE_NAME, "set ENV override for m_cooling_wait_time_in_minutes to {}",
+                             std::to_string(m_cooling_wait_time_in_minutes));
+    }
+    else
+    {
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "set m_cooling_wait_time_in_minutes to default {}",
+                              std::to_string(m_cooling_wait_time_in_minutes));
+    }
+}
+
 ThrottlingStateId ThrottlingManagerWrapper::get_current_state_id() const
 {
     return ThrottlingManager::getInstance().getCurrStateId();
@@ -46,6 +70,10 @@ bool ThrottlingManagerWrapper::is_running() const
 {
     return ThrottlingManager::getInstance().isRunning();
 }
+
+/*!
+ * @brief MockThrottlingManagerWrapper class implementation
+ */
 
 MockThrottlingManagerWrapper::MockThrottlingManagerWrapper()
     : curr_state(ThrottlingStateId::FULL_PERFORMANCE), prev_state(ThrottlingStateId::S0),
@@ -110,6 +138,38 @@ void MockThrottlingManagerWrapper::simulateStateChange(ThrottlingStateId new_sta
     {
         std::cout << "No callback registered for state: " << static_cast<int>(new_state) << std::endl;
     }
+}
+
+std::string ThrottlingStateMonitor::throttling_state_to_string(throttling_state_t id)
+{
+    std::map<throttling_state_t, std::string> stateMap = {
+        {throttling_state_t::THERMAL_UNINITIALIZED, "THERMAL_UNINITIALIZED"},
+        {throttling_state_t::FULL_PERFORMANCE, "FULL_PERFORMANCE"},
+        {throttling_state_t::FULL_PERFORMANCE_COOLING, "FULL_PERFORMANCE_COOLING"},
+        {throttling_state_t::THROTTLING_S0_HEATING, "THROTTLING_S0_HEATING"},
+        {throttling_state_t::THROTTLING_S0_COOLING, "THROTTLING_S0_COOLING"},
+        {throttling_state_t::THROTTLING_S1_HEATING, "THROTTLING_S1_HEATING"},
+        {throttling_state_t::THROTTLING_S1_COOLING, "THROTTLING_S1_COOLING"},
+        {throttling_state_t::THROTTLING_S2_HEATING, "THROTTLING_S2_HEATING"},
+        {throttling_state_t::THROTTLING_S2_COOLING, "THROTTLING_S2_COOLING"},
+        {throttling_state_t::THROTTLING_S3_HEATING, "THROTTLING_S3_HEATING"},
+        {throttling_state_t::THROTTLING_S3_COOLING, "THROTTLING_S3_COOLING"},
+        {throttling_state_t::THROTTLING_S4_HEATING, "THROTTLING_S4_HEATING"},
+        {throttling_state_t::THROTTLING_S4_COOLING, "THROTTLING_S4_COOLING"},
+    };
+
+    auto it = stateMap.find(id);
+    return (it != stateMap.end()) ? it->second : "UNKNOWN_STATE";
+}
+
+std::ostream &operator<<(std::ostream &os, const ThrottlingStateMonitor &state)
+{
+    return os << ThrottlingStateMonitor::throttling_state_to_string(state.get_active_state());
+}
+
+std::string ThrottlingStateMonitor::toString() const
+{
+    return ThrottlingStateMonitor::throttling_state_to_string(m_state_id);
 }
 
 ThrottlingStateMonitor::ThrottlingStateMonitor(std::shared_ptr<ThrottlingManagerWrapper> manager_wrapper)
@@ -378,6 +438,7 @@ media_library_return ThrottlingStateMonitor::determine_initial_state()
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to handle throttling state");
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
+
     handle_cooling_in_progress();
 
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
@@ -393,6 +454,9 @@ media_library_return ThrottlingStateMonitor::stop()
 
 void ThrottlingStateMonitor::on_internal_state_change_callback(ThrottlingManager &manager)
 {
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "throttling state changed: from[{}] -> to[{}]",
+                          manager.prevStateToString().c_str(), manager.currStateToString().c_str());
+
     if (!manager.isRunning())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Throttling manager is not running");
@@ -436,7 +500,7 @@ media_library_return ThrottlingStateMonitor::start()
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-throttling_state_t ThrottlingStateMonitor::get_active_state()
+throttling_state_t ThrottlingStateMonitor::get_active_state() const
 {
     return m_state_id;
 }

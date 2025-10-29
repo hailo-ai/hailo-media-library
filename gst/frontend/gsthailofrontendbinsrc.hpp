@@ -74,6 +74,7 @@ struct _GstHailoFrontendBinSrcParams
     std::unique_ptr<HdrManager> m_hdr;
     MediaLibraryPreIspDenoisePtr m_pre_isp_denoise;
     std::mutex m_config_mutex;
+    std::shared_ptr<v4l2::v4l2ControlManager> m_v4l2_ctrl_manager;
 };
 
 struct _GstHailoFrontendBinSrc

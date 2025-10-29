@@ -34,16 +34,6 @@
 #include <nlohmann/json.hpp>
 #include <tl/expected.hpp>
 
-enum class frontend_src_element_t
-{
-    UNKNOWN = 0,
-    V4L2SRC,
-    APPSRC,
-
-    /** Max enum value to maintain ABI Integrity */
-    MAX = INT_MAX
-};
-
 using output_stream_id_t = std::string;
 
 struct frontend_output_stream_t

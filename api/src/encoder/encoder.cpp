@@ -73,7 +73,7 @@ media_library_return MediaLibraryEncoder::Impl::init_buffer_pool(const InputPara
 
 MediaLibraryEncoder::Impl::Impl(media_library_return &status, std::string name)
     : m_main_context(g_main_context_default()), m_encoder_type(EncoderType::None),
-      m_config_manager(CONFIG_SCHEMA_ENCODER)
+      m_config_manager(CONFIG_SCHEMA_ENCODER_AND_BLENDING)
 {
     m_name = name;
 
@@ -117,15 +117,24 @@ media_library_return MediaLibraryEncoder::Impl::subscribe(AppWrapperCallback cal
 
 media_library_return MediaLibraryEncoder::Impl::start()
 {
+    LOGGER__MODULE__INFO(MODULE_NAME, "Starting encoder");
     if (is_started())
     {
         return MEDIA_LIBRARY_SUCCESS;
     }
-    if (m_json_config_str.empty())
+    if (!m_has_config)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "set_config() must be called before start()");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
+
+    if (m_bus_watch_id != 0)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Cannot add bus watch, pipeline is already have a bus watch");
+        return MEDIA_LIBRARY_ERROR;
+    }
+    GstBusPtr bus = gst_element_get_bus(m_pipeline);
+    m_bus_watch_id = gst_bus_add_watch(bus, (GstBusFunc)bus_call, this);
 
     GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE)
@@ -136,6 +145,11 @@ media_library_return MediaLibraryEncoder::Impl::start()
 
     m_main_loop_thread = std::make_shared<std::thread>([this]() { g_main_loop_run(m_main_loop); });
 
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return MediaLibraryEncoder::Impl::config_blenders()
+{
     GstElementPtr encoder_bin = glib_cpp::ptrs::get_bin_by_name(m_pipeline, m_name);
     if (encoder_bin == nullptr)
     {
@@ -150,7 +164,6 @@ media_library_return MediaLibraryEncoder::Impl::start()
     g_object_get(encoder_bin, "privacy-mask-blender", &value, NULL);
     PrivacyMaskBlender *privacy_mask_blender = static_cast<PrivacyMaskBlender *>(value);
     m_privacy_mask_blender = privacy_mask_blender->shared_from_this();
-
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -185,8 +198,11 @@ media_library_return MediaLibraryEncoder::Impl::stop()
         g_main_loop_quit(m_main_loop);
     }
 
-    GstBusPtr bus = gst_element_get_bus(m_pipeline);
-    gst_bus_remove_watch(bus);
+    if (0 != m_bus_watch_id)
+    {
+        g_source_remove(m_bus_watch_id);
+        m_bus_watch_id = 0;
+    }
 
     g_main_context_wakeup(m_main_context);
     if (m_main_loop_thread->joinable())
@@ -196,16 +212,12 @@ media_library_return MediaLibraryEncoder::Impl::stop()
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-/**
- * Create the gstreamer pipeline as string
- *
- * @return A string containing the gstreamer pipeline.
- * @note prints the return value to the stdout.
- */
-std::string MediaLibraryEncoder::Impl::create_pipeline_string(const std::string &encoder_json_config,
-                                                              const InputParams &input_params, EncoderType encoder_type)
+std::string MediaLibraryEncoder::Impl::create_pipeline(const InputParams &input_params, EncoderType encoder_type)
 {
     std::string caps2;
+    std::string pipeline;
+    std::string hailoencoderbin_setting;
+
     if (encoder_type == EncoderType::Hailo)
     {
         caps2 = std::string("video/x-h264,framerate=") + std::to_string(input_params.framerate) + "/1";
@@ -215,16 +227,24 @@ std::string MediaLibraryEncoder::Impl::create_pipeline_string(const std::string 
         caps2 = std::string("image/jpeg,framerate=") + std::to_string(input_params.framerate) + "/1";
     }
 
-    std::string pipeline =
-        std::string("appsrc do-timestamp=true format=time block=true is-live=true max-bytes=0 max-buffers=1 "
-                    "name=encoder_src ! "
-                    "queue name=") +
-        ENCODER_QUEUE_NAME + " leaky=no max-size-buffers=1 max-size-bytes=0 max-size-time=0 ! " +
-        "hailoencodebin name=" + m_name + " config-string='" + encoder_json_config + "' ! " + caps2 + " ! " +
-        "queue leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! "
-        "fpsdisplaysink fps-update-interval=2000 signal-fps-measurements=true name=fpsdisplaysink "
-        "text-overlay=false sync=false video-sink=\"appsink wait-on-eos=false max-buffers=1 qos=false "
-        "name=encoder_sink\"";
+    if (m_set_config_by_string)
+    {
+        hailoencoderbin_setting =
+            "hailoencodebin name=" + m_name + " config-string='" + m_json_config_str + "' ! " + caps2 + " ! ";
+    }
+    else
+    {
+        hailoencoderbin_setting + "hailoencodebin name=" + m_name + " ! " + caps2 + " ! ";
+    }
+    pipeline = std::string("appsrc do-timestamp=true format=time block=true is-live=true max-bytes=0 max-buffers=1 "
+                           "name=encoder_src ! "
+                           "queue name=") +
+               ENCODER_QUEUE_NAME + " leaky=no max-size-buffers=1 max-size-bytes=0 max-size-time=0 ! " +
+               hailoencoderbin_setting +
+               "queue leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! "
+               "fpsdisplaysink fps-update-interval=2000 signal-fps-measurements=true name=fpsdisplaysink "
+               "text-overlay=false sync=false video-sink=\"appsink wait-on-eos=false max-buffers=1 qos=false "
+               "name=encoder_sink\"";
 
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Pipeline: gst-launch-1.0 {}", pipeline);
 
@@ -506,39 +526,39 @@ std::shared_ptr<PrivacyMaskBlender> MediaLibraryEncoder::get_privacy_mask_blende
     return m_impl->get_privacy_mask_blender();
 }
 
-bool MediaLibraryEncoder::Impl::init_pipeline(const std::string &encoder_json_config, const InputParams &input_params,
+// English code
+
+bool MediaLibraryEncoder::Impl::init_pipeline(const encoder_config_t &config, const InputParams &input_params,
                                               EncoderType encoder_type)
 {
-    LOGGER__MODULE__INFO(MODULE_NAME, "Initializing encoder gst pipeline");
-    GstElementPtr pipeline =
-        gst_parse_launch(create_pipeline_string(encoder_json_config, input_params, encoder_type).c_str(), NULL);
+    LOGGER__MODULE__INFO(MODULE_NAME, "Initializing encoder gst pipeline (struct)");
+    GstElementPtr pipeline = gst_parse_launch(create_pipeline(input_params, encoder_type).c_str(), NULL);
     if (pipeline == nullptr)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create pipeline");
         return false;
     }
 
-    GstBusPtr bus = gst_element_get_bus(pipeline);
-    gst_bus_add_watch(bus, (GstBusFunc)bus_call, this);
-
-    const gchar *gst_element_name = "encoder_src";
-    GstElementPtr appsrc = glib_cpp::ptrs::get_bin_by_name(pipeline, gst_element_name);
+    // Resolve appsrc
+    GstElementPtr appsrc = glib_cpp::ptrs::get_bin_by_name(pipeline, "encoder_src");
     if (appsrc == nullptr)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Could not find gst element {}", gst_element_name);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Could not find gst element encoder_src");
         return false;
     }
 
+    // Callbacks (now fpsdisplaysink/appsink exist in the parsed pipeline)
     if (!set_gst_callbacks(pipeline))
     {
         return false;
     }
 
+    // JPEG buffer pool parity
     if (encoder_type == EncoderType::Jpeg)
     {
         if (init_buffer_pool(input_params) != MEDIA_LIBRARY_SUCCESS)
         {
-            return MEDIA_LIBRARY_ERROR;
+            return false;
         }
     }
     else
@@ -546,9 +566,22 @@ bool MediaLibraryEncoder::Impl::init_pipeline(const std::string &encoder_json_co
         m_buffer_pool = nullptr;
     }
 
+    // Set struct config BY VALUE on encoder bin (equivalent to JSON's config-string)
+    if (!m_set_config_by_string)
+    {
+
+        GstElementPtr encoder_bin = glib_cpp::ptrs::get_bin_by_name(pipeline, m_name);
+        if (encoder_bin == nullptr || !encoder_bin.as_g_object())
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Could not find encoder bin {}", m_name);
+            return false;
+        }
+        g_object_set(encoder_bin.as_g_object(), "user-config", config, nullptr);
+    }
     m_appsrc = glib_cpp::ptrs::element_to_app_src(appsrc);
     m_pipeline = std::move(pipeline);
 
+    config_blenders();
     return true;
 }
 
@@ -574,87 +607,66 @@ media_library_return MediaLibraryEncoder::Impl::set_config(const std::string &js
         LOGGER__MODULE__ERROR(MODULE_NAME, "Validation of encoder json config failed");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-
-    nlohmann::json json_config = nlohmann::json::parse(json_config_str);
-    nlohmann::json input_stream_config = json_config["encoding"]["input_stream"];
-
-    InputParams new_input_params;
-    new_input_params.format = input_stream_config["format"];
-    new_input_params.width = input_stream_config["width"];
-    new_input_params.height = input_stream_config["height"];
-    new_input_params.framerate = input_stream_config["framerate"];
-    new_input_params.max_pool_size = input_stream_config.value("max_pool_size", 5);
-
-    EncoderType config_encoder_type = ConfigManager::get_encoder_type(json_config);
-    bool does_unsupported_runtime_change = (config_encoder_type != m_encoder_type) ||
-                                           (new_input_params.width != m_input_params.width) ||
-                                           (new_input_params.height != m_input_params.height);
-    if (!m_json_config_str.empty() && does_unsupported_runtime_change) // require replacing working pipeline
+    encoder_config_t encoder_config{};
+    if (m_config_manager.config_string_to_struct<encoder_config_t>(json_config_str, encoder_config) !=
+        MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(
-            MODULE_NAME, "Failed to set config: unsupported runtime change detected. Encoder type, width, or height "
-                         "cannot be modified after initial configuration.");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to convert encoder JSON config to struct");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-    if (m_json_config_str.empty())
+
+    m_set_config_by_string = true;
+    const std::string old_json = m_json_config_str;
+    m_json_config_str = json_config_str;
+
+    const auto rc = set_config(encoder_config);
+    if (rc != MEDIA_LIBRARY_SUCCESS)
     {
-        if (!init_pipeline(json_config_str, new_input_params, config_encoder_type))
+        m_json_config_str = old_json;
+    }
+
+    return rc;
+}
+
+media_library_return MediaLibraryEncoder::Impl::set_config(const encoder_config_t &config)
+{
+    LOGGER__MODULE__INFO(
+        MODULE_NAME,
+        "Configuring encoder using struct config (original behavior when pipeline exists; build on first use)");
+
+    const EncoderType config_encoder_type = extract_encoder_type(config);
+    const InputParams new_input_params = extract_input_params(config);
+
+    if (!m_has_config)
+    {
+        if (!init_pipeline(config, new_input_params, config_encoder_type))
         {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init encoder pipeline (first-time)");
             return MEDIA_LIBRARY_ERROR;
         }
         m_encoder_type = config_encoder_type;
     }
     else
     {
-        GstElementPtr encoderbinsrc = glib_cpp::ptrs::get_bin_by_name(m_pipeline, m_name);
-        if (encoderbinsrc == nullptr)
+        GstElementPtr encoder_bin = glib_cpp::ptrs::get_bin_by_name(m_pipeline, m_name);
+        if (encoder_bin == nullptr)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get encoderbinsrc");
-            return MEDIA_LIBRARY_UNINITIALIZED;
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Got null encoder bin element in set_config");
+            return MEDIA_LIBRARY_ERROR;
         }
 
-        g_object_set(encoderbinsrc.as_g_object(), "config-string", json_config_str.c_str(), NULL);
+        g_object_set(encoder_bin, "user-config", config, NULL);
     }
-
     m_appsrc_caps =
         gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, new_input_params.format.c_str(), "width",
                             G_TYPE_INT, new_input_params.width, "height", G_TYPE_INT, new_input_params.height,
                             "framerate", GST_TYPE_FRACTION, new_input_params.framerate, 1, NULL);
-    LOGGER__MODULE__INFO(MODULE_NAME, "Setting appsrc caps to {}", gst_caps_to_string(m_appsrc_caps.get()));
     g_object_set(m_appsrc.as_g_object(), "caps", m_appsrc_caps.get(), NULL);
 
     m_input_params = new_input_params;
-    m_json_config_str = json_config_str;
-    return MEDIA_LIBRARY_SUCCESS;
-}
-
-media_library_return MediaLibraryEncoder::Impl::set_config(const encoder_config_t &config)
-{
-    if (m_encoder_type == EncoderType::Hailo)
-    {
-        const hailo_encoder_config_t &hailo_config = std::get<hailo_encoder_config_t>(config);
-        input_config_t config_input_stream = hailo_config.input_stream;
-
-        m_input_params.format = config_input_stream.format;
-        m_input_params.width = config_input_stream.width;
-        m_input_params.height = config_input_stream.height;
-        m_input_params.framerate = config_input_stream.framerate;
-
-        m_appsrc_caps =
-            gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, m_input_params.format.c_str(), "width",
-                                G_TYPE_INT, m_input_params.width, "height", G_TYPE_INT, m_input_params.height,
-                                "framerate", GST_TYPE_FRACTION, m_input_params.framerate, 1, NULL);
-        g_object_set(m_appsrc.as_g_object(), "caps", m_appsrc_caps.get(), NULL);
-    }
-
-    GstElementPtr encoder_bin = glib_cpp::ptrs::get_bin_by_name(m_pipeline, m_name);
-    if (encoder_bin == nullptr)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Got null encoder bin element in set_config");
-        return MEDIA_LIBRARY_ERROR;
-    }
-
-    g_object_set(encoder_bin, "user-config", config, NULL);
+    m_current_config = config;
+    m_has_config = true;
+    m_set_config_by_string = false;
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -757,4 +769,59 @@ encoder_monitors MediaLibraryEncoder::Impl::get_encoder_monitors()
 encoder_monitors MediaLibraryEncoder::get_encoder_monitors()
 {
     return m_impl->get_encoder_monitors();
+}
+
+InputParams MediaLibraryEncoder::Impl::extract_input_params(const encoder_config_t &cfg)
+{
+    InputParams p{};
+    std::visit(
+        [&](auto &&v) {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_same_v<T, jpeg_encoder_config_t>)
+            {
+                p.format = v.input_stream.format;
+                p.width = v.input_stream.width;
+                p.height = v.input_stream.height;
+                p.framerate = v.input_stream.framerate;
+                p.max_pool_size = (v.input_stream.max_pool_size) ? v.input_stream.max_pool_size : DEFAULT_MAX_POOL_SIZE;
+            }
+            else if constexpr (std::is_same_v<T, hailo_encoder_config_t>)
+            {
+                p.format = v.input_stream.format;
+                p.width = v.input_stream.width;
+                p.height = v.input_stream.height;
+                p.framerate = v.input_stream.framerate;
+                p.max_pool_size = (v.input_stream.max_pool_size) ? v.input_stream.max_pool_size : DEFAULT_MAX_POOL_SIZE;
+            }
+            else
+            {
+                p.format.clear();
+                p.width = 0;
+                p.height = 0;
+                p.framerate = 0;
+                p.max_pool_size = 0;
+            }
+        },
+        cfg);
+    return p;
+}
+
+EncoderType MediaLibraryEncoder::Impl::extract_encoder_type(const encoder_config_t &cfg)
+{
+    // Pick a clear default if the variant doesn't match known types.
+    EncoderType type = EncoderType::Hailo; // choose the default that fits your system best
+    std::visit(
+        [&](auto &&v) {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_same_v<T, jpeg_encoder_config_t>)
+            {
+                type = EncoderType::Jpeg;
+            }
+            else if constexpr (std::is_same_v<T, hailo_encoder_config_t>)
+            {
+                type = EncoderType::Hailo;
+            }
+        },
+        cfg);
+    return type;
 }

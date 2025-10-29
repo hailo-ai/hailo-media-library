@@ -42,4 +42,18 @@ std::optional<std::string> read_string_from_file(const std::string &path)
     return buffer.str();
 }
 
+SharedFd make_shared_fd(int fd)
+{
+    return SharedFd(new int(fd), [](int *fd_ptr) {
+        if (fd_ptr)
+        {
+            if (*fd_ptr >= 0)
+            {
+                close(*fd_ptr);
+            }
+            delete fd_ptr;
+        }
+    });
+}
+
 } // namespace files_utils

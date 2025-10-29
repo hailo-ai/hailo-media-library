@@ -30,6 +30,7 @@
 #include <queue>
 #include <ctime>
 #include <fstream>
+#include <chrono>
 #include <tl/expected.hpp>
 
 extern "C"
@@ -45,6 +46,32 @@ extern "C"
 #include "encoder_class.hpp"
 #include "encoder_gop_config.hpp"
 #include "encoder_internal.hpp"
+
+#define MIN_MONITOR_FRAMES (10)
+#define MAX_MONITOR_FRAMES (120)
+#define VCENC_MAX_BITRATE (100000 * 1000) /* Level 6 main tier limit */
+#define VCENC_MIN_BITRATE (10000)
+
+#define DEFAULT_QP_SMOOTH_QP_DELTA (128)                 // (0x80)  // default = DEFAULT_QP_DELTA
+#define DEFAULT_QP_SMOOTH_QP_DELTA_LIMIT (1536)          //(0x600) // default = DEFAULT_QP_DELTA_LIMIT
+#define DEFAULT_QP_SMOOTH_QP_DELTA_INCREMENT (128)       //(0x80)  // default = DEFAULT_QP_DELTA
+#define DEFAULT_QP_SMOOTH_QP_DELTA_LIMIT_INCREMENT (384) //(0x180)  // default = DEFAULT_QP_DELTA_LIMIT / 2
+#define DEFAULT_QP_SMOOTH_QP_ALPHA (0.0f)                /* Default smoothing ratio */
+#define DEFAULT_QP_SMOOTH_QP_STEP_DIVISOR (2)
+
+#define DEFAULT_BITRATE_SMOOTH_ENABLE (false)                   /* Disable by default */
+#define DEFAULT_BITRATE_SMOOTH_THRESHOLD_HIGH (0.3f)            /* High threshold for smooth bitrate */
+#define DEFAULT_BITRATE_SMOOTH_THRESHOLD_LOW (0.125f)           /* Low threshold for smooth bitrate */
+#define DEFAULT_BITRATE_SMOOTH_MAX_TARGET_BITRATE_FACTOR (1.3f) /* Maximum target bitrate factor */
+#define DEFAULT_BITRATE_SMOOTH_ADJUSTMENT_FACTOR (0.2f)         /* Bitrate adjustment factor */
+
+#define DEFAULT_ZOOM_BITRATE_ADJUSTER_ZOOMING_BITRATE_FACTOR (1.4f) /* Zooming bitrate factor */
+#define DEFAULT_ZOOM_BITRATE_ADJUSTER_ZOOMING_TIMEOUT_MS (1000)     /* Zooming adjust bitrate timeout in milliseconds */
+#define DEFAULT_ZOOM_BITRATE_ADJUSTER_ZOOMING_MAX_BITRATE (16000000) /* Zooming max bitrate */
+#define DEFAULT_ZOOM_BITRATE_ADJUSTER_ZOOMING_FORCE_KEYFRAME (true)  /* Force keyframe on zooming */
+#define DEFAULT_ZOOM_BITRATE_ADJUSTER_ZOOM_LEVEL_THRESHOLD                                                             \
+    (2.5) /* Zoom level threshold to trigger zooming bitrate adjuster */
+#define DEFAULT_ZOOM_BITRATE_ADJUSTER_BITRATE_FACTOR (1.2f) /* Zoom level bitrate factor */
 
 enum encoder_stream_restart_t
 {
@@ -176,11 +203,24 @@ class Encoder::Impl final
     std::condition_variable m_is_encoding_multiple_frames_cv;
 
     std::vector<encoder_config_type_t> m_update_required;
+    bool m_is_user_set_bitrate;
+    float m_previous_optical_zoom_magnification;
+
+    // Optical zoom settings boost management (currently bitrate, extensible for other settings)
+    u32 m_original_gop_anomaly_bitrate_adjuster_enable; // TODO: Change to bool
+    bool m_zooming_boost_enabled;
+    std::chrono::steady_clock::time_point m_settings_boost_start_time;
+    std::mutex m_settings_boost_mutex;
 
   public:
     Impl(std::string json_string);
     ~Impl();
     std::vector<EncoderOutputBuffer> handle_frame(HailoMediaLibraryBufferPtr buf, uint32_t frame_number);
+    media_library_return handle_bitrate_adjustment_hooks(HailoMediaLibraryBufferPtr buf, uint32_t frame_number);
+    void boost_settings_for_optical_zoom();
+    u32 get_constant_optical_zoom_boost(float optical_zoom_magnification, u32 current_bitrate);
+    void apply_constant_optical_zoom_boost(float optical_zoom_magnification);
+    void check_and_restore_settings(float current_optical_zoom);
     void force_keyframe();
     void update_stride(uint32_t stride);
     int get_gop_size();

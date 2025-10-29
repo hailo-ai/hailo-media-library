@@ -509,7 +509,7 @@ media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer
             height == m_buffer_pools[i]->get_height())
         {
             LOGGER__MODULE__DEBUG(MODULE_NAME, "Buffer pool already exists, skipping creation");
-            return MEDIA_LIBRARY_SUCCESS;
+            continue;
         }
 
         auto bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width(width);
@@ -744,31 +744,70 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(
     return MEDIA_LIBRARY_SUCCESS;
 };
 
-static std::pair<size_t, size_t> adjust_to_aspect_ratio(size_t src_width, size_t src_height, size_t dst_width,
-                                                        size_t dst_height)
+cv::Size expand_to_aspect_ratio(float target_aspect_ratio, const cv::Size &size)
 {
-    float src_aspect_ratio = static_cast<float>(src_width) / src_height;
-    float dst_aspect_ratio = static_cast<float>(dst_width) / dst_height;
+    float aspect_ratio = static_cast<float>(size.width) / size.height;
 
     size_t new_width, new_height;
-    if (dst_aspect_ratio > src_aspect_ratio)
+    if (aspect_ratio > target_aspect_ratio)
     {
         // adjust height to maintain aspect ratio
-        new_width = dst_width;
-        new_height = std::ceil(dst_width / src_aspect_ratio);
+        new_width = size.width;
+        new_height = std::ceil(size.width / target_aspect_ratio);
     }
     else
     {
         // adjust width to maintain aspect ratio
-        new_width = std::ceil(dst_height * src_aspect_ratio);
-        new_height = dst_height;
+        new_width = std::ceil(size.height * target_aspect_ratio);
+        new_height = size.height;
     }
 
     // NV12 requires even resolutions
     new_width += new_width % 2;
     new_height += new_height % 2;
 
-    return {new_width, new_height};
+    return cv::Size(new_width, new_height);
+}
+
+cv::Size shrink_to_aspect_ratio(float target_aspect_ratio, const cv::Size &size)
+{
+    float aspect_ratio = static_cast<float>(size.width) / size.height;
+
+    size_t new_width, new_height;
+    if (aspect_ratio < target_aspect_ratio)
+    {
+        // truncate height to maintain aspect ratio
+        new_width = size.width;
+        new_height = std::ceil(size.width / target_aspect_ratio);
+    }
+    else
+    {
+        // truncate width to maintain aspect ratio
+        new_width = std::ceil(size.height * target_aspect_ratio);
+        new_height = size.height;
+    }
+
+    // NV12 requires even resolutions
+    new_width += new_width % 2;
+    new_height += new_height % 2;
+
+    return cv::Size(new_width, new_height);
+}
+
+cv::Size adjust_to_aspect_ratio(float target_aspect_ratio, const cv::Size &size, dsp_scaling_mode_t scaling_mode)
+{
+    if (scaling_mode == DSP_SCALING_MODE_SCALE_AND_CROP)
+    {
+        return expand_to_aspect_ratio(target_aspect_ratio, size);
+    }
+    else if (scaling_mode == DSP_SCALING_MODE_LETTERBOX_MIDDLE || scaling_mode == DSP_SCALING_MODE_LETTERBOX_UP_LEFT)
+    {
+        return shrink_to_aspect_ratio(target_aspect_ratio, size);
+    }
+    else
+    {
+        return size;
+    }
 }
 
 /* The telescopic multi-resize function in the DSP requires that the resolutions on each dsp_crop_resize_params_t
@@ -779,15 +818,27 @@ static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::ve
                                                                          const dsp_roi_t &input_roi)
 {
     std::vector<dsp_crop_resize_params_t> params;
+    auto src_width = input_roi.end_x - input_roi.start_x;
+    auto src_height = input_roi.end_y - input_roi.start_y;
+    float src_aspect_ratio = static_cast<float>(src_width) / src_height;
 
-    // Sort output resolutions (by width) from largest to smallest
-    std::sort(outputs.begin(), outputs.end(), [](const output_data_and_config &a, const output_data_and_config &b) {
-        return a.config->dimensions.destination_width > b.config->dimensions.destination_width;
-    });
+    // Sort output resolutions (by width) from largest to smallest - after adjusting to aspect ratio
+    std::sort(outputs.begin(), outputs.end(),
+              [src_aspect_ratio](const output_data_and_config &a, const output_data_and_config &b) {
+                  cv::Size size_a(a.config->dimensions.destination_width, a.config->dimensions.destination_height);
+                  cv::Size size_b(b.config->dimensions.destination_width, b.config->dimensions.destination_height);
+                  auto scaling_mode_a = a.config->scaling_mode;
+                  auto scaling_mode_b = b.config->scaling_mode;
+                  cv::Size scaled_size_a = adjust_to_aspect_ratio(src_aspect_ratio, size_a, scaling_mode_a);
+                  cv::Size scaled_size_b = adjust_to_aspect_ratio(src_aspect_ratio, size_b, scaling_mode_b);
+                  return scaled_size_a.width > scaled_size_b.width;
+              });
 
     for (auto &[output, output_config] : outputs)
     {
-        bool keep_aspect_ratio = output_config->keep_aspect_ratio;
+        cv::Size curr_size(output_config->dimensions.destination_width, output_config->dimensions.destination_height);
+        auto curr_scaling_mode = output_config->scaling_mode;
+        cv::Size curr_scaled_size = adjust_to_aspect_ratio(src_aspect_ratio, curr_size, curr_scaling_mode);
 
         // Try to find a suitable crop_resize_param for the current output
         bool found = false;
@@ -808,25 +859,18 @@ static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::ve
 
             // Check if the current buffer can be added based on the width and height of the previous buffer
             // (a previous buffer exists since crop_resize_param is never added with an empty dst)
-            auto prev_width = crop_resize_param.dst[i - 1]->width;
-            auto prev_height = crop_resize_param.dst[i - 1]->height;
-            auto curr_width = output_config->dimensions.destination_width;
-            auto curr_height = output_config->dimensions.destination_height;
-            if (keep_aspect_ratio)
-            {
-                auto src_width = input_roi.end_x - input_roi.start_x;
-                auto src_height = input_roi.end_y - input_roi.start_y;
-                std::tie(prev_width, prev_height) =
-                    adjust_to_aspect_ratio(src_width, src_height, prev_width, prev_height);
-                std::tie(curr_width, curr_height) =
-                    adjust_to_aspect_ratio(src_width, src_height, curr_width, curr_height);
-            }
+            cv::Size prev_size(crop_resize_param.dst[i - 1]->width, crop_resize_param.dst[i - 1]->height);
+            auto prev_scaling_mode = crop_resize_param.scaling_params[i - 1].scaling_mode;
+            cv::Size prev_scaled_size = adjust_to_aspect_ratio(src_aspect_ratio, prev_size, prev_scaling_mode);
 
-            if (prev_width >= curr_width && prev_height >= curr_height)
+            if (prev_scaled_size.width >= curr_scaled_size.width && prev_scaled_size.height >= curr_scaled_size.height)
             {
                 crop_resize_param.dst[i] = &output.properties;
+                crop_resize_param.scaling_params[i].scaling_mode = curr_scaling_mode;
+                crop_resize_param.scaling_params[i].color.y = 0;
+                crop_resize_param.scaling_params[i].color.u = 128;
+                crop_resize_param.scaling_params[i].color.v = 128;
                 found = true;
-                crop_resize_param.keep_aspect_ratio[i] = keep_aspect_ratio;
                 break;
             }
 
@@ -838,7 +882,10 @@ static std::vector<dsp_crop_resize_params_t> split_to_crop_resize_params(std::ve
         {
             dsp_crop_resize_params_t new_param = {};
             new_param.dst[0] = &output.properties;
-            new_param.keep_aspect_ratio[0] = keep_aspect_ratio;
+            new_param.scaling_params[0].scaling_mode = curr_scaling_mode;
+            new_param.scaling_params[0].color.y = 0;
+            new_param.scaling_params[0].color.u = 128;
+            new_param.scaling_params[0].color.v = 128;
             params.push_back(new_param);
         }
     }
@@ -1175,7 +1222,7 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(HailoMediaLibra
         // In cases where we have multiple fps outputs, the frame might be null if the buffer was shouldn't be pushed
         if (output_frames[i]->buffer_data == nullptr)
         {
-            LOGGER__TRACE("Output frame at index {} is empty, skipping snapshot", i);
+            LOGGER__MODULE__TRACE(MODULE_NAME, "Output frame at index {} is empty, skipping snapshot", i);
             continue;
         }
 

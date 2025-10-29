@@ -138,6 +138,15 @@ HailoMediaLibraryBufferPtr hailo_buffer_from_jpeg_gst_buffer(GstBuffer *buffer, 
     memcpy(hailo_buffer->get_plane_ptr(0), data, *input_size);
     gst_memory_unmap(memory, &memory_map_info);
 
+    GstHailoV4l2Meta *meta = nullptr;
+
+    meta =
+        reinterpret_cast<GstHailoV4l2Meta *>(gst_buffer_get_meta(buffer, g_type_from_name(HAILO_V4L2_META_API_NAME)));
+    if (meta)
+    {
+        hailo_buffer->isp_timestamp_ns = meta->isp_timestamp_ns;
+    }
+
     hailo_buffer->pts = GST_BUFFER_PTS(buffer);
     return hailo_buffer;
 }

@@ -68,6 +68,9 @@ hailo_dsp_buffer_data_t::hailo_dsp_buffer_data_t(size_t width, size_t height, si
     case HAILO_FORMAT_GRAY16:
         properties.format = DSP_IMAGE_FORMAT_GRAY16;
         break;
+    case HAILO_FORMAT_RGB:
+        properties.format = DSP_IMAGE_FORMAT_RGB;
+        break;
     default:
         LOGGER__MODULE__ERROR(MODULE_NAME, "Unsupported format {}", format);
         // TOOD: Convert to `tl::expected` to be able to return error.

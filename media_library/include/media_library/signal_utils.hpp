@@ -27,13 +27,33 @@
 
 #pragma once
 #include <functional>
+#include <mutex>
+#include <stdexcept>
 
 namespace signal_utils
 {
-typedef std::function<void(int)> hailo_exit_signal_t;
+class SignalHandler
+{
+  public:
+    using hailo_exit_signal_t = std::function<void(int)>;
 
-// shoud register signal only after pipeline initialization is complete
-void register_signal_handler(hailo_exit_signal_t signal_handler);
+    // Register the signal handler after pipeline initialization is complete
+    void register_signal_handler(hailo_exit_signal_t signal_handler);
+    SignalHandler(bool exit_on_signal = true)
+        : signal_flag(false), exit_on_signal(exit_on_signal), signal_handler(nullptr)
+    {
+    }
+    ~SignalHandler();
+
+  private:
+    std::mutex signal_mtx;
+    bool signal_flag;
+    bool exit_on_signal;
+    hailo_exit_signal_t signal_handler;
+
+    static void on_signal_callback(int signal);
+    static SignalHandler *instance;
+};
 
 } // namespace signal_utils
 

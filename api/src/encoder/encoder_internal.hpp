@@ -34,6 +34,7 @@
 #include <queue>
 #include <thread>
 #include <vector>
+#include <nlohmann/json.hpp>
 
 #define MIN_QUEUE_SIZE 5
 
@@ -43,7 +44,7 @@ struct InputParams
     uint32_t width;
     uint32_t height;
     uint32_t framerate;
-    uint32_t max_pool_size;    
+    uint32_t max_pool_size;
 };
 enum appsrc_state
 {
@@ -59,6 +60,7 @@ class MediaLibraryEncoder::Impl final
     GMainContext *m_main_context = nullptr;
     GMainLoopPtr m_main_loop;
     GstElementPtr m_pipeline;
+    guint m_bus_watch_id = 0;
 
     std::string m_name;
     InputParams m_input_params;
@@ -72,9 +74,13 @@ class MediaLibraryEncoder::Impl final
     EncoderType m_encoder_type;
     float m_current_fps;
     ConfigManager m_config_manager;
+    bool m_has_config = false;
+    bool m_set_config_by_string = false;
+    encoder_config_t m_current_config{};
 
-    bool init_pipeline(const std::string &encoder_json_config, const InputParams &input_params,
-                       EncoderType encoder_type);
+    bool init_pipeline_string(const std::string &encoder_json_config, const InputParams &input_params,
+                              EncoderType encoder_type);
+    bool init_pipeline(const encoder_config_t &config, const InputParams &input_params, EncoderType encoder_type);
     bool is_started();
 
   public:
@@ -90,6 +96,7 @@ class MediaLibraryEncoder::Impl final
     media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
     std::shared_ptr<osd::Blender> get_osd_blender();
     std::shared_ptr<PrivacyMaskBlender> get_privacy_mask_blender();
+    media_library_return config_blenders();
     media_library_return set_config(const encoder_config_t &config);
     media_library_return set_config(const std::string &json_config);
     media_library_return set_force_videorate(bool force);
@@ -99,6 +106,9 @@ class MediaLibraryEncoder::Impl final
     media_library_return force_keyframe();
     float get_current_fps();
     encoder_monitors get_encoder_monitors();
+    static InputParams extract_input_params(const encoder_config_t &cfg);
+    static EncoderType extract_encoder_type(const encoder_config_t &cfg);
+    static constexpr uint32_t DEFAULT_MAX_POOL_SIZE = 5;
     /**
      * Below are public functions that are not part of the public API
      * but are public for GStreamer callbacks.
@@ -107,6 +117,7 @@ class MediaLibraryEncoder::Impl final
     void on_fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps);
     GstFlowReturn on_new_sample(GstAppSink *appsink);
     gboolean on_bus_call(GstMessage *msg);
+    static void on_enc_pad_added(GstElement *src, GstPad *new_pad, gpointer user_data);
 
   private:
     static void fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps, gpointer user_data)
@@ -136,4 +147,5 @@ class MediaLibraryEncoder::Impl final
     GstFlowReturn add_buffer_internal(GstBufferPtr &buffer);
     std::string create_pipeline_string(const std::string &encoder_json_config, const InputParams &input_params,
                                        EncoderType encoder_type);
+    std::string create_pipeline(const InputParams &input_params, EncoderType encoder_type);
 };

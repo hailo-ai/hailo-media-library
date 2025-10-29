@@ -528,7 +528,7 @@ media_library_return PrivacyMaskBlender::update_dynamic_mask(uint64_t isp_timest
     AnalyticsQueryOptions opts{.m_type = AnalyticsQueryType::WithinDelta,
                                .m_ts = isp_timestamp_tp,
                                .m_delta = std::chrono::milliseconds(40),
-                               .m_timeout = std::chrono::milliseconds(1000)};
+                               .m_timeout = std::chrono::milliseconds(10000)};
     auto closet_instance_segmentation_entry_expected = db.query_instance_segmentation_entry(m_analytics_data_id, opts);
     if (!closet_instance_segmentation_entry_expected.has_value())
     {
@@ -536,6 +536,8 @@ media_library_return PrivacyMaskBlender::update_dynamic_mask(uint64_t isp_timest
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
     auto closet_instance_segmentation_entry = closet_instance_segmentation_entry_expected.value();
+
+    auto analytics_config = db.get_application_analytics_config();
     for (const auto &segmentation_data : closet_instance_segmentation_entry.analytics_buffer)
     {
         if (m_dynamic_masks_rois.size() >= MAX_NUM_OF_DYNAMIC_PRIVACY_MASKS)
@@ -545,7 +547,7 @@ media_library_return PrivacyMaskBlender::update_dynamic_mask(uint64_t isp_timest
                                     MAX_NUM_OF_DYNAMIC_PRIVACY_MASKS);
             break;
         }
-        auto analytics_config = db.get_application_analytics_config();
+
         // Verify that the dynamic analytics data ID exists in the config
         if (analytics_config.instance_segmentation_analytics_config.find(m_analytics_data_id) ==
             analytics_config.instance_segmentation_analytics_config.end())
@@ -589,27 +591,20 @@ media_library_return PrivacyMaskBlender::update_dynamic_mask(uint64_t isp_timest
         auto input_frame_net_width = analytics_config.instance_segmentation_analytics_config[m_analytics_data_id].width;
         auto input_frame_net_height =
             analytics_config.instance_segmentation_analytics_config[m_analytics_data_id].height;
-        auto original_width_ratio =
-            analytics_config.instance_segmentation_analytics_config[m_analytics_data_id].original_width_ratio;
-        auto original_height_ratio =
-            analytics_config.instance_segmentation_analytics_config[m_analytics_data_id].original_height_ratio;
         auto scaling_mode = analytics_config.instance_segmentation_analytics_config[m_analytics_data_id].scaling_mode;
-        LOGGER__MODULE__TRACE(MODULE_NAME,
-                              "Processing segmentation data for class_id {}, box: ({}, {}), ({}, {}), "
-                              "input_frame_net_width: {}, input_frame_net_height: {}, scaling_mode: {}, mask_size: {}, "
-                              "original_width_ratio: {}, original_height_ratio: {}",
-                              segmentation_data.class_id, segmentation_data.box.x_min, segmentation_data.box.y_min,
-                              segmentation_data.box.x_max, segmentation_data.box.y_max, input_frame_net_width,
-                              input_frame_net_height, static_cast<int>(scaling_mode), segmentation_data.mask_size,
-                              original_width_ratio, original_height_ratio);
+        LOGGER__MODULE__TRACE(
+            MODULE_NAME,
+            "Processing segmentation data for class_id {}, box: ({}, {}), ({}, {}), "
+            "input_frame_net_width: {}, input_frame_net_height: {}, scaling_mode: {}, mask_size: {}, ",
+            segmentation_data.class_id, segmentation_data.box.x_min, segmentation_data.box.y_min,
+            segmentation_data.box.x_max, segmentation_data.box.y_max, input_frame_net_width, input_frame_net_height,
+            static_cast<int>(scaling_mode), segmentation_data.mask_size);
 
         m_dynamic_masks_rois.push_back(dsp_dynamic_privacy_mask_roi_t{
             .bytemask = segmentation_data.mask,
             .input_frame_net_width = input_frame_net_width,
             .input_frame_net_height = input_frame_net_height,
             .letterbox = scaling_mode_to_dsp_letterbox(scaling_mode),
-            .pre_letterbox_aspect_ratio = static_cast<float>(original_width_ratio) / original_height_ratio,
-            .is_aspect_ratio_preserved = false,
             .roi =
                 {
                     .start_x = static_cast<size_t>(segmentation_data.box.x_min),
@@ -623,6 +618,16 @@ media_library_return PrivacyMaskBlender::update_dynamic_mask(uint64_t isp_timest
 
     m_latest_privacy_masks->dynamic_data->dynamic_mask_group.masks = m_dynamic_masks_rois.data();
     m_latest_privacy_masks->dynamic_data->dynamic_mask_group.masks_count = m_dynamic_masks_rois.size();
+
+    auto original_width_ratio =
+        analytics_config.instance_segmentation_analytics_config[m_analytics_data_id].original_width_ratio;
+    auto original_height_ratio =
+        analytics_config.instance_segmentation_analytics_config[m_analytics_data_id].original_height_ratio;
+    m_latest_privacy_masks->dynamic_data->dynamic_mask_group.original_aspect_ratio =
+        static_cast<float>(original_width_ratio) / original_height_ratio;
+
+    // TODO : add support for aspect ratio preservation
+    m_latest_privacy_masks->dynamic_data->dynamic_mask_group.is_aspect_ratio_preserved = false;
 
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
@@ -786,7 +791,6 @@ media_library_return PrivacyMaskBlender::configure(const std::string &config)
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to validate configuration");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-
     auto config_json = nlohmann::json::parse(clean_config)["privacy_mask"];
     std::string privacy_mask_config_string = config_json.dump();
 
@@ -798,32 +802,38 @@ media_library_return PrivacyMaskBlender::configure(const std::string &config)
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
+    return configure(privacy_mask_config);
+}
+
+media_library_return PrivacyMaskBlender::configure(const std::unique_ptr<privacy_mask_config_t> &config)
+{
     // Update info config
-    switch (privacy_mask_config->mask_type)
+    switch (config->mask_type)
     {
     case PrivacyMaskType::COLOR:
-        set_color(privacy_mask_config->color_value);
+        set_color(config->color_value);
         break;
     case PrivacyMaskType::PIXELIZATION:
-        set_pixelization_size(privacy_mask_config->pixelization_size);
+        set_pixelization_size(config->pixelization_size);
         break;
     }
 
     // Update dynamic mask config
-    if (privacy_mask_config->dynamic_privacy_mask_config.has_value())
+    if (config->dynamic_privacy_mask_config.has_value())
     {
         std::unique_lock<std::mutex> lock(m_privacy_mask_mutex);
-        m_dynamic_mask_enabled = privacy_mask_config->dynamic_privacy_mask_config->enabled;
-        m_analytics_data_id = privacy_mask_config->dynamic_privacy_mask_config->analytics_data_id;
-        m_masked_labels = privacy_mask_config->dynamic_privacy_mask_config->masked_labels;
-        m_dilation_size = privacy_mask_config->dynamic_privacy_mask_config->dilation_size;
+        m_dynamic_mask_enabled = config->dynamic_privacy_mask_config->enabled;
+        m_analytics_data_id = config->dynamic_privacy_mask_config->analytics_data_id;
+        m_masked_labels = config->dynamic_privacy_mask_config->masked_labels;
+        m_dilation_size = config->dynamic_privacy_mask_config->dilation_size;
     }
 
     // Update static mask config
-    if (privacy_mask_config->static_privacy_mask_config.has_value())
+    if (config->static_privacy_mask_config.has_value())
     {
-        const auto &static_config = privacy_mask_config->static_privacy_mask_config.value();
-        set_static_mask_enabled(static_config.enabled);
+        const auto &static_config = config->static_privacy_mask_config.value();
+        set_static_mask_enabled(
+            static_config.enabled); // TODO make tappas use this enable disable in globale enable disable
 
         if (static_config.enabled)
         {

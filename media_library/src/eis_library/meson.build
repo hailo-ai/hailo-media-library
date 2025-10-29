@@ -2,6 +2,7 @@ eis_incdir = [include_directories('./')]
 
 eis_sources = [
   'eis.cpp',
+  'iir_filter.cpp',
 ]
 
 eis_lib = shared_library('eis_library',

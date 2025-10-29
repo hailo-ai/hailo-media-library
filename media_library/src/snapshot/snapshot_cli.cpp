@@ -220,7 +220,7 @@ class SnapshotCli
         std::string result;
         char buffer[READ_BUFFER_SIZE] = {0};
 
-        int epoll_fd = epoll_create1(0);
+        int epoll_fd = epoll_create1(EPOLL_CLOEXEC);
         if (epoll_fd == -1)
         {
             LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create epoll instance");

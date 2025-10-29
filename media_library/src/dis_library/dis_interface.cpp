@@ -106,7 +106,7 @@ RetCodes dis_generate_grid(void *ctx, int in_width, int in_height, float motion_
     if ((in_width != dis.in_cam.res.x) || (in_height != dis.in_cam.res.y))
     {
         LOGGER__MODULE__ERROR(LOGGER_TYPE,
-                              "dis_generateGrid: INput image resolutiuon differs from the one in the calibration");
+                              "dis_generateGrid: Input image resolution differs from the one in the calibration");
         return ERROR_INPUT_DATA;
     }
 
@@ -129,7 +129,7 @@ RetCodes dis_dewarp_only_grid(void *ctx, int in_width, int in_height, FlipMirror
     if ((in_width != dis.in_cam.res.x) || (in_height != dis.in_cam.res.y))
     {
         LOGGER__MODULE__ERROR(LOGGER_TYPE,
-                              "dis_generateGrid: INput image resolutiuon differs from the one in the calibration");
+                              "dis_generateGrid: Input image resolution differs from the one in the calibration");
         return ERROR_INPUT_DATA;
     }
 
@@ -155,7 +155,9 @@ RetCodes dis_generate_eis_grid(void *ctx, FlipMirrorRot flip_mirror_rot, cv::Mat
 }
 
 RetCodes dis_generate_eis_grid_rolling_shutter(void *ctx, FlipMirrorRot flip_mirror_rot,
-                                               const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT *grid)
+                                               const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT *grid,
+                                               uint32_t max_extensions_per_thr, float curr_zoom_level,
+                                               uint32_t min_extensions_per_thr, float max_zoom_level)
 {
     if (ctx == nullptr)
         return ERROR_CTX;
@@ -165,7 +167,7 @@ RetCodes dis_generate_eis_grid_rolling_shutter(void *ctx, FlipMirrorRot flip_mir
     if (!dis.initialized)
         return ERROR_INIT;
 
-    dis.generate_eis_grid_rolling_shutter(flip_mirror_rot, rolling_shutter_rotations, *grid);
-
-    return DIS_OK;
+    return dis.generate_eis_grid_rolling_shutter(flip_mirror_rot, rolling_shutter_rotations, *grid,
+                                                 max_extensions_per_thr, curr_zoom_level, min_extensions_per_thr,
+                                                 max_zoom_level);
 }

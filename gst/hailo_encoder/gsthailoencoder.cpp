@@ -539,7 +539,16 @@ static GstFlowReturn gst_hailo_encoder_finish(GstVideoEncoder *encoder)
     GstBufferPtr eos_buffer = gst_hailo_encoder_get_output_buffer(output_expected.value());
     gst_buffer_add_hailo_buffer_meta(eos_buffer, output_expected.value().buffer, output_expected.value().size);
 
-    eos_buffer->pts = eos_buffer->dts = hailoencoder->params->dts_queue.back();
+    if (!hailoencoder->params->dts_queue.empty())
+    {
+        eos_buffer->pts = eos_buffer->dts = hailoencoder->params->dts_queue.back();
+    }
+    else
+    {
+        GST_WARNING_OBJECT(hailoencoder, "dts_queue is empty, setting eos_buffer pts/dts to GST_CLOCK_TIME_NONE");
+        eos_buffer->pts = GST_CLOCK_TIME_NONE;
+        eos_buffer->dts = GST_CLOCK_TIME_NONE;
+    }
 
     return glib_cpp::ptrs::push_buffer_to_pad(GST_VIDEO_ENCODER_SRC_PAD(encoder), eos_buffer);
 }

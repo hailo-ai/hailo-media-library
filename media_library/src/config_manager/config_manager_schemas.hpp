@@ -25,16 +25,19 @@
 #include <nlohmann/json-schema.hpp>
 
 #include "imaging/aaa_config_schema.hpp"
+#include "common.hpp"
+#include "env_vars.hpp"
+
 namespace config_schemas
 {
 
-static nlohmann::json empty_config_schema = R"(
+static const nlohmann::json empty_config_schema = R"(
             {
                 "$schema": "http://json-schema.org/draft-07/schema#",
                 "type": "object"
             })"_json;
 
-static nlohmann::json encoding_config_schema = R"(
+static const nlohmann::json encoding_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for encoder configuration",
@@ -381,6 +384,87 @@ static nlohmann::json encoding_config_schema = R"(
                   "target_bitrate"
                 ],
                 "additionalProperties": false
+              },
+              "zoom_bitrate_adjuster": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": ["DISABLED", "ZOOMING_PROCESS", "ZOOM_LEVEL", "BOTH"]
+                  },
+                  "zooming_process_bitrate_factor": {
+                    "type": "number",
+                    "minimum": 1.0
+                  },
+                  "zooming_process_timeout_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "zooming_process_max_bitrate": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "zooming_process_force_keyframe": {
+                    "type": "boolean"
+                  },
+                  "zoom_level_threshold": {
+                    "type": "number",
+                    "minimum": 1.0
+                  },
+                  "zoom_level_bitrate_factor": {
+                    "type": "number",
+                    "minimum": 1.0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "qp_smooth_settings": {
+                "type": "object",
+                "properties": {
+                  "qp_delta": {
+                    "type": "integer"
+                  },
+                  "qp_delta_limit": {
+                    "type": "integer"
+                  },
+                  "qp_delta_step": {
+                    "type": "integer"
+                  },
+                  "qp_delta_limit_step": {
+                    "type": "integer"
+                  },
+                  "q_step_divisor": {
+                    "type": "integer"
+                  },
+                  "alpha": {
+                    "type": "number"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "gop_anomaly_bitrate_adjuster": {
+                "type": "object",
+                "properties": {
+                  "enable": {
+                    "type": "boolean"
+                  },
+                  "threshold_high": {
+                    "type": "number"
+                  },
+                  "threshold_low": {
+                    "type": "number"
+                  },
+                  "max_target_bitrate_factor": {
+                    "type": "number"
+                  },
+                  "adjustment_factor": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "enable"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -531,7 +615,7 @@ static nlohmann::json encoding_config_schema = R"(
     "additionalProperties": true
   })"_json;
 
-static nlohmann::json osd_config_schema = R"(
+static const nlohmann::json osd_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "$id": "osdschema",
@@ -840,7 +924,7 @@ static nlohmann::json osd_config_schema = R"(
   }
   )"_json;
 
-static nlohmann::json multi_resize_application_input_streams_config_schema = R"(
+static const nlohmann::json api_multi_resize_application_input_streams_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for multi-resize configuration",
@@ -854,9 +938,6 @@ static nlohmann::json multi_resize_application_input_streams_config_schema = R"(
           },
           "format": {
             "type": "string"
-          },
-          "grayscale": {
-            "type": "boolean"
           },
           "resolutions": {
             "type": "array",
@@ -878,8 +959,9 @@ static nlohmann::json multi_resize_application_input_streams_config_schema = R"(
                 "pool_max_buffers": {
                   "type": "number"
                 },
-                "keep_aspect_ratio": {
-                  "type": "boolean"
+                "scaling_mode": { 
+                  "type": "string",
+                  "enum": ["STRETCH", "LETTERBOX_MIDDLE", "LETTERBOX_UP_LEFT", "SCALE_AND_CROP"]
                 }
               },
               "additionalProperties": false,
@@ -899,11 +981,96 @@ static nlohmann::json multi_resize_application_input_streams_config_schema = R"(
           "resolutions"
         ]
       }
-    }
+    },
+    "additionalProperties": true,
+    "required": ["application_input_streams"] 
   }
   )"_json;
 
-static nlohmann::json multi_resize_digital_zoom_config_schema = R"(
+static const nlohmann::json multi_resize_application_input_streams_config_schema = R"(
+    {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Media Library schema for multi-resize configuration",
+      "type": "object",
+      "properties": {
+        "application_input_streams": {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string"
+            },
+            "grayscale": {
+              "type": "boolean"
+            },
+            "format": {
+              "type": "string"
+            },
+            "resolutions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "stream_id": {
+                    "type": "string"
+                  },
+                  "width": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "framerate": {
+                    "type": "number"
+                  },
+                  "pool_max_buffers": {
+                    "type": "number"
+                  },
+                  "scaling_mode": { 
+                    "type": "string",
+                    "enum": ["STRETCH", "LETTERBOX_MIDDLE", "LETTERBOX_UP_LEFT", "SCALE_AND_CROP"]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "width",
+                  "height",
+                  "framerate",
+                  "pool_max_buffers"
+                ]
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "format",
+            "resolutions"
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": ["application_input_streams"] 
+    }
+    )"_json;
+
+static const nlohmann::json grayscale_config_schema = R"(
+  {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Grayscale Configuration",
+    "type": "object",
+    "properties": {
+      "grayscale": {
+        "type": "boolean",
+        "description": "Enable or disable grayscale conversion"
+      }
+    },
+    "required": [
+      "grayscale"
+    ]
+  }
+  )"_json;
+
+static const nlohmann::json multi_resize_digital_zoom_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Digital Zoom Configuration",
@@ -961,7 +1128,7 @@ static nlohmann::json multi_resize_digital_zoom_config_schema = R"(
   }
   )"_json;
 
-static nlohmann::json multi_resize_motion_detection_config_schema = R"(
+static const nlohmann::json multi_resize_motion_detection_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Motion Detection Configuration",
@@ -1042,12 +1209,12 @@ static nlohmann::json multi_resize_motion_detection_config_schema = R"(
   }
   )"_json;
 
-nlohmann::json multi_resize_config_schema = {
+static const nlohmann::json multi_resize_config_schema = {
     {"allOf",
      {multi_resize_application_input_streams_config_schema, multi_resize_motion_detection_config_schema,
       multi_resize_digital_zoom_config_schema}}};
 
-static nlohmann::json ldc_dewarp_config_schema = R"(
+static const nlohmann::json ldc_dewarp_config_schema = R"(
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Dewarp Configuration",
@@ -1074,7 +1241,7 @@ static nlohmann::json ldc_dewarp_config_schema = R"(
 }
 )"_json;
 
-static nlohmann::json ldc_dis_config_schema = R"(
+static const nlohmann::json ldc_dis_config_schema = R"(
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "DIS Configuration",
@@ -1151,7 +1318,7 @@ static nlohmann::json ldc_dis_config_schema = R"(
 }
 )"_json;
 
-static nlohmann::json ldc_eis_config_schema = R"(
+static const nlohmann::json ldc_eis_config_schema = R"(
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "EIS Configuration",
@@ -1168,13 +1335,19 @@ static nlohmann::json ldc_eis_config_schema = R"(
         "iir_hpf_coefficient": { "type": "number", "minimum": 0, "maximum": 1 },
         "camera_fov_factor": { "type": "number", "minimum": 0.1, "maximum": 1 },
         "line_readout_time": { "type": "number" },
-        "hdr_exposure_ratio": { "type": "number" }
+        "hdr_exposure_ratio": { "type": "number" },
+        "min_angle_deg": { "type": "number", "minimum": 0.0, "maximum": 360.0 },
+        "max_angle_deg": { "type": "number", "minimum": 0.0, "maximum": 360.0 },
+        "shakes_type_buff_size": { "type": "number", "minimum": 1 },
+        "max_extensions_per_thr": { "type": "number" },
+        "min_extensions_per_thr": { "type": "number" }
       },
       "additionalProperties": false,
       "required": [
         "enabled", "eis_config_path", "window_size",
         "rotational_smoothing_coefficient", "iir_hpf_coefficient",
-        "camera_fov_factor", "line_readout_time", "hdr_exposure_ratio"
+        "camera_fov_factor", "line_readout_time", "hdr_exposure_ratio",
+        "min_angle_deg", "max_angle_deg"
       ]
     }
   },
@@ -1182,7 +1355,7 @@ static nlohmann::json ldc_eis_config_schema = R"(
 }
 )"_json;
 
-static nlohmann::json ldc_gyro_config_schema = R"(
+static const nlohmann::json ldc_gyro_config_schema = R"(
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Gyro Configuration",
@@ -1204,7 +1377,7 @@ static nlohmann::json ldc_gyro_config_schema = R"(
 }
 )"_json;
 
-static nlohmann::json ldc_gmv_config_schema = R"(
+static const nlohmann::json ldc_gmv_config_schema = R"(
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "GMV Configuration",
@@ -1224,7 +1397,7 @@ static nlohmann::json ldc_gmv_config_schema = R"(
 }
 )"_json;
 
-static nlohmann::json ldc_optical_zoom_config_schema = R"(
+static const nlohmann::json ldc_optical_zoom_config_schema = R"(
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Optical Zoom Configuration",
@@ -1235,7 +1408,8 @@ static nlohmann::json ldc_optical_zoom_config_schema = R"(
       "properties": {
         "enabled": { "type": "boolean" },
         "magnification": { "type": "number" },
-        "max_dewarping_magnification": { "type": "number" }
+        "max_dewarping_magnification": { "type": "number" },
+        "max_zoom_level": { "type": "number" }
       },
       "additionalProperties": false,
       "required": ["magnification", "enabled"]
@@ -1245,7 +1419,7 @@ static nlohmann::json ldc_optical_zoom_config_schema = R"(
 }
 )"_json;
 
-static nlohmann::json ldc_rotation_config_schema = R"(
+static const nlohmann::json ldc_rotation_config_schema = R"(
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Rotation Configuration",
@@ -1265,7 +1439,7 @@ static nlohmann::json ldc_rotation_config_schema = R"(
 }
 )"_json;
 
-static nlohmann::json hdr_config_schema = R"(
+static const nlohmann::json hdr_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for HDR configuration",
@@ -1302,7 +1476,7 @@ static nlohmann::json hdr_config_schema = R"(
   }
   )"_json;
 
-static nlohmann::json ldc_flip_config_schema = R"(
+static const nlohmann::json ldc_flip_config_schema = R"(
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Flip Configuration",
@@ -1327,7 +1501,7 @@ nlohmann::json ldc_config_schema = {
      {ldc_dewarp_config_schema, ldc_dis_config_schema, ldc_eis_config_schema, ldc_gyro_config_schema,
       ldc_optical_zoom_config_schema, ldc_rotation_config_schema, ldc_flip_config_schema}}};
 
-static nlohmann::json hailort_config_schema = R"(
+static const nlohmann::json hailort_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for HailoRT configuration",
@@ -1352,7 +1526,7 @@ static nlohmann::json hailort_config_schema = R"(
   }
   )"_json;
 
-static nlohmann::json isp_config_schema = R"(
+static const nlohmann::json isp_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for ISP configuration",
@@ -1361,16 +1535,13 @@ static nlohmann::json isp_config_schema = R"(
       "isp": {
         "type": "object",
         "properties": {
-          "auto-configuration": {
-            "type": "boolean"
-          },
           "isp_config_files_path": {
             "type" : "string"
           }
         },
         "additionalProperties": false,
         "required": [
-          "auto-configuration"
+          "isp_config_files_path"
         ]
       }
     },
@@ -1380,7 +1551,7 @@ static nlohmann::json isp_config_schema = R"(
   }
   )"_json;
 
-static nlohmann::json denoise_config_schema = R"(
+static const nlohmann::json denoise_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for denoise configuration",
@@ -1510,7 +1681,7 @@ static nlohmann::json denoise_config_schema = R"(
   }
   )"_json;
 
-static nlohmann::json vsm_config_schema = R"(
+static const nlohmann::json vsm_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Library schema for vsm media server configuration",
@@ -1560,7 +1731,7 @@ static nlohmann::json vsm_config_schema = R"(
   }
   )"_json;
 
-static nlohmann::json input_video_config_schema = R"(
+static const nlohmann::json input_video_config_schema = R"(
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Media Library schema for input resolution configuration",
@@ -1600,7 +1771,6 @@ static nlohmann::json input_video_config_schema = R"(
       },
       "additionalProperties": false,
       "required": [
-        "source",
         "resolution"
       ]
     }
@@ -1610,7 +1780,7 @@ static nlohmann::json input_video_config_schema = R"(
   ]
 })"_json;
 
-static nlohmann::json application_analytics_config_schema = R"(
+static const nlohmann::json application_analytics_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Application Analytics Configuration",
@@ -1685,12 +1855,11 @@ static nlohmann::json application_analytics_config_schema = R"(
         "additionalProperties": false
       }
     },
-    "required": ["application_analytics"],
-    "additionalProperties": false
+    "additionalProperties": true
   }
   )"_json;
 
-static nlohmann::json privacy_mask_config_schema = R"(
+static const nlohmann::json privacy_mask_config_schema = R"(
   {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Privacy Mask Configuration",
@@ -1808,15 +1977,45 @@ static nlohmann::json privacy_mask_config_schema = R"(
   }
   )"_json;
 
-static nlohmann::json frontend_config_schema = {
+static const nlohmann::json sensor_configuration_schema = R"(
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Sensor Configuration",
+  "type": "object",
+  "properties": {
+    "sensor_configuration": {
+      "type": "object",
+      "properties": {
+        "name":        { "type": "string"  },
+        "drv":         { "type": "string"  },
+        "mode":        { "type": "integer" },
+        "pixel_mode":  { "type": "integer" },
+        "sensor_only": { "type": "integer" },
+        "af_i2c_bus":  { "type": "integer" },
+        "af_i2c_addr": { "type": "string"  },
+        "custom_readout_timing_short": { "type": "integer" }
+      },
+      "required": ["name","drv","mode","pixel_mode","sensor_only","af_i2c_bus","af_i2c_addr"],
+      "additionalProperties": false
+    },
+    "sensor_calibration_file": { "type": "string" }
+  },
+  "required": ["sensor_configuration", "sensor_calibration_file"]
+}
+)"_json;
+
+static const nlohmann::json sensor_config_file_schema = {
+    {"allOf", {sensor_configuration_schema, input_video_config_schema}}};
+
+static const nlohmann::json frontend_config_schema = {
     {"allOf",
      {multi_resize_config_schema, ldc_config_schema, hailort_config_schema, isp_config_schema, hdr_config_schema,
       denoise_config_schema, input_video_config_schema}}};
 
-static nlohmann::json encoder_config_schema = {
+static const nlohmann::json encoder_config_schema = {
     {"allOf", {encoding_config_schema, osd_config_schema, privacy_mask_config_schema}}};
 
-static nlohmann::json medialib_config_schema = R"(
+static const nlohmann::json medialib_config_schema = R"(
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
@@ -1840,7 +2039,7 @@ static nlohmann::json medialib_config_schema = R"(
 }
 )"_json;
 
-static nlohmann::json codec_configs_schema = R"(
+static const nlohmann::json codec_configs_schema = R"(
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
@@ -1863,34 +2062,80 @@ static nlohmann::json codec_configs_schema = R"(
 }
 )"_json;
 
-static nlohmann::json isp_config_files_schema = R"(
+static nlohmann::json profile_config_schema = R"(
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "http://json-schema.org/draft-04/schema#",
   "type": "object",
   "properties": {
-    "isp_config_files": {
-      "type": "object",
-      "properties": {
-        "3a_config_path": { "type": "string" },
-        "sensor_entry": { "type": "string" }
-      },
-      "required": ["3a_config_path", "sensor_entry"]
+    "application_settings": {
+      "type": "string"
+    },
+    "encoded_output_streams": {
+      "type": "array",
+      "items": [
+        {
+          "type": "object",
+          "properties": {
+            "encoding": {
+              "type": "string"
+            },
+            "masking": {
+              "type": "string"
+            },
+            "osd": {
+              "type": "string"
+            },
+            "stream_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "encoding",
+            "masking",
+            "osd",
+            "stream_id"
+          ]
+        }
+      ]
+    },
+    "iq_settings": {
+      "type": "string"
+    },
+    "sensor_config": {
+      "type": "string"
+    },
+    "stabilizer_settings": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
     }
   },
   "required": [
-    "isp_config_files"
+    "application_settings",
+    "encoded_output_streams",
+    "iq_settings",
+    "sensor_config",
+    "stabilizer_settings",
+    "version"
   ]
-}
-)"_json;
+})"_json;
 
-static nlohmann::json profile_config_schema = {
+static nlohmann::json automatic_algorithms_schema = is_env_variable_on(MEDIALIB_USE_AUTOMATIC_ALGORITHMS_WITH_RANGES)
+                                                        ? nlohmann::json::parse(AUTOMATIC_ALGORITHMS_SCHEMA_RANGES_TEXT)
+                                                        : nlohmann::json::parse(AUTOMATIC_ALGORITHMS_SCHEMA_TEXT);
+
+static nlohmann::json iq_settings_schema = {{"allOf",
+                                             {grayscale_config_schema, denoise_config_schema, hdr_config_schema,
+                                              ldc_dewarp_config_schema, automatic_algorithms_schema}}};
+
+static nlohmann::json stebilizer_schema = {
+    {"allOf", {ldc_dis_config_schema, ldc_eis_config_schema, ldc_gyro_config_schema}}};
+
+static nlohmann::json application_settings_schema = {
     {"allOf",
-     {multi_resize_config_schema, ldc_config_schema, hailort_config_schema, isp_config_schema, hdr_config_schema,
-      denoise_config_schema, input_video_config_schema, codec_configs_schema, isp_config_files_schema}}};
+     {api_multi_resize_application_input_streams_config_schema, ldc_gmv_config_schema, ldc_optical_zoom_config_schema,
+      multi_resize_digital_zoom_config_schema, multi_resize_motion_detection_config_schema, ldc_rotation_config_schema,
+      ldc_flip_config_schema, hailort_config_schema, application_analytics_config_schema}}};
 
-static nlohmann::json automatic_algorithms_schema = nlohmann::json::parse(AUTOMATIC_ALGORITHMS_SCHEMA_TEXT);
-
-static nlohmann::json aaa_config_schema = {{"allOf", {automatic_algorithms_schema}}};
-
-static nlohmann::json old_aaa_config_schema = nlohmann::json::parse(OLD_3ACONFIG_SCHEMA_TEXT);
 } // namespace config_schemas

@@ -14,6 +14,7 @@
 #include "media_library/media_library_api_types.hpp"
 #include "media_library/throttling_state_monitor.hpp"
 #include "media_library/analytics_db.hpp"
+#include "media_library/media_library_types.hpp"
 
 namespace fs = std::filesystem;
 
@@ -28,22 +29,20 @@ class MediaLibrary
 {
   public:
     /**
-     * @brief Default constructor.
+     * @brief Constructor for the media library module
+     *
+     * @note This constructor is used internally by the create function.
      */
     MediaLibrary();
 
     /**
-     * @brief Constructor with configuration path.
-     * @param medialib_config_path Path to the media library configuration file.
+     * @brief Constructs a MediaLibrary object
+     *
+     * @return tl::expected<MediaLibraryPtr, media_library_return> -
+     * An expected object that holds either a shared pointer
+     *  to a MediaLibrary object, or a error code.
      */
-    MediaLibrary(std::string medialib_config_path);
-
-    /**
-     * @brief Constructor with frontend and encoders.
-     * @param frontend Pointer to the frontend object.
-     * @param encoders Map of output stream IDs to encoder pointers.
-     */
-    MediaLibrary(MediaLibraryFrontendPtr frontend, std::map<output_stream_id_t, MediaLibraryEncoderPtr> encoders);
+    static tl::expected<MediaLibraryPtr, media_library_return> create();
 
     /**
      * @brief Initialize the media library with frontend and encoder configurations.
@@ -52,7 +51,7 @@ class MediaLibrary
      * @return Status of the initialization.
      */
     media_library_return initialize(std::string frontend_config_json_string,
-                                    std::map<output_stream_id_t, encoder_config_t> encoders_config);
+                                    std::map<output_stream_id_t, config_encoded_output_stream_t> encoded_output_stream);
 
     /**
      * @brief Initialize the media library with a configuration file.
@@ -111,7 +110,15 @@ class MediaLibrary
      * - Changing the HDR or AI-denoise state from enabled to disabled or vice versa is **not allowed** by this API.
      *   The function will return an error return code if such a change is attempted.
      */
-    media_library_return set_override_parameters(ProfileConfig profile);
+    media_library_return set_override_parameters(config_profile_t profile);
+
+    /**
+     * @brief Set the automatic algorithm configuration as json object
+     *
+     * @param automatic_algorithms
+     * @return medialibrary_return
+     */
+    media_library_return set_automatic_algorithm_configuration(std::string automatic_algorithms);
 
     /**
      * @brief Sets the profile for the media library.
@@ -127,19 +134,29 @@ class MediaLibrary
      * @brief Retrieves the profile with the given name.
      *
      * @param profile_name The name of the profile to be retrieved.
-     * @return tl::expected<ProfileConfig, media_library_return> The profile with the given name.
+     * @return tl::expected<config_profile_t, media_library_return> The profile with the given name.
      */
-    tl::expected<ProfileConfig, media_library_return> get_profile(const std::string &profile_name);
+    tl::expected<config_profile_t, media_library_return> get_profile(const std::string &profile_name);
 
     /**
      * @brief Retrieves the current profile.
      *
      * This function returns the current profile being used.
      *
-     * @return tl::expected<ProfileConfig, media_library_return> An expected object containing the current profile
-     * configuration if successful, or an error code otherwise.
+     * @return tl::expected<config_profile_t, media_library_return> An expected object containing the
+     * current profile configuration if successful, or an error code otherwise.
      */
-    tl::expected<ProfileConfig, media_library_return> get_current_profile();
+    tl::expected<config_profile_t, media_library_return> get_current_profile();
+
+    /**
+     * @brief Retrieves the current profile as a JSON string.
+     *
+     * This function returns the current profile being used in JSON string format.
+     *
+     * @return tl::expected<std::string, media_library_return> An expected object containing the
+     * current profile as a JSON string if successful, or an error code otherwise.
+     */
+    tl::expected<std::string, media_library_return> get_current_profile_str();
 
     /**
      * @brief Checks if a stream restart is required based on the provided profile.
@@ -147,11 +164,12 @@ class MediaLibrary
      * is necessary.
      * @return A boolean value indicating whether a stream restart is required.
      */
-    bool stream_restart_required(ProfileConfig previous_profile);
+    bool stream_restart_required(config_profile_t previous_profile, config_profile_t new_profile);
 
     MediaLibraryFrontendPtr m_frontend;                              ///< Pointer to the frontend object.
     std::map<output_stream_id_t, MediaLibraryEncoderPtr> m_encoders; ///< Map of output stream IDs to encoder pointers.
-    MediaLibConfigManager m_media_lib_config_manager; ///< Manager for media library configuration settings.
+    std::unique_ptr<MediaLibConfigManager>
+        m_media_lib_config_manager; ///< Manager for media library configuration settings.
 
     /**
      *  @brief Set the On profile restricted user callback.
@@ -166,7 +184,7 @@ class MediaLibrary
      * @param callback The callback to be set - includes the previous and new restricted profiles.
      * @return media_library_return The result of the operation.
      */
-    media_library_return on_profile_restricted(std::function<void(ProfileConfig, ProfileConfig)> callback);
+    media_library_return on_profile_restricted(std::function<void(config_profile_t, config_profile_t)> callback);
 
     /**
      * * @brief Set the On profile restriction done user callback.
@@ -206,8 +224,10 @@ class MediaLibrary
     media_library_pipeline_state_t m_pipeline_state; ///< State of the media pipeline (STARTED or STOPPED).
     std::shared_ptr<ThrottlingStateMonitor> m_throttling_monitor;
     std::function<void(media_library_pipeline_state_t)> m_pipeline_state_change_callback;
-    std::function<void(ProfileConfig, ProfileConfig)> m_profile_restricted_callback;
+    std::function<void(config_profile_t, config_profile_t)> m_profile_restricted_callback;
     std::function<void()> m_profile_restriction_done_callback;
+    std::optional<std::string> m_active_aaa_config_path;
+    bool m_switching_full_profile;
 
     media_library_return stop_pipeline_internal();
     media_library_return start_pipeline_internal();
@@ -223,7 +243,8 @@ class MediaLibrary
      * @param encoder_config Vector of encoder configurations.
      * @return Status of the creation.
      */
-    media_library_return create_encoders(std::map<output_stream_id_t, encoder_config_t> encoder_config);
+    media_library_return create_encoders(
+        const std::map<output_stream_id_t, config_encoded_output_stream_t> &encoded_output_stream);
 
     /**
      * @brief Create the frontend with the given configuration.
@@ -238,23 +259,59 @@ class MediaLibrary
      * @param encoders_config Vector of encoder configurations.
      * @return Status of the configuration.
      */
-    media_library_return configure_frontend_encoder(frontend_config_t frontend_config,
-                                                    std::map<output_stream_id_t, encoder_config_t> encoders_config);
+    media_library_return configure_frontend_encoder(
+        frontend_config_t frontend_config,
+        std::map<output_stream_id_t, config_encoded_output_stream_t> encoded_output_streams);
+
+    /**
+     * @brief Configure the isp and masking blenders with the given configurations.
+     * @param encoded_output_streams Map of output stream IDs to encoder configurations.
+     * @return Status of the configuration.
+     */
+    media_library_return configure_blenders(
+        std::map<output_stream_id_t, config_encoded_output_stream_t> encoded_output_streams);
 
     /**
      * @brief Configure the ISP with the given configuration.
-     * @param config Configuration for the ISP.
-     * @param sensor_entry Sensor entry for the ISP.
+     * @param _3aconfig Path to the 3A configuration file.
+     * @param sensor_entry Sensor entry for the ISP configuration.
      * @return Status of the configuration.
      */
-    media_library_return configure_isp(const std::string &_3aconfig, const std::string &sensor_entry);
+    media_library_return configure_isp_files(const std::string &_3aconfig, const std::string &sensor_entry);
 
+    /**
+     * @brief Configure the ISP with the current profile.
+     * @return Status of the configuration.
+     */
+    media_library_return configure_isp_with_current_profile();
+
+    /**
+     * @brief Decides from what source to configure the ISP.
+     * @param restart_required Whether a restart is required.
+     * @param previous_profile The previous profile configuration.
+     * @param new_profile The new profile configuration.
+     * @return Status of the configuration.
+     */
+    media_library_return configure_isp(bool restart_required, config_profile_t &previous_profile,
+                                       config_profile_t &new_profile);
+    /**
+     * @brief override the existing 3A config file with json.
+     * @param _3aconfig_json JSON string of the 3A configuration.
+     * @return Status of the update.
+     */
+    media_library_return update_3a_config_file(const std::string &_3aconfig_json);
+    /**
+     * @brief Update sensor entry file with correct sensor type, sensor I2C bus, and sensor I2C address.
+     * @param sensor_entry_path Path to the sensor entry file to update.
+     * @return Status of the update.
+     */
+    media_library_return update_sensor_entry_file(const std::string &sensor_entry_path);
     /**
      * @brief Validate the profile restrictions of thermal state.
      * @param profile The profile to be validated.
      * @return Whether the profile is valid.
      */
-    bool validate_profile_restrictions(const ProfileConfig &profile);
+    bool validate_profile_restrictions(const config_profile_t &profile);
 
     /**
      * @brief Initialize the thermal throttling monitor.
@@ -279,4 +336,14 @@ class MediaLibrary
      * @return Status of the update.
      */
     media_library_return update_frontend_config();
+
+    /**
+     * @brief Configure privacy mask on the given encoder.
+     *
+     * @param encoder
+     * @param privacy_mask_config
+     * @return media_library_return
+     */
+    media_library_return configure_privacy_mask(MediaLibraryEncoderPtr encoder,
+                                                const privacy_mask_config_t &privacy_mask_config);
 };

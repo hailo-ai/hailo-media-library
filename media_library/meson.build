@@ -5,6 +5,7 @@ endif
 incdir = [include_directories('./include/media_library')]
 utils_incdir = [include_directories('./src/utils')]
 denoise_incdir = [include_directories('./src/front_end/denoise')]
+sensor_registry_incdir = [include_directories('./src/isp/sensor_registry')]
 
 platform = get_option('platform') 
 
@@ -17,6 +18,8 @@ common_sources = [
     'src/isp/dma_buffer/dma_buffer.cpp',
     'src/isp/video_buffer/video_buffer.cpp',
     'src/isp/video_device/video_device.cpp',
+    'src/isp/sensor_registry/sensor_registry.cpp',
+    'src/isp/sensor_registry/sensor_types.cpp',
     'src/buffer_pool/buffer_pool.cpp',
     'src/buffer_pool/dma_memory_allocator.cpp',
     'src/utils/media_library_logger.cpp',
@@ -31,9 +34,6 @@ common_sources = [
 ]
 if perfetto_dep.found()
   common_sources += ['src/perfetto/perfetto.cpp']
-endif
-if platform == '15h'
-    common_args += ['-DENABLE_THROTTLING_MANAGER']
 endif
 subdir('./src/config_manager')
 
@@ -132,7 +132,7 @@ executable('snapshot_cli',
 media_library_frontend_lib = shared_library('hailo_media_library_frontend',
     frontend_sources,
     cpp_args: common_args,
-    include_directories: [incdir, dis_incdir, eis_incdir, utils_incdir, denoise_incdir, hdr_incdir],
+    include_directories: [incdir, dis_incdir, eis_incdir, utils_incdir, denoise_incdir, hdr_incdir, sensor_registry_incdir],
     dependencies : [opencv_dep, dsp_dep, dis_library_dep, gyro_lib_dep, spdlog_dep, json_dep, expected_dep, media_library_common_dep, libhailort_dep, eis_lib_dep, fmt_dep],
     link_whole: git_metadata_lib,
     version: meson.project_version(),

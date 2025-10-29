@@ -1,25 +1,18 @@
 #include "hdr_manager_impl.hpp"
-#include "isp_utils.hpp"
+
 #include "hdr_manager.hpp"
 #include "logger_macros.hpp"
+#include "media_library_types.hpp"
+#include "sensor_registry.hpp"
+#include "video_device.hpp"
 #include "media_library_types.hpp"
 #include "v4l2_ctrl.hpp"
 #include "video_device.hpp"
 #include "hailo_media_library_perfetto.hpp"
+#include "isp_utils.hpp"
 
-std::optional<HDR::DOL> HdrManager::Impl::get_dol(hdr_dol_t dol)
-{
-    switch (dol)
-    {
-    case HDR_DOL_2:
-        return std::make_optional(HDR::DOL::HDR_DOL_2);
-    case HDR_DOL_3:
-        return std::make_optional(HDR::DOL::HDR_DOL_3);
-    default:
-        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Unsupported HDR DOL value: {}", dol);
-        return std::nullopt; // Default value
-    }
-}
+#include <filesystem>
+#include <optional>
 
 bool HdrManager::Impl::is_dol_supported(hdr_dol_t dol)
 {
@@ -30,94 +23,46 @@ bool HdrManager::Impl::is_dol_supported(hdr_dol_t dol)
     return false;
 }
 
-std::optional<HDR::InputResolution> HdrManager::Impl::get_input_resolution(const output_resolution_t &input_resolution)
-{
-    if (input_resolution.dimensions.destination_width == 3840 && input_resolution.dimensions.destination_height == 2160)
-    {
-        return std::make_optional(HDR::InputResolution::RES_4K);
-    }
-    else if (input_resolution.dimensions.destination_width == 1920 &&
-             input_resolution.dimensions.destination_height == 1080)
-    {
-        return std::make_optional(HDR::InputResolution::RES_FHD);
-    }
-    else if (input_resolution.dimensions.destination_width == 2688 &&
-             input_resolution.dimensions.destination_height == 1520)
-    {
-        return std::make_optional(HDR::InputResolution::RES_4MP);
-    }
-    return std::nullopt;
-}
-
-bool HdrManager::Impl::is_resolution_supported(const output_resolution_t &input_resolution)
-{
-    auto resolution = get_input_resolution(input_resolution);
-    if (!resolution)
-    {
-        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Unsupported HDR resolution: {}x{}",
-                              input_resolution.dimensions.destination_width,
-                              input_resolution.dimensions.destination_height);
-        return false;
-    }
-    return true;
-}
-
-std::optional<std::string> HdrManager::Impl::get_hdr_hef_path(HDR::DOL dol, HDR::InputResolution resolution)
+std::optional<std::string> HdrManager::Impl::get_hdr_hef_path(hdr_dol_t dol, Resolution resolution)
 {
     // Assuming the HEF path is stored in a member variable
     std::string resolution_str;
     std::string dol_str;
 
-    switch (dol)
+    auto &registry = SensorRegistry::get_instance();
+    auto resolution_info = registry.get_resolution_info(resolution);
+    if (!resolution_info)
     {
-    case HDR::DOL::HDR_DOL_2:
-        dol_str = "2";
-        break;
-    case HDR::DOL::HDR_DOL_3:
-        dol_str = "3";
-        break;
-    default:
-        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Unsupported HDR DOL value: {}", dol);
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Unable to find resolution");
         return std::nullopt;
     }
 
-    switch (resolution)
-    {
-    case HDR::InputResolution::RES_4K:
-        resolution_str = "4k";
-        break;
-    case HDR::InputResolution::RES_FHD:
-        resolution_str = "fhd";
-        break;
-    case HDR::InputResolution::RES_4MP:
-        resolution_str = "4mp";
-        break;
-    default:
-        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Unsupported HDR resolution: {}", resolution);
-        return std::nullopt;
-    }
-
+    resolution_str = resolution_info->name;
+    dol_str = std::to_string(static_cast<int>(dol));
     return "/usr/bin/hdr_" + resolution_str + "_" + dol_str + "_exposures.hef";
 }
 
 bool HdrManager::Impl::init(const frontend_config_t &frontend_config)
 {
-    auto dol = get_dol(frontend_config.hdr_config.dol);
-    if (!dol)
-    {
+    int raw_isp_fd = -1;
+    files_utils::SharedFd isp_fd;
+    std::unique_ptr<HDR::VideoOutputDevice> isp_in_device;
+    std::unique_ptr<HDR::VideoCaptureDevice> raw_capture_device;
+    std::unique_ptr<HailortAsyncStitching> stitcher;
+    HDR::DMABufferAllocator allocator;
+    auto dol = frontend_config.hdr_config.dol;
 
+    auto input_resolution = SensorRegistry::get_instance().detect_resolution(frontend_config.input_config.resolution);
+
+    auto hdr_hef_path = get_hdr_hef_path(dol, input_resolution.value());
+    if (!hdr_hef_path.has_value())
+    {
         return false;
     }
 
-    auto input_resolution = HdrManager::Impl::get_input_resolution(frontend_config.input_config.resolution);
-    if (!input_resolution)
+    if (!std::filesystem::exists(hdr_hef_path.value()))
     {
-        return false;
-    }
-
-    auto hdr_hef_path = get_hdr_hef_path(dol.value(), input_resolution.value());
-    if (!hdr_hef_path)
-    {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "HDR HEF file {} does not exist", hdr_hef_path.value());
         return false;
     }
 
@@ -127,80 +72,111 @@ bool HdrManager::Impl::init(const frontend_config_t &frontend_config)
         deinit();
     }
 
-    int pixelFormat;
     size_t pixelWidth = 16;
 
-    auto sensor_name = isp_utils::get_sensor_type();
-    if (sensor_name.has_value() && sensor_name.value() == isp_utils::SensorType::IMX715)
-    {
-        pixelFormat = V4L2_PIX_FMT_SGBRG12;
-    }
-    else
-    {
-        pixelFormat = V4L2_PIX_FMT_SRGGB12;
-    }
+    auto &registry = SensorRegistry::get_instance();
+    auto pixelFormat = registry.get_pixel_format();
 
-    m_raw_capture_device = std::make_unique<HDR::VideoCaptureDevice>();
-
-    if (m_stitcher.init(hdr_hef_path.value(), frontend_config.hailort_config.device_id, SCHEDULER_THRESHOLD,
-                        SCHEDULER_TIMEOUT.count(), dol.value()))
+    if (!pixelFormat.has_value())
     {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to get sensor pixel format");
         return false;
     }
-    m_stitcher.set_on_infer_finish([this](void *ptr) { on_infer(ptr); });
 
-    m_isp_in_device = std::make_unique<HDR::VideoOutputDevice>();
-
-    if (!m_allocator.init(DMA_HEAP_PATH))
+    stitcher = std::make_unique<HailortAsyncStitching>();
+    if (!stitcher)
     {
-        goto err_init_capture_dev;
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to create HailortAsyncStitching instance");
+        return false;
+    }
+    if (stitcher->init(hdr_hef_path.value(), frontend_config.hailort_config.device_id, SCHEDULER_THRESHOLD,
+                       SCHEDULER_TIMEOUT.count(), dol))
+    {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to initialize HailortAsyncStitching with HEF path: {}",
+                              hdr_hef_path.value());
+        return false;
+    }
+    stitcher->set_on_infer_finish([this](std::shared_ptr<void> ptr) { on_infer(std::move(ptr)); });
+
+    if (!allocator.init(DMA_HEAP_PATH))
+    {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to initialize DMABufferAllocator with heap path: {}", DMA_HEAP_PATH);
+        return false;
     }
 
-    if (!m_raw_capture_device->init(RAW_CAPTURE_PATH, "[HDR] raw out", m_allocator, dol.value(),
-                                    input_resolution.value(), RAW_CAPTURE_BUFFERS_COUNT, pixelFormat, pixelWidth,
-                                    RAW_CAPTURE_DEFAULT_FPS, true, false))
+    if (!isp_utils::set_isp_mcm_mode(isp_utils::ISP_MCM_MODE_STITCHING, m_v4l2_ctrl_manager))
     {
-        goto err_init_capture_dev;
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to set MCM_MODE_SEL to ISP_MCM_MODE_STITCHING");
+        return false;
     }
 
-    if (!m_isp_in_device->init(HdrManager::Impl::ISP_IN_PATH, "[HDR] ISP in", m_allocator, STITCHED_PLANE_COUNT,
-                               input_resolution.value(), HdrManager::Impl::ISP_IN_BUFFERS_COUNT, pixelFormat,
-                               pixelWidth))
+    raw_capture_device = std::make_unique<HDR::VideoCaptureDevice>();
+
+    auto raw_capture_path =
+        SensorRegistry::get_instance().get_raw_capture_path(frontend_config.input_config.sensor_index);
+    if (!raw_capture_path.has_value())
     {
-        goto err_init_isp_in_dev;
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to get raw capture path");
+        return false;
+    }
+    if (!raw_capture_device->init(raw_capture_path.value(), "[HDR] raw out", allocator, dol, input_resolution.value(),
+                                  RAW_CAPTURE_BUFFERS_COUNT, pixelFormat.value(), pixelWidth, RAW_CAPTURE_DEFAULT_FPS,
+                                  true, false))
+    {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to initialize VideoCaptureDevice with path: {}",
+                              raw_capture_path.value());
+        return false;
     }
 
-    m_isp_fd = open(HdrManager::Impl::YUV_STREAM_DEVICE_PATH, O_RDWR);
-    if (m_isp_fd < 0)
+    isp_in_device = std::make_unique<HDR::VideoOutputDevice>();
+
+    if (!isp_in_device->init(HdrManager::Impl::ISP_IN_PATH, "[HDR] ISP in", allocator, STITCHED_PLANE_COUNT,
+                             input_resolution.value(), HdrManager::Impl::ISP_IN_BUFFERS_COUNT, pixelFormat.value(),
+                             pixelWidth))
+    {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to initialize VideoOutputDevice with path: {}", ISP_IN_PATH);
+        return false;
+    }
+
+    auto device_path = SensorRegistry::get_instance().get_video_device_path(frontend_config.input_config.sensor_index);
+    if (!device_path.has_value())
+    {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to get video device path");
+        return false;
+    }
+    raw_isp_fd = open(device_path.value().c_str(), O_RDWR | O_CLOEXEC);
+    if (raw_isp_fd < 0)
     {
         LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to allocate stitch contexts");
-        goto err_isp_fd;
+        return false;
     }
+    isp_fd = files_utils::make_shared_fd(raw_isp_fd);
 
-    m_dol = dol.value();
-    m_wb_buffer_size = dol.value() * HdrManager::Impl::CFA_NUM_CHANNELS;
-    if (!alloc_stitch_contexts())
+    auto stitch_contexts_opt = alloc_stitch_contexts(allocator, dol * HdrManager::Impl::CFA_NUM_CHANNELS);
+    if (!stitch_contexts_opt)
     {
-        goto err_alloc_stitch_contexts;
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to allocate stitch contexts");
+        return false;
     }
 
+    m_stitch_contexts = std::move(stitch_contexts_opt.value());
+    m_dol = dol;
     m_ls_ratio = frontend_config.hdr_config.ls_ratio;
     m_vs_ratio = frontend_config.hdr_config.vs_ratio;
+    m_isp_fd = std::move(isp_fd);
+    m_isp_in_device = std::move(isp_in_device);
+    m_raw_capture_device = std::move(raw_capture_device);
+    m_stitcher = std::move(stitcher);
     m_initialized = true;
+
     LOGGER__MODULE__INFO(LOGGER_TYPE, "HdrManager initialized successfully");
     return true;
-
-err_alloc_stitch_contexts:
-    close(m_isp_fd);
-err_isp_fd:
-err_init_isp_in_dev:
-err_init_capture_dev:
-    m_isp_in_device = nullptr;
-    m_raw_capture_device = nullptr;
-    return false;
 }
 
-HdrManager::Impl::Impl() = default;
+HdrManager::Impl::Impl(std::shared_ptr<v4l2::v4l2ControlManager> v4l2_ctrl_manager)
+    : m_v4l2_ctrl_manager(v4l2_ctrl_manager)
+{
+}
 
 HdrManager::Impl::~Impl()
 {
@@ -211,11 +187,14 @@ void HdrManager::Impl::deinit()
 {
     stop();
     free_stitch_contexts();
+    if (!isp_utils::set_isp_mcm_mode(isp_utils::ISP_MCM_MODE_OFF, m_v4l2_ctrl_manager))
+    {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to set MCM_MODE_SEL to ISP_MCM_MODE_OFF");
+    }
 
     m_raw_capture_device = nullptr;
     m_isp_in_device = nullptr;
-
-    close(m_isp_fd);
+    m_isp_fd = nullptr;
     m_initialized = false;
     m_wb_clipping_warned = false;
 }
@@ -223,9 +202,12 @@ void HdrManager::Impl::deinit()
 void HdrManager::Impl::wait_for_yuv_stream_start()
 {
     if (!m_initialized)
+    {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "HdrManager is not initialized, cannot wait for YUV stream start");
         return;
+    }
 
-    ioctl(m_isp_fd, VIDEO_WAIT_FOR_STREAM_START);
+    ioctl(*m_isp_fd, VIDEO_WAIT_FOR_STREAM_START);
 }
 
 bool HdrManager::Impl::set_ratio()
@@ -235,62 +217,58 @@ bool HdrManager::Impl::set_ratio()
 
     ratio[0] = m_ls_ratio * (1 << 16);
     ratio[1] = m_vs_ratio * (1 << 16);
-    return v4l2::ext_ctrl_set(v4l2::Video0Ctrl::HDR_RATIOS, std::span{ratio});
+    return m_v4l2_ctrl_manager->ext_ctrl_set(v4l2::Video0Ctrl::HDR_RATIOS, std::span{ratio});
 }
 
-bool HdrManager::Impl::alloc_stitch_contexts()
+std::optional<std::vector<HdrManager::Impl::StitchContextPtr>> HdrManager::Impl::alloc_stitch_contexts(
+    HDR::DMABufferAllocator &allocator, int wb_buffer_size)
 {
     // we want an extra context so even when there are no buffers we can already have a context ready
-    std::vector<StitchContext> stitch_contexts;
+    std::vector<StitchContextPtr> stitch_contexts;
     stitch_contexts.resize(std::min(RAW_CAPTURE_BUFFERS_COUNT, ISP_IN_BUFFERS_COUNT) + 1);
     for (size_t i = 0; i < stitch_contexts.size(); i++)
     {
-        stitch_contexts[i].m_in_use = false;
-
-        if (!m_allocator.alloc(m_wb_buffer_size, stitch_contexts[i].m_wb_buffer))
+        stitch_contexts[i] = std::make_shared<StitchContext>();
+        if (!stitch_contexts[i])
         {
-            /* free all wbBuffers that were already allocated */
-            for (size_t j = 0; j < i; j++)
-            {
-                close(stitch_contexts[j].m_wb_buffer.m_fd);
-            }
-            LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to allocate stitch contexts");
-            return false;
+            LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to allocate stitch context");
+            return std::nullopt;
+        }
+        stitch_contexts[i]->m_in_use = false;
+
+        if (!allocator.alloc(wb_buffer_size, stitch_contexts[i]->m_wb_buffer))
+        {
+            LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to allocate WB buffer for stitch context {}", i);
+            return std::nullopt;
         }
 
         // Allow access to the buffer from this process
-        stitch_contexts[i].m_wb_buffer.map();
+        stitch_contexts[i]->m_wb_buffer.map();
     }
-    m_stitch_contexts = std::move(stitch_contexts);
-    return true;
+
+    return stitch_contexts;
 }
 
 void HdrManager::Impl::free_stitch_contexts()
 {
-    for (auto &stitch_context : m_stitch_contexts)
-    {
-        stitch_context.m_wb_buffer.unmap();
-        close(stitch_context.m_wb_buffer.m_fd);
-    }
     m_stitch_contexts.clear();
     m_stitch_contexts.shrink_to_fit();
 }
 
-bool HdrManager::Impl::get_stitch_context(StitchContext **context)
+std::optional<HdrManager::Impl::StitchContextPtr> HdrManager::Impl::get_stitch_context()
 {
     for (auto &stitch_context : m_stitch_contexts)
     {
-        if (!stitch_context.m_in_use)
+        if (!stitch_context->m_in_use)
         {
-            stitch_context.m_in_use = true;
-            *context = &stitch_context;
-            return true;
+            stitch_context->m_in_use = true;
+            return stitch_context;
         }
     }
-    return false;
+    return std::nullopt;
 }
 
-void HdrManager::Impl::put_stitch_context(StitchContext *context)
+void HdrManager::Impl::put_stitch_context(HdrManager::Impl::StitchContextPtr context)
 {
     context->m_in_use = false;
 }
@@ -323,22 +301,22 @@ bool HdrManager::Impl::update_wb_gains(HDR::DMABuffer &dma_wb_buffer)
         return false;
     }
 
-    auto wb_r_gain = v4l2::ext_ctrl_get<int, v4l2::Video0Ctrl>(v4l2::Video0Ctrl::WB_R_GAIN);
+    auto wb_r_gain = m_v4l2_ctrl_manager->ext_ctrl_get<int, v4l2::Video0Ctrl>(v4l2::Video0Ctrl::WB_R_GAIN);
     if (!wb_r_gain.has_value())
     {
         return false;
     }
-    auto wb_gr_gain = v4l2::ext_ctrl_get<int, v4l2::Video0Ctrl>(v4l2::Video0Ctrl::WB_GR_GAIN);
+    auto wb_gr_gain = m_v4l2_ctrl_manager->ext_ctrl_get<int, v4l2::Video0Ctrl>(v4l2::Video0Ctrl::WB_GR_GAIN);
     if (!wb_gr_gain.has_value())
     {
         return false;
     }
-    auto wb_gb_gain = v4l2::ext_ctrl_get<int, v4l2::Video0Ctrl>(v4l2::Video0Ctrl::WB_GB_GAIN);
+    auto wb_gb_gain = m_v4l2_ctrl_manager->ext_ctrl_get<int, v4l2::Video0Ctrl>(v4l2::Video0Ctrl::WB_GB_GAIN);
     if (!wb_gb_gain.has_value())
     {
         return false;
     }
-    auto wb_b_gain = v4l2::ext_ctrl_get<int, v4l2::Video0Ctrl>(v4l2::Video0Ctrl::WB_B_GAIN);
+    auto wb_b_gain = m_v4l2_ctrl_manager->ext_ctrl_get<int, v4l2::Video0Ctrl>(v4l2::Video0Ctrl::WB_B_GAIN);
     if (!wb_b_gain.has_value())
     {
         return false;
@@ -387,7 +365,7 @@ bool HdrManager::Impl::is_supported_format(int pix_fmt)
 
 void HdrManager::Impl::hdr_loop()
 {
-    StitchContext *stitch_ctx = NULL;
+    StitchContextPtr stitch_ctx;
     HDR::VideoBuffer *tmp_buf = NULL;
 
     if (!m_initialized)
@@ -434,30 +412,37 @@ void HdrManager::Impl::hdr_loop()
     while (m_running)
     {
         HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("get_stitch_context", HDR_THREADED_TRACK);
-        if (!get_stitch_context(&stitch_ctx))
+        auto stitch_context_opt = get_stitch_context();
+        HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(HDR_THREADED_TRACK);
+        if (!stitch_context_opt)
         {
             // this should never happen, but retry regardless
+            LOGGER__MODULE__ERROR(LOGGER_TYPE, "Getting stitch context failed, retrying...");
             continue;
         }
-        HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(HDR_THREADED_TRACK);
+        stitch_ctx = std::move(stitch_context_opt.value());
 
         HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("get_buffer(raw)", HDR_THREADED_TRACK);
-        if (!m_raw_capture_device->get_buffer(&stitch_ctx->m_raw_buffer))
+        bool get_raw_buf_success = m_raw_capture_device->get_buffer(&stitch_ctx->m_raw_buffer);
+        HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(HDR_THREADED_TRACK);
+        if (!get_raw_buf_success)
         {
-            put_stitch_context(stitch_ctx);
+            put_stitch_context(std::move(stitch_ctx));
+            LOGGER__MODULE__ERROR(LOGGER_TYPE, "Getting raw buffer failed, retrying...");
             continue;
         }
-        HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(HDR_THREADED_TRACK);
 
         HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("get_buffer(isp in)", HDR_THREADED_TRACK);
-        if (!m_isp_in_device->get_buffer(&stitch_ctx->m_stitched_buffer))
+        bool get_stitched_buf_success = m_isp_in_device->get_buffer(&stitch_ctx->m_stitched_buffer);
+        HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(HDR_THREADED_TRACK);
+        if (!get_stitched_buf_success)
         {
-            tmp_buf = stitch_ctx->m_raw_buffer;
-            put_stitch_context(stitch_ctx);
-            m_raw_capture_device->put_buffer(tmp_buf);
+            tmp_buf = std::move(stitch_ctx->m_raw_buffer);
+            put_stitch_context(std::move(stitch_ctx));
+            m_raw_capture_device->put_buffer(std::move(tmp_buf));
+            LOGGER__MODULE__ERROR(LOGGER_TYPE, "Getting ISP in buffer failed, retrying...");
             continue;
         }
-        HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(HDR_THREADED_TRACK);
 
         stitch_ctx->m_stitched_buffer->get_v4l2_buffer()->timestamp =
             stitch_ctx->m_raw_buffer->get_v4l2_buffer()->timestamp;
@@ -467,9 +452,11 @@ void HdrManager::Impl::hdr_loop()
         update_wb_gains(stitch_ctx->m_wb_buffer);
         HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(HDR_THREADED_TRACK);
 
-        HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("stitcher.prcoess", HDR_THREADED_TRACK);
-        m_stitcher.process(stitch_ctx->m_raw_buffer->get_planes(), stitch_ctx->m_wb_buffer.m_fd,
-                           stitch_ctx->m_stitched_buffer->get_planes()[0], stitch_ctx);
+        HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("stitcher.process", HDR_THREADED_TRACK);
+        auto raw_planes = stitch_ctx->m_raw_buffer->get_planes();
+        int wb_fd = stitch_ctx->m_wb_buffer.get_fd();
+        auto stitched_plane = stitch_ctx->m_stitched_buffer->get_planes()[0];
+        m_stitcher->process(raw_planes, wb_fd, stitched_plane, std::move(stitch_ctx));
         HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(HDR_THREADED_TRACK);
     }
 }
@@ -493,7 +480,7 @@ bool HdrManager::Impl::start()
     }
     // sleep for 100 ms
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    if (!v4l2::ctrl_set(v4l2::Video0Ctrl::HDR_FORWARD_TIMESTAMPS, true))
+    if (!m_v4l2_ctrl_manager->ctrl_set(v4l2::Video0Ctrl::HDR_FORWARD_TIMESTAMPS, true))
     {
         LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to set HDR forward timestamps");
         m_running = false;
@@ -511,16 +498,17 @@ void HdrManager::Impl::stop()
         return;
     }
     m_running = false;
-    v4l2::ctrl_set(v4l2::Video0Ctrl::HDR_FORWARD_TIMESTAMPS, false);
+    m_v4l2_ctrl_manager->ctrl_set(v4l2::Video0Ctrl::HDR_FORWARD_TIMESTAMPS, false);
     if (m_hdr_thread.joinable())
     {
         m_hdr_thread.join();
     }
 }
 
-void HdrManager::Impl::on_infer(void *ptr)
+void HdrManager::Impl::on_infer(std::shared_ptr<void> ptr)
 {
-    StitchContext *stitch_ctx = static_cast<StitchContext *>(ptr);
+    LOGGER__MODULE__INFO(LOGGER_TYPE, "on_infer beginning");
+    StitchContextPtr stitch_ctx = std::static_pointer_cast<StitchContext>(std::move(ptr));
     HDR::VideoBuffer *raw_buffer = stitch_ctx->m_raw_buffer;
     HDR::VideoBuffer *stitched_buffer = stitch_ctx->m_stitched_buffer;
 

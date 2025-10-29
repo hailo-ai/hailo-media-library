@@ -107,7 +107,7 @@ int PipeHandler::open_pipe_fd(const std::string &pipe_path)
 
 int PipeHandler::setup_epoll(int pipe_fd)
 {
-    int epoll_fd = epoll_create1(0);
+    int epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     if (epoll_fd == -1)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create epoll instance: {}", strerror(errno));

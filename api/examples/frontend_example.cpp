@@ -29,7 +29,7 @@
 
 MediaLibraryPtr m_media_lib;
 std::map<output_stream_id_t, std::ofstream> m_output_files;
-std::optional<ProfileConfig> m_user_profile;
+std::optional<config_profile_t> m_user_profile;
 
 inline std::string get_encoder_osd_config_file(const std::string &id)
 {
@@ -216,7 +216,7 @@ bool set_profile(const std::string &profile_name)
     return true;
 }
 
-bool set_override_parameters(ProfileConfig override_profile)
+bool set_override_parameters(config_profile_t override_profile)
 {
     media_library_return profile_ret = m_media_lib->set_override_parameters(override_profile);
     if (profile_ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
@@ -254,11 +254,11 @@ int update_encoders_bitrate()
         std::cout << "Failed to get current profile" << std::endl;
         return 1;
     }
-    ProfileConfig profile = expected_profile.value();
-    for (auto &entry : profile.encoder_configs)
+    config_profile_t profile = expected_profile.value();
+    for (auto &entry : profile.to_encoder_config_map())
     {
         encoder_config_t &encoder_config = entry.second;
-        if (profile.get_type(entry.first) == EncoderType::Jpeg)
+        if (profile.get_encoder_type(entry.first) == EncoderType::Jpeg)
         {
             continue;
         }
@@ -286,11 +286,11 @@ int update_jpeg_encoders_quality()
         std::cout << "Failed to get current profile" << std::endl;
         return 1;
     }
-    ProfileConfig profile = expected_profile.value();
-    for (auto &entry : profile.encoder_configs)
+    config_profile_t profile = expected_profile.value();
+    for (auto &entry : profile.to_encoder_config_map())
     {
         encoder_config_t &encoder_config = entry.second;
-        if (profile.get_type(entry.first) != EncoderType::Jpeg)
+        if (profile.get_encoder_type(entry.first) != EncoderType::Jpeg)
         {
             continue;
         }
@@ -319,11 +319,11 @@ int update_encoders_bitrate_monitor_period()
         std::cout << "Failed to get current profile" << std::endl;
         return 1;
     }
-    ProfileConfig profile = expected_profile.value();
-    for (auto &entry : profile.encoder_configs)
+    config_profile_t profile = expected_profile.value();
+    for (auto &entry : profile.to_encoder_config_map())
     {
         encoder_config_t &encoder_config = entry.second;
-        if (profile.get_type(entry.first) == EncoderType::Jpeg)
+        if (profile.get_encoder_type(entry.first) == EncoderType::Jpeg)
         {
             continue;
         }
@@ -348,11 +348,12 @@ int disable_encoders_bitrate_monitor()
         std::cout << "Failed to get current profile" << std::endl;
         return 1;
     }
-    ProfileConfig profile = expected_profile.value();
-    for (auto &entry : profile.encoder_configs)
+    config_profile_t profile = expected_profile.value();
+    for (auto &entry : profile.to_encoder_config_map())
     {
         encoder_config_t &encoder_config = entry.second;
-        if (profile.get_type(entry.first) == EncoderType::Jpeg)
+
+        if (profile.get_encoder_type(entry.first) == EncoderType::Jpeg)
         {
             continue;
         }
@@ -381,6 +382,7 @@ void cleanup_resources()
     }
 
     m_output_files.clear();
+    m_media_lib = nullptr;
 }
 
 media_library_return toggle_frontend_config()
@@ -391,8 +393,8 @@ media_library_return toggle_frontend_config()
         std::cout << "Failed to get current profile" << std::endl;
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
-    ProfileConfig profile_config = profile_config_expected.value();
-    profile_config.ldc_config.dewarp_config.enabled = false;
+    config_profile_t profile_config = profile_config_expected.value();
+    profile_config.iq_settings.dewarp.enabled = false;
     std::cout << "Setting dewarp enable to false" << std::endl;
     bool profile_ret = set_override_parameters(profile_config);
     if (!profile_ret)
@@ -406,13 +408,13 @@ media_library_return toggle_frontend_config()
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
     profile_config = profile_config_expected.value();
-    profile_config.ldc_config.dewarp_config.enabled = true;
+    profile_config.iq_settings.dewarp.enabled = true;
     std::cout << "Setting dewarp enable to true" << std::endl;
     profile_ret = set_override_parameters(profile_config);
     if (!profile_ret)
         return media_library_return::MEDIA_LIBRARY_ERROR;
     profile_config = profile_config_expected.value();
-    profile_config.ldc_config.dewarp_config.enabled = true;
+    profile_config.iq_settings.dewarp.enabled = true;
     std::cout << "Setting dewarp enable to true" << std::endl;
     profile_ret = set_override_parameters(profile_config);
     if (!profile_ret)
@@ -473,7 +475,14 @@ media_library_return add_custom_overlays(std::shared_ptr<osd::Blender> blender)
 int main()
 {
     m_user_profile = std::nullopt;
-    m_media_lib = std::make_shared<MediaLibrary>();
+    auto media_lib_expected = MediaLibrary::create();
+    if (!media_lib_expected.has_value())
+    {
+        std::cout << "Failed to create media library" << std::endl;
+        return 1;
+    }
+    m_media_lib = media_lib_expected.value();
+
     std::string medialib_config_path = "/usr/bin/medialib_config.json";
     if (JPEG_SINK1)
     {
@@ -497,10 +506,10 @@ int main()
         encoder.second->get_osd_blender()->set_overlay_enabled("profile_text_overlay", true);
     }
 
-    m_media_lib->on_profile_restricted([](ProfileConfig previous_profile, ProfileConfig new_profile) {
+    m_media_lib->on_profile_restricted([](config_profile_t previous_profile, config_profile_t new_profile) {
         std::cout << "Profile restricted - previous profile denoise enabled: "
-                  << previous_profile.denoise_config.enabled
-                  << " new profile denoise enabled: " << new_profile.denoise_config.enabled << std::endl;
+                  << previous_profile.iq_settings.denoise.enabled
+                  << " new profile denoise enabled: " << new_profile.iq_settings.denoise.enabled << std::endl;
         m_user_profile = previous_profile;
         std::string current_profile_name = "";
         auto get_profile_exp = m_media_lib->get_current_profile();
@@ -513,7 +522,7 @@ int main()
             std::cout << "Failed to get profile name" << std::endl;
         }
 
-        if (previous_profile.denoise_config.enabled && !new_profile.denoise_config.enabled)
+        if (previous_profile.iq_settings.denoise.enabled && !new_profile.iq_settings.denoise.enabled)
         {
             update_osd_profile_name(current_profile_name + " - denoise disabled");
         }
@@ -535,13 +544,13 @@ int main()
         if (m_user_profile.has_value())
         {
             std::cout << "Setting profile to previous restricted profile" << std::endl;
-            ProfileConfig &restricted_profile = m_user_profile.value();
+            config_profile_t &restricted_profile = m_user_profile.value();
             bool ret = set_override_parameters(restricted_profile);
             if (!ret)
                 std::cout << "Failed to set profile to previous restricted profile" << std::endl;
 
             std::string profile_name = restricted_profile.name;
-            if (!restricted_profile.denoise_config.enabled)
+            if (!restricted_profile.iq_settings.denoise.enabled)
             {
                 profile_name += " - denoise disabled";
             }
@@ -573,12 +582,11 @@ int main()
     update_osd_profile_name(current_profile_name);
 
     // register signal SIGINT and signal handler
-    signal_utils::register_signal_handler([](int signal) {
+    static signal_utils::SignalHandler signal_handler;
+    signal_handler.register_signal_handler([](int signal) {
         m_media_lib->stop_pipeline();
         cleanup_resources();
-        // terminate program
         exit(signal);
-        ;
     });
     auto streams = m_media_lib->m_frontend->get_outputs_streams();
     for (auto s : streams.value())

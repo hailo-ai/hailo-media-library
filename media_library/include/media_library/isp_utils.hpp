@@ -27,42 +27,12 @@
 
 #pragma once
 
-#include <iostream>
-#include <filesystem>
 #include <tl/expected.hpp>
 #include "media_library_types.hpp"
+#include "sensor_types.hpp"
 #include "v4l2_ctrl.hpp"
 
-#define V4L2_DEVICE_NAME "/dev/video0"
-#define TRIPLE_A_CONFIG_PATH "/usr/bin/3aconfig.json"
-#define SONY_CONFIG_PATH "/usr/bin/sony_imx678.xml"
-#define SENSOR0_ENTRY_CONFIG_PATH "/usr/bin/Sensor0_Entry.cfg"
-#define MEDIA_SERVER_CONFIG_PATH "/usr/bin/media_server_cfg.json"
-#define ISP_CONFIG_PATH "/usr/lib/medialib/default_config/isp_profiles/"
-
-#define _DAYLIGHT "daylight/"
-#define _LOWLIGHT "lowlight/"
-#define _HDR "hdr/"
-#define _2DOL "2dol/"
-#define _3DOL "3dol/"
-
-#define _3A_CONFIG "3aconfig.json"
-#define _SONY_CONFIG "sony_imx678.xml"
 #define _MEDIA_SERVER_CONFIG "media_server_cfg.json"
-#define ISP_SENSOR0_ENTRY_CONFIG "Sensor0_Entry.cfg"
-
-// 3A config
-#define ISP_DAYLIGHT_3A_CONFIG (ISP_CONFIG_PATH _DAYLIGHT _3A_CONFIG)
-#define ISP_LOWLIGHT_3A_CONFIG (ISP_CONFIG_PATH _LOWLIGHT _3A_CONFIG)
-#define ISP_HDR_2DOL_3A_CONFIG (ISP_CONFIG_PATH _HDR _2DOL _3A_CONFIG)
-
-// Sensor0 config
-#define ISP_DAYLIGHT_SENSOR0_CONFIG (ISP_CONFIG_PATH _DAYLIGHT ISP_SENSOR0_ENTRY_CONFIG)
-#define ISP_LOWLIGHT_SENSOR0_CONFIG (ISP_CONFIG_PATH _LOWLIGHT ISP_SENSOR0_ENTRY_CONFIG)
-#define ISP_HDR_2DOL_SENSOR0_CONFIG (ISP_CONFIG_PATH _HDR _2DOL ISP_SENSOR0_ENTRY_CONFIG)
-
-// Media server config
-#define MEDIA_SERVER_CONFIG "/usr/bin/media_server_cfg.json"
 
 /** @defgroup isp_utils_definitions MediaLibrary ISP utilities CPP API
  * definitions
@@ -74,6 +44,16 @@
 */
 namespace isp_utils
 {
+
+enum isp_mcm_mode
+{
+    ISP_MCM_MODE_OFF = 0,
+    ISP_MCM_MODE_STITCHING = 1, // default mode for MCM
+    ISP_MCM_MODE_INJECTION = 2, // read raw and write back to MCM, 16 bit
+    ISP_MCM_MODE_PACKED = 3,    // read raw and write back to MCM, 12 bit
+    ISP_MCM_MODE_MAX
+};
+
 typedef struct
 {
     std::vector<uint64_t> rhs_times;
@@ -82,33 +62,20 @@ typedef struct
     uint64_t hmax;
 } isp_hdr_sensor_params_t;
 
-enum class SensorType
-{
-    IMX334,
-    IMX664,
-    IMX675,
-    IMX678,
-    IMX715
-};
-
-extern bool m_auto_configure;
-void set_auto_configure(bool auto_configure);
 void set_isp_config_files_path(std::string &path);
-void override_file(const std::string &src, const std::string &dst);
-void set_daylight_configuration();
-void set_lowlight_configuration();
-void set_hdr_configuration();
-std::optional<SensorType> get_sensor_type();
-void setup_hdr(const output_resolution_t &input_resolution, const hdr_config_t &hdr_config, const int stitch_mode);
-void setup_sdr(const output_resolution_t &input_resolution);
-void setup_pre_isp_denoise(const output_resolution_t &input_resolution);
-void set_hdr_ratios(float ls_ratio, float vs_ratio);
+std::optional<SensorType> get_sensor_type(size_t sensor_index = 0);
+media_library_return setup_hdr(const output_resolution_t &input_resolution, const hdr_config_t &hdr_config,
+                               const int stitch_mode, std::shared_ptr<v4l2::v4l2ControlManager> v4l2_ctrl_manager);
+media_library_return setup_sdr(const output_resolution_t &input_resolution,
+                               std::shared_ptr<v4l2::v4l2ControlManager> v4l2_ctrl_manager,
+                               const bool dgain_mode = false);
 /* When HDR is on, set the offeset to be the time of the frame capture in the sensor, so NNC timings will not effect it
  */
 void set_hdr_forward_timestamp(bool enabled);
 tl::expected<isp_hdr_sensor_params_t, media_library_return> get_hdr_isp_params(
     uint8_t num_exposures, uint64_t line_readout_time, uint64_t num_readout_lines,
-    std::shared_ptr<v4l2::v4l2ControlRepository> v4l2_ctrl_repo, bool force_refresh = false);
+    std::shared_ptr<v4l2::v4l2ControlManager> v4l2_ctrl_manager, bool force_refresh = false);
+bool set_isp_mcm_mode(uint32_t target_mcm_mode, std::shared_ptr<v4l2::v4l2ControlManager> v4l2_ctrl_manager);
 } // namespace isp_utils
 
 /** @} */ // end of isp_utils_definitions

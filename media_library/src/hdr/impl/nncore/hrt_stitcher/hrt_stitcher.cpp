@@ -26,7 +26,8 @@ HailortAsyncStitching::HailortAsyncStitching()
 {
 }
 
-void HailortAsyncStitching::set_on_infer_finish(std::function<void(void *stitch_context)> on_infer_finish)
+void HailortAsyncStitching::set_on_infer_finish(
+    std::function<void(std::shared_ptr<void> stitch_context)> on_infer_finish)
 {
     m_on_infer_finish = on_infer_finish;
 }
@@ -104,7 +105,8 @@ int HailortAsyncStitching::init(const std::string &hef_path, const std::string &
     return HAILO_STITCH_SUCCESS;
 }
 
-int HailortAsyncStitching::process(int *input_buffers, int awb_buffer, int output_buffer, void *stitch_context)
+int HailortAsyncStitching::process(int *input_buffers, int awb_buffer, int output_buffer,
+                                   std::shared_ptr<void> stitch_context)
 {
     if (set_input_buffers(input_buffers, awb_buffer) != HAILO_STITCH_SUCCESS)
     {
@@ -197,7 +199,7 @@ int HailortAsyncStitching::set_output_buffers(int output_buffer)
     return HAILO_STITCH_SUCCESS;
 }
 
-int HailortAsyncStitching::infer(void *stitch_context)
+int HailortAsyncStitching::infer(std::shared_ptr<void> stitch_context)
 {
     auto status = m_configured_infer_model.wait_for_async_ready(std::chrono::milliseconds(10000));
     if (HAILO_STITCH_SUCCESS != status)
@@ -206,19 +208,19 @@ int HailortAsyncStitching::infer(void *stitch_context)
         return status;
     }
 
-    HAILO_MEDIA_LIBRARY_TRACE_ASYNC_EVENT_BEGIN("Inference", (uint64_t)stitch_context, HDR_TRACK);
+    HAILO_MEDIA_LIBRARY_TRACE_ASYNC_EVENT_BEGIN("Inference", (uint64_t)stitch_context.get(), HDR_TRACK);
 
     auto job = m_configured_infer_model.run_async(
-        m_bindings, [stitch_context, this](const hailort::AsyncInferCompletionInfo &completion_info) {
+        m_bindings,
+        [stitch_context = std::move(stitch_context), this](const hailort::AsyncInferCompletionInfo &completion_info) {
             if (completion_info.status != HAILO_STITCH_SUCCESS)
             {
                 LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to run async infer, status = {}", completion_info.status);
                 return HAILO_STITCH_ERROR;
             }
 
-            HAILO_MEDIA_LIBRARY_TRACE_ASYNC_EVENT_END("Inference", (uint64_t)stitch_context, HDR_TRACK);
-            m_on_infer_finish(stitch_context);
-
+            HAILO_MEDIA_LIBRARY_TRACE_ASYNC_EVENT_END("Inference", (uint64_t)stitch_context.get(), HDR_TRACK);
+            m_on_infer_finish(std::move(stitch_context));
             return HAILO_STITCH_SUCCESS;
         });
 

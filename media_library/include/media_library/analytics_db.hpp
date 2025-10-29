@@ -45,7 +45,7 @@ class AnalyticsDB
   public:
     static AnalyticsDB &instance();
     void clear_db();
-    void initialize(application_analytics_config_t application_analytics);
+    void add_configuration(application_analytics_config_t application_analytics_config);
 
     media_library_return add_detection_entry(const std::string &analytics_id, const DetectionAnalyticsData &data);
     media_library_return add_instance_segmentation_entry(const std::string &analytics_id,

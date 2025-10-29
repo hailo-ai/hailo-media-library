@@ -3,8 +3,12 @@
 #include "hdr_manager.hpp"
 #include "logger_macros.hpp"
 #include "media_library_types.hpp"
+#include "sensor_registry.hpp"
 
-HdrManager::Impl::Impl() = default;
+HdrManager::Impl::Impl(std::shared_ptr<v4l2::v4l2ControlManager> v4l2_ctrl_manager)
+    : m_v4l2_ctrl_manager(v4l2_ctrl_manager)
+{
+}
 
 HdrManager::Impl::~Impl()
 {
@@ -17,12 +21,6 @@ bool HdrManager::Impl::init(const frontend_config_t &frontend_config)
     {
         LOGGER__MODULE__INFO(LOGGER_TYPE, "Reinitializing HdrManager");
         deinit();
-    }
-
-    if (!is_resolution_supported(frontend_config.input_config.resolution))
-    {
-        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Unsupported resolution for HDR ISP implementation");
-        return false;
     }
 
     if (!is_dol_supported(frontend_config.hdr_config.dol))
@@ -64,19 +62,6 @@ void HdrManager::Impl::stop()
     }
 
     LOGGER__MODULE__INFO(LOGGER_TYPE, "HdrManager (ISP) stopped");
-}
-
-bool HdrManager::Impl::is_resolution_supported(const output_resolution_t &resolution)
-{
-    if ((resolution.dimensions.destination_width == SUPPORTED_WIDTH_5MP &&
-         resolution.dimensions.destination_height == SUPPORTED_HEIGHT_5MP))
-    {
-        return true;
-    }
-
-    LOGGER__MODULE__ERROR(LOGGER_TYPE, "Unsupported HDR resolution: {}x{}", resolution.dimensions.destination_width,
-                          resolution.dimensions.destination_height);
-    return false;
 }
 
 bool HdrManager::Impl::is_dol_supported(hdr_dol_t dol)

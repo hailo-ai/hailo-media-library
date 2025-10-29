@@ -1,6 +1,7 @@
 #include "video_device.hpp"
 #include "logger_macros.hpp"
 #include "hailo_media_library_perfetto.hpp"
+#include "sensor_registry.hpp"
 
 #include <string.h>
 #include <unistd.h>
@@ -44,7 +45,7 @@ VideoDevice::VideoDevice(v4l2_buf_type format_type)
 
 bool VideoDevice::open_device(const std::string &device_path)
 {
-    m_fd = open(device_path.c_str(), O_RDWR);
+    m_fd = open(device_path.c_str(), O_RDWR | O_CLOEXEC);
     return m_fd >= 0;
 }
 
@@ -58,12 +59,18 @@ bool VideoDevice::validate_cap()
 {
     struct v4l2_capability v4l2_caps;
     if (m_fd < 0)
+    {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Invalid file descriptor: {}", m_fd);
         return false;
+    }
 
     memset(&v4l2_caps, 0, sizeof(v4l2_caps));
 
     if (ioctl(m_fd, VIDIOC_QUERYCAP, &v4l2_caps) != 0)
+    {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "VIDIOC_QUERYCAP failed, errno: {}", errno);
         return false;
+    }
 
     if (v4l2_caps.device_caps & V4L2_CAP_VIDEO_CAPTURE_MPLANE)
     {
@@ -93,7 +100,13 @@ bool VideoDevice::set_format()
     fmt.fmt.pix_mp.field = V4L2_FIELD_ANY;
     fmt.fmt.pix_mp.num_planes = get_num_exposures();
 
-    return (ioctl(m_fd, VIDIOC_S_FMT, &fmt) == 0);
+    int result = ioctl(m_fd, VIDIOC_S_FMT, &fmt);
+    if (result != 0)
+    {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "VIDIOC_S_FMT failed with error: {}", errno);
+        return false;
+    }
+    return true;
 }
 
 bool VideoDevice::init_buffers(DMABufferAllocator &allocator, size_t plane_size, bool timestamp_copy)
@@ -126,7 +139,7 @@ bool VideoDevice::init_buffers(DMABufferAllocator &allocator, size_t plane_size,
     {
         VideoBuffer *buffer = new VideoBuffer();
 
-        if (!buffer->init(allocator, get_format_type(), index, get_num_exposures(), plane_size, timestamp_copy))
+        if (!buffer->init(allocator, get_format_type(), index, get_num_exposures(), plane_size, timestamp_copy, m_fd))
         {
             delete buffer;
             goto err_querybuf;
@@ -166,7 +179,13 @@ bool VideoDevice::start_stream()
 {
     enum v4l2_buf_type type = get_format_type();
 
-    return (ioctl(m_fd, VIDIOC_STREAMON, &type) == 0);
+    // return (ioctl(m_fd, VIDIOC_STREAMON, &type) == 0);
+    if (ioctl(m_fd, VIDIOC_STREAMON, &type) != 0)
+    {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "{}: VIDIOC_STREAMON failed", m_name);
+        return false;
+    }
+    return true;
 }
 
 bool VideoDevice::stop_stream()
@@ -175,13 +194,18 @@ bool VideoDevice::stop_stream()
     if (!m_initialized)
         return false;
 
-    return (ioctl(m_fd, VIDIOC_STREAMOFF, &type) == 0);
+    // return (ioctl(m_fd, VIDIOC_STREAMOFF, &type) == 0);
+    if (ioctl(m_fd, VIDIOC_STREAMOFF, &type) != 0)
+    {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "{}: VIDIOC_STREAMOFF failed", m_name);
+        return false;
+    }
+    return true;
 }
 
 bool VideoDevice::init(const std::string &device_path, const std::string name, DMABufferAllocator &allocator,
-                       unsigned int num_exposures, HDR::InputResolution res, unsigned int buffers_count,
-                       int pixel_format, size_t pixel_width, unsigned int fps, bool queue_buffers_on_stream_start,
-                       bool timestamp_copy)
+                       unsigned int num_exposures, Resolution res, unsigned int buffers_count, int pixel_format,
+                       size_t pixel_width, unsigned int fps, bool queue_buffers_on_stream_start, bool timestamp_copy)
 {
     if (m_initialized)
     {
@@ -201,24 +225,16 @@ bool VideoDevice::init(const std::string &device_path, const std::string name, D
 
     m_num_exposures = num_exposures;
 
-    switch (res)
+    auto &registry = SensorRegistry::get_instance();
+    auto resolution_info = registry.get_resolution_info(res);
+    if (!resolution_info)
     {
-    case RES_FHD:
-        m_width = 1920;
-        m_height = 1080;
-        break;
-    case RES_4K:
-        m_width = 3840;
-        m_height = 2160;
-        break;
-    case RES_4MP:
-        m_width = 2688;
-        m_height = 1520;
-        break;
-    default:
         LOGGER__MODULE__ERROR(LOGGER_TYPE, "{}: invalid resolution", m_name);
         return false;
     }
+
+    m_width = resolution_info->width;
+    m_height = resolution_info->height;
 
     m_num_buffers = buffers_count;
     size_t plane_size_pixels = get_width() * get_height();
@@ -291,7 +307,7 @@ bool VideoDevice::dequeue_buffers()
     VideoBuffer *buf = nullptr;
     struct epoll_event ev;
     struct epoll_event events[1];
-    int epoll_fd = epoll_create1(0);
+    int epoll_fd = epoll_create1(EPOLL_CLOEXEC);
 
     if (epoll_fd == -1)
     {
@@ -357,7 +373,10 @@ bool VideoDevice::put_buffer(VideoBuffer *buffer)
     int ioctl_ret;
 
     if (!buffer)
+    {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "{}: put_buffer called with null buffer", m_name);
         return false;
+    }
 
     HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN(perfetto::DynamicString(m_queue_event_name), VIDEO_DEV_THREADED_TRACK);
     ioctl_ret = ioctl(m_fd, VIDIOC_QBUF, buffer->get_v4l2_buffer());
@@ -365,6 +384,8 @@ bool VideoDevice::put_buffer(VideoBuffer *buffer)
 
     if (ioctl_ret != 0)
     {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "{}: VIDIOC_QBUF failed, err {}, ioctl_ret {}, failed fd {}", m_name, errno,
+                              ioctl_ret, buffer->get_v4l2_buffer()->m.planes[0].m.fd);
         return false;
     }
 
@@ -423,8 +444,8 @@ VideoOutputDevice::VideoOutputDevice() : VideoDevice(V4L2_BUF_TYPE_VIDEO_OUTPUT_
 }
 
 bool VideoOutputDevice::init(const std::string &device_path, const std::string name, DMABufferAllocator &allocator,
-                             unsigned int num_exposures, HDR::InputResolution res, unsigned int buffers_count,
-                             int pixel_format, size_t pixel_width, unsigned int fps, bool, bool timestamp_copy)
+                             unsigned int num_exposures, Resolution res, unsigned int buffers_count, int pixel_format,
+                             size_t pixel_width, unsigned int fps, bool, bool timestamp_copy)
 {
     if (!VideoDevice::init(device_path, std::move(name), allocator, num_exposures, res, buffers_count, pixel_format,
                            pixel_width, fps, false, timestamp_copy))
@@ -485,7 +506,10 @@ bool VideoOutputDevice::get_buffer(VideoBuffer **o_buffer)
 bool VideoOutputDevice::put_buffer(VideoBuffer *buffer)
 {
     if (!VideoDevice::put_buffer(buffer))
+    {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "{}: VideoOutputDevice put_buffer failed", m_name);
         return false;
+    }
 
     return true;
 }

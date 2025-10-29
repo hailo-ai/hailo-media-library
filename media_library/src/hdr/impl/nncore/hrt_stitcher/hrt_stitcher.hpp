@@ -22,7 +22,7 @@ class HailortAsyncStitching
   private:
     static constexpr LoggerType LOGGER_TYPE = LoggerType::Hdr;
 
-    std::function<void(void *output_buffer)> m_on_infer_finish;
+    std::function<void(std::shared_ptr<void> stitch_context)> m_on_infer_finish;
     std::string m_hef_path;
     std::string m_group_id;
     int m_scheduler_threshold;
@@ -39,12 +39,12 @@ class HailortAsyncStitching
   public:
     HailortAsyncStitching();
 
-    void set_on_infer_finish(std::function<void(void *stitch_context)> on_infer_finish);
+    void set_on_infer_finish(std::function<void(std::shared_ptr<void> stitch_context)> on_infer_finish);
 
     int init(const std::string &hef_path, const std::string &group_id, int scheduler_threshold,
              int scheduler_timeout_in_ms, int num_exp);
 
-    int process(int *input_buffers, int awb_buffer, int output_buffer, void *stitch_context);
+    int process(int *input_buffers, int awb_buffer, int output_buffer, std::shared_ptr<void> stitch_context);
 
   private:
     int set_input_buffer(int input_buffer, std::string tensor_name);
@@ -53,7 +53,7 @@ class HailortAsyncStitching
     int set_output_buffer(int output_buffer, std::string tensor_name);
     int set_output_buffers(int output_buffer);
 
-    int infer(void *stitch_context);
+    int infer(std::shared_ptr<void> stitch_context);
 };
 
 using HailortAsyncStitchingPtr = std::shared_ptr<HailortAsyncStitching>;

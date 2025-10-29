@@ -64,9 +64,11 @@ MediaLibraryDenoise::~MediaLibraryDenoise()
     m_flushing = true;
     m_inference_callback_condvar.notify_one();
     m_loopback_condvar.notify_one();
+    m_timestamp_condvar.notify_one();
     if (m_inference_callback_thread.joinable())
         m_inference_callback_thread.join();
     clear_loopback_queue();
+    clear_timestamp_queue();
 
     // Free the startup buffer if it exists
     m_startup_buffer = nullptr;
@@ -158,6 +160,8 @@ media_library_return MediaLibraryDenoise::configure(const denoise_config_t &deno
 
         m_loopback_condvar.notify_all();
         clear_loopback_queue();
+        m_timestamp_condvar.notify_all();
+        clear_timestamp_queue();
 
         if (close_buffer_pools() != MEDIA_LIBRARY_SUCCESS)
         {
@@ -179,16 +183,19 @@ media_library_return MediaLibraryDenoise::configure(const denoise_config_t &deno
     m_denoise_configs = denoise_configs;
     m_hailort_configs = hailort_configs;
     m_input_config = input_video_configs;
+    m_sensor_index = input_video_configs.sensor_index;
     m_configured = true;
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-void MediaLibraryDenoise::stamp_time_and_log_fps(timespec &start_handle, timespec &end_handle)
+void MediaLibraryDenoise::stamp_time_and_log_fps(timespec &start_handle)
 {
+    struct timespec end_handle;
     clock_gettime(CLOCK_MONOTONIC, &end_handle);
     long ms = (long)media_library_difftimespec_ms(end_handle, start_handle);
     uint framerate = 1000 / ms;
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "denoise handle_frame took {} milliseconds ({} fps)", ms, framerate);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "denoising frame took {} milliseconds ({} fps)", ms, framerate);
+    HAILO_MEDIA_LIBRARY_TRACE_COUNTER("denoise latency (ms)", ms, DENOISE_TRACK);
 }
 
 /**
@@ -328,12 +335,13 @@ media_library_return MediaLibraryDenoise::handle_frame(HailoMediaLibraryBufferPt
 
     if (!currently_enabled())
     {
-        LOGGER__DEBUG("Denoise is disabled, skipping denoise [handle_frame]");
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Denoise is disabled, skipping denoise [handle_frame]");
         return media_library_return::MEDIA_LIBRARY_SUCCESS;
     }
-    // Stamp start time
-    struct timespec start_handle, end_handle;
+    // Stamp start time and queue for retrieval after inference
+    struct timespec start_handle;
     clock_gettime(CLOCK_MONOTONIC, &start_handle);
+    queue_timestamp_buffer(start_handle);
 
     // Denoise
     copy_meta(input_frame, output_frame);
@@ -341,8 +349,6 @@ media_library_return MediaLibraryDenoise::handle_frame(HailoMediaLibraryBufferPt
 
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
         return media_lib_ret;
-
-    stamp_time_and_log_fps(start_handle, end_handle);
 
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
@@ -378,7 +384,7 @@ void MediaLibraryDenoise::inference_callback_thread()
         std::unique_lock<std::mutex> lock(m_inference_callback_mutex);
         if (m_flushing && !m_hailort_denoise->has_pending_jobs() && m_inference_callback_queue.empty())
         {
-            LOGGER__INFO("Inference callback thread is exiting");
+            LOGGER__MODULE__INFO(MODULE_NAME, "Inference callback thread is exiting");
             return;
         }
         lock.unlock();
@@ -386,6 +392,13 @@ void MediaLibraryDenoise::inference_callback_thread()
         if (output_buffer == nullptr)
         {
             continue;
+        }
+
+        // This is when we push the output buffer, so stamp now for latency measurement
+        auto timestamp_opt = dequeue_timestamp_buffer();
+        if (timestamp_opt.has_value())
+        {
+            stamp_time_and_log_fps(timestamp_opt.value());
         }
 
         for (auto &callbacks : m_callbacks)
@@ -396,7 +409,7 @@ void MediaLibraryDenoise::inference_callback_thread()
             }
         }
 
-        if (output_buffer->owner->get_format() == HAILO_FORMAT_NV12)
+        if (output_buffer->owner && output_buffer->owner->get_format() == HAILO_FORMAT_NV12)
         {
             SnapshotManager::get_instance().take_snapshot("post_isp_denoise", output_buffer);
         }
@@ -471,42 +484,40 @@ HailoMediaLibraryBufferPtr MediaLibraryDenoise::dequeue_inference_callback_buffe
     return buffer;
 }
 
-// Generic Queue Control
+// Timestamp queue controls
 
-void MediaLibraryDenoise::queue_buffer(HailoMediaLibraryBufferPtr buffer, std::queue<HailoMediaLibraryBufferPtr> &queue,
-                                       std::shared_ptr<std::mutex> mutex,
-                                       std::shared_ptr<std::condition_variable> condvar, uint8_t queue_size)
+void MediaLibraryDenoise::queue_timestamp_buffer(timespec start_handle)
 {
-    std::unique_lock<std::mutex> lock(*mutex);
-    condvar->wait(lock, [queue, queue_size] { return queue.size() < queue_size; });
-    queue.push(buffer);
-    condvar->notify_one();
+    std::unique_lock<std::mutex> lock(m_timestamp_mutex);
+    m_timestamp_condvar.wait(lock, [this] { return m_timestamp_queue.size() < m_timestamp_queue_size; });
+    m_timestamp_queue.push(start_handle);
+    HAILO_MEDIA_LIBRARY_TRACE_COUNTER("timestamp queue", m_timestamp_queue.size(), DENOISE_TRACK);
+    m_timestamp_condvar.notify_one();
 }
 
-HailoMediaLibraryBufferPtr MediaLibraryDenoise::dequeue_buffer(std::queue<HailoMediaLibraryBufferPtr> &queue,
-                                                               std::shared_ptr<std::mutex> mutex,
-                                                               std::shared_ptr<std::condition_variable> condvar)
+std::optional<timespec> MediaLibraryDenoise::dequeue_timestamp_buffer()
 {
-    std::unique_lock<std::mutex> lock(*mutex);
-    condvar->wait(lock, [queue, this] { return !queue.empty() || m_flushing; });
-    if (queue.empty())
+    std::unique_lock<std::mutex> lock(m_timestamp_mutex);
+    m_timestamp_condvar.wait(lock, [this] { return !m_timestamp_queue.empty() || m_flushing; });
+    if (m_timestamp_queue.empty())
     {
-        return nullptr;
+        return std::nullopt;
     }
-    HailoMediaLibraryBufferPtr buffer = queue.front();
-    queue.pop();
-    condvar->notify_one();
-    return buffer;
+    timespec time_handle = m_timestamp_queue.front();
+    m_timestamp_queue.pop();
+    HAILO_MEDIA_LIBRARY_TRACE_COUNTER("timestamp queue", m_timestamp_queue.size(), DENOISE_TRACK);
+    m_timestamp_condvar.notify_one();
+    return time_handle;
 }
 
-void MediaLibraryDenoise::clear_queue(std::queue<HailoMediaLibraryBufferPtr> &queue, std::shared_ptr<std::mutex> mutex,
-                                      std::shared_ptr<std::condition_variable> condvar)
+void MediaLibraryDenoise::clear_timestamp_queue()
 {
-    std::unique_lock<std::mutex> lock(*mutex);
-    while (!queue.empty())
+    std::unique_lock<std::mutex> lock(m_timestamp_mutex);
+    while (!m_timestamp_queue.empty())
     {
-        HailoMediaLibraryBufferPtr buffer = queue.front();
-        queue.pop();
+        timespec time_handle = m_timestamp_queue.front();
+        (void)time_handle;
+        m_timestamp_queue.pop();
     }
-    condvar->notify_one();
+    m_timestamp_condvar.notify_one();
 }

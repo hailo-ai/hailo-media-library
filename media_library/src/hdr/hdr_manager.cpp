@@ -2,12 +2,12 @@
 #include "hdr_manager_impl.hpp"
 
 #include "media_library_types.hpp"
-
 #include "isp_utils.hpp"
 
 static constexpr LoggerType LOGGER_TYPE = LoggerType::Hdr;
 
-HdrManager::HdrManager() : m_impl(std::make_unique<Impl>())
+HdrManager::HdrManager(std::shared_ptr<v4l2::v4l2ControlManager> v4l2_ctrl_manager)
+    : m_impl(std::make_unique<Impl>(v4l2_ctrl_manager))
 {
 }
 
@@ -18,25 +18,27 @@ HdrManager::~HdrManager()
 
 bool HdrManager::init(const frontend_config_t &frontend_config)
 {
-    if (!m_impl->is_resolution_supported(frontend_config.input_config.resolution))
-    {
-        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Unsupported HDR resolution: {}x{}",
-                              frontend_config.input_config.resolution.dimensions.destination_width,
-                              frontend_config.input_config.resolution.dimensions.destination_height);
-        return false;
-    }
     if (!m_impl->is_dol_supported(frontend_config.hdr_config.dol))
     {
         LOGGER__MODULE__ERROR(LOGGER_TYPE, "Unsupported HDR DOL value: {}", frontend_config.hdr_config.dol);
         return false;
     }
 
-    isp_utils::setup_hdr(frontend_config.input_config.resolution, frontend_config.hdr_config,
-                         m_impl->get_stitch_mode());
-    isp_utils::set_hdr_configuration();
+    if (MEDIA_LIBRARY_SUCCESS != isp_utils::setup_hdr(frontend_config.input_config.resolution,
+                                                      frontend_config.hdr_config, m_impl->get_stitch_mode(),
+                                                      m_impl->get_v4l2_ctrl_manager()))
+    {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to setup HDR configuration");
+        return false;
+    }
     if (!m_impl->init(frontend_config))
     {
-        isp_utils::setup_sdr(frontend_config.input_config.resolution);
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to initialize HDR manager, setting SDR instead");
+        if (MEDIA_LIBRARY_SUCCESS !=
+            isp_utils::setup_sdr(frontend_config.input_config.resolution, m_impl->get_v4l2_ctrl_manager()))
+        {
+            LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to setup SDR configuration");
+        }
         return false;
     }
 
@@ -62,5 +64,8 @@ void HdrManager::deinit()
         return;
     }
     m_impl->deinit();
-    isp_utils::setup_sdr(m_input_resolution);
+    if (MEDIA_LIBRARY_SUCCESS != isp_utils::setup_sdr(m_input_resolution, m_impl->get_v4l2_ctrl_manager()))
+    {
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to setup SDR configuration, after deinitializing HDR");
+    }
 }

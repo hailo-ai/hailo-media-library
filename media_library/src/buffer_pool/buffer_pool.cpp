@@ -243,6 +243,10 @@ MediaLibraryBufferPool::MediaLibraryBufferPool(uint width, uint height, HailoFor
         m_buckets.emplace_back(
             std::make_shared<HailoBucket>(bytes_per_line * height, max_buffers, memory_type, m_name));
         break;
+    case HAILO_FORMAT_GRAY12:
+        m_buckets.emplace_back(
+            std::make_shared<HailoBucket>(bytes_per_line * height * 1.5, max_buffers, memory_type, m_name));
+        break;
     case HAILO_FORMAT_GRAY16:
         m_buckets.emplace_back(
             std::make_shared<HailoBucket>(bytes_per_line * height * 2, max_buffers, memory_type, m_name));
@@ -471,15 +475,62 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
         break;
     }
     case HAILO_FORMAT_RGB: {
-        // TODO: implement
+        size_t rgb_stride = m_bytes_per_line * 3;
+        size_t rgb_size = rgb_stride * m_height;
+        intptr_t rgb_ptr;
+
+        ret = m_buckets[0]->acquire(&rgb_ptr);
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+        {
+            return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+        }
+
+        hailo_data_plane_t plane_data;
+        plane_data.bytesperline = rgb_stride;
+        plane_data.bytesused = rgb_size;
+
+        int rgb_fd;
+        ret = DmaMemoryAllocator::get_instance().get_fd((void *)rgb_ptr, rgb_fd);
+
+        HailoMemoryType memory_type;
+        plane_data.userptr = (void *)rgb_ptr;
+        if (ret == MEDIA_LIBRARY_SUCCESS)
+        {
+            plane_data.fd = rgb_fd;
+            memory_type = HAILO_MEMORY_TYPE_DMABUF;
+        }
+        else
+        {
+            memory_type = HAILO_MEMORY_TYPE_CMA;
+            LOGGER__MODULE__ERROR(MODULE_NAME, "CMA memory not supported");
+            return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+        }
+
+        // Fill in buffer_data values
+        HailoBufferDataPtr buffer_data =
+            std::make_shared<hailo_buffer_data_t>((size_t)m_width, (size_t)m_height, (size_t)1, HAILO_FORMAT_RGB,
+                                                  memory_type, std::vector<hailo_data_plane_t>{plane_data});
+
+        ret = buffer->create(shared_from_this(), buffer_data);
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+            return ret;
+        buffer->set_buffer_index(m_buffer_index);
+
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: RGB Buffer width {} height {} acquired", m_name,
+                              buffer->buffer_data->width, buffer->buffer_data->height);
         break;
     }
     case HAILO_FORMAT_GRAY8:
+    case HAILO_FORMAT_GRAY12:
     case HAILO_FORMAT_GRAY16: {
         size_t image_stride;
         if (m_format == HAILO_FORMAT_GRAY8)
         {
             image_stride = m_bytes_per_line;
+        }
+        else if (m_format == HAILO_FORMAT_GRAY12)
+        {
+            image_stride = m_bytes_per_line * 1.5;
         }
         else
         {
@@ -523,6 +574,12 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
                 std::make_shared<hailo_buffer_data_t>((size_t)m_width, (size_t)m_height, (size_t)1, HAILO_FORMAT_GRAY8,
                                                       memory_type, std::vector<hailo_data_plane_t>{plane_data});
         }
+        else if (m_format == HAILO_FORMAT_GRAY12)
+        {
+            buffer_data =
+                std::make_shared<hailo_buffer_data_t>((size_t)m_width, (size_t)m_height, (size_t)1, HAILO_FORMAT_GRAY12,
+                                                      memory_type, std::vector<hailo_data_plane_t>{plane_data});
+        }
         else
         {
             buffer_data =
@@ -537,6 +594,11 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
         if (m_format == HAILO_FORMAT_GRAY8)
         {
             LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: GRAY8 Buffer width {} height {} acquired", m_name,
+                                  buffer->buffer_data->width, buffer->buffer_data->height);
+        }
+        else if (m_format == HAILO_FORMAT_GRAY12)
+        {
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: GRAY12 Buffer width {} height {} acquired", m_name,
                                   buffer->buffer_data->width, buffer->buffer_data->height);
         }
         else

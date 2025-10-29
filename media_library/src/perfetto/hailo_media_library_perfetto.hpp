@@ -41,7 +41,8 @@
 
 #define MEDIA_LIBRARY_CATEGORY "media_library"
 
-PERFETTO_DEFINE_CATEGORIES(
+HAILO_PERFETTO_DEFINE_CATEGORIES(
+    media_library_perfetto,
     perfetto::Category(MEDIA_LIBRARY_CATEGORY).SetTags("hailo").SetDescription("Events from media_library sub system"));
 
 /* all tracks that are used as parent tracks have to be registered

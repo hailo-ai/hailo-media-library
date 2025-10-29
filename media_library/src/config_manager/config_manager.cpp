@@ -73,8 +73,11 @@ class ConfigManager::ConfigManagerImpl
     {
         switch (schema)
         {
-        case ConfigSchema::CONFIG_SCHEMA_ENCODER:
+        case ConfigSchema::CONFIG_SCHEMA_ENCODER_AND_BLENDING:
             m_config_validator.set_root_schema(config_schemas::encoder_config_schema);
+            break;
+        case ConfigSchema::CONFIG_SCHEMA_ENCODER:
+            m_config_validator.set_root_schema(config_schemas::encoding_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_MULTI_RESIZE:
             m_config_validator.set_root_schema(config_schemas::multi_resize_config_schema);
@@ -97,9 +100,6 @@ class ConfigManager::ConfigManagerImpl
         case ConfigSchema::CONFIG_SCHEMA_ISP:
             m_config_validator.set_root_schema(config_schemas::isp_config_schema);
             break;
-        case ConfigSchema::CONFIG_SCHEMA_ISP_CONFIG:
-            m_config_validator.set_root_schema(config_schemas::isp_config_files_schema);
-            break;
         case ConfigSchema::CONFIG_SCHEMA_HDR:
             m_config_validator.set_root_schema(config_schemas::hdr_config_schema);
             break;
@@ -121,14 +121,23 @@ class ConfigManager::ConfigManagerImpl
         case ConfigSchema::CONFIG_SCHEMA_PROFILE:
             m_config_validator.set_root_schema(config_schemas::profile_config_schema);
             break;
-        case ConfigSchema::CONFIG_SCHEMA_AAACONFIG:
-            m_config_validator.set_root_schema(config_schemas::aaa_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_OLD_AAACONFIG:
-            m_config_validator.set_root_schema(config_schemas::old_aaa_config_schema);
-            break;
         case ConfigSchema::CONFIG_SCHEMA_NONE:
             m_config_validator.set_root_schema(config_schemas::empty_config_schema);
+            break;
+        case ConfigSchema::CONFIG_SCHEMA_IQ_SETTINGS:
+            m_config_validator.set_root_schema(config_schemas::iq_settings_schema);
+            break;
+        case ConfigSchema::CONFIG_SCHEMA_STABILIZER_SETTINGS:
+            m_config_validator.set_root_schema(config_schemas::stebilizer_schema);
+            break;
+        case ConfigSchema::CONFIG_SCHEMA_APPLICATION_SETTINGS:
+            m_config_validator.set_root_schema(config_schemas::application_settings_schema);
+            break;
+        case ConfigSchema::CONFIG_SCHEMA_SENSOR_CONFIG:
+            m_config_validator.set_root_schema(config_schemas::sensor_config_file_schema);
+            break;
+        case ConfigSchema::CONFIG_SCHEMA_AUTOMATIC_ALGORITHMS:
+            m_config_validator.set_root_schema(config_schemas::automatic_algorithms_schema);
             break;
         }
     };
@@ -190,7 +199,7 @@ class ConfigManager::ConfigManagerImpl
      * @param[in] conf - the configuration struct
      * @return std::string
      */
-    template <typename TConf> std::string config_struct_to_string(const TConf &conf);
+    template <typename TConf> std::string config_struct_to_string(const TConf &conf, int spaces = 0);
 
     /**
      * @brief Retrieve an entry from an input JSON string
@@ -208,6 +217,31 @@ class ConfigManager::ConfigManagerImpl
      * @return EncoderType
      */
     static EncoderType get_encoder_type(const nlohmann::json &config_json);
+
+    /**
+     * @brief Retrieve the input source element type from a frontend configuration
+     *
+     * @param[in] cfg - the user's frontend configuration (as a struct)
+     * @return frontend_src_element_t
+     */
+    static frontend_src_element_t get_input_stream_type(const frontend_config_t &cfg);
+
+    /**
+     * @brief Retrieve the input resolution (width, height) from a frontend configuration
+     *
+     * @param[in] cfg - the user's frontend configuration (as a struct)
+     * @return std::pair<uint16_t, uint16_t> as {width, height} in pixels
+     */
+    static std::pair<uint16_t, uint16_t> get_input_resolution(const frontend_config_t &cfg);
+
+    /**
+     * @brief Check whether changing from old_config to new_config is allowed without rebuilding the pipeline.
+     *
+     * @param[in] old_config The previously applied frontend configuration.
+     * @param[in] new_config The candidate frontend configuration to switch to.
+     * @return true if the change is allowed (i.e., only framerate may differ); false otherwise.
+     */
+    static bool is_config_change_allowed(const frontend_config_t &old_config, const frontend_config_t &new_config);
 
   private:
     nlohmann::json_schema::json_validator m_config_validator;
@@ -258,9 +292,9 @@ media_library_return ConfigManager::config_string_to_struct(const std::string &u
     return m_config_manager_impl->config_string_to_struct<TConf>(user_config_string, conf);
 }
 
-template <typename TConf> std::string ConfigManager::config_struct_to_string(const TConf &conf)
+template <typename TConf> std::string ConfigManager::config_struct_to_string(const TConf &conf, int spaces)
 {
-    return m_config_manager_impl->config_struct_to_string(conf);
+    return m_config_manager_impl->config_struct_to_string(conf, spaces);
 }
 
 // Explicit instantiation for config types (because they were defined in a .cpp file)
@@ -294,39 +328,48 @@ template media_library_return ConfigManager::config_string_to_struct<frontend_co
     const std::string &user_config_string, frontend_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<medialib_config_t>(
     const std::string &user_config_string, medialib_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<profile_config_t>(
-    const std::string &user_config_string, profile_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<automatic_algorithms_config_t>(
     const std::string &user_config_string, automatic_algorithms_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<aaa_config_t>(
-    const std::string &user_config_string, aaa_config_t &conf);
 template media_library_return ConfigManager::config_string_to_struct<privacy_mask_config_t>(
     const std::string &user_config_string, privacy_mask_config_t &conf);
+template media_library_return ConfigManager::config_string_to_struct<config_profile_t>(
+    const std::string &user_config_string, config_profile_t &conf);
 
-template std::string ConfigManager::config_struct_to_string<input_video_config_t>(const input_video_config_t &conf);
-template std::string ConfigManager::config_struct_to_string<multi_resize_config_t>(const multi_resize_config_t &conf);
-template std::string ConfigManager::config_struct_to_string<eis_config_t>(const eis_config_t &conf);
-template std::string ConfigManager::config_struct_to_string<gyro_config_t>(const gyro_config_t &conf);
-template std::string ConfigManager::config_struct_to_string<ldc_config_t>(const ldc_config_t &conf);
-template std::string ConfigManager::config_struct_to_string<denoise_config_t>(const denoise_config_t &conf);
-template std::string ConfigManager::config_struct_to_string<isp_t>(const isp_t &conf);
-template std::string ConfigManager::config_struct_to_string<hailort_t>(const hailort_t &conf);
-template std::string ConfigManager::config_struct_to_string<hdr_config_t>(const hdr_config_t &conf);
-template std::string ConfigManager::config_struct_to_string<encoder_config_t>(const encoder_config_t &conf);
-template std::string ConfigManager::config_struct_to_string<vsm_config_t>(const vsm_config_t &conf);
-template std::string ConfigManager::config_struct_to_string<isp_config_files_t>(const isp_config_files_t &conf);
-template std::string ConfigManager::config_struct_to_string<codec_config_t>(const codec_config_t &conf);
+template std::string ConfigManager::config_struct_to_string<input_video_config_t>(const input_video_config_t &conf,
+                                                                                  int spaces);
+template std::string ConfigManager::config_struct_to_string<multi_resize_config_t>(const multi_resize_config_t &conf,
+                                                                                   int spaces);
+template std::string ConfigManager::config_struct_to_string<eis_config_t>(const eis_config_t &conf, int spaces);
+template std::string ConfigManager::config_struct_to_string<gyro_config_t>(const gyro_config_t &conf, int spaces);
+template std::string ConfigManager::config_struct_to_string<ldc_config_t>(const ldc_config_t &conf, int spaces);
+template std::string ConfigManager::config_struct_to_string<denoise_config_t>(const denoise_config_t &conf, int spaces);
+template std::string ConfigManager::config_struct_to_string<isp_t>(const isp_t &conf, int spaces);
+template std::string ConfigManager::config_struct_to_string<hailort_t>(const hailort_t &conf, int spaces);
+template std::string ConfigManager::config_struct_to_string<hdr_config_t>(const hdr_config_t &conf, int spaces);
+template std::string ConfigManager::config_struct_to_string<encoder_config_t>(const encoder_config_t &conf, int spaces);
+template std::string ConfigManager::config_struct_to_string<vsm_config_t>(const vsm_config_t &conf, int spaces);
+template std::string ConfigManager::config_struct_to_string<codec_config_t>(const codec_config_t &conf, int spaces);
 template std::string ConfigManager::config_struct_to_string<application_analytics_config_t>(
-    const application_analytics_config_t &conf);
-template std::string ConfigManager::config_struct_to_string<medialib_config_t>(const medialib_config_t &conf);
-template std::string ConfigManager::config_struct_to_string<profile_config_t>(const profile_config_t &conf);
-template std::string ConfigManager::config_struct_to_string<frontend_config_t>(const frontend_config_t &conf);
+    const application_analytics_config_t &conf, int spaces);
+template std::string ConfigManager::config_struct_to_string<medialib_config_t>(const medialib_config_t &conf,
+                                                                               int spaces);
+template std::string ConfigManager::config_struct_to_string<frontend_config_t>(const frontend_config_t &conf,
+                                                                               int spaces);
 template std::string ConfigManager::config_struct_to_string<automatic_algorithms_config_t>(
-    const automatic_algorithms_config_t &conf);
-template std::string ConfigManager::config_struct_to_string<aaa_config_t>(const aaa_config_t &conf);
+    const automatic_algorithms_config_t &conf, int spaces);
 template std::string ConfigManager::config_struct_to_string<isp_format_aaa_config_t>(
-    const isp_format_aaa_config_t &conf);
-template std::string ConfigManager::config_struct_to_string<privacy_mask_config_t>(const privacy_mask_config_t &conf);
+    const isp_format_aaa_config_t &conf, int spaces);
+template std::string ConfigManager::config_struct_to_string<privacy_mask_config_t>(const privacy_mask_config_t &conf,
+                                                                                   int spaces);
+template std::string ConfigManager::config_struct_to_string<config_sensor_configuration_t>(
+    const config_sensor_configuration_t &conf, int spaces);
+template std::string ConfigManager::config_struct_to_string<config_stream_osd_t>(const config_stream_osd_t &conf,
+                                                                                 int spaces);
+template std::string ConfigManager::config_struct_to_string<isp_format_config_sensor_configuration_t>(
+    const isp_format_config_sensor_configuration_t &conf, int spaces);
+template std::string ConfigManager::config_struct_to_string<config_encoded_output_stream_t>(
+    const config_encoded_output_stream_t &conf, int spaces);
+template std::string ConfigManager::config_struct_to_string<config_profile_t>(const config_profile_t &conf, int spaces);
 
 tl::expected<std::string, media_library_return> ConfigManager::parse_config(std::string config_string,
                                                                             std::string entry)
@@ -337,6 +380,21 @@ tl::expected<std::string, media_library_return> ConfigManager::parse_config(std:
 EncoderType ConfigManager::get_encoder_type(const nlohmann::json &config_json)
 {
     return ConfigManager::ConfigManagerImpl::get_encoder_type(config_json);
+}
+
+frontend_src_element_t ConfigManager::get_input_stream_type(const frontend_config_t &config)
+{
+    return ConfigManager::ConfigManagerImpl::get_input_stream_type(config);
+}
+
+std::pair<uint16_t, uint16_t> ConfigManager::get_input_resolution(const frontend_config_t &config)
+{
+    return ConfigManager::ConfigManagerImpl::get_input_resolution(config);
+}
+
+bool ConfigManager::is_config_change_allowed(const frontend_config_t &old_config, const frontend_config_t &new_config)
+{
+    return ConfigManager::ConfigManagerImpl::is_config_change_allowed(old_config, new_config);
 }
 
 //------------------------ ConfigManagerImpl ------------------------
@@ -429,14 +487,19 @@ media_library_return ConfigManager::ConfigManagerImpl::config_string_to_struct(c
     }
     catch (const nlohmann::json::exception &e)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to convert JSON to struct: {}", e.what());
+        // Enhanced error logging with JSON content and type information
+        std::string config_type_name = typeid(TConf).name();
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to convert JSON to struct of type '{}': {}\n",
+                              config_type_name, e.what());
+
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-template <typename TConf> std::string ConfigManager::ConfigManagerImpl::config_struct_to_string(const TConf &conf)
+template <typename TConf>
+std::string ConfigManager::ConfigManagerImpl::config_struct_to_string(const TConf &conf, int spaces)
 {
     try
     {
@@ -449,11 +512,15 @@ template <typename TConf> std::string ConfigManager::ConfigManagerImpl::config_s
         {
             j = conf;
         }
-        return j.dump();
+        if (spaces == 0)
+        {
+            return j.dump();
+        }
+        return j.dump(spaces);
     }
     catch (const nlohmann::json::exception &e)
     {
-        LOGGER__ERROR("Config Manager failed to convert struct to JSON string: {}", e.what());
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to convert struct to JSON string: {}", e.what());
         return "";
     }
 }
@@ -498,4 +565,51 @@ EncoderType ConfigManager::ConfigManagerImpl::get_encoder_type(const nlohmann::j
     }
 
     return EncoderType::None;
+}
+
+frontend_src_element_t ConfigManager::ConfigManagerImpl::get_input_stream_type(const frontend_config_t &cfg)
+{
+    return cfg.input_config.source_type;
+}
+
+std::pair<uint16_t, uint16_t> ConfigManager::ConfigManagerImpl::get_input_resolution(const frontend_config_t &cfg)
+{
+    const auto &dims = cfg.input_config.resolution.dimensions;
+    return {static_cast<uint16_t>(dims.destination_width), static_cast<uint16_t>(dims.destination_height)};
+}
+
+bool ConfigManager::ConfigManagerImpl::is_config_change_allowed(const frontend_config_t &old_config,
+                                                                const frontend_config_t &new_config)
+{
+    if (ConfigManager::get_input_stream_type(old_config) != ConfigManager::get_input_stream_type(new_config))
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Config change not allowed, input stream type is different");
+        return false;
+    }
+
+    const auto &old_res = old_config.multi_resize_config.application_input_streams_config.resolutions;
+    const auto &new_res = new_config.multi_resize_config.application_input_streams_config.resolutions;
+
+    if (old_res.size() != new_res.size())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Config change not allowed, number of output streams is different");
+        return false;
+    }
+
+    for (size_t i = 0; i < old_res.size(); ++i)
+    {
+        const uint16_t old_w = static_cast<uint16_t>(old_res[i].dimensions.destination_width);
+        const uint16_t old_h = static_cast<uint16_t>(old_res[i].dimensions.destination_height);
+        const uint16_t new_w = static_cast<uint16_t>(new_res[i].dimensions.destination_width);
+        const uint16_t new_h = static_cast<uint16_t>(new_res[i].dimensions.destination_height);
+
+        // Ignore framerate differences; enforce all other compared fields equal (order-aware)
+        if (old_w != new_w || old_h != new_h)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Config change not allowed, output streams are different");
+            return false;
+        }
+    }
+
+    return true; // FPS may change
 }

@@ -6,6 +6,7 @@
 #include <iostream>
 #include <condition_variable>
 #include <signal.h>
+#include <tl/expected.hpp>
 #include "eis_types.hpp"
 #include "media_library/media_library_types.hpp"
 #include "common/concurrent_queue.hpp"
@@ -27,7 +28,7 @@ typedef enum
     GYRO_STATUS_ILLEGAL_STATE,
     GYRO_STATUS_DEVICE_INTERACTION_FAILURE,
     GYRO_STATUS_CHAN_INTERACTION_FAILURE,
-
+    GYRO_STATUS_SATURATED,
     GYRO_STATUS_UNKNOWN_ERROR
 } gyro_status_t;
 
@@ -52,6 +53,7 @@ class GyroDevice
     volatile bool m_stopRunningAck;
     struct iio_device_data m_iio_device_data;
     std::mutex m_mtx;
+    size_t m_gyro_saturated_count;
 
     gyro_status_t start();
     void shutdown();
@@ -82,6 +84,7 @@ class GyroDevice
             .nb_attrs = 0,
             .sample_count = FIFO_BUF_SIZE * 10000,
         };
+        m_gyro_saturated_count = 0;
     };
     ~GyroDevice();
     gyro_status_t exists();
@@ -101,5 +104,5 @@ class GyroDevice
         return m_stopRunningAck;
     }
     std::optional<gyro_sample_t> get_closest_vsync_sample(uint64_t frame_timestamp);
-    std::vector<gyro_sample_t> get_gyro_samples_by_threshold(uint64_t threshold_timestamp);
+    tl::expected<std::vector<gyro_sample_t>, gyro_status_t> get_gyro_samples_by_threshold(uint64_t threshold_timestamp);
 };

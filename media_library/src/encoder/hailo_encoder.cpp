@@ -81,6 +81,33 @@ void SetDefaultParameters(EncoderParams *enc_params, bool codecH264)
     }
     enc_params->outBufSizeMax = 12;
     enc_params->roiMapDeltaQpBlockUnit = 0;
+
+    /* Smooth bitrate adjustment parameters */
+    enc_params->gop_anomaly_bitrate_adjuster_high_threshold = DEFAULT_THRESHOLD_HIGH;
+    enc_params->gop_anomaly_bitrate_adjuster_low_threshold = DEFAULT_THRESHOLD_LOW;
+    enc_params->gop_anomaly_bitrate_adjuster_max_factor = DEFAULT_MAX_TARGET_BITRATE_FACTOR;
+    enc_params->gop_anomaly_bitrate_adjuster_factor = DEFAULT_BITRATE_ADJUSTMENT_FACTOR;
+    enc_params->gop_anomaly_bitrate_adjuster_enable = DEFAULT_ENABLE_GOP_BITRATE_ADJUSTER; // Disable by default
+
+    /* QP smooth settings parameters */
+    enc_params->qp_smooth_qp_delta = DEFAULT_QP_SMOOTH_QP_DELTA;
+    enc_params->qp_smooth_qp_delta_limit = DEFAULT_QP_SMOOTH_QP_DELTA_LIMIT;
+    enc_params->qp_smooth_qp_delta_step = DEFAULT_QP_SMOOTH_QP_DELTA_INCREMENT;
+    enc_params->qp_smooth_qp_delta_limit_step = DEFAULT_QP_SMOOTH_QP_DELTA_LIMIT_INCREMENT;
+    enc_params->qp_smooth_qp_alpha = DEFAULT_QP_SMOOTH_QP_ALPHA;
+    enc_params->qp_smooth_q_step_divisor = DEFAULT_QP_SMOOTH_Q_STEP_DIVISOR;
+
+    /* Boost parameters for optical zoom */
+    enc_params->zoom_bitrate_adjuster_enable = DEFAULT_BOOST_ENABLED;
+    enc_params->zoom_bitrate_adjuster_factor = DEFAULT_BOOST_FACTOR;
+    enc_params->zoom_bitrate_adjuster_timeout_ms = DEFAULT_BOOST_TIMEOUT_MS;
+    enc_params->zoom_bitrate_adjuster_max_bitrate = DEFAULT_BOOST_MAX_BITRATE;
+    enc_params->zoom_bitrate_adjuster_force_keyframe = DEFAULT_FORCE_KEYFRAME_ON_ZOOM;
+
+    /* Constant optical zoom boost parameters */
+    enc_params->constant_optical_zoom_boost = DEFAULT_CONSTANT_OPTICAL_ZOOM_BOOST;
+    enc_params->constant_optical_zoom_boost_threshold = DEFAULT_CONSTANT_OPTICAL_ZOOM_BOOST_THRESHOLD;
+    enc_params->constant_optical_zoom_boost_factor = DEFAULT_CONSTANT_OPTICAL_ZOOM_BOOST_FACTOR;
 }
 
 VCEncLevel GetAutoLevel(EncoderParams *enc_params, bool codecH264)
@@ -423,6 +450,19 @@ int InitEncoderRateConfig(EncoderParams *enc_params, VCEncInst *pEnc)
 
     rcCfg.intraQpDelta = enc_params->intra_qp_delta;
     rcCfg.fixedIntraQp = enc_params->fixed_intra_qp;
+
+    rcCfg.gop_anomaly_bitrate_adjuster.enable = enc_params->gop_anomaly_bitrate_adjuster_enable ? 1 : 0;
+    rcCfg.gop_anomaly_bitrate_adjuster.high_threshold = enc_params->gop_anomaly_bitrate_adjuster_high_threshold;
+    rcCfg.gop_anomaly_bitrate_adjuster.low_threshold = enc_params->gop_anomaly_bitrate_adjuster_low_threshold;
+    rcCfg.gop_anomaly_bitrate_adjuster.max_factor = enc_params->gop_anomaly_bitrate_adjuster_max_factor;
+    rcCfg.gop_anomaly_bitrate_adjuster.factor = enc_params->gop_anomaly_bitrate_adjuster_factor;
+
+    rcCfg.qp_smooth_settings.qp_delta = enc_params->qp_smooth_qp_delta;
+    rcCfg.qp_smooth_settings.qp_delta_limit = enc_params->qp_smooth_qp_delta_limit;
+    rcCfg.qp_smooth_settings.qp_delta_step = enc_params->qp_smooth_qp_delta_step;
+    rcCfg.qp_smooth_settings.qp_delta_limit_step = enc_params->qp_smooth_qp_delta_limit_step;
+    rcCfg.qp_smooth_settings.alpha = enc_params->qp_smooth_qp_alpha;
+    rcCfg.qp_smooth_settings.q_step_divisor = enc_params->qp_smooth_q_step_divisor;
 
     if ((ret = VCEncSetRateCtrl(encoder, &rcCfg)) != VCENC_OK)
     {

@@ -1,4 +1,5 @@
 #include "v4l2_ctrl.hpp"
+#include "sensor_registry.hpp"
 
 #include <cstdint>
 #include <cstring>
@@ -6,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <type_traits>
+#include <regex>
 
 #include "media_library_logger.hpp"
 
@@ -82,7 +84,7 @@ bool xioctl(int fd, unsigned long request, void *arg)
     return r == 0;
 }
 
-std::optional<std::string> find_subdevice_path(const std::string &subdevice_name)
+std::optional<std::string> find_subdevice_path(const std::string &subdevice_name, size_t sensor_index = 0)
 {
     for (const auto &entry : std::filesystem::directory_iterator("/sys/class/video4linux/"))
     {
@@ -90,10 +92,27 @@ std::optional<std::string> find_subdevice_path(const std::string &subdevice_name
         {
             std::ifstream name_file(entry.path() / "name");
             std::string name;
-            name_file >> name;
+            std::getline(name_file, name);
             if (name.find(subdevice_name) != std::string::npos)
             {
-                return "/dev/" + entry.path().filename().string();
+                if (subdevice_name == "csi")
+                {
+                    std::regex csi_regex("cdns_csi2rx_(\\d+)\\.");
+                    std::smatch matches;
+
+                    if (std::regex_search(name, matches, csi_regex))
+                    {
+                        size_t csi_index = std::stoull(matches[1].str());
+                        if (csi_index == sensor_index)
+                        {
+                            return "/dev/" + entry.path().filename().string();
+                        }
+                    }
+                }
+                else
+                {
+                    return "/dev/" + entry.path().filename().string();
+                }
             }
         }
     }
@@ -102,18 +121,23 @@ std::optional<std::string> find_subdevice_path(const std::string &subdevice_name
     return std::nullopt;
 }
 
-std::optional<std::filesystem::path> device_to_path(Device device)
+std::optional<std::filesystem::path> device_to_path(Device device, size_t sensor_index)
 {
     switch (device)
     {
     case Device::VIDEO0: {
-        return "/dev/video0";
+        auto video_device_path = SensorRegistry::get_instance().get_video_device_path(sensor_index);
+        if (!video_device_path.has_value())
+        {
+            return std::nullopt;
+        }
+        return video_device_path.value();
     }
     case Device::IMX: {
-        return find_subdevice_path("imx");
+        return SensorRegistry::get_instance().get_imx_subdevice_path(sensor_index);
     }
     case Device::CSI: {
-        return find_subdevice_path("csi");
+        return find_subdevice_path("csi", sensor_index);
     }
     case Device::ISP: {
         return find_subdevice_path("hailo-isp");
@@ -192,19 +216,19 @@ std::optional<uint32_t> get_ctrl_id(int, IspCtrl ctrl)
     return m_isp_ctrl_to_key.at(ctrl);
 }
 
-std::optional<FdWithDtor> get_device_fd(Device device)
+std::optional<files_utils::SharedFd> get_device_fd(Device device, size_t sensor_index)
 {
-    auto device_path = device_to_path(device);
+    auto device_path = device_to_path(device, sensor_index);
     if (!device_path.has_value())
     {
         return std::nullopt;
     }
-    int fd = open(device_path->c_str(), O_RDWR | O_NONBLOCK, 0);
+    int fd = open(device_path->c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC, 0);
     if (fd == -1)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to open device {}", static_cast<int>(device));
         return std::nullopt;
     }
-    return std::make_optional<FdWithDtor>(std::make_shared<fd_with_dtor_t>(fd));
+    return std::make_optional<files_utils::SharedFd>(files_utils::make_shared_fd(fd));
 }
 } // namespace v4l2

@@ -46,6 +46,7 @@ static gboolean gst_hailoosd_set_caps(GstBaseTransform *trans, GstCaps *incaps, 
 static gboolean gst_hailoosd_propose_allocation(GstBaseTransform *trans, GstQuery *decide_query, GstQuery *query);
 static GstFlowReturn gst_hailoosd_transform_ip(GstBaseTransform *trans, GstBuffer *buffer);
 static void gst_hailoosd_before_transform(GstBaseTransform *trans, GstBuffer *buffer);
+static gboolean init_blenders(GstHailoOsd *hailoosd, const std::optional<std::string> &config);
 
 enum
 {
@@ -115,6 +116,10 @@ static void gst_hailoosd_class_init(GstHailoOsdClass *klass)
 static void gst_hailoosd_init(GstHailoOsd *hailoosd)
 {
     hailoosd->params = new GstHailoOsdParams();
+    if (!init_blenders(hailoosd, std::nullopt))
+    {
+        GST_ERROR_OBJECT(hailoosd, "Failed to initialize blenders from config string");
+    }
 }
 
 void gst_hailoosd_set_property(GObject *object, guint property_id, const GValue *value, GParamSpec *pspec)
@@ -156,6 +161,8 @@ void gst_hailoosd_set_property(GObject *object, guint property_id, const GValue 
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
     }
+
+    GST_DEBUG_OBJECT(hailoosd, "finished set_property");
 }
 
 void gst_hailoosd_get_property(GObject *object, guint property_id, GValue *value, GParamSpec *pspec)
@@ -208,9 +215,62 @@ void gst_hailoosd_finalize(GObject *object)
     G_OBJECT_CLASS(gst_hailoosd_parent_class)->finalize(object);
 }
 
+static media_library_return configure_blenders(GstHailoOsd *hailoosd)
+{
+    if (hailoosd->params->config_str != "" && hailoosd->params->config_path == "")
+    {
+        // Load overlays from json string
+        std::string clean_config = hailoosd->params->config_str;
+        // in case there are quotes around the string, remove them - they were added to enable spaces in the string
+        if (clean_config[0] == '\'' && clean_config[clean_config.size() - 1] == '\'')
+        {
+            clean_config = clean_config.substr(1, hailoosd->params->config_str.size() - 2);
+        }
+        auto ret = hailoosd->params->osd_blender->configure(clean_config);
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+        {
+            GST_ERROR_OBJECT(hailoosd, "Failed to initialize blenders from config string");
+            return ret;
+        }
+    }
+    else if (hailoosd->params->config_str == "" && hailoosd->params->config_path != "")
+    {
+        // Load overlays from json file
+        if (!std::ifstream(hailoosd->params->config_path))
+        {
+            GST_ERROR_OBJECT(hailoosd, "Config file does not exist");
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+        }
+        std::ifstream config_file(hailoosd->params->config_path);
+        std::stringstream buffer;
+        if (config_file.is_open())
+        {
+            buffer << config_file.rdbuf();
+            config_file.close();
+        }
+        auto ret = hailoosd->params->pm_blender->configure(buffer.str());
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+        {
+            GST_ERROR_OBJECT(hailoosd, "Failed to initialize blenders from config file");
+            return ret;
+        }
+    }
+    else if (hailoosd->params->config_str != "" && hailoosd->params->config_path != "")
+    {
+        GST_ERROR_OBJECT(hailoosd, "Both config string and config path are not empty, please choose only one");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    else
+    {
+        GST_WARNING_OBJECT(hailoosd, "Both config string and config path are empty, not configuring blenders");
+    }
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
 static gboolean init_blenders(GstHailoOsd *hailoosd, const std::optional<std::string> &config)
 {
-
+    GST_DEBUG_OBJECT(hailoosd, "Initializing blenders with config: %s",
+                     config.has_value() ? config.value().c_str() : "default");
     if (hailoosd->params->osd_blender == nullptr)
     {
         tl::expected<std::shared_ptr<osd::Blender>, media_library_return> osd_blender_expected;
@@ -279,57 +339,11 @@ static gboolean gst_hailoosd_start(GstBaseTransform *trans)
         return TRUE;
     }
 
-    if (hailoosd->params->config_str != "" && hailoosd->params->config_path == "")
+    auto ret = configure_blenders(hailoosd);
+    if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-        // Load overlays from json string
-        std::string clean_config = hailoosd->params->config_str;
-        // in case there are quotes around the string, remove them - they were added to enable spaces in the string
-        if (clean_config[0] == '\'' && clean_config[clean_config.size() - 1] == '\'')
-        {
-            clean_config = clean_config.substr(1, hailoosd->params->config_str.size() - 2);
-        }
-
-        if (!init_blenders(hailoosd, clean_config))
-        {
-            GST_ERROR_OBJECT(hailoosd, "Failed to initialize blenders from config string");
-            return FALSE;
-        }
-    }
-    else if (hailoosd->params->config_str == "" && hailoosd->params->config_path != "")
-    {
-        // Load overlays from json file
-        if (!std::ifstream(hailoosd->params->config_path))
-        {
-            GST_ERROR_OBJECT(hailoosd, "Config file does not exist");
-            return FALSE;
-        }
-        std::ifstream config_file(hailoosd->params->config_path);
-        std::stringstream buffer;
-        if (config_file.is_open())
-        {
-            buffer << config_file.rdbuf();
-            config_file.close();
-        }
-        if (!init_blenders(hailoosd, buffer.str()))
-        {
-            GST_ERROR_OBJECT(hailoosd, "Failed to initialize blenders from config file");
-            return FALSE;
-        }
-    }
-    else if (hailoosd->params->config_str != "" && hailoosd->params->config_path != "")
-    {
-        GST_ERROR_OBJECT(hailoosd, "Both config string and config path are not empty, please choose only one");
+        GST_ERROR_OBJECT(hailoosd, "Failed to configure blenders");
         return FALSE;
-    }
-    else
-    {
-        // Load with default config
-        GST_WARNING_OBJECT(hailoosd, "Both config string and config path are empty, using default config");
-        if (!init_blenders(hailoosd, std::nullopt))
-        {
-            GST_ERROR_OBJECT(hailoosd, "Failed to initialize blenders from config file");
-            return FALSE;
-        }
     }
 
     hailoosd->params->initialized = true;

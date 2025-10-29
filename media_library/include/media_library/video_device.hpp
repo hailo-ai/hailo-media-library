@@ -2,34 +2,13 @@
 
 #include <string>
 #include <vector>
+#include "sensor_types.hpp"
 #include "video_buffer.hpp"
 #include "dma_buffer.hpp"
 #include "media_library_logger.hpp"
 
 namespace HDR
 {
-
-enum DOL
-{
-    HDR_DOL_2 = 2,
-    HDR_DOL_3,
-};
-
-enum InputResolution
-{
-    RES_FHD,
-    RES_4K,
-    RES_4MP,
-};
-
-enum class SensorType
-{
-    IMX334,
-    IMX664,
-    IMX675,
-    IMX678,
-    IMX715,
-};
 
 class VideoDevice
 {
@@ -39,9 +18,9 @@ class VideoDevice
 
   public:
     virtual bool init(const std::string &device_path, const std::string name, DMABufferAllocator &allocator,
-                      unsigned int num_exposures, HDR::InputResolution res, unsigned int buffers_count,
-                      int pixel_format, size_t pixel_width, unsigned int fps = 0,
-                      bool queue_buffers_on_stream_start = true, bool timestamp_copy = false);
+                      unsigned int num_exposures, Resolution res, unsigned int buffers_count, int pixel_format,
+                      size_t pixel_width, unsigned int fps = 0, bool queue_buffers_on_stream_start = true,
+                      bool timestamp_copy = false);
 
     virtual bool get_buffer(VideoBuffer **o_buffer);
     virtual bool put_buffer(VideoBuffer *buffer);
@@ -117,7 +96,7 @@ class VideoOutputDevice : public VideoDevice
 
   public:
     bool init(const std::string &device_path, const std::string name, DMABufferAllocator &allocator,
-              unsigned int num_exposures, HDR::InputResolution res, unsigned int buffers_count, int pixel_format,
+              unsigned int num_exposures, Resolution res, unsigned int buffers_count, int pixel_format,
               size_t pixel_width, unsigned int fps = 0, bool queue_buffers_on_stream_start = true,
               bool timestamp_copy = true) override;
 

@@ -17,21 +17,31 @@
 
 class ThrottlingStateMonitor;
 
+/*!
+ * @brief Enum representing the different throttling states.
+ *
+ * THROTTLING_S<X>_HEATING:
+ * - SoC entered to ThrottlingStateId::S<X> from lower Throttling state.
+ * - E.g.: S1 -> S2, S2 -> S3
+ * THROTTLING_S<X>_COOLING:
+ * - SoC entered to ThrottlingStateId::S<X> from higher Throttling state.
+ * - E.g.: S2 -> S1, S3 -> S2, S0 -> FULL_PERFORMANCE
+ */
 enum class throttling_state_t
 {
     THERMAL_UNINITIALIZED = 0,
-    FULL_PERFORMANCE = 1,
-    FULL_PERFORMANCE_COOLING = 2,
-    THROTTLING_S0_HEATING = 3,
-    THROTTLING_S0_COOLING = 4,
-    THROTTLING_S1_HEATING = 5,
-    THROTTLING_S1_COOLING = 6,
-    THROTTLING_S2_HEATING = 7,
-    THROTTLING_S2_COOLING = 8,
-    THROTTLING_S3_HEATING = 5,
-    THROTTLING_S3_COOLING = 6,
-    THROTTLING_S4_HEATING = 7,
-    THROTTLING_S4_COOLING = 8
+    FULL_PERFORMANCE,
+    FULL_PERFORMANCE_COOLING,
+    THROTTLING_S0_HEATING,
+    THROTTLING_S0_COOLING,
+    THROTTLING_S1_HEATING,
+    THROTTLING_S1_COOLING,
+    THROTTLING_S2_HEATING,
+    THROTTLING_S2_COOLING,
+    THROTTLING_S3_HEATING,
+    THROTTLING_S3_COOLING,
+    THROTTLING_S4_HEATING,
+    THROTTLING_S4_COOLING
 };
 
 enum class thermal_direction
@@ -43,11 +53,12 @@ enum class thermal_direction
 class ThrottlingManagerWrapper
 {
   protected:
-    float m_cooling_wait_time_in_minutes = DEFAULT_TOTAL_COOLING_WAIT_TIME_IN_MINUTES;
+    float m_cooling_wait_time_in_minutes;
 
   public:
     float get_cooling_wait_time_in_minutes() const;
     virtual ~ThrottlingManagerWrapper() = default;
+    ThrottlingManagerWrapper();
 
     virtual ThrottlingStateId get_current_state_id() const;
     virtual ThrottlingStateId get_previous_state_id() const;
@@ -110,7 +121,22 @@ class ThrottlingStateMonitor
      *
      * @return The current active thermal state.
      */
-    throttling_state_t get_active_state();
+    throttling_state_t get_active_state() const;
+
+    static std::string throttling_state_to_string(throttling_state_t id);
+
+    /*!
+     * @brief Convert Throttling state to string
+     */
+    std::string toString() const;
+
+    /*!
+     * @brief Overload the << operator
+     *
+     * @param os: Output stream
+     * @param state: Throttling state
+     */
+    friend std::ostream &operator<<(std::ostream &os, const ThrottlingStateMonitor &state);
 };
 
 class MockThrottlingManagerWrapper : public ThrottlingManagerWrapper

@@ -1,0 +1,21 @@
+{
+    "version": "1.1.0",
+    "sensor_config": "/usr/bin/lowlight_r0225c8_jpeg/sensor_config.json",
+    "application_settings": "/usr/bin/lowlight_r0225c8_jpeg/application_settings.json",
+    "stabilizer_settings": "/usr/bin/lowlight_r0225c8_jpeg/stabilizer_settings.json",
+    "iq_settings": "/usr/bin/lowlight_r0225c8_jpeg/iq_settings.json",
+    "encoded_output_streams": [
+        {
+            "stream_id": "sink0",
+            "encoding": "/usr/bin/lowlight_r0225c8_jpeg/encoder_sink0.json",
+            "osd": "/usr/bin/lowlight_r0225c8_jpeg/osd_sink0.json",
+            "masking": "/usr/bin/lowlight_r0225c8_jpeg/masking_sink0.json"
+        },
+        {
+            "stream_id": "sink1",
+            "encoding": "/usr/bin/lowlight_r0225c8_jpeg/encoder_sink1.json",
+            "osd": "/usr/bin/lowlight_r0225c8_jpeg/osd_sink1.json",
+            "masking": "/usr/bin/lowlight_r0225c8_jpeg/masking_sink1.json"
+        }
+    ]
+}

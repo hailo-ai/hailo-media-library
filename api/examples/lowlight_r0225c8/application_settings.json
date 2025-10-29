@@ -1,0 +1,67 @@
+{
+    "version": "1.1.0",
+    "application_input_streams": {
+        "method": "INTERPOLATION_TYPE_BILINEAR",
+        "format": "IMAGE_FORMAT_NV12",
+        "resolutions": [
+            {
+                "width": 3840,
+                "height": 2160,
+                "framerate": 30,
+                "pool_max_buffers": 20
+            },
+            {
+                "width": 1280,
+                "height": 720,
+                "framerate": 30,
+                "pool_max_buffers": 20
+            }
+        ]
+    },
+    "gmv": {
+        "source": "isp",
+        "frequency": 0.0
+    },
+    "optical_zoom": {
+        "enabled": true,
+        "magnification": 1.0
+    },
+    "digital_zoom": {
+        "enabled": false,
+        "mode": "DIGITAL_ZOOM_MODE_ROI",
+        "magnification": 1.0,
+        "roi": {
+            "x": 200,
+            "y": 200,
+            "width": 2800,
+            "height": 1800
+        }
+    },
+    "motion_detection": {
+        "enabled": false,
+        "resolution": {
+            "width": 640,
+            "height": 480,
+            "framerate": 30
+        },
+        "roi": {
+            "x": 200,
+            "y": 200,
+            "width": 640,
+            "height": 480
+        },
+        "sensitivity_level": "MEDIUM",
+        "threshold": 0.5
+    },
+    "rotation": {
+        "enabled": false,
+        "angle": "ROTATION_ANGLE_180"
+    },
+    "flip": {
+        "enabled": false,
+        "direction": "FLIP_DIRECTION_HORIZONTAL"
+    },
+    "hailort": {
+        "device-id": "device0"
+    }
+}

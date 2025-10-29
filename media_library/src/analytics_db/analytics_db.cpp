@@ -63,26 +63,74 @@ void AnalyticsDB::clear_db()
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Resetting AnalyticsDB instance.");
     m_detection_entries_db.clear();
     m_instance_segmentation_entries_db.clear();
+    m_application_analytics_config.detection_analytics_config.clear();
+    m_application_analytics_config.instance_segmentation_analytics_config.clear();
 }
 
-void AnalyticsDB::initialize(application_analytics_config_t application_analytics_config)
+void AnalyticsDB::add_configuration(application_analytics_config_t application_analytics_config)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_application_analytics_config = std::move(application_analytics_config);
-    m_detection_entries_db.clear();
-    m_instance_segmentation_entries_db.clear();
 
-    // Pre-populate detection entries DB for each analytics ID in the config
-    for (const auto &pair : m_application_analytics_config.detection_analytics_config)
+    size_t new_detection_ids = 0;
+    size_t updated_detection_ids = 0;
+    size_t new_segmentation_ids = 0;
+    size_t updated_segmentation_ids = 0;
+
+    // Process detection analytics config
+    for (const auto &pair : application_analytics_config.detection_analytics_config)
     {
-        m_detection_entries_db[pair.first] = {};
+        const auto &analytics_id = pair.first;
+        const auto &config = pair.second;
+
+        auto it = m_application_analytics_config.detection_analytics_config.find(analytics_id);
+        if (it != m_application_analytics_config.detection_analytics_config.end())
+        {
+            it->second = config;
+            m_detection_entries_db[analytics_id].clear();
+            updated_detection_ids++;
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "Updated existing detection analytics ID: {}", analytics_id);
+        }
+        else
+        {
+            m_application_analytics_config.detection_analytics_config[analytics_id] = config;
+            new_detection_ids++;
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "Added new detection analytics ID: {}", analytics_id);
+        }
+
+        // Pre-populate entries DB (for both new and updated IDs)
+        m_detection_entries_db[analytics_id] = {};
     }
-    // Pre-populate instance segmentation entries DB for each analytics ID in the config
-    for (const auto &pair : m_application_analytics_config.instance_segmentation_analytics_config)
+
+    // Process instance segmentation analytics config
+    for (const auto &pair : application_analytics_config.instance_segmentation_analytics_config)
     {
-        m_instance_segmentation_entries_db[pair.first] = {};
+        const auto &analytics_id = pair.first;
+        const auto &config = pair.second;
+
+        auto it = m_application_analytics_config.instance_segmentation_analytics_config.find(analytics_id);
+        if (it != m_application_analytics_config.instance_segmentation_analytics_config.end())
+        {
+            it->second = config;
+            m_instance_segmentation_entries_db[analytics_id].clear();
+            updated_segmentation_ids++;
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "Updated existing instance segmentation analytics ID: {}", analytics_id);
+        }
+        else
+        {
+            m_application_analytics_config.instance_segmentation_analytics_config[analytics_id] = config;
+            new_segmentation_ids++;
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "Added new instance segmentation analytics ID: {}", analytics_id);
+        }
+
+        // Pre-populate entries DB (for both new and updated IDs)
+        m_instance_segmentation_entries_db[analytics_id] = {};
     }
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "AnalyticsDB initialized with {} detection IDs and {} segmentation IDs.",
+
+    LOGGER__MODULE__DEBUG(MODULE_NAME,
+                          "AnalyticsDB configuration added: {} new detection IDs, {} updated detection IDs, "
+                          "{} new segmentation IDs, {} updated segmentation IDs. "
+                          "Total: {} detection IDs, {} segmentation IDs.",
+                          new_detection_ids, updated_detection_ids, new_segmentation_ids, updated_segmentation_ids,
                           m_application_analytics_config.detection_analytics_config.size(),
                           m_application_analytics_config.instance_segmentation_analytics_config.size());
 }

@@ -35,10 +35,15 @@
 #include <functional>
 #include <string>
 #include <ctime>
+#include <optional>
+#include <map>
+#include <nlohmann/json.hpp>
 
 /** @defgroup media_library_types_definitions MediaLibrary Types CPP API definitions
  *  @{
  */
+
+using output_stream_id_t = std::string;
 
 enum media_library_return
 {
@@ -110,6 +115,16 @@ enum rotation_angle_t
     ROTATION_ANGLE_MAX = INT_MAX
 };
 
+enum class frontend_src_element_t
+{
+    UNKNOWN = 0,
+    V4L2SRC,
+    APPSRC,
+
+    /** Max enum value to maintain ABI Integrity */
+    MAX = INT_MAX
+};
+
 enum denoise_method_t
 {
     DENOISE_METHOD_NONE = 0,
@@ -146,6 +161,14 @@ enum motion_detection_sensitivity_levels_t
     MOTION_DETECTION_SENSITIVITY_LEVELS_MAX = INT_MAX
 };
 
+enum sensor_index_t
+{
+    SENSOR_0 = 0,
+
+    /** Max enum value to maintain ABI Integrity */
+    SENSOR_INDEX_MAX = INT_MAX
+};
+
 struct roi_t
 {
     uint32_t x;
@@ -164,7 +187,6 @@ struct vsm_config_t
 
 struct isp_t
 {
-    bool auto_configuration;
     std::string isp_config_files_path;
 };
 
@@ -260,6 +282,7 @@ struct optical_zoom_config_t
     bool enabled;
     float magnification;
     float max_dewarping_magnification;
+    float max_zoom_level;
 };
 
 struct flip_config_t
@@ -310,13 +333,13 @@ struct output_resolution_t
     uint32_t pool_max_buffers;
     dsp_utils::crop_resize_dims_t dimensions;
     std::string stream_id;
-    bool keep_aspect_ratio;
+    dsp_scaling_mode_t scaling_mode;
 
     bool operator==(const output_resolution_t &other) const
     {
         return framerate == other.framerate && dimensions.destination_width == other.dimensions.destination_width &&
                dimensions.destination_height == other.dimensions.destination_height &&
-               keep_aspect_ratio == other.keep_aspect_ratio && stream_id == other.stream_id;
+               scaling_mode == other.scaling_mode && stream_id == other.stream_id;
     }
     bool operator!=(const output_resolution_t &other) const
     {
@@ -345,10 +368,10 @@ struct output_resolution_t
         if (rotated)
             return dimensions.destination_width == other.dimensions.destination_height &&
                    dimensions.destination_height == other.dimensions.destination_width &&
-                   keep_aspect_ratio == other.keep_aspect_ratio;
+                   scaling_mode == other.scaling_mode;
         return dimensions.destination_width == other.dimensions.destination_width &&
                dimensions.destination_height == other.dimensions.destination_height &&
-               keep_aspect_ratio == other.keep_aspect_ratio;
+               scaling_mode == other.scaling_mode;
     }
 };
 
@@ -361,23 +384,83 @@ struct motion_detection_config_t
     float threshold;
 };
 
+struct config_application_input_streams_t
+{
+    dsp_interpolation_type_t interpolation_type;
+    HailoFormat format;
+    std::vector<output_resolution_t> resolutions;
+};
+
 struct application_input_streams_config_t
 {
     dsp_interpolation_type_t interpolation_type;
     HailoFormat format;
     bool grayscale;
     std::vector<output_resolution_t> resolutions;
+
+    application_input_streams_config_t(const config_application_input_streams_t &other, bool grayscale)
+        : interpolation_type(other.interpolation_type), format(other.format), grayscale(grayscale),
+          resolutions(other.resolutions)
+    {
+    }
+
+    // Explicit copy constructor to avoid deprecation warning
+    application_input_streams_config_t(const application_input_streams_config_t &other)
+        : interpolation_type(other.interpolation_type), format(other.format), grayscale(other.grayscale),
+          resolutions(other.resolutions)
+    {
+    }
+
+    application_input_streams_config_t &operator=(const application_input_streams_config_t &other)
+    {
+        if (this != &other)
+        {
+            interpolation_type = other.interpolation_type;
+            format = other.format;
+            grayscale = other.grayscale;
+            resolutions = other.resolutions;
+        }
+        return *this;
+    }
+
+    // Default constructor
+    application_input_streams_config_t() = default;
+
+    // Conversion operator to output_resolution_t (takes first resolution if available)
+    operator output_resolution_t() const
+    {
+        if (!resolutions.empty())
+        {
+            return resolutions[0];
+        }
+
+        // Return default output_resolution_t if no resolutions available
+        return output_resolution_t{.framerate = 30,
+                                   .pool_max_buffers = 10,
+                                   .dimensions = dsp_utils::crop_resize_dims_t{.perform_crop = 0,
+                                                                               .crop_start_x = 0,
+                                                                               .crop_end_x = 0,
+                                                                               .crop_start_y = 0,
+                                                                               .crop_end_y = 0,
+                                                                               .destination_width = 1920,
+                                                                               .destination_height = 1080},
+                                   .stream_id = "",
+                                   .scaling_mode = DSP_SCALING_MODE_STRETCH};
+    }
 };
 
 struct input_video_config_t
 {
+    frontend_src_element_t source_type;
     HailoFormat format;
     output_resolution_t resolution;
-    std::string video_device;
+    std::string source;
+    size_t sensor_index; // Only sensor_index 0 is supported
 
     bool operator==(const input_video_config_t &other) const
     {
-        return format == other.format && resolution == other.resolution && video_device == other.video_device;
+        return source_type == other.source_type && format == other.format && resolution == other.resolution &&
+               source == other.source && sensor_index == other.sensor_index;
     }
 
     bool operator!=(const input_video_config_t &other) const
@@ -504,6 +587,11 @@ struct eis_config_t
     uint64_t line_readout_time;
     uint8_t num_exposures;
     float hdr_exposure_ratio;
+    float min_angle_deg;
+    float max_angle_deg;
+    uint32_t shakes_type_buff_size;
+    uint32_t max_extensions_per_thr;
+    uint32_t min_extensions_per_thr;
 };
 
 struct gyro_config_t
@@ -532,11 +620,15 @@ struct ldc_config_t
         // Since we are not parsing input_video_config and application_input_streams_config from json, we need to set
         // the default values
         input_video_config.format = HAILO_FORMAT_NV12;
-        input_video_config.video_device = "";
+        input_video_config.source = "";
+        input_video_config.sensor_index = 0;
         input_video_config.resolution.framerate = 0;
         input_video_config.resolution.pool_max_buffers = 10;
         input_video_config.resolution.dimensions.destination_width = 0;
         input_video_config.resolution.dimensions.destination_height = 0;
+        input_video_config.resolution.dimensions.perform_crop = false;
+        input_video_config.resolution.scaling_mode = DSP_SCALING_MODE_STRETCH;
+        input_video_config.resolution.stream_id = "";
 
         application_input_streams_config.framerate = 0;
         application_input_streams_config.pool_max_buffers = 10;
@@ -630,12 +722,6 @@ struct frontend_element_config_t
     }
 };
 
-struct isp_config_files_t
-{
-    std::string aaa_config_path;
-    std::string sensor_entry_path;
-};
-
 struct codec_config_t
 {
     std::string stream_id;
@@ -697,26 +783,6 @@ struct application_analytics_config_t
     std::unordered_map<std::string, instance_segmentation_analytics_config_t> instance_segmentation_analytics_config;
 };
 
-struct profile_config_t
-{
-    multi_resize_config_t multi_resize_config;
-    ldc_config_t ldc_config;
-    hailort_t hailort_config;
-    isp_t isp_config;
-    hdr_config_t hdr_config;
-    denoise_config_t denoise_config;
-    input_video_config_t input_config;
-    std::vector<codec_config_t> codec_configs;
-    isp_config_files_t isp_config_files;
-    application_analytics_config_t application_analytics_config;
-
-    profile_config_t()
-        : multi_resize_config(), ldc_config(), hailort_config(), isp_config(), hdr_config(), denoise_config(),
-          input_config(), codec_configs(), isp_config_files(), application_analytics_config()
-    {
-    }
-};
-
 struct frontend_config_t
 {
   public:
@@ -746,19 +812,6 @@ struct frontend_config_t
         isp_config = frontend_configs.isp_config;
 
         return MEDIA_LIBRARY_SUCCESS;
-    }
-
-    frontend_config_t &operator=(const profile_config_t &profile_conf)
-    {
-        input_config = profile_conf.input_config;
-        ldc_config = profile_conf.ldc_config;
-        denoise_config = profile_conf.denoise_config;
-        multi_resize_config = profile_conf.multi_resize_config;
-        hdr_config = profile_conf.hdr_config;
-        hailort_config = profile_conf.hailort_config;
-        isp_config = profile_conf.isp_config;
-        application_analytics_config = profile_conf.application_analytics_config;
-        return *this;
     }
 };
 
@@ -798,6 +851,9 @@ struct profile_t
 {
     std::string name;
     std::string config_file;
+    nlohmann::json flattened_config_file_content;
+
+    media_library_return flatten_n_validate_config();
 };
 
 struct medialib_config_t
@@ -817,12 +873,6 @@ struct medialib_config_t
         }
         return tl::unexpected(MEDIA_LIBRARY_ERROR);
     }
-};
-//------------------- AAA Configs -------------------
-
-struct aaa_config_t
-{
-    automatic_algorithms_config_t automatic_algorithms_config;
 };
 
 struct rgb_color_t
@@ -870,6 +920,394 @@ struct privacy_mask_config_t
     rgb_color_t color_value;
     std::optional<dynamic_privacy_mask_config_t> dynamic_privacy_mask_config;
     std::optional<static_privacy_mask_config_t> static_privacy_mask_config;
+};
+
+struct calibration_header_t
+{
+    std::string creation_date;
+    std::string creator;
+    std::string sensor_name;
+    std::string sample_name;
+    std::string generator_version;
+    std::vector<uint32_t> resolution;
+};
+
+struct config_input_video_t
+{
+    struct resolution_t
+    {
+        uint32_t width;
+        uint32_t height;
+        uint32_t framerate;
+    } resolution;
+    std::string source;
+    frontend_src_element_t source_type;
+    sensor_index_t sensor_index; // Only SENSOR_0 is supported
+};
+
+struct config_sensor_configuration_t
+{
+    std::string name;
+    std::string drv;
+    uint32_t mode;
+    uint32_t pixel_mode;
+    uint32_t sensor_only;
+    int32_t af_i2c_bus;
+    std::string af_i2c_addr;
+    int32_t custom_readout_timing_short;
+
+    bool operator==(const config_sensor_configuration_t &other) const
+    {
+        return name == other.name && drv == other.drv && mode == other.mode && pixel_mode == other.pixel_mode &&
+               sensor_only == other.sensor_only && af_i2c_bus == other.af_i2c_bus && af_i2c_addr == other.af_i2c_addr &&
+               custom_readout_timing_short == other.custom_readout_timing_short;
+    }
+
+    bool operator!=(const config_sensor_configuration_t &other) const
+    {
+        return !(*this == other);
+    }
+};
+
+struct isp_format_config_sensor_configuration_t : public config_sensor_configuration_t
+{
+    bool hdr_enable;
+    std::string sensor_calibration_file;
+    uint32_t sensor_i2c_bus;
+    std::string sensor_i2c_addr;
+
+    isp_format_config_sensor_configuration_t(bool hdr_enable, std::string sensor_calibration_file,
+                                             const config_sensor_configuration_t &sensor_configuration,
+                                             uint32_t sensor_i2c_bus, std::string sensor_i2c_addr)
+        : config_sensor_configuration_t(sensor_configuration), hdr_enable(hdr_enable),
+          sensor_calibration_file(sensor_calibration_file), sensor_i2c_bus(sensor_i2c_bus),
+          sensor_i2c_addr(sensor_i2c_addr)
+    {
+    }
+
+    bool operator==(const isp_format_config_sensor_configuration_t &other) const
+    {
+        return config_sensor_configuration_t::operator==(other) && hdr_enable == other.hdr_enable &&
+               sensor_calibration_file == other.sensor_calibration_file && sensor_i2c_bus == other.sensor_i2c_bus &&
+               sensor_i2c_addr == other.sensor_i2c_addr;
+    }
+
+    bool operator!=(const isp_format_config_sensor_configuration_t &other) const
+    {
+        return !(*this == other);
+    }
+};
+
+struct config_framerate_t
+{
+    std::string name;
+    double fps;
+};
+
+struct config_resolution_entry_t
+{
+    std::string name;
+    std::string id;
+    double width;
+    double height;
+    std::vector<config_framerate_t> framerate;
+};
+
+struct config_calibration_header_t
+{
+    std::string creation_date;
+    std::string creator;
+    std::string sensor_name;
+    std::string sample_name;
+    std::string generator_version;
+    std::vector<config_resolution_entry_t> resolution;
+};
+
+struct config_sensor_config_t
+{
+    std::string version;
+    config_input_video_t input_video;
+    config_sensor_configuration_t sensor_configuration;
+    std::string sensor_calibration_file_path;
+};
+
+struct config_application_settings_t
+{
+    std::string version;
+    config_application_input_streams_t application_input_streams;
+    optical_zoom_config_t optical_zoom;
+    digital_zoom_config_t digital_zoom;
+    motion_detection_config_t motion_detection;
+    rotation_config_t rotation;
+    flip_config_t flip;
+    hailort_t hailort;
+    application_analytics_config_t application_analytics;
+};
+
+struct config_dis_angular_t
+{
+    bool enabled;
+    nlohmann::json vsm; // Complex VSM configuration
+};
+
+struct config_dis_debug_t
+{
+    bool generate_resize_grid;
+    bool fix_stabilization;
+    double fix_stabilization_longitude;
+    double fix_stabilization_latitude;
+};
+
+struct config_dis_t
+{
+    bool enabled;
+    double minimun_coefficient_filter;
+    double decrement_coefficient_threshold;
+    double increment_coefficient_threshold;
+    double running_average_coefficient;
+    double std_multiplier;
+    bool black_corners_correction_enabled;
+    double black_corners_threshold;
+    uint32_t average_luminance_threshold;
+    double camera_fov_factor;
+    config_dis_angular_t angular_dis;
+    config_dis_debug_t debug;
+};
+
+struct config_eis_t
+{
+    bool enabled;
+    bool stabilize;
+    std::string eis_config_path;
+    uint32_t window_size;
+    double rotational_smoothing_coefficient;
+    double iir_hpf_coefficient;
+    double camera_fov_factor;
+    uint64_t line_readout_time;
+    double hdr_exposure_ratio;
+};
+
+struct config_gyro_t
+{
+    bool enabled;
+    std::string sensor_name;
+    std::string sensor_frequency;
+    double scale;
+};
+
+struct config_stabilizer_settings_t
+{
+    std::string version;
+    dis_config_t dis;
+    eis_config_t eis;
+    gyro_config_t gyro;
+};
+
+struct config_denoise_network_t
+{
+    std::string network_path;
+    std::string y_channel;
+    std::string uv_channel;
+    std::string feedback_y_channel;
+    std::string feedback_uv_channel;
+    std::string output_y_channel;
+    std::string output_uv_channel;
+    std::string bayer_channel;
+    std::string feedback_bayer_channel;
+    std::string dgain_channel;
+    std::string bls_channel;
+    std::string output_bayer_channel;
+};
+
+struct config_denoise_t
+{
+    bool enabled;
+    std::string sensor;
+    std::string method;
+    uint32_t loopback_count;
+    config_denoise_network_t network;
+    bool bayer;
+};
+
+struct config_hdr_t
+{
+    bool enabled;
+    uint32_t dol;
+    uint32_t lsRatio;
+    uint32_t vsRatio;
+};
+
+struct config_gray_scale_t
+{
+    bool enabled;
+};
+
+struct config_iq_settings_t
+{
+    std::string version;
+    config_gray_scale_t grayscale;
+    denoise_config_t denoise;
+    hdr_config_t hdr;
+    dewarp_config_t dewarp;
+    automatic_algorithms_config_t automatic_algorithms_config;
+};
+
+struct config_stream_osd_t
+{
+    nlohmann::json config; // Flexible OSD configuration
+};
+
+struct config_encoded_output_stream_t
+{
+    std::string stream_id;
+    encoder_config_t encoding;
+    config_stream_osd_t osd;
+    privacy_mask_config_t masking;
+};
+
+struct config_profile_t
+{
+    std::string version;
+    std::string name;
+    config_sensor_config_t sensor_config;
+    config_application_settings_t application_settings;
+    config_stabilizer_settings_t stabilizer_settings;
+    config_iq_settings_t iq_settings;
+    std::vector<config_encoded_output_stream_t> encoded_output_streams;
+
+    frontend_config_t to_frontend_config() const
+    {
+        frontend_config_t frontend_config;
+        frontend_config.input_config = input_video_config_t{
+            .source_type = sensor_config.input_video.source_type,
+            .format = HAILO_FORMAT_NV12,
+            .resolution =
+                output_resolution_t{.framerate = sensor_config.input_video.resolution.framerate,
+                                    .pool_max_buffers = 0,
+                                    .dimensions =
+                                        dsp_utils::crop_resize_dims_t{
+                                            .perform_crop = 0,
+                                            .crop_start_x = 0,
+                                            .crop_end_x = 0,
+                                            .crop_start_y = 0,
+                                            .crop_end_y = 0,
+                                            .destination_width = sensor_config.input_video.resolution.width,
+                                            .destination_height = sensor_config.input_video.resolution.height},
+                                    .stream_id = "",
+                                    .scaling_mode = DSP_SCALING_MODE_STRETCH},
+            .source = sensor_config.input_video.source,
+            .sensor_index = 0};
+        frontend_config.ldc_config.rotation_config = application_settings.rotation;
+        frontend_config.ldc_config.flip_config = application_settings.flip;
+        frontend_config.ldc_config.dewarp_config = iq_settings.dewarp;
+        frontend_config.ldc_config.dis_config = stabilizer_settings.dis;
+        frontend_config.ldc_config.optical_zoom_config = application_settings.optical_zoom;
+        frontend_config.ldc_config.input_video_config = frontend_config.input_config;
+        application_input_streams_config_t app_input_streams_config(application_settings.application_input_streams,
+                                                                    iq_settings.grayscale.enabled);
+        frontend_config.ldc_config.application_input_streams_config = app_input_streams_config;
+        frontend_config.ldc_config.eis_config = stabilizer_settings.eis;
+        frontend_config.ldc_config.gyro_config = stabilizer_settings.gyro;
+        frontend_config.denoise_config = iq_settings.denoise;
+        frontend_config.multi_resize_config.input_video_config = output_resolution_t{
+            .framerate = sensor_config.input_video.resolution.framerate,
+            .pool_max_buffers = 0,
+            .dimensions =
+                dsp_utils::crop_resize_dims_t{.perform_crop = 0,
+                                              .crop_start_x = 0,
+                                              .crop_end_x = 0,
+                                              .crop_start_y = 0,
+                                              .crop_end_y = 0,
+                                              .destination_width = sensor_config.input_video.resolution.width,
+                                              .destination_height = sensor_config.input_video.resolution.height},
+            .stream_id = "",
+            .scaling_mode = DSP_SCALING_MODE_STRETCH};
+        frontend_config.multi_resize_config.application_input_streams_config = app_input_streams_config;
+        frontend_config.multi_resize_config.digital_zoom_config = application_settings.digital_zoom;
+        frontend_config.multi_resize_config.rotation_config = application_settings.rotation;
+        frontend_config.multi_resize_config.motion_detection_config = application_settings.motion_detection;
+        frontend_config.hdr_config = iq_settings.hdr;
+        frontend_config.hailort_config = application_settings.hailort;
+        frontend_config.isp_config = isp_t{
+            .isp_config_files_path = "/usr/bin",
+        };
+        frontend_config.application_analytics_config = application_settings.application_analytics;
+        return frontend_config;
+    }
+
+    // self to encoder_config_t
+    std::map<output_stream_id_t, encoder_config_t> to_encoder_config_map() const
+    {
+        std::map<output_stream_id_t, encoder_config_t> encoder_configs;
+        for (const auto &stream : encoded_output_streams)
+        {
+            encoder_configs[stream.stream_id] = stream.encoding;
+        }
+        return encoder_configs;
+    }
+
+    std::map<output_stream_id_t, config_encoded_output_stream_t> to_encoded_output_stream_config_map() const
+    {
+        std::map<output_stream_id_t, config_encoded_output_stream_t> encoded_output_streams_map;
+        for (const auto &stream : encoded_output_streams)
+        {
+            encoded_output_streams_map[stream.stream_id] = stream;
+        }
+        return encoded_output_streams_map;
+    }
+
+    // Get encoder type for specific stream (compatibility with ProfileConfig interface)
+    EncoderType get_encoder_type(const output_stream_id_t &output_stream_id) const
+    {
+        auto encoder_configs = to_encoder_config_map();
+        const auto &config = encoder_configs.at(output_stream_id);
+        if (std::holds_alternative<jpeg_encoder_config_t>(config))
+        {
+            return EncoderType::Jpeg;
+        }
+        else if (std::holds_alternative<hailo_encoder_config_t>(config))
+        {
+            return EncoderType::Hailo;
+        }
+        else
+        {
+            return EncoderType::None;
+        }
+    }
+
+    void from_frontend_config(const frontend_config_t &frontend_config)
+    {
+        // Convert sensor config
+        sensor_config.input_video.resolution.width =
+            frontend_config.input_config.resolution.dimensions.destination_width;
+        sensor_config.input_video.resolution.height =
+            frontend_config.input_config.resolution.dimensions.destination_height;
+        sensor_config.input_video.resolution.framerate = frontend_config.input_config.resolution.framerate;
+
+        application_settings.application_input_streams.format =
+            frontend_config.multi_resize_config.application_input_streams_config.format;
+        application_settings.application_input_streams.interpolation_type =
+            frontend_config.multi_resize_config.application_input_streams_config.interpolation_type;
+        application_settings.application_input_streams.resolutions =
+            frontend_config.multi_resize_config.application_input_streams_config.resolutions;
+        application_settings.optical_zoom = frontend_config.ldc_config.optical_zoom_config;
+        application_settings.digital_zoom = frontend_config.multi_resize_config.digital_zoom_config;
+        application_settings.motion_detection = frontend_config.multi_resize_config.motion_detection_config;
+        application_settings.rotation = frontend_config.multi_resize_config.rotation_config;
+        application_settings.flip = frontend_config.ldc_config.flip_config;
+        application_settings.hailort = frontend_config.hailort_config;
+        application_settings.application_analytics = frontend_config.application_analytics_config;
+
+        // Convert stabilizer settings
+        stabilizer_settings.dis = frontend_config.ldc_config.dis_config;
+        stabilizer_settings.eis = frontend_config.ldc_config.eis_config;
+        stabilizer_settings.gyro = frontend_config.ldc_config.gyro_config;
+
+        // Convert IQ settings
+        iq_settings.denoise = frontend_config.denoise_config;
+        iq_settings.hdr = frontend_config.hdr_config;
+        iq_settings.dewarp = frontend_config.ldc_config.dewarp_config;
+    }
 };
 
 /** @} */ // end of media_library_types_definitions

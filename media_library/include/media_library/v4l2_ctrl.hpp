@@ -13,7 +13,10 @@
 #include <unistd.h>
 #include <mutex>
 #include <memory>
+#include <vector>
 #include <thread>
+
+#include "files_utils.hpp"
 
 #ifndef CTRL_REPOSITORY_TTL_MS
 #define CTRL_REPOSITORY_TTL_MS 5000 // 5 sec
@@ -106,31 +109,12 @@ enum class IspCtrl
     MAX
 };
 
-class fd_with_dtor_t
-{
-    int m_fd;
-
-  public:
-    fd_with_dtor_t(int fd)
-        : m_fd(fd) {}; // this c'tor shouldn't be used directly, use the function `get_device_fd` instead
-    ~fd_with_dtor_t()
-    {
-        close(m_fd);
-    };
-    int get_fd()
-    {
-        return m_fd;
-    }
-};
-
-typedef std::shared_ptr<fd_with_dtor_t> FdWithDtor;
-
 template <typename T> inline void ioctl_clear(T &v4l2_ctrl)
 {
     std::memset(&v4l2_ctrl, 0, sizeof(T));
 }
 
-std::optional<FdWithDtor> get_device_fd(Device device);
+std::optional<files_utils::SharedFd> get_device_fd(Device device, size_t sensor_index = 0);
 template <class CtrlEnum> Device get_ctrl_device()
 {
     static_assert(std::is_enum_v<CtrlEnum>, "CtrlEnum type is not enum");
@@ -179,187 +163,74 @@ template <class CtrlEnum> std::optional<uint32_t> get_ctrl_id(int fd, CtrlEnum c
 }
 bool xioctl(int fd, unsigned long request, void *arg);
 
-namespace
-{
-template <class T, class CtrlEnum> bool ctrl_set(CtrlEnum id, T val)
-{
-    auto device_type = get_ctrl_device<CtrlEnum>();
-    if (device_type == Device::UNKNOWN)
-    {
-        return false;
-    }
-    auto fd_with_dtor_opt = get_device_fd(device_type);
-    if (!fd_with_dtor_opt.has_value())
-    {
-        return false;
-    }
-    auto fd_with_dtor = fd_with_dtor_opt.value();
-    auto ctrl_id = get_ctrl_id(fd_with_dtor->get_fd(), id);
-    if (!ctrl_id.has_value())
-    {
-        return false;
-    }
-
-    if (!xioctl(fd_with_dtor->get_fd(), ctrl_id.value(), &val))
-    {
-        return false;
-    }
-
-    return true;
-}
-} // namespace
-
-template <class T, class CtrlEnum> bool ext_ctrl_set(CtrlEnum id, T val)
-{
-    auto device_type = get_ctrl_device<CtrlEnum>();
-    if (device_type == Device::UNKNOWN)
-    {
-        return false;
-    }
-    auto fd_with_dtor_opt = get_device_fd(device_type);
-    if (!fd_with_dtor_opt.has_value())
-    {
-        return false;
-    }
-    auto fd_with_dtor = fd_with_dtor_opt.value();
-    auto ctrl_id = get_ctrl_id(fd_with_dtor->get_fd(), (CtrlEnum)id);
-    if (!ctrl_id.has_value())
-    {
-        return false;
-    }
-
-    if constexpr (std::is_same_v<CtrlEnum, IspCtrl>) // In isp no need in ext controls
-    {
-        return ctrl_set(id, val);
-    }
-
-    struct v4l2_ext_control ctrl;
-    struct v4l2_ext_controls ctrls;
-    struct v4l2_query_ext_ctrl qctrl;
-    ioctl_clear(ctrl);
-    ioctl_clear(ctrls);
-    ioctl_clear(qctrl);
-
-    qctrl.id = ctrl_id.value();
-    if (!xioctl(fd_with_dtor->get_fd(), VIDIOC_QUERY_EXT_CTRL, &qctrl))
-    {
-        return false;
-    }
-
-    if constexpr (std::is_pointer_v<T>)
-    {
-        ctrl.size = sizeof(*val);
-        ctrl.ptr = val;
-    }
-    else if constexpr (is_span_v<T>)
-    {
-        ctrl.size = val.size() * sizeof(val.data()[0]);
-        ctrl.ptr = val.data();
-    }
-    else
-    {
-        ctrl.size = sizeof(val);
-        ctrl.value = val;
-    }
-
-    ctrl.id = qctrl.id;
-    ctrls.count = 1;
-    ctrls.controls = &ctrl;
-    ctrls.which = V4L2_CTRL_ID2WHICH(ctrl.id);
-
-    if (!xioctl(fd_with_dtor->get_fd(), VIDIOC_S_EXT_CTRLS, &ctrls))
-    {
-        return false;
-    }
-
-    return true;
-}
-
-template <class T>
-auto ext_ctrl_get(uint32_t ctrl_id, FdWithDtor fd_with_dtor)
-    -> std::optional<std::conditional_t<std::is_pointer<T>::value, std::remove_pointer_t<T>, T>>
-{
-    struct v4l2_ext_control ctrl;
-    struct v4l2_ext_controls ctrls;
-    struct v4l2_query_ext_ctrl qctrl;
-    ioctl_clear(ctrl);
-    ioctl_clear(ctrls);
-    ioctl_clear(qctrl);
-
-    qctrl.id = ctrl_id;
-    if (!xioctl(fd_with_dtor->get_fd(), VIDIOC_QUERY_EXT_CTRL, &qctrl))
-    {
-        return std::nullopt;
-    }
-
-    ctrl.id = qctrl.id;
-    ctrl.size = qctrl.elem_size * qctrl.elems;
-
-    // Define val as T if T is not a pointer, and as T if type is T*
-    typename std::conditional<std::is_pointer_v<T>, std::remove_pointer_t<T>, T>::type val;
-
-    if constexpr (std::is_pointer_v<T>)
-    {
-        ctrl.ptr = &val;
-    }
-    ctrls.count = 1;
-    ctrls.controls = &ctrl;
-    ctrls.which = V4L2_CTRL_ID2WHICH(ctrl.id);
-
-    if (!xioctl(fd_with_dtor->get_fd(), VIDIOC_G_EXT_CTRLS, &ctrls))
-    {
-        return std::nullopt;
-    }
-    if constexpr (std::is_pointer_v<T>)
-    {
-        return std::make_optional<std::remove_pointer_t<T>>(val);
-    }
-    else
-    {
-        val = ctrl.value;
-        return std::make_optional<T>(val);
-    }
-}
-
-template <class T, class CtrlEnum>
-auto ext_ctrl_get(CtrlEnum id)
-    -> std::optional<std::conditional_t<std::is_pointer<T>::value, std::remove_pointer_t<T>, T>>
-{
-    auto device_type = get_ctrl_device<CtrlEnum>();
-    if (device_type == Device::UNKNOWN)
-    {
-        return std::nullopt;
-    }
-    auto fd_with_dtor = get_device_fd(device_type);
-    if (!fd_with_dtor.has_value())
-    {
-        return std::nullopt;
-    }
-    auto ctrl_id = get_ctrl_id<CtrlEnum>(fd_with_dtor.value()->get_fd(), (CtrlEnum)id);
-    if (!ctrl_id.has_value())
-    {
-        return std::nullopt;
-    }
-    return ext_ctrl_get<T>(ctrl_id.value(), fd_with_dtor.value());
-}
-
-class v4l2ControlRepository
+class v4l2ControlManager
 {
   private:
+    size_t m_sensor_index;
     uint64_t m_ttl;
     bool m_async_refresh = false;
-    std::mutex m_ctrl_cache_mutex;
+    std::mutex m_cache_mutex;
     bool m_during_ctrl_cache_refresh = false;
     std::map<Device, std::map<uint32_t, std::pair<uint64_t, uint64_t>>>
         m_ctrl_cache; // cache of Device to ctrl_id to timestamp and value
-    std::map<Device, FdWithDtor> m_device_fd_cache;
+    std::map<Device, files_utils::SharedFd> m_device_fd_cache;
 
-    std::optional<FdWithDtor> get_fd(Device device)
+  public:
+    v4l2ControlManager(size_t sensor_index = 0, uint64_t ttl = CTRL_REPOSITORY_TTL_MS, bool async_refresh = true)
+        : m_sensor_index(sensor_index), m_ttl(ttl), m_async_refresh(async_refresh)
     {
+        set_sensor_index(sensor_index);
+    }
+
+    void set_sensor_index(size_t sensor_index)
+    {
+        std::lock_guard<std::mutex> lock(m_cache_mutex);
+        if (m_sensor_index == sensor_index)
+        {
+            return;
+        }
+
+        m_sensor_index = sensor_index;
+        m_device_fd_cache.clear();
+        m_ctrl_cache.clear();
+    }
+
+    template <class T, class CtrlEnum> bool ctrl_set(CtrlEnum id, T val)
+    {
+        auto device_type = get_ctrl_device<CtrlEnum>();
+        if (device_type == Device::UNKNOWN)
+        {
+            return false;
+        }
+        auto shared_fd_opt = get_fd(device_type);
+        if (!shared_fd_opt.has_value())
+        {
+            return false;
+        }
+        auto shared_fd = shared_fd_opt.value();
+        auto ctrl_id = get_ctrl_id(*shared_fd, id);
+        if (!ctrl_id.has_value())
+        {
+            return false;
+        }
+
+        if (!xioctl(*shared_fd, ctrl_id.value(), &val))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    std::optional<files_utils::SharedFd> get_fd(Device device)
+    {
+        std::lock_guard<std::mutex> lock(m_cache_mutex);
+
+        // Get the map for the current sensor_index
         auto it = m_device_fd_cache.find(device);
         if (it == m_device_fd_cache.end())
         {
-            auto fd = get_device_fd(device);
+            auto fd = get_device_fd(device, m_sensor_index);
             if (!fd.has_value())
             {
                 return std::nullopt;
@@ -370,10 +241,138 @@ class v4l2ControlRepository
         return it->second;
     }
 
-  public:
-    v4l2ControlRepository(uint64_t ttl = CTRL_REPOSITORY_TTL_MS, bool async_refresh = false)
-        : m_ttl(ttl), m_async_refresh(async_refresh)
+    template <class T, class CtrlEnum> bool ext_ctrl_set(CtrlEnum id, T val)
     {
+        auto device_type = get_ctrl_device<CtrlEnum>();
+        if (device_type == Device::UNKNOWN)
+        {
+            return false;
+        }
+        auto shared_fd_opt = get_fd(device_type);
+        if (!shared_fd_opt.has_value())
+        {
+            return false;
+        }
+        auto shared_fd = shared_fd_opt.value();
+        auto ctrl_id = get_ctrl_id(*shared_fd, (CtrlEnum)id);
+        if (!ctrl_id.has_value())
+        {
+            return false;
+        }
+
+        if constexpr (std::is_same_v<CtrlEnum, IspCtrl>) // In isp no need in ext controls
+        {
+            return ctrl_set(id, val);
+        }
+
+        struct v4l2_ext_control ctrl;
+        struct v4l2_ext_controls ctrls;
+        struct v4l2_query_ext_ctrl qctrl;
+        ioctl_clear(ctrl);
+        ioctl_clear(ctrls);
+        ioctl_clear(qctrl);
+
+        qctrl.id = ctrl_id.value();
+        if (!xioctl(*shared_fd, VIDIOC_QUERY_EXT_CTRL, &qctrl))
+        {
+            return false;
+        }
+
+        if constexpr (std::is_pointer_v<T>)
+        {
+            ctrl.size = sizeof(*val);
+            ctrl.ptr = val;
+        }
+        else if constexpr (is_span_v<T>)
+        {
+            ctrl.size = val.size() * sizeof(val.data()[0]);
+            ctrl.ptr = val.data();
+        }
+        else
+        {
+            ctrl.size = sizeof(val);
+            ctrl.value = val;
+        }
+
+        ctrl.id = qctrl.id;
+        ctrls.count = 1;
+        ctrls.controls = &ctrl;
+        ctrls.which = V4L2_CTRL_ID2WHICH(ctrl.id);
+
+        if (!xioctl(*shared_fd, VIDIOC_S_EXT_CTRLS, &ctrls))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    template <class T>
+    auto ext_ctrl_get(uint32_t ctrl_id, files_utils::SharedFd shared_fd)
+        -> std::optional<std::conditional_t<std::is_pointer<T>::value, std::remove_pointer_t<T>, T>>
+    {
+        struct v4l2_ext_control ctrl;
+        struct v4l2_ext_controls ctrls;
+        struct v4l2_query_ext_ctrl qctrl;
+        ioctl_clear(ctrl);
+        ioctl_clear(ctrls);
+        ioctl_clear(qctrl);
+
+        qctrl.id = ctrl_id;
+        if (!xioctl(*shared_fd, VIDIOC_QUERY_EXT_CTRL, &qctrl))
+        {
+            return std::nullopt;
+        }
+
+        ctrl.id = qctrl.id;
+        ctrl.size = qctrl.elem_size * qctrl.elems;
+
+        // Define val as T if T is not a pointer, and as T if type is T*
+        typename std::conditional<std::is_pointer_v<T>, std::remove_pointer_t<T>, T>::type val;
+
+        if constexpr (std::is_pointer_v<T>)
+        {
+            ctrl.ptr = &val;
+        }
+        ctrls.count = 1;
+        ctrls.controls = &ctrl;
+        ctrls.which = V4L2_CTRL_ID2WHICH(ctrl.id);
+
+        if (!xioctl(*shared_fd, VIDIOC_G_EXT_CTRLS, &ctrls))
+        {
+            return std::nullopt;
+        }
+        if constexpr (std::is_pointer_v<T>)
+        {
+            return std::make_optional<std::remove_pointer_t<T>>(val);
+        }
+        else
+        {
+            val = ctrl.value;
+            return std::make_optional<T>(val);
+        }
+    }
+
+    template <class T, class CtrlEnum>
+    auto ext_ctrl_get(CtrlEnum id)
+        -> std::optional<std::conditional_t<std::is_pointer<T>::value, std::remove_pointer_t<T>, T>>
+    {
+        auto device_type = get_ctrl_device<CtrlEnum>();
+        if (device_type == Device::UNKNOWN)
+        {
+            return std::nullopt;
+        }
+        auto shared_fd = get_fd(device_type);
+        if (!shared_fd.has_value())
+        {
+            return std::nullopt;
+        }
+        auto ctrl_id = get_ctrl_id<CtrlEnum>(*shared_fd.value(), (CtrlEnum)id);
+        if (!ctrl_id.has_value())
+        {
+            return std::nullopt;
+        }
+        return ext_ctrl_get<T>(ctrl_id.value(), shared_fd.value());
     }
 
     template <typename T, class CtrlEnum> bool get(CtrlEnum id, T &val, bool force_refresh = false)
@@ -387,7 +386,7 @@ class v4l2ControlRepository
         }
 
         {
-            std::lock_guard<std::mutex> lock(m_ctrl_cache_mutex);
+            std::lock_guard<std::mutex> lock(m_cache_mutex);
             if (!m_ctrl_cache.contains(device_type))
             {
 
@@ -403,7 +402,7 @@ class v4l2ControlRepository
         }
 
         auto fd = fd_opt.value();
-        auto ctrl_id = get_ctrl_id<CtrlEnum>(fd->get_fd(), (CtrlEnum)id);
+        auto ctrl_id = get_ctrl_id<CtrlEnum>(*fd, (CtrlEnum)id);
         if (!ctrl_id.has_value())
         {
 
@@ -425,7 +424,7 @@ class v4l2ControlRepository
         if (force_refresh || !m_ctrl_cache[device_type].contains(ctrl_id_val) || !m_async_refresh)
         {
 
-            std::lock_guard<std::mutex> lock(m_ctrl_cache_mutex);
+            std::lock_guard<std::mutex> lock(m_cache_mutex);
             auto tmp_val = ext_ctrl_get<T>(ctrl_id_val, fd);
             if (!tmp_val.has_value())
             {
@@ -439,7 +438,7 @@ class v4l2ControlRepository
         else // in cache but expired -> async fetch from ioctl
         {
             val = m_ctrl_cache[device_type][ctrl_id_val].second;
-            std::lock_guard<std::mutex> lock(m_ctrl_cache_mutex);
+            std::lock_guard<std::mutex> lock(m_cache_mutex);
             if (!m_during_ctrl_cache_refresh)
             {
                 m_during_ctrl_cache_refresh = true;
@@ -462,4 +461,5 @@ class v4l2ControlRepository
         return false;
     }
 };
+
 } // namespace v4l2

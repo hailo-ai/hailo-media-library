@@ -26,6 +26,7 @@
 #include "config_manager.hpp"
 #include "dsp_utils.hpp"
 #include "ldc_mesh_context.hpp"
+#include "logger_macros.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_utils.hpp"
 #include "snapshot.hpp"
@@ -681,6 +682,9 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBuf
     media_lib_ret = perform_dewarp(input_frame, output_frame);
     HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK);
     output_frame->copy_metadata_from(input_frame);
+
+    output_frame->optical_zoom_magnification =
+        m_ldc_configs.optical_zoom_config.enabled ? m_ldc_configs.optical_zoom_config.magnification : 1.0f;
 
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
         return media_lib_ret;

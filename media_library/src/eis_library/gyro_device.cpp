@@ -2,6 +2,7 @@
 #include "media_library_logger.hpp"
 #include "gyro_device.hpp"
 #include "arguments_parser.hpp"
+#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <fstream>
@@ -11,6 +12,7 @@
 #include <env_vars.hpp>
 #include "media_library/v4l2_ctrl.hpp"
 #include "media_library/isp_utils.hpp"
+#include <limits>
 
 #define MODULE_NAME LoggerType::Eis
 #define DEVICE_CLK_TIMESTAMP "monotonic_raw"
@@ -20,6 +22,10 @@
 
 #define GYRO_PRINTS_FILE_PATH ("/tmp/eis_gyro_output.txt")
 #define IS_SAMPLE_VSYNC(sample) (sample.vx % 2 != 0) // VSYNC samples have odd values
+
+#define GYRO_SAMPLE_MAX_VALUE (std::numeric_limits<decltype(gyro_sample_t::vx)>::max())
+#define GYRO_SATURATION_THRESHOLD (GYRO_SAMPLE_MAX_VALUE * 0.99f)
+#define GYRO_SATURATION_WAIT_FRAMES (15)
 
 static gyro_sample gyro_sampled;
 std::unique_ptr<GyroDevice> gyroApi = nullptr;
@@ -183,10 +189,53 @@ std::optional<gyro_sample_t> GyroDevice::get_closest_vsync_sample(uint64_t frame
     });
 }
 
-std::vector<gyro_sample_t> GyroDevice::get_gyro_samples_by_threshold(uint64_t threshold_timestamp)
+tl::expected<std::vector<gyro_sample_t>, gyro_status_t> GyroDevice::get_gyro_samples_by_threshold(
+    uint64_t threshold_timestamp)
 {
-    return m_vector_samples->dequeue_many(
+    auto samples = m_vector_samples->dequeue_many(
         [&threshold_timestamp](const gyro_sample_t &sample) { return sample.timestamp_ns <= threshold_timestamp; });
+
+    if (samples.empty())
+    {
+        // no samples found before the threshold
+        LOGGER__MODULE__WARNING(MODULE_NAME, "No gyro samples found before threshold: {}, frame will not be stabilized",
+                                threshold_timestamp);
+    }
+    else
+    {
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Last gyro sample ts: {}, threshold ts: {}", samples.back().timestamp_ns,
+                              threshold_timestamp);
+    }
+    if (m_vector_samples->empty())
+    {
+        // no more samples in the queue
+        LOGGER__MODULE__WARNING(
+            MODULE_NAME,
+            "Gyro samples buffer is empty, samples may be missing (last sample timestamp: {}, threshold: {})",
+            samples.empty() ? 0 : samples.back().timestamp_ns, threshold_timestamp);
+    }
+    else if (!samples.empty() && samples.back().timestamp_ns < threshold_timestamp)
+    {
+        LOGGER__MODULE__WARNING(MODULE_NAME,
+                                "Gyro samples buffer is not empty, but last sample timestamp ({}) is before threshold "
+                                "({}), samples may be missing",
+                                samples.back().timestamp_ns, threshold_timestamp);
+    }
+
+    using sample_type = decltype(gyro_sample_t::vx);
+    constexpr sample_type min_val = static_cast<sample_type>(-GYRO_SATURATION_THRESHOLD);
+    constexpr sample_type max_val = static_cast<sample_type>(GYRO_SATURATION_THRESHOLD);
+
+    for (auto &sample : samples)
+    {
+        sample.vx = std::clamp(sample.vx, min_val, max_val);
+        sample.vy = std::clamp(sample.vy, min_val, max_val);
+        sample.vz = std::clamp(sample.vz, min_val, max_val);
+    }
+
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Gyro samples for current frame: {}", samples.size());
+
+    return samples;
 }
 
 static void handle_sig(int)

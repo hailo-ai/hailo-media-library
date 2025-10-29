@@ -28,10 +28,12 @@
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
 #include "isp_utils.hpp"
+#include "sensor_registry.hpp"
 #include "video_device.hpp"
 
 #include <linux/v4l2-controls.h>
 #include <linux/v4l2-subdev.h>
+#include <optional>
 #include <stdint.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -42,11 +44,11 @@
 
 #define IOCTL_WAIT_FOR_STREAM_START _IO('D', BASE_VIDIOC_PRIVATE + 3)
 
-MediaLibraryPreIspDenoise::MediaLibraryPreIspDenoise() : MediaLibraryDenoise()
+MediaLibraryPreIspDenoise::MediaLibraryPreIspDenoise(std::shared_ptr<v4l2::v4l2ControlManager> v4l2_ctrl_manager)
+    : MediaLibraryDenoise(), m_v4l2_ctrl_manager(v4l2_ctrl_manager)
 {
     m_hailort_denoise = std::make_unique<HailortAsyncDenoisePreISP>(
         [this](HailoMediaLibraryBufferPtr output_buffer) { inference_callback(output_buffer); });
-    m_isp_fd = open(YUV_STREAM_PATH, O_RDWR);
     MediaLibraryDenoise::callbacks_t callbacks;
     callbacks.on_buffer_ready = [this](HailoMediaLibraryBufferPtr output_buffer) {
         write_output_buffer(output_buffer);
@@ -61,6 +63,8 @@ MediaLibraryPreIspDenoise::~MediaLibraryPreIspDenoise()
     // Stop the ISP thread and ensure it is fully joined
     stop_isp_thread();
 
+    deinit();
+
     // Flush and clear all pending buffers before invalidating devices
     m_flushing = true;
     m_inference_callback_condvar.notify_one();
@@ -73,13 +77,6 @@ MediaLibraryPreIspDenoise::~MediaLibraryPreIspDenoise()
 
     // Clear any remaining buffers in the loopback queue
     clear_loopback_queue();
-
-    // Invalidate devices after all buffers are cleared
-    m_raw_capture_device = nullptr;
-    m_isp_in_device = nullptr;
-
-    // Close the ISP file descriptor
-    close(m_isp_fd);
 }
 
 // overrides
@@ -111,27 +108,12 @@ bool MediaLibraryPreIspDenoise::network_changed(const denoise_config_t &denoise_
                                      (hailort_configs.device_id != m_hailort_configs.device_id));
 }
 
-media_library_return MediaLibraryPreIspDenoise::create_and_initialize_buffer_pools(const input_video_config_t &)
+media_library_return MediaLibraryPreIspDenoise::create_and_initialize_buffer_pools(
+    const input_video_config_t &input_video_configs)
 {
+    (void)input_video_configs; // unused parameter
     m_allocator = std::make_shared<HDR::DMABufferAllocator>();
     if (!m_allocator->init(DMA_HEAP_PATH))
-    {
-        return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
-    }
-
-    auto [input_pixel_format, input_pixel_width] = get_pixel_format_and_width(BITS_PER_INPUT);
-    m_raw_capture_device = std::make_shared<HDR::VideoCaptureDevice>();
-    if (!m_raw_capture_device->init(RAW_CAPTURE_PATH, "[SDR] raw out", *m_allocator, 1, HDR::InputResolution::RES_4K,
-                                    RAW_CAPTURE_BUFFERS_COUNT, input_pixel_format, input_pixel_width,
-                                    RAW_CAPTURE_DEFAULT_FPS, true))
-    {
-        return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
-    }
-
-    auto [output_pixel_format, output_pixel_width] = get_pixel_format_and_width(BITS_PER_OUTPUT);
-    m_isp_in_device = std::make_shared<HDR::VideoOutputDevice>();
-    if (!m_isp_in_device->init(ISP_IN_PATH, "[SDR] ISP in", *m_allocator, 1, HDR::InputResolution::RES_4K,
-                               ISP_IN_BUFFERS_COUNT, output_pixel_format, output_pixel_width))
     {
         return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
@@ -176,8 +158,6 @@ media_library_return MediaLibraryPreIspDenoise::create_and_initialize_buffer_poo
 media_library_return MediaLibraryPreIspDenoise::close_buffer_pools()
 {
     stop_isp_thread();
-    m_raw_capture_device = nullptr;
-    m_isp_in_device = nullptr;
     m_allocator = nullptr;
 
     // close and free dgain buffer pool
@@ -255,15 +235,13 @@ media_library_return MediaLibraryPreIspDenoise::acquire_output_buffer(HailoMedia
     HDR::VideoBuffer *out_buffer;
     if (!m_isp_in_device->get_buffer(&out_buffer))
     {
-        // m_raw_capture_device->putBuffer(raw_buffer);
-        //  consider if the above is required, since the wrapper destructor will do this too
+        LOGGER__MODULE__ERROR(MODULE_NAME, "failed to acquire buffer for pre-isp denoise output");
         return media_library_return::MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
     // Wrap out buffer in media library buffer
     MediaLibraryPreIspDenoise::hailo_buffer_from_isp_buffer(
-        out_buffer, output_buffer, [this](HDR::VideoBuffer *buf) { m_isp_in_device->put_buffer(buf); },
-        HAILO_FORMAT_GRAY12);
+        out_buffer, output_buffer, [this](HDR::VideoBuffer *buf) { (void)buf; }, HAILO_FORMAT_GRAY12);
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -285,8 +263,117 @@ void MediaLibraryPreIspDenoise::copy_meta(HailoMediaLibraryBufferPtr input_buffe
     // Stub implementation: does nothing in this child class
 }
 
+media_library_return MediaLibraryPreIspDenoise::init()
+{
+    if (m_initialized)
+    {
+        return media_library_return::MEDIA_LIBRARY_SUCCESS;
+    }
+
+    int raw_isp_fd = -1;
+    files_utils::SharedFd isp_fd;
+    std::shared_ptr<HDR::VideoCaptureDevice> raw_capture_device;
+    std::shared_ptr<HDR::VideoOutputDevice> isp_in_device;
+
+    const bool dgain_mode = !m_denoise_configs.bayer_network_config.dgain_channel.empty();
+
+    if (MEDIA_LIBRARY_SUCCESS != isp_utils::setup_sdr(m_input_config.resolution, m_v4l2_ctrl_manager, dgain_mode))
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to setup sdr configuration");
+        return media_library_return::MEDIA_LIBRARY_ERROR;
+    }
+
+    auto &registry = SensorRegistry::get_instance();
+    auto pixel_format = registry.get_pixel_format();
+    auto sensor_res = registry.detect_resolution(m_input_config.resolution);
+    if (!pixel_format.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get pixel format for sensor type");
+        return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    // Set MCM in injection mode to 12 bit packed
+    if (!isp_utils::set_isp_mcm_mode(isp_utils::ISP_MCM_MODE_PACKED, m_v4l2_ctrl_manager))
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set MCM_MODE_SEL to ISP_MCM_MODE_PACKED");
+        return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    raw_capture_device = std::make_shared<HDR::VideoCaptureDevice>();
+    auto raw_capture_path = SensorRegistry::get_instance().get_raw_capture_path(m_input_config.sensor_index);
+    if (!raw_capture_path.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get raw capture path");
+        return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    if (!raw_capture_device->init(raw_capture_path.value(), "[Lowlight_Bayer] raw out", *m_allocator, 1,
+                                  sensor_res.value(), RAW_CAPTURE_BUFFERS_COUNT, pixel_format.value(), BITS_PER_INPUT,
+                                  RAW_CAPTURE_DEFAULT_FPS, true))
+    {
+        return media_library_return::MEDIA_LIBRARY_ERROR;
+    }
+
+    isp_in_device = std::make_shared<HDR::VideoOutputDevice>();
+    if (!isp_in_device->init(ISP_IN_PATH, "[Lowlight_Bayer] ISP in", *m_allocator, 1, sensor_res.value(),
+                             ISP_IN_BUFFERS_COUNT, V4L2_PIX_FMT_SRGGB12P, BITS_PER_OUTPUT))
+    {
+        return media_library_return::MEDIA_LIBRARY_ERROR;
+    }
+
+    auto device_path = SensorRegistry::get_instance().get_video_device_path(m_sensor_index);
+    if (!device_path.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get video device path");
+        return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    raw_isp_fd = open(device_path.value().c_str(), O_RDWR | O_CLOEXEC);
+    if (raw_isp_fd < 0)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to open video device: {}", device_path.value());
+        return media_library_return::MEDIA_LIBRARY_ERROR;
+    }
+
+    isp_fd = files_utils::make_shared_fd(raw_isp_fd);
+
+    m_raw_capture_device = std::move(raw_capture_device);
+    m_isp_in_device = std::move(isp_in_device);
+    m_isp_fd = std::move(isp_fd);
+    m_initialized = true;
+
+    LOGGER__MODULE__INFO(MODULE_NAME, "Initialized Pre ISP Denoise");
+    return media_library_return::MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return MediaLibraryPreIspDenoise::deinit()
+{
+    if (!m_initialized)
+        return media_library_return::MEDIA_LIBRARY_SUCCESS;
+
+    m_raw_capture_device = nullptr;
+    m_isp_in_device = nullptr;
+
+    if (!isp_utils::set_isp_mcm_mode(isp_utils::ISP_MCM_MODE_OFF, m_v4l2_ctrl_manager))
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set MCM_MODE_SEL to ISP_MCM_MODE_OFF");
+        return media_library_return::MEDIA_LIBRARY_ERROR;
+    }
+
+    m_isp_fd = nullptr;
+    m_initialized = false;
+
+    LOGGER__MODULE__INFO(MODULE_NAME, "Deinitialized Pre ISP Denoise");
+    return media_library_return::MEDIA_LIBRARY_SUCCESS;
+}
+
 media_library_return MediaLibraryPreIspDenoise::start()
 {
+    if (!m_initialized)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "MediaLibraryPreIspDenoise is not initialized");
+        return media_library_return::MEDIA_LIBRARY_ERROR;
+    }
+
     return start_isp_thread();
 }
 
@@ -301,24 +388,25 @@ void MediaLibraryPreIspDenoise::write_output_buffer(HailoMediaLibraryBufferPtr o
     m_isp_in_device->put_buffer(out_buf);
 }
 
-// Wait for the YUV stream to start (/dev/video0), required before
-// buffers can be pushed to isp
-void MediaLibraryPreIspDenoise::wait_for_stream_start()
+// Wait for the YUV stream to start from video device, required before buffers can be pushed to isp
+bool MediaLibraryPreIspDenoise::wait_for_stream_start()
 {
-    ioctl(m_isp_fd, IOCTL_WAIT_FOR_STREAM_START);
+    if (ioctl(*m_isp_fd, IOCTL_WAIT_FOR_STREAM_START) != 0)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "IOCTL_WAIT_FOR_STREAM_START failed, errno: {} ({})", errno,
+                              strerror(errno));
+        return false;
+    }
+
+    return true;
 }
 
 media_library_return MediaLibraryPreIspDenoise::start_isp_thread()
 {
     m_isp_thread_running = true;
     m_isp_thread = std::thread([this]() {
-        // Set MCM to injection mode to 12 bit packed
-        if (!set_isp_mcm_mode(ISP_MCM_MODE_INJECTION))
-        {
+        if (!wait_for_stream_start())
             return;
-        }
-
-        wait_for_stream_start();
 
         if (!m_isp_in_device->dequeue_buffers())
             return;
@@ -338,15 +426,29 @@ media_library_return MediaLibraryPreIspDenoise::start_isp_thread()
 
             // Wrap raw buffer in media library buffer
             HailoMediaLibraryBufferPtr hailo_buffer_raw = std::make_shared<hailo_media_library_buffer>();
+            if (hailo_buffer_raw->isp_timestamp_ns == 0)
+            {
+                // Timestamp is needed when checking if there are pending jobs
+                const auto now_time = std::chrono::system_clock::now();
+                hailo_buffer_raw->isp_timestamp_ns =
+                    std::chrono::time_point_cast<std::chrono::nanoseconds>(now_time).time_since_epoch().count();
+            }
+
             MediaLibraryPreIspDenoise::hailo_buffer_from_isp_buffer(
                 raw_buffer, hailo_buffer_raw, [this](HDR::VideoBuffer *buf) { m_raw_capture_device->put_buffer(buf); },
                 HAILO_FORMAT_GRAY16);
 
             // Prepare output buffer to wrap with
             HailoMediaLibraryBufferPtr hailo_buffer_out = std::make_shared<hailo_media_library_buffer>();
+            hailo_buffer_out->isp_timestamp_ns = hailo_buffer_raw->isp_timestamp_ns;
 
             // Start the inference loopback process
             handle_frame(hailo_buffer_raw, hailo_buffer_out);
+        }
+
+        while (m_hailort_denoise->has_pending_jobs())
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     });
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
@@ -357,22 +459,13 @@ media_library_return MediaLibraryPreIspDenoise::stop_isp_thread()
     m_isp_thread_running = false;
     if (m_isp_thread.joinable())
         m_isp_thread.join();
-    return media_library_return::MEDIA_LIBRARY_SUCCESS;
-}
 
-bool MediaLibraryPreIspDenoise::set_isp_mcm_mode(uint32_t target_mcm_mode)
-{
-    if (!v4l2::ext_ctrl_set(v4l2::IspCtrl::MCM_MODE_SEL, target_mcm_mode))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set MCM_MODE_SEL to {}", target_mcm_mode);
-        return false;
-    }
-    return true;
+    return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
 uint16_t MediaLibraryPreIspDenoise::get_dgain()
 {
-    auto dgain = v4l2::ext_ctrl_get<uint16_t, v4l2::Video0Ctrl>(v4l2::Video0Ctrl::DG_GAIN);
+    auto dgain = m_v4l2_ctrl_manager->ext_ctrl_get<uint16_t, v4l2::Video0Ctrl>(v4l2::Video0Ctrl::DG_GAIN);
     if (!dgain.has_value())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get DGAIN");
@@ -386,7 +479,7 @@ uint16_t MediaLibraryPreIspDenoise::get_dgain()
 
 uint16_t MediaLibraryPreIspDenoise::get_bls(v4l2::Video0Ctrl ctrl)
 {
-    auto bls = v4l2::ext_ctrl_get<uint16_t *, v4l2::Video0Ctrl>(ctrl);
+    auto bls = m_v4l2_ctrl_manager->ext_ctrl_get<uint16_t *, v4l2::Video0Ctrl>(ctrl);
     if (!bls.has_value())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get BLS");
@@ -409,7 +502,6 @@ void MediaLibraryPreIspDenoise::hailo_buffer_from_isp_buffer(HDR::VideoBuffer *v
     hailo_data_plane_t plane;
     plane.fd = video_buffer->get_planes()[0];
     plane.bytesused = v4l2_data->m.planes[0].bytesused;
-    plane.bytesperline = 2 * m_input_config.resolution.dimensions.destination_width; // 16 bits per pixel
     // Fill in buffer_data values
     // CMA memory until imaging sub system class supports DMABUF
     buffer_data_ptr = std::make_shared<hailo_buffer_data_t>(
@@ -420,27 +512,6 @@ void MediaLibraryPreIspDenoise::hailo_buffer_from_isp_buffer(HDR::VideoBuffer *v
                              on_free(static_cast<HDR::VideoBuffer *>(data));
                          }),
                          video_buffer);
-}
-
-std::pair<int, size_t> MediaLibraryPreIspDenoise::get_pixel_format_and_width(const size_t bits_per_pixel)
-{
-    static const std::unordered_map<isp_utils::SensorType, std::pair<int, size_t>> sensor_formats = {
-        {isp_utils::SensorType::IMX334, {V4L2_PIX_FMT_SRGGB12, bits_per_pixel}},
-        {isp_utils::SensorType::IMX678, {V4L2_PIX_FMT_SRGGB12, bits_per_pixel}},
-        {isp_utils::SensorType::IMX715, {V4L2_PIX_FMT_SGBRG12, bits_per_pixel}},
-    };
-    auto sensor_name = isp_utils::get_sensor_type();
-    if (!sensor_name.has_value())
-    {
-        return {V4L2_PIX_FMT_SRGGB12, bits_per_pixel};
-    }
-    auto it = sensor_formats.find(sensor_name.value());
-    if (it == sensor_formats.end())
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to find pixel format for sensor type");
-        return {V4L2_PIX_FMT_SRGGB12, bits_per_pixel};
-    }
-    return it->second;
 }
 
 media_library_return MediaLibraryPreIspDenoise::generate_startup_buffer()

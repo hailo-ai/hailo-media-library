@@ -38,43 +38,8 @@ namespace osd
 const auto DEFAULT_OSD_CONFIG = R"({
         "osd" : {
             "dateTime" : [
-                {
-                    "id" : "default_datetime",
-                    "font_size" : 70,
-                    "font_path" : "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
-                    "text_color" : [ 255, 255, 255 ],
-                    "x" : 0.1,
-                    "y" : 0.7,
-                    "z-index" : 1,
-                    "angle": 0,
-                    "rotation_policy": "CENTER"
-                }
             ],
             "text" : [
-                {
-                    "id" : "default_text1",
-                    "label" : "Hailo",
-                    "font_size" : 70,
-                    "font_path" : "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
-                    "text_color" : [ 255, 255, 255 ],
-                    "x" : 0.7,
-                    "y" : 0.7,
-                    "z-index" : 1,
-                    "angle": 0,
-                    "rotation_policy": "CENTER"
-                },
-                {
-                    "id" : "default_text2",
-                    "label" : "Stream 0",
-                    "font_size" : 70,
-                    "font_path" : "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
-                    "text_color" : [ 255, 255, 255 ],
-                    "x" : 0.1,
-                    "y" : 0.1,
-                    "z-index" : 1,
-                    "angle": 0,
-                    "rotation_policy": "CENTER"
-                }
             ]
         }
     })";
