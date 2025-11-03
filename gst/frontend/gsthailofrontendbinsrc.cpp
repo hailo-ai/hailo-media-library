@@ -164,7 +164,6 @@ static void gst_hailofrontendbinsrc_init(GstHailoFrontendBinSrc *hailofrontendbi
 {
     // Default values
     hailofrontendbinsrc->params = new GstHailoFrontendBinSrcParams();
-    hailofrontendbinsrc->params->m_pre_isp_denoise = std::make_shared<MediaLibraryPreIspDenoise>();
     // Prepare internal elements
     // v4l2src
     hailofrontendbinsrc->params->m_v4l2src = gst_element_factory_make("v4l2src", NULL);
@@ -273,8 +272,6 @@ static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, fro
     if (!config_string.empty())
     {
         g_object_set(self->params->m_frontend, "config-string", config_string.c_str(), NULL);
-        if (self->params->m_pre_isp_denoise->configure(config_string) != MEDIA_LIBRARY_SUCCESS)
-            GST_ERROR_OBJECT(self, "configuration error: Pre ISP Denoise");
     }
     gpointer value_ptr;
     g_object_get(self->params->m_frontend, "denoise-config", &(value_ptr), NULL); // get denoise after it's parsed
@@ -385,7 +382,6 @@ void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id, co
         g_object_set(self->params->m_frontend, "dewarp-config", &(config->ldc_config), NULL);
         g_object_set(self->params->m_frontend, "denoise-config", &(config->denoise_config), NULL);
         g_object_set(self->params->m_frontend, "multi-resize-config", &(config->multi_resize_config), NULL);
-        self->params->m_pre_isp_denoise->configure(config->denoise_config, config->hailort_config);
         gst_hailofrontendbinsrc_set_config(self, *config);
         break;
     }
@@ -498,11 +494,6 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
             GST_DEBUG_OBJECT(self, "Deactivate HDR forward timestamp");
             isp_utils::set_hdr_forward_timestamp(false);
         }
-        else if (self->params->m_pre_isp_denoise->is_enabled())
-        {
-            GST_DEBUG_OBJECT(self, "Stopping Pre-ISP Denoise");
-            self->params->m_pre_isp_denoise->stop();
-        }
         break;
     }
     case GST_STATE_CHANGE_NULL_TO_READY: {
@@ -594,15 +585,6 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
 
             GST_DEBUG_OBJECT(self, "Activate HDR forward timestamp");
             isp_utils::set_hdr_forward_timestamp(true);
-        }
-        else if (self->params->m_pre_isp_denoise->is_enabled() && result != GST_STATE_CHANGE_FAILURE)
-        {
-            GST_DEBUG_OBJECT(self, "Activate Pre-ISP Denoise");
-            if (self->params->m_pre_isp_denoise->start() != MEDIA_LIBRARY_SUCCESS)
-            {
-                GST_ERROR_OBJECT(self, "Failed to start Pre-ISP Denoise");
-                return GST_STATE_CHANGE_FAILURE;
-            }
         }
         else
         {

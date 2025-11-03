@@ -544,7 +544,19 @@ static GstFlowReturn gst_hailo_encoder_finish(GstVideoEncoder *encoder)
     GstBuffer *eos_buffer = gst_hailo_encoder_get_output_buffer(output_expected.value());
     gst_buffer_add_hailo_buffer_meta(eos_buffer, output_expected.value().buffer, output_expected.value().size);
 
-    eos_buffer->pts = eos_buffer->dts = hailoencoder->params->dts_queue.back();
+    if (hailoencoder->params->dts_queue.empty())
+    {
+        GST_ERROR_OBJECT(hailoencoder, "DTS queue is empty when finishing encoder");
+    }
+    else
+    {
+        eos_buffer->pts = eos_buffer->dts = hailoencoder->params->dts_queue.back();
+    }
+
+    while (!hailoencoder->params->dts_queue.empty())
+    {
+        hailoencoder->params->dts_queue.pop();
+    }
 
     return gst_pad_push(GST_VIDEO_ENCODER_SRC_PAD(encoder), eos_buffer);
 }
