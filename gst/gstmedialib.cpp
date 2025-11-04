@@ -60,5 +60,5 @@ static gboolean media_library_plugin_init(GstPlugin *plugin)
     return TRUE;
 }
 
-GST_PLUGIN_DEFINE(GST_VERSION_MAJOR, GST_VERSION_MINOR, medialib, "Hailo Media Library plugin",
+GST_PLUGIN_DEFINE(GST_MEDIALIB_MAJOR_VERSION, GST_MEDIALIB_MINOR_VERSION, medialib, "Hailo Media Library plugin",
                   media_library_plugin_init, VERSION, "unknown", PACKAGE, "https://hailo.ai/")

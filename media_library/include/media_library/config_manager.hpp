@@ -131,7 +131,7 @@ class ConfigManager
      * @param[in] spaces - number of spaces for JSON indentation (default: 0)
      * @return std::string
      */
-    template <typename TConf> std::string config_struct_to_string(const TConf &conf, int spaces = 0);
+    template <typename TConf> std::string config_struct_to_string(const TConf &conf, int spaces = -1);
 
     /**
      * @brief Retrieve an entry from an input JSON string

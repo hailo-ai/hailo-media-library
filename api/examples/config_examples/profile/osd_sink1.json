@@ -4,7 +4,7 @@
         "image": [
             {
                 "id": "example_image",
-                "image_path": "/home/root/apps/detection/resources/configs/osd_hailo_static_image.png",
+                "image_path": "/home/root/apps/webserver/resources/configs/osd_hailo_static_image.png",
                 "width": 0.2,
                 "height": 0.13,
                 "x": 0.76,

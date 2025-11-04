@@ -8,7 +8,7 @@
         "image": [
             {
                 "id": "example_image",
-                "image_path": "/home/root/apps/detection/resources/configs/osd_hailo_static_image.png",
+                "image_path": "/home/root/apps/webserver/resources/configs/osd_hailo_static_image.png",
                 "width": 0.2,
                 "height": 0.13,
                 "x": 0.76,
@@ -22,8 +22,8 @@
             {
                 "id": "example_datetime",
                 "font_size": 100,
-                "text_color": [255, 0, 0],
                 "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
+                "text_color": [255, 0, 0],
                 "x": 0.1,
                 "y": 0.7,
                 "z-index": 3,
@@ -37,7 +37,7 @@
                 "label": "HailoAI",
                 "font_size": 100,
                 "text_color": [255, 255, 255],
-                "x": 0.7,
+                "x": 0.65,
                 "y": 0.05,
                 "z-index": 2,
                 "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
@@ -60,8 +60,8 @@
     },
     "encoding": {
         "input_stream": {
-            "width": 3840,
-            "height": 2160,
+            "width": 1280,
+            "height": 720,
             "framerate": 30,
             "format": "NV12"
         },
@@ -72,7 +72,7 @@
                 }
             },
             "gop_config": {
-                "gop_size": 2,
+                "gop_size": 1,
                 "b_frame_qp_delta": 0
             },
             "coding_control": {
@@ -122,7 +122,7 @@
                 }
             },
             "rate_control": {
-                "rc_mode": "VBR",
+                "rc_mode": "CVBR",
                 "picture_rc": true,
                 "picture_skip": false,
                 "padding": false,
@@ -131,7 +131,7 @@
                     "qp_hdr": -1
                 },
                 "bitrate": {
-                    "target_bitrate": 16000000
+                    "target_bitrate": 10000000
                 },
                 "zoom_bitrate_adjuster": {
                     "mode": "DISABLED"

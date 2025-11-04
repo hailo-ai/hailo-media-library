@@ -40,5 +40,5 @@ struct MediaLibraryConfig
     {
     }
 
-    MediaLibraryConfig &operator=(const medialib_config_t &medialib_conf);
+    media_library_return set(const medialib_config_t &medialib_conf);
 };

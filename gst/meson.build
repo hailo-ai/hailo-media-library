@@ -35,28 +35,22 @@ utils_sources = [
 
 freetype_dep = dependency('freetype2', method : 'pkg-config', include_type : 'system')
 harfbuzz_dep = dependency('harfbuzz', method : 'pkg-config', include_type : 'system')
-v4l_dep = [
-    meson.get_compiler('cpp').find_library('libgstvideo4linux2', required: true, dirs: sysroot + '/usr/lib/gstreamer-1.0/')
-]
 
 gstmedialibutils_lib = shared_library('gstmedialibutils',
     utils_sources,
     cpp_args : common_args,
-    link_args: ['-lm', '-Wl,-rpath,/usr/lib/gstreamer-1.0'],
+    link_args: ['-lm'],
     dependencies : gstreamer_deps + 
-                   [dsp_dep, media_library_common_dep, opencv_dep, spdlog_dep, v4l_dep, freetype_dep, harfbuzz_dep, fmt_dep],
+                   [dsp_dep, media_library_common_dep, opencv_dep, spdlog_dep, freetype_dep, harfbuzz_dep, fmt_dep],
+    version: meson.project_version(),
     link_whole: git_metadata_lib,
     gnu_symbol_visibility : 'default',
-    version: meson.project_version(),
     install: true,
-    install_dir: get_option('libdir'),
-    install_rpath: '/usr/lib/gstreamer-1.0',
-    include_directories: include_directories(sysroot+'/usr/include/freetype2'),
 )
 
 gstmedialibrary_utils_dep = declare_dependency(
   include_directories: [include_directories('./buffer_utils', './osd', './common')],
-  dependencies : [media_library_common_dep, v4l_dep],
+  dependencies : [media_library_common_dep],
   link_with : gstmedialibutils_lib)
 
 
@@ -79,6 +73,12 @@ headers_to_install = ['dsp/gsthailodspbasetransform.hpp',
                       'dsp/gsthailodspbufferpoolutils.hpp']
 install_headers(headers_to_install)
 
+version_arr = meson.project_version().split('.')
+LIB_MAJOR_VERSION = version_arr[0].to_int()
+LIB_MINOR_VERSION = version_arr[1].to_int()
+gst_plugin_major_version_define = '-DGST_MEDIALIB_MAJOR_VERSION=@0@'.format(LIB_MAJOR_VERSION)
+gst_plugin_minor_version_define = '-DGST_MEDIALIB_MINOR_VERSION=@0@'.format(LIB_MINOR_VERSION)
+
 
 plugin_sources = [
     'gstmedialib.cpp',
@@ -98,23 +98,18 @@ plugin_sources = [
     'image_freeze/gsthailoimagefreeze.cpp'
 ]
 
-hailort_inc_dirs = include_directories(
-    sysroot + '/usr/include/hailo',
-    is_system: true
-)
-
 shared_library('gstmedialib',
     plugin_sources,
-    cpp_args : common_args,
+    cpp_args : common_args + [
+        gst_plugin_major_version_define,
+        gst_plugin_minor_version_define,
+    ],
     link_args: ['-lhantro_vc8000e', '-lm'],
-    include_directories: [hailort_inc_dirs],
     dependencies : gstreamer_deps + [opencv_dep, rapidjson_dep] + hailort_dep +
                    [dsp_dep, gstmedialibrary_utils_dep, encoder_dep,
                    media_library_common_dep, media_library_frontend_dep, media_library_encoder_dep, fmt_dep],
     link_whole: git_metadata_lib,
     gnu_symbol_visibility : 'default',
-    version: meson.project_version(),
     install: true,
     install_dir: get_option('libdir') / 'gstreamer-1.0',
-    install_rpath: '/usr/lib/gstreamer-1.0',
 )

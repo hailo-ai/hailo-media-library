@@ -188,6 +188,7 @@ MEDIALIB_JSON_SERIALIZE_ENUM(AnalyticsQueryType, {
                                                      {AnalyticsQueryType::Exact, "Exact"},
                                                      {AnalyticsQueryType::WithinDelta, "WithinDelta"},
                                                  })
+
 MEDIALIB_JSON_SERIALIZE_ENUM(sensor_index_t, {
                                                  {SENSOR_0, "SENSOR_0"},
                                              })

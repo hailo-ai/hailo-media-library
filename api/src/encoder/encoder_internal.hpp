@@ -96,7 +96,7 @@ class MediaLibraryEncoder::Impl final
     media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
     std::shared_ptr<osd::Blender> get_osd_blender();
     std::shared_ptr<PrivacyMaskBlender> get_privacy_mask_blender();
-    media_library_return config_blenders();
+    media_library_return load_blenders();
     media_library_return set_config(const encoder_config_t &config);
     media_library_return set_config(const std::string &json_config);
     media_library_return set_force_videorate(bool force);

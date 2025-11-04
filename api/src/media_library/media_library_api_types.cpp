@@ -4,7 +4,7 @@
 
 #define MODULE_NAME LoggerType::Api
 
-MediaLibraryConfig &MediaLibraryConfig::operator=(const medialib_config_t &medialib_conf)
+media_library_return MediaLibraryConfig::set(const medialib_config_t &medialib_conf)
 {
     default_profile = medialib_conf.default_profile;
 
@@ -20,7 +20,7 @@ MediaLibraryConfig &MediaLibraryConfig::operator=(const medialib_config_t &media
         {
             LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to parse profile: {} from file: {}", profile.name,
                                   profile.config_file);
-            throw std::runtime_error("Failed to parse profile");
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
         profiles[profile.name] = profile_config;
         profiles[profile.name].name = profile.name;
@@ -28,8 +28,7 @@ MediaLibraryConfig &MediaLibraryConfig::operator=(const medialib_config_t &media
     if (profiles.find(default_profile) == profiles.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Default profile '{}' not found in profiles", default_profile);
-        throw std::runtime_error("Default profile not found in profiles");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-
-    return *this;
+    return MEDIA_LIBRARY_SUCCESS;
 }

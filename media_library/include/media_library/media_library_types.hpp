@@ -425,28 +425,6 @@ struct application_input_streams_config_t
 
     // Default constructor
     application_input_streams_config_t() = default;
-
-    // Conversion operator to output_resolution_t (takes first resolution if available)
-    operator output_resolution_t() const
-    {
-        if (!resolutions.empty())
-        {
-            return resolutions[0];
-        }
-
-        // Return default output_resolution_t if no resolutions available
-        return output_resolution_t{.framerate = 30,
-                                   .pool_max_buffers = 10,
-                                   .dimensions = dsp_utils::crop_resize_dims_t{.perform_crop = 0,
-                                                                               .crop_start_x = 0,
-                                                                               .crop_end_x = 0,
-                                                                               .crop_start_y = 0,
-                                                                               .crop_end_y = 0,
-                                                                               .destination_width = 1920,
-                                                                               .destination_height = 1080},
-                                   .stream_id = "",
-                                   .scaling_mode = DSP_SCALING_MODE_STRETCH};
-    }
 };
 
 struct input_video_config_t
@@ -1047,7 +1025,7 @@ struct config_application_settings_t
 struct config_dis_angular_t
 {
     bool enabled;
-    nlohmann::json vsm; // Complex VSM configuration
+    nlohmann::json vsm;
 };
 
 struct config_dis_debug_t
@@ -1203,9 +1181,7 @@ struct config_profile_t
         frontend_config.ldc_config.dis_config = stabilizer_settings.dis;
         frontend_config.ldc_config.optical_zoom_config = application_settings.optical_zoom;
         frontend_config.ldc_config.input_video_config = frontend_config.input_config;
-        application_input_streams_config_t app_input_streams_config(application_settings.application_input_streams,
-                                                                    iq_settings.grayscale.enabled);
-        frontend_config.ldc_config.application_input_streams_config = app_input_streams_config;
+        frontend_config.ldc_config.application_input_streams_config = frontend_config.input_config.resolution;
         frontend_config.ldc_config.eis_config = stabilizer_settings.eis;
         frontend_config.ldc_config.gyro_config = stabilizer_settings.gyro;
         frontend_config.denoise_config = iq_settings.denoise;
@@ -1222,6 +1198,8 @@ struct config_profile_t
                                               .destination_height = sensor_config.input_video.resolution.height},
             .stream_id = "",
             .scaling_mode = DSP_SCALING_MODE_STRETCH};
+        application_input_streams_config_t app_input_streams_config(application_settings.application_input_streams,
+                                                                    iq_settings.grayscale.enabled);
         frontend_config.multi_resize_config.application_input_streams_config = app_input_streams_config;
         frontend_config.multi_resize_config.digital_zoom_config = application_settings.digital_zoom;
         frontend_config.multi_resize_config.rotation_config = application_settings.rotation;

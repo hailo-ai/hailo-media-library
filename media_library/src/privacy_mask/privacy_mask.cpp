@@ -627,7 +627,7 @@ media_library_return PrivacyMaskBlender::update_dynamic_mask(uint64_t isp_timest
         static_cast<float>(original_width_ratio) / original_height_ratio;
 
     // TODO : add support for aspect ratio preservation
-    m_latest_privacy_masks->dynamic_data->dynamic_mask_group.is_aspect_ratio_preserved = false;
+    m_latest_privacy_masks->dynamic_data->dynamic_mask_group.scaling_mode = DSP_SCALING_MODE_STRETCH;
 
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }

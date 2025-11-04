@@ -30,6 +30,8 @@ class MediaLibConfigManagerCore
     std::optional<std::map<output_stream_id_t, encoder_config_t>> get_encoder_configs(size_t idx);
     std::optional<std::pair<int, std::string>> get_i2c_bus_and_address(size_t idx);
     std::optional<SensorType> get_sensor_type(size_t idx);
+    std::optional<std::string> get_connected_sensor_name(size_t idx);
+    media_library_return is_sensor_connected_by_name(const std::string &sensor_type_str, size_t idx);
     std::optional<std::map<output_stream_id_t, config_encoded_output_stream_t>> get_encoded_output_streams(size_t idx);
     media_library_return get_sensor_entry_config(std::string &sensor_entry_string, size_t idx);
     media_library_return get_3a_config(std::string &aaa_config_string, size_t idx);

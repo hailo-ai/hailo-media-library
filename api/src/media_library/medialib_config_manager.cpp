@@ -4,6 +4,9 @@
 #include "media_library/media_library_types.hpp"
 #include "media_library/sensor_registry.hpp"
 #include <nlohmann/json.hpp>
+#include <algorithm>
+#include <cctype>
+#include <ranges>
 #include <optional>
 #include <string>
 #include <map>
@@ -64,15 +67,20 @@ media_library_return MediaLibConfigManagerCore::configure_medialib(std::string m
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to validate media library config");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-    medialib_config_t medialib_config_json;
+    medialib_config_t medialib_config;
     auto status = m_medialib_config_manager.config_string_to_struct<medialib_config_t>(medialib_json_config_string,
-                                                                                       medialib_config_json);
+                                                                                       medialib_config);
     if (status != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to parse medialib config json string");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-    m_medialib_configs[idx] = medialib_config_json;
+    status = m_medialib_configs[idx].set(medialib_config);
+    if (status != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to parse medialib config");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
     m_current_profiles[idx] = m_medialib_configs[idx].profiles[m_medialib_configs[idx].default_profile];
     m_medialib_json_config_strings[idx] = medialib_json_config_string;
 
@@ -250,6 +258,8 @@ std::optional<std::map<output_stream_id_t, config_encoded_output_stream_t>> Medi
 
 media_library_return MediaLibConfigManagerCore::get_sensor_entry_config(std::string &sensor_entry, size_t idx)
 {
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Entering get_sensor_entry_config with idx: {}", idx);
+
     std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
     if (m_current_profiles.find(idx) == m_current_profiles.end())
     {
@@ -257,10 +267,17 @@ media_library_return MediaLibConfigManagerCore::get_sensor_entry_config(std::str
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
+    auto ret = is_sensor_connected_by_name(m_current_profiles[idx].sensor_config.sensor_configuration.name, idx);
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Invalid sensor configured for idx: {}", idx);
+        return ret;
+    }
+
     auto i2c_info_opt = get_i2c_bus_and_address(idx);
     if (!i2c_info_opt.has_value())
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get I2C bus and address");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get I2C bus and address for idx: {}", idx);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     int i2c_bus = i2c_info_opt.value().first;
@@ -273,6 +290,8 @@ media_library_return MediaLibConfigManagerCore::get_sensor_entry_config(std::str
     addr_stream << "0x" << std::hex << addr_value;
     std::string i2c_address = addr_stream.str();
 
+    LOGGER__MODULE__TRACE(MODULE_NAME, "I2C bus: {}, I2C address: {} for idx: {}", i2c_bus, i2c_address, idx);
+
     isp_format_config_sensor_configuration_t isp_format_sensor_entry(
         m_current_profiles[idx].iq_settings.hdr.enabled,
         m_current_profiles[idx].sensor_config.sensor_calibration_file_path,
@@ -280,6 +299,8 @@ media_library_return MediaLibConfigManagerCore::get_sensor_entry_config(std::str
     ConfigManager config_manager = ConfigManager(CONFIG_SCHEMA_NONE);
     sensor_entry =
         config_manager.config_struct_to_string<isp_format_config_sensor_configuration_t>(isp_format_sensor_entry, 2);
+
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Successfully generated sensor entry config for idx: {}", idx);
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -330,6 +351,45 @@ std::optional<SensorType> MediaLibConfigManagerCore::get_sensor_type(size_t idx)
 
     auto &registry = SensorRegistry::get_instance();
     return registry.detect_sensor_type(sensor_index);
+}
+
+std::optional<std::string> MediaLibConfigManagerCore::get_connected_sensor_name(size_t idx)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
+    if (m_current_profiles.find(idx) == m_current_profiles.end())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Media library idx not found: {}", idx);
+        return std::nullopt;
+    }
+
+    size_t sensor_index = m_current_profiles[idx].sensor_config.input_video.sensor_index;
+
+    auto &registry = SensorRegistry::get_instance();
+    return registry.detect_sensor_type_str(sensor_index);
+}
+
+media_library_return MediaLibConfigManagerCore::is_sensor_connected_by_name(const std::string &sensor_type_str,
+                                                                            size_t idx)
+{
+    auto sensor_type_opt = get_connected_sensor_name(idx);
+    if (!sensor_type_opt.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get sensor type for idx: {}", idx);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    std::string &sensor_type = sensor_type_opt.value();
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Successfully retrieved sensor type: {} for idx: {}", sensor_type, idx);
+
+    bool sensor_compare_without_case_sensitivity = std::ranges::equal(
+        sensor_type_str, sensor_type, [](char c1, char c2) { return std::tolower(c1) == std::tolower(c2); });
+    if (!sensor_compare_without_case_sensitivity)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME,
+                              "Sensor type mismatch for idx: {}. Detected sensor: {}, Configured sensor: {}", idx,
+                              sensor_type, sensor_type_str);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return MediaLibConfigManagerCore::initialize_instance(size_t idx)

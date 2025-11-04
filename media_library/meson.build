@@ -199,6 +199,8 @@ hailo_media_library_encoder_lib = shared_library('hailo_media_library_encoder',
     install_dir: get_option('libdir'),
 )
 
+install_data('src/hailo_encoder/encoder_presets.csv', install_dir: '/etc/medialib')
+
 media_library_encoder_dep = declare_dependency(
   include_directories: [include_directories('./include')],
   link_with : hailo_media_library_encoder_lib)

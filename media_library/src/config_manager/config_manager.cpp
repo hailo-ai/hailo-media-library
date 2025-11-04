@@ -512,10 +512,6 @@ std::string ConfigManager::ConfigManagerImpl::config_struct_to_string(const TCon
         {
             j = conf;
         }
-        if (spaces == 0)
-        {
-            return j.dump();
-        }
         return j.dump(spaces);
     }
     catch (const nlohmann::json::exception &e)

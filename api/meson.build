@@ -44,17 +44,18 @@ frontend_example_src = ['examples/frontend_example.cpp']
 executable('frontend_example',
   frontend_example_src,
   cpp_args : common_args,
-  dependencies : gstreamer_deps + [media_library_frontend_dep, gstmedialibrary_utils_dep, media_library_api_dep, media_library_common_dep],
+  dependencies : [media_library_frontend_dep, gstmedialibrary_utils_dep, media_library_api_dep, media_library_common_dep],
   link_whole: git_metadata_lib,
   gnu_symbol_visibility : 'default',
   install: true,
   install_dir: get_option('bindir'),
+
 )
 
 executable('jpeg_frontend_example',
   frontend_example_src,
   cpp_args: common_args + ['-DUSE_JPEG_JSONS'],
-  dependencies : gstreamer_deps + [media_library_frontend_dep, gstmedialibrary_utils_dep, media_library_api_dep, media_library_common_dep],
+  dependencies : [media_library_frontend_dep, gstmedialibrary_utils_dep, media_library_api_dep, media_library_common_dep],
   link_whole: git_metadata_lib,
   gnu_symbol_visibility : 'default',
   install: true,
@@ -68,7 +69,7 @@ encoder_example_src = ['examples/encoder_example.cpp']
 executable('encoder_example',
     encoder_example_src,
     cpp_args : common_args,
-    dependencies : gstreamer_deps + [media_library_frontend_dep, gstmedialibrary_utils_dep, media_library_api_dep, media_library_common_dep],
+    dependencies : [media_library_frontend_dep, gstmedialibrary_utils_dep, media_library_api_dep, media_library_common_dep],
     link_whole: git_metadata_lib,
     gnu_symbol_visibility : 'default',
 	  install: true,
@@ -86,7 +87,7 @@ polygon_example_src = ['examples/polygon_example.cpp']
 executable('polygon_example',
   polygon_example_src,
   cpp_args : common_args,
-  dependencies : gstreamer_deps + [media_library_frontend_dep, gstmedialibrary_utils_dep, media_library_api_dep, media_library_common_dep],
+  dependencies : [media_library_frontend_dep, gstmedialibrary_utils_dep, media_library_api_dep, media_library_common_dep],
   link_whole: git_metadata_lib,
   gnu_symbol_visibility : 'default',
   install: true,
@@ -115,9 +116,11 @@ config_tuning_gst_application_src = ['examples/config_tuning_gst_application.cpp
 executable('config_tuning_gst_application',
   config_tuning_gst_application_src,
   cpp_args : common_args,
-  dependencies : gstreamer_deps + [media_library_frontend_dep, gstmedialibrary_utils_dep, media_library_api_dep, media_library_common_dep],
+  dependencies : [media_library_frontend_dep, gstmedialibrary_utils_dep, media_library_api_dep, media_library_common_dep],
   link_whole: git_metadata_lib,
   gnu_symbol_visibility : 'default',
   install: true,
   install_dir: get_option('bindir'),
 )
+
+install_subdir('examples/config_examples', install_dir: get_option('bindir'), strip_directory: true)

@@ -55,6 +55,8 @@ class HdrManager::Impl
     std::shared_ptr<v4l2::v4l2ControlManager> m_v4l2_ctrl_manager;
     std::optional<std::string> get_hdr_hef_path(hdr_dol_t dol, Resolution resolution);
 
+    std::atomic<size_t> m_infer_jobs_contexts_queue_size = 0;
+
     void on_infer(std::shared_ptr<void> ptr);
 
     void hdr_loop();

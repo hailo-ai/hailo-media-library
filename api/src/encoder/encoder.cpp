@@ -148,7 +148,7 @@ media_library_return MediaLibraryEncoder::Impl::start()
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryEncoder::Impl::config_blenders()
+media_library_return MediaLibraryEncoder::Impl::load_blenders()
 {
     GstElementPtr encoder_bin = glib_cpp::ptrs::get_bin_by_name(m_pipeline, m_name);
     if (encoder_bin == nullptr)
@@ -581,7 +581,7 @@ bool MediaLibraryEncoder::Impl::init_pipeline(const encoder_config_t &config, co
     m_appsrc = glib_cpp::ptrs::element_to_app_src(appsrc);
     m_pipeline = std::move(pipeline);
 
-    config_blenders();
+    load_blenders();
     return true;
 }
 

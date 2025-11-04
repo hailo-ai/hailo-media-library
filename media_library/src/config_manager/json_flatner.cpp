@@ -2,6 +2,7 @@
 #include <fstream>
 #include "json_flatner.hpp"
 #include "media_library_logger.hpp"
+#include "files_utils.hpp"
 #include <iostream>
 
 #define MODULE_NAME LoggerType::Config
@@ -45,22 +46,21 @@ media_library_return JsonParser::parse_path(const std::string path, nlohmann::js
         LOGGER__MODULE__ERROR(MODULE_NAME, "Path is not a json file: {}", path);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-    std::ifstream file(p);
-    if (!file.is_open())
+    auto file_content_opt = files_utils::read_string_from_file(path);
+    if (!file_content_opt.has_value())
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to open file: {}", path);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to read file: {}", path);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     try
     {
-        file >> content;
+        content = nlohmann::json::parse(file_content_opt.value());
     }
     catch (const nlohmann::json::parse_error &e)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to parse json file: {}. Error: {}", path, e.what());
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-    file.close();
     return MEDIA_LIBRARY_SUCCESS;
 }
 
