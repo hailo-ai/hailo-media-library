@@ -134,6 +134,13 @@ tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::encode_ex
         LOGGER__MODULE__ERROR(MODULE_NAME, "Invalid encoder operation");
         ret = MEDIA_LIBRARY_ERROR;
     }
+    if (encoder_ret_code == VCENC_HW_TIMEOUT)
+    {
+        LOGGER__MODULE__WARN(MODULE_NAME,
+                             "Encode frame returned hardware timeout - Sending empty frame and restarting encoder sw");
+
+        m_stream_restart = STREAM_RESTART_HARD;
+    }
     unshare_ret_code = EWLUnshareDmabuf(m_ewl, buffer_ptr->get_plane_fd(0));
     if (unshare_ret_code != EWL_OK)
     {
@@ -172,6 +179,9 @@ void Encoder::Impl::init_buffer_pool(uint pool_size)
 Encoder::Impl::Impl(std::string json_string) : m_config(std::make_unique<EncoderConfig>(json_string))
 {
     m_state = ENCODER_STATE_UNINITIALIZED;
+    m_previous_optical_zoom_magnification = 1.0f;
+    m_zooming_boost_enabled = false;
+
     init();
 }
 
@@ -310,6 +320,7 @@ media_library_return Encoder::Impl::init()
     }
 
     m_update_required = {};
+    m_is_user_set_bitrate = false;
     m_stream_restart = STREAM_RESTART_NONE;
     m_state = ENCODER_STATE_INITIALIZED;
     m_header.buffer = nullptr;
@@ -334,13 +345,31 @@ media_library_return Encoder::configure(std::string json_string)
 
 media_library_return Encoder::Impl::configure(std::string json_string)
 {
+    encoder_config_t temp_prev_encoder_config = m_config->get_config();
     if (m_config->configure(json_string) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure encoder");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
+
+    if (m_config->config_struct_equal(m_config->get_config(), temp_prev_encoder_config))
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "No configuration change detected, skipping configuration");
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
     m_update_required = {ENCODER_CONFIG_GOP, ENCODER_CONFIG_CODING_CONTROL, ENCODER_CONFIG_PRE_PROCESSING,
                          ENCODER_CONFIG_RATE_CONTROL};
+
+    hailo_encoder_config_t old_hailo_encoder_config = std::get<hailo_encoder_config_t>(temp_prev_encoder_config);
+    if (m_config->get_hailo_config().rate_control.bitrate.target_bitrate !=
+        old_hailo_encoder_config.rate_control.bitrate.target_bitrate)
+    {
+        m_is_user_set_bitrate = true;
+        // std::cout << "Update bitrate required from " << old_hailo_encoder_config.rate_control.bitrate.target_bitrate
+        //           << " to " << m_config->get_hailo_config().rate_control.bitrate.target_bitrate << std::endl;
+    }
+
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -351,19 +380,15 @@ media_library_return Encoder::configure(const encoder_config_t &config)
 
 media_library_return Encoder::Impl::configure(const encoder_config_t &config)
 {
-    m_update_required = {ENCODER_CONFIG_CODING_CONTROL, ENCODER_CONFIG_PRE_PROCESSING, ENCODER_CONFIG_RATE_CONTROL};
-
     auto enc_conf = std::get<hailo_encoder_config_t>(config);
     auto monitors_conf = &enc_conf.monitors_control;
     m_bitrate_monitor.enabled = monitors_conf->bitrate_monitor.enable;
     m_bitrate_monitor.period = monitors_conf->bitrate_monitor.period;
-
     m_cycle_monitor.enabled = monitors_conf->cycle_monitor.enable;
     m_cycle_monitor.start_delay = monitors_conf->cycle_monitor.start_delay;
     m_cycle_monitor.deviation_threshold = monitors_conf->cycle_monitor.deviation_threshold;
 
     auto old_config = m_config->get_hailo_config();
-
     if (m_config->configure(config) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure encoder");
@@ -373,8 +398,20 @@ media_library_return Encoder::Impl::configure(const encoder_config_t &config)
     // Read the configuration again after the configuration is done
     auto new_config = m_config->get_hailo_config();
 
+    if (m_config->config_struct_equal(old_config, new_config))
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "No configuration change detected, skipping configuration");
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    m_update_required = {ENCODER_CONFIG_CODING_CONTROL, ENCODER_CONFIG_PRE_PROCESSING, ENCODER_CONFIG_RATE_CONTROL};
     bool gop_update_required = gop_config_update_required(old_config, new_config);
     bool hard_restart = hard_restart_required(old_config, new_config, gop_update_required);
+
+    if (new_config.rate_control.bitrate.target_bitrate != old_config.rate_control.bitrate.target_bitrate)
+    {
+        m_is_user_set_bitrate = true;
+    }
 
     // Gop change update required
     if (gop_update_required)
@@ -495,6 +532,12 @@ media_library_return Encoder::Impl::stream_restart()
             LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder HARD restart - Failed to init encoder config");
             return ret;
         }
+    }
+
+    m_update_required.clear();
+    for (int i = 0; i <= ENCODER_CONFIG_MAX; ++i)
+    {
+        m_update_required.push_back(static_cast<encoder_config_type_t>(i));
     }
 
     if (update_configurations() != MEDIA_LIBRARY_SUCCESS)
@@ -832,6 +875,21 @@ media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
     auto expected_encoded_frame = encode_executer(encoder_operation_t::ENCODER_OPERATION_ENCODE);
     if (!expected_encoded_frame.has_value())
     {
+        if (buf->is_dmabuf())
+        {
+            for (uint32_t i = 0; i < buf->get_num_of_planes(); ++i)
+            {
+                for (uint32_t j = 0; j <= i; j++)
+                {
+                    EWLUnshareDmabuf(m_ewl, buf->get_plane_fd(j));
+                }
+            }
+        }
+
+        EncoderOutputBuffer output;
+        output.size = 0;
+        output.frame_number = frame_number;
+        outputs.push_back(output);
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to encode frame");
         return MEDIA_LIBRARY_ENCODER_ENCODE_ERROR;
     }
@@ -882,6 +940,13 @@ media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
                     if (!m_update_required.empty())
                     {
                         m_stream_restart = STREAM_RESTART;
+                        if (m_is_user_set_bitrate)
+                        {
+                            // Disable zoom boost feature
+                            m_settings_boost_start_time = std::chrono::steady_clock::time_point::min();
+                            apply_constant_optical_zoom_boost(buf->optical_zoom_magnification);
+                            m_is_user_set_bitrate = false;
+                        }
                         // check if m_update_required contains CONFIG_STREAM
                         if (std::find(m_update_required.begin(), m_update_required.end(), ENCODER_CONFIG_STREAM) !=
                             m_update_required.end())
@@ -944,16 +1009,187 @@ std::vector<EncoderOutputBuffer> Encoder::handle_frame(HailoMediaLibraryBufferPt
     return m_impl->handle_frame(buf, frame_number);
 }
 
+void Encoder::Impl::boost_settings_for_optical_zoom()
+{
+    const auto &hailo_config = m_config->get_hailo_config();
+    const auto &rate_control = hailo_config.rate_control;
+
+    // Check if zooming process mode is enabled
+    auto mode = rate_control.zoom_bitrate_adjuster.mode.value_or(ZOOM_BITRATE_ADJUSTER_ZOOMING_PROCESS);
+    if (mode != ZOOM_BITRATE_ADJUSTER_ZOOMING_PROCESS && mode != ZOOM_BITRATE_ADJUSTER_BOTH)
+    {
+        return;
+    }
+
+    float zoom_bitrate_adjuster_factor = rate_control.zoom_bitrate_adjuster.zooming_process_bitrate_factor.value_or(
+        DEFAULT_ZOOM_BITRATE_ADJUSTER_ZOOMING_BITRATE_FACTOR);
+    uint32_t zoom_bitrate_adjuster_max_bitrate =
+        rate_control.zoom_bitrate_adjuster.zooming_process_max_bitrate.value_or(
+            DEFAULT_ZOOM_BITRATE_ADJUSTER_ZOOMING_MAX_BITRATE);
+
+    std::lock_guard<std::mutex> lock(m_settings_boost_mutex);
+
+    if (!m_zooming_boost_enabled)
+    {
+        VCEncRet ret = VCEncGetRateCtrl(m_inst, &m_vc_rate_cfg);
+        if (ret != VCENC_OK)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get current bitrate, error: {}", ret);
+            return;
+        }
+        u32 current_bitrate = m_vc_rate_cfg.bitPerSecond;
+        u32 baseline_bitrate = rate_control.bitrate.target_bitrate;
+        u32 boosted_bitrate = static_cast<u32>(baseline_bitrate * zoom_bitrate_adjuster_factor);
+
+        // Apply max_bitrate limit if set (0 means no limit)
+        if (zoom_bitrate_adjuster_max_bitrate > 0)
+        {
+            boosted_bitrate = std::clamp(boosted_bitrate, 0u, zoom_bitrate_adjuster_max_bitrate);
+        }
+
+        m_vc_rate_cfg.bitPerSecond = boosted_bitrate;
+
+        m_original_gop_anomaly_bitrate_adjuster_enable = m_vc_rate_cfg.gop_anomaly_bitrate_adjuster.enable;
+        m_vc_rate_cfg.gop_anomaly_bitrate_adjuster.enable = 0; // Disable smooth bitrate during boost
+
+        m_zooming_boost_enabled = true;
+
+        // std::cout << "ZOOM Boost: bitrate from " << current_bitrate << " to " << m_vc_rate_cfg.bitPerSecond
+        //           << " (factor: " << zoom_bitrate_adjuster_factor << ", max: "
+        //           << (zoom_bitrate_adjuster_max_bitrate > 0 ? std::to_string(zoom_bitrate_adjuster_max_bitrate)
+        //                                                     : "unlimited")
+        //           << ") due to optical zoom" << std::endl;
+        LOGGER__MODULE__INFO(
+            MODULE_NAME, "ZOOMING bitrate adjust from {} to {} (factor: {:.1f}, max: {}) due to optical zoom",
+            current_bitrate, m_vc_rate_cfg.bitPerSecond, zoom_bitrate_adjuster_factor,
+            zoom_bitrate_adjuster_max_bitrate > 0 ? std::to_string(zoom_bitrate_adjuster_max_bitrate) : "unlimited");
+
+        ret = VCEncSetRateCtrl(m_inst, &m_vc_rate_cfg);
+        if (ret != VCENC_OK)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set boosted bitrate, error: {}", ret);
+        }
+
+        bool zoom_bitrate_adjuster_force_keyframe =
+            rate_control.zoom_bitrate_adjuster.zooming_process_force_keyframe.value_or(
+                DEFAULT_ZOOM_BITRATE_ADJUSTER_ZOOMING_FORCE_KEYFRAME);
+        if (zoom_bitrate_adjuster_force_keyframe)
+        {
+            LOGGER__MODULE__INFO(MODULE_NAME, "ZOOMING bitrate adjust: Forcing keyframe during optical zoom change");
+            force_keyframe();
+        }
+    }
+
+    // Reset or start the timer
+    m_settings_boost_start_time = std::chrono::steady_clock::now();
+}
+
+void Encoder::Impl::check_and_restore_settings(float current_optical_zoom)
+{
+    std::lock_guard<std::mutex> lock(m_settings_boost_mutex);
+
+    if (m_zooming_boost_enabled)
+    {
+        // Get current boost configuration from rate_control
+        auto hailo_config = m_config->get_hailo_config();
+        auto &rate_control = hailo_config.rate_control;
+
+        uint32_t zoom_bitrate_adjuster_timeout_ms =
+            rate_control.zoom_bitrate_adjuster.zooming_process_timeout_ms.value_or(
+                DEFAULT_ZOOM_BITRATE_ADJUSTER_ZOOMING_TIMEOUT_MS);
+
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_settings_boost_start_time);
+
+        if (elapsed.count() >= zoom_bitrate_adjuster_timeout_ms)
+        {
+            VCEncRet ret = VCEncGetRateCtrl(m_inst, &m_vc_rate_cfg);
+            u32 config_bitrate =
+                get_constant_optical_zoom_boost(current_optical_zoom, rate_control.bitrate.target_bitrate);
+            u32 current_bitrate = m_vc_rate_cfg.bitPerSecond;
+
+            m_vc_rate_cfg.bitPerSecond = config_bitrate;
+            m_vc_rate_cfg.gop_anomaly_bitrate_adjuster.enable = m_original_gop_anomaly_bitrate_adjuster_enable;
+            m_zooming_boost_enabled = false;
+
+            // std::cout << "ZOOM Boost OUT: Restored bitrate from " << current_bitrate << " to " << config_bitrate
+            //           << " after " << elapsed.count() << "ms timeout" << " set gop anomaly to "
+            //           << m_vc_rate_cfg.gop_anomaly_bitrate_adjuster.enable << std::endl;
+            LOGGER__MODULE__INFO(MODULE_NAME, "Restored bitrate from {} to {} after {}ms timeout", current_bitrate,
+                                 config_bitrate, zoom_bitrate_adjuster_timeout_ms);
+
+            ret = VCEncSetRateCtrl(m_inst, &m_vc_rate_cfg);
+            if (ret != VCENC_OK)
+            {
+                LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to restore original bitrate, error: {}", ret);
+            }
+
+            auto hailo_config = m_config->get_hailo_config();
+            bool zoom_bitrate_adjuster_force_keyframe =
+                hailo_config.rate_control.zoom_bitrate_adjuster.zooming_process_force_keyframe.value_or(
+                    DEFAULT_ZOOM_BITRATE_ADJUSTER_ZOOMING_FORCE_KEYFRAME);
+            if (zoom_bitrate_adjuster_force_keyframe)
+            {
+                LOGGER__MODULE__INFO(MODULE_NAME,
+                                     "ZOOMING bitrate adjust done: Forcing keyframe after optical zoom change");
+                force_keyframe();
+            }
+        }
+    }
+}
+
+media_library_return Encoder::Impl::handle_bitrate_adjustment_hooks(HailoMediaLibraryBufferPtr buf,
+                                                                    uint32_t frame_number)
+{
+    if (m_is_user_set_bitrate)
+    {
+        LOGGER__MODULE__DEBUG(
+            MODULE_NAME, "Delaying handle_bitrate_adjustment_hooks - due to bitrate update to {}, requested by user",
+            m_config->get_hailo_config().rate_control.bitrate.target_bitrate);
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    // Check if we need to restore settings after timeout
+    float current_optical_zoom = buf->optical_zoom_magnification;
+    check_and_restore_settings(current_optical_zoom);
+
+    if (current_optical_zoom != m_previous_optical_zoom_magnification)
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Optical zoom magnification changed from {:.2f} to {:.2f} for frame {}",
+                             m_previous_optical_zoom_magnification, current_optical_zoom, frame_number);
+        m_previous_optical_zoom_magnification = current_optical_zoom;
+
+        boost_settings_for_optical_zoom();
+        // Apply constant optical zoom boost if enabled and threshold is exceeded
+        apply_constant_optical_zoom_boost(current_optical_zoom);
+    }
+
+    if (buf->motion_detected)
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Motion detected for frame {}", frame_number);
+    }
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
 std::vector<EncoderOutputBuffer> Encoder::Impl::handle_frame(HailoMediaLibraryBufferPtr buf, uint32_t frame_number)
 {
+    media_library_return ret = MEDIA_LIBRARY_UNINITIALIZED;
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Start Handling Frame with plane 0 of size {} for buffer id {}",
                           buf->get_plane_size(0), buf->buffer_index);
+
+    if (handle_bitrate_adjustment_hooks(buf, frame_number) != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to handle hooks for frame {}", frame_number);
+        ret = MEDIA_LIBRARY_ERROR;
+    }
+
     std::vector<EncoderOutputBuffer> outputs;
     outputs.clear();
-    media_library_return ret = MEDIA_LIBRARY_UNINITIALIZED;
 
     if (m_stream_restart != STREAM_RESTART_NONE)
     {
+        LOGGER__MODULE__WARN(MODULE_NAME, "Restarting encoder, reset type: {}", m_stream_restart);
         if (stream_restart() != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder - encode_frame - Failed to restart stream");
@@ -1233,4 +1469,79 @@ encoder_monitors Encoder::Impl::get_monitors()
 encoder_monitors Encoder::get_monitors()
 {
     return m_impl->get_monitors();
+}
+
+u32 Encoder::Impl::get_constant_optical_zoom_boost(float optical_zoom_magnification, u32 current_bitrate)
+{
+    const auto &hailo_config = m_config->get_hailo_config();
+    const auto &rate_control = hailo_config.rate_control;
+
+    // Check if zoom level mode is enabled and includes ZOOM_LEVEL or BOTH
+    auto mode = rate_control.zoom_bitrate_adjuster.mode.value_or(ZOOM_BITRATE_ADJUSTER_DISABLED);
+    if (mode != ZOOM_BITRATE_ADJUSTER_ZOOM_LEVEL && mode != ZOOM_BITRATE_ADJUSTER_BOTH)
+    {
+        return current_bitrate;
+    }
+
+    float threshold = rate_control.zoom_bitrate_adjuster.zoom_level_threshold.value_or(
+        DEFAULT_ZOOM_BITRATE_ADJUSTER_ZOOM_LEVEL_THRESHOLD);
+    float boost_factor = rate_control.zoom_bitrate_adjuster.zoom_level_bitrate_factor.value_or(
+        DEFAULT_ZOOM_BITRATE_ADJUSTER_BITRATE_FACTOR);
+
+    u32 boosted_bitrate = static_cast<u32>(current_bitrate * boost_factor);
+    // Check if current zoom level exceeds threshold
+    if (optical_zoom_magnification < threshold)
+    {
+        boosted_bitrate = current_bitrate; // No boost
+        LOGGER__MODULE__DEBUG(
+            MODULE_NAME, "Optical zoom magnification {:.1f}x is below threshold {:.1f}x, no zoom level boost applied",
+            optical_zoom_magnification, threshold);
+    }
+
+    return boosted_bitrate;
+}
+
+void Encoder::Impl::apply_constant_optical_zoom_boost(float optical_zoom_magnification)
+{
+    const auto &hailo_config = m_config->get_hailo_config();
+    const auto &rate_control = hailo_config.rate_control;
+
+    // Check if zoom level mode is enabled and includes ZOOM_LEVEL or BOTH
+    auto mode = rate_control.zoom_bitrate_adjuster.mode.value_or(ZOOM_BITRATE_ADJUSTER_DISABLED);
+    if (mode != ZOOM_BITRATE_ADJUSTER_ZOOM_LEVEL && mode != ZOOM_BITRATE_ADJUSTER_BOTH)
+    {
+        return;
+    }
+
+    // Only apply zoom level boost if zooming process boost is not active
+    if (m_zooming_boost_enabled)
+    {
+        return;
+    }
+    u32 current_bitrate = m_vc_rate_cfg.bitPerSecond;
+    u32 boosted_bitrate = get_constant_optical_zoom_boost(optical_zoom_magnification, current_bitrate);
+
+    // Update rate control for zoom level boost
+    VCEncRateCtrl temp_rc_cfg = m_vc_rate_cfg;
+    VCEncRet ret = VCEncGetRateCtrl(m_inst, &temp_rc_cfg);
+    if (temp_rc_cfg.bitPerSecond != boosted_bitrate)
+    {
+        temp_rc_cfg.bitPerSecond = boosted_bitrate;
+
+        float boost_factor = rate_control.zoom_bitrate_adjuster.zoom_level_bitrate_factor.value_or(
+            DEFAULT_ZOOM_BITRATE_ADJUSTER_BITRATE_FACTOR);
+        // std::cout << "Applying CONSTANT zoom level boost: bitrate " << current_bitrate << " -> " << boosted_bitrate
+        //             << " (factor: " << boost_factor << ") for zoom " << optical_zoom_magnification << "x"
+        //             << std::endl;
+        ret = VCEncSetRateCtrl(m_inst, &temp_rc_cfg);
+        if (ret != VCENC_OK)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set zoom level boost bitrate, error: {}", ret);
+            return;
+        }
+
+        LOGGER__MODULE__INFO(MODULE_NAME,
+                             "Applied zoom level boost: bitrate {} -> {} (factor: {:.1f}) for zoom {:.1f}x",
+                             current_bitrate, boosted_bitrate, boost_factor, optical_zoom_magnification);
+    }
 }

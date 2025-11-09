@@ -118,6 +118,18 @@ class MediaLibraryPostIspDenoise
     bool is_enabled();
 
     /**
+     * @brief Set input frame dimensions for dynamic buffer pool creation
+     *
+     * This method should be called before the first frame processing
+     * to create buffer pools with the correct dimensions.
+     *
+     * @param[in] width - frame width
+     * @param[in] height - frame height
+     * @return media_library_return - status of the operation
+     */
+    media_library_return set_input_dimensions(uint32_t width, uint32_t height);
+
+    /**
      * @brief Observes the media library by registering the provided callbacks.
      *
      * This function allows the user to observe the media library by registering

@@ -98,8 +98,18 @@ class MediaLibrary
      *
      * @param profile The profile to be set.
      * @return media_library_return The result of the operation.
+     *
+     * @details
+     * - An update to one of the following fields will trigger an internal stream reset:
+     *   - **"input_video"**
+     *   - **"application_input_streams"**
+     *   - **"rotation"**
+     *   - **"isp" section**
+     *
+     * - Changing the HDR or AI-denoise state from enabled to disabled or vice versa is **not allowed** by this API.
+     *   The function will return an error return code if such a change is attempted.
      */
-    media_library_return set_override_profile(ProfileConfig profile);
+    media_library_return set_override_parameters(ProfileConfig profile);
 
     /**
      * @brief Sets the profile for the media library.
@@ -116,15 +126,22 @@ class MediaLibrary
      *
      * This function returns the current profile being used.
      *
-     * @return tl::expected<ProfileConfig, media_library_return> The current profile.
+     * @return tl::expected<ProfileConfig, media_library_return> An expected object containing the current profile
+     * configuration if successful, or an error code otherwise.
      */
     tl::expected<ProfileConfig, media_library_return> get_current_profile() const;
 
+    /**
+     * @brief Checks if a stream restart is required based on the provided profile.
+     * @param previous_profile The configuration of the previously active profile, used to determine if a stream restart
+     * is necessary.
+     * @return A boolean value indicating whether a stream restart is required.
+     */
     bool stream_restart_required(ProfileConfig previous_profile);
 
     MediaLibraryFrontendPtr m_frontend;                              ///< Pointer to the frontend object.
     std::map<output_stream_id_t, MediaLibraryEncoderPtr> m_encoders; ///< Map of output stream IDs to encoder pointers.
-    MediaLibConfigManager m_media_lib_config_manager;
+    MediaLibConfigManager m_media_lib_config_manager; ///< Manager for media library configuration settings.
 
   private:
     /**

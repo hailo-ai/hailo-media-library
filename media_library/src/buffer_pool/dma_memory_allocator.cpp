@@ -24,8 +24,10 @@
 #include "dma_memory_allocator.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
+#include "files_utils.hpp"
 #include "common.hpp"
 #include "env_vars.hpp"
+#include <fstream>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -38,7 +40,6 @@
 #include <sys/user.h>
 #include <unistd.h>
 
-#define DEVPATH "/dev/dma_heap/hailo_media_buf,cma"
 #define MODULE_NAME LoggerType::BufferPool
 
 DmaMemoryAllocator::DmaMemoryAllocator()
@@ -66,6 +67,8 @@ DmaMemoryAllocator::~DmaMemoryAllocator()
 
 media_library_return DmaMemoryAllocator::dmabuf_fd_open()
 {
+    static constexpr const char *DEVPATH = "/dev/dma_heap/hailo_media_buf,cma";
+
     std::unique_lock<std::mutex> lock(*m_allocator_mutex);
     if (m_dma_heap_fd_open)
     {
@@ -99,7 +102,10 @@ media_library_return DmaMemoryAllocator::dmabuf_fd_close()
     if (m_dma_heap_fd_open)
     {
         LOGGER__MODULE__DEBUG(MODULE_NAME, "fd is open, closing");
-        close(m_dma_heap_fd);
+        if (close(m_dma_heap_fd) < 0)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "close failed for m_dma_heap_fd with error: {}", strerror(errno));
+        }
         m_dma_heap_fd_open = false;
     }
 
@@ -137,15 +143,23 @@ media_library_return DmaMemoryAllocator::dmabuf_heap_alloc(dma_heap_allocation_d
     // F_DUPFD is used to ensure that applications running in a single process do not run out of available file
     // descriptors. In Linux, a process has a limit of 1024 file descriptors. and some legacy applications might only
     // use the first 1023 file descriptors.
-    int new_fd = fcntl(heap_data.fd, F_DUPFD, min_fd_range);
+    int new_fd = fcntl(heap_data.fd, F_DUPFD_CLOEXEC, min_fd_range);
     if (new_fd < 0)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "F_DUPFD failed for fd = {} and new_fd = {} with error = {}", heap_data.fd,
                               new_fd, errno);
-        close(heap_data.fd);
+        if (close(heap_data.fd) < 0)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "close failed for heap_data.fd = {} with error: {}", heap_data.fd,
+                                  strerror(errno));
+        }
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
-    close(heap_data.fd);
+    if (close(heap_data.fd) < 0)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "close failed for heap_data.fd = {} with error: {}", heap_data.fd,
+                              strerror(errno));
+    }
     heap_data.fd = new_fd;
 
     LOGGER__MODULE__DEBUG(MODULE_NAME, "dmabuf_heap_alloc heap_data.fd = {}, heap_data.len = {}", heap_data.fd,
@@ -216,7 +230,11 @@ media_library_return DmaMemoryAllocator::dmabuf_map(dma_heap_allocation_data &he
     if (*mapped_memory == MAP_FAILED)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "dmabuf map failed, errno = {}", strerror(errno));
-        close(heap_data.fd);
+        if (close(heap_data.fd) < 0)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "close failed for heap_data.fd = {} with error: {}", heap_data.fd,
+                                  strerror(errno));
+        }
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
@@ -287,18 +305,53 @@ media_library_return DmaMemoryAllocator::free_dma_buffer(void *buffer)
 
     if (munmap(buffer, length) == -1)
     {
-        close(fd);
+        if (close(fd) < 0)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "close failed for fd = {} with error: {}", fd, strerror(errno));
+        }
         LOGGER__MODULE__ERROR(MODULE_NAME, "munmap failed!");
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
-    close(fd);
+    if (close(fd) < 0)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "close failed for fd = {} with error: {}", fd, strerror(errno));
+    }
 
     fd_count--;
     LOGGER__MODULE__DEBUG(MODULE_NAME, "freeing dma buffer function-end: buffer = {}, size = {}, fd_count = {}",
                           fmt::ptr(buffer), length, fd_count);
 
     return MEDIA_LIBRARY_SUCCESS;
+}
+
+size_t DmaMemoryAllocator::get_free_memory_mb()
+{
+    static constexpr const char *CMA_PATH_BASE = "/sys/kernel/debug/cma/cma-hailo_media";
+    static constexpr std::string_view COUNT_FILE_PATH = "/count";
+    static constexpr std::string_view USED_FILE_PATH = "/used";
+    static constexpr size_t BYTES_PER_PAGE = 4096;
+    static constexpr size_t BYTES_PER_MB = 1024 * 1024;
+
+    auto count = files_utils::read_int_from_file(std::string(CMA_PATH_BASE) + std::string(COUNT_FILE_PATH));
+    auto used = files_utils::read_int_from_file(std::string(CMA_PATH_BASE) + std::string(USED_FILE_PATH));
+
+    if (!count || !used)
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Failed to read CMA statistics");
+        return 0;
+    }
+
+    if (*count < *used)
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Invalid CMA values: count={}, used={}", *count, *used);
+        return 0;
+    }
+
+    auto free_pages = *count - *used;
+    auto free_mb = (free_pages * BYTES_PER_PAGE) / BYTES_PER_MB;
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Free memory in CMA: {} MB ({} pages)", free_mb, free_pages);
+    return free_mb;
 }
 
 media_library_return DmaMemoryAllocator::dmabuf_sync(int fd, dma_buf_sync &sync)

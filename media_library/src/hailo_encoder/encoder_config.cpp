@@ -33,11 +33,6 @@
 
 #define MODULE_NAME LoggerType::Encoder
 
-#define MIN_MONITOR_FRAMES (10)
-#define MAX_MONITOR_FRAMES (120)
-#define VCENC_MAX_BITRATE (100000 * 1000) /* Level 6 main tier limit */
-#define VCENC_MIN_BITRATE (10000)
-
 inline void strip_string_syntax(std::string &pipeline_input)
 {
     if (pipeline_input.front() == '\'' && pipeline_input.back() == '\'')
@@ -521,6 +516,29 @@ media_library_return Encoder::Impl::init_rate_control_config()
     m_vc_rate_cfg.intraQpDelta = rate_control.quantization.intra_qp_delta.value();
     m_vc_rate_cfg.fixedIntraQp = rate_control.quantization.fixed_intra_qp.value();
 
+    const auto &bitrate_smooth = rate_control.gop_anomaly_bitrate_adjuster;
+    m_vc_rate_cfg.gop_anomaly_bitrate_adjuster.enable = bitrate_smooth.enable.value_or(DEFAULT_BITRATE_SMOOTH_ENABLE);
+    m_vc_rate_cfg.gop_anomaly_bitrate_adjuster.high_threshold =
+        bitrate_smooth.threshold_high.value_or(DEFAULT_BITRATE_SMOOTH_THRESHOLD_HIGH);
+    m_vc_rate_cfg.gop_anomaly_bitrate_adjuster.low_threshold =
+        bitrate_smooth.threshold_low.value_or(DEFAULT_BITRATE_SMOOTH_THRESHOLD_LOW);
+    m_vc_rate_cfg.gop_anomaly_bitrate_adjuster.max_factor =
+        bitrate_smooth.max_target_bitrate_factor.value_or(DEFAULT_BITRATE_SMOOTH_MAX_TARGET_BITRATE_FACTOR);
+    m_vc_rate_cfg.gop_anomaly_bitrate_adjuster.factor =
+        bitrate_smooth.adjustment_factor.value_or(DEFAULT_BITRATE_SMOOTH_ADJUSTMENT_FACTOR);
+
+    const auto &qp_smooth = rate_control.qp_smooth_settings;
+    m_vc_rate_cfg.qp_smooth_settings.qp_delta = qp_smooth.qp_delta.value_or(DEFAULT_QP_SMOOTH_QP_DELTA);
+    m_vc_rate_cfg.qp_smooth_settings.qp_delta_limit =
+        qp_smooth.qp_delta_limit.value_or(DEFAULT_QP_SMOOTH_QP_DELTA_LIMIT);
+    m_vc_rate_cfg.qp_smooth_settings.qp_delta_step =
+        qp_smooth.qp_delta_step.value_or(DEFAULT_QP_SMOOTH_QP_DELTA_INCREMENT);
+    m_vc_rate_cfg.qp_smooth_settings.qp_delta_limit_step =
+        qp_smooth.qp_delta_limit_step.value_or(DEFAULT_QP_SMOOTH_QP_DELTA_LIMIT_INCREMENT);
+    m_vc_rate_cfg.qp_smooth_settings.alpha = qp_smooth.alpha.value_or(DEFAULT_QP_SMOOTH_QP_ALPHA);
+    m_vc_rate_cfg.qp_smooth_settings.q_step_divisor =
+        qp_smooth.q_step_divisor.value_or(DEFAULT_QP_SMOOTH_QP_STEP_DIVISOR);
+
     if ((ret = VCEncSetRateCtrl(m_inst, &m_vc_rate_cfg)) != VCENC_OK)
     {
         VCEncRelease(m_inst);
@@ -791,4 +809,41 @@ media_library_return Encoder::Impl::init_monitors_config()
     }
 
     return MEDIA_LIBRARY_SUCCESS;
+}
+
+bool EncoderConfig::config_struct_equal(const encoder_config_t &old_config, const encoder_config_t &new_config)
+{
+    // Use std::visit with type-safe comparison
+    return std::visit(
+        [](const auto &old_val, const auto &new_val) -> bool {
+            using T = std::decay_t<decltype(old_val)>;
+            using U = std::decay_t<decltype(new_val)>;
+
+            // Check if both variants hold the same type
+            if constexpr (std::is_same_v<T, U>)
+            {
+                if constexpr (std::is_same_v<T, hailo_encoder_config_t>)
+                {
+                    // For hailo_encoder_config_t, use tie-based comparison
+                    return old_val == new_val;
+                }
+                else if constexpr (std::is_same_v<T, jpeg_encoder_config_t>)
+                {
+                    // For jpeg_encoder_config_t, use tie-based comparison
+                    return std::tie(old_val.config_path, old_val.input_stream, old_val.n_threads, old_val.quality) ==
+                           std::tie(new_val.config_path, new_val.input_stream, new_val.n_threads, new_val.quality);
+                }
+                else
+                {
+                    // Fallback for unknown types
+                    return false;
+                }
+            }
+            else
+            {
+                // Different types, cannot be equal
+                return false;
+            }
+        },
+        old_config, new_config);
 }

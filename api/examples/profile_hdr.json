@@ -29,7 +29,7 @@
     "dewarp": {
         "enabled": false,
         "color_interpolation": "INTERPOLATION_TYPE_BILINEAR",
-        "sensor_calib_path": "/home/root/apps/resources/cam_intrinsics.txt",
+        "sensor_calib_path": "/etc/imaging/cfg/imx678/theia_sl410m/4k/shared/calibration/cam_intrinsics.txt",
         "camera_type": "CAMERA_TYPE_PINHOLE"
     },
     "dis": {

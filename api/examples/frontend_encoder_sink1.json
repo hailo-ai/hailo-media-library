@@ -139,6 +139,20 @@
                 },
                 "bitrate": {
                     "target_bitrate": 3000000
+                },
+                "zoom_bitrate_adjuster": {
+                    "mode": "DISABLED"
+                },
+                "qp_smooth_settings": {
+                    "qp_delta": 128,
+                    "qp_delta_limit": 1536,
+                    "qp_delta_step": 128,
+                    "qp_delta_limit_step": 384,
+                    "q_step_divisor": 2,
+                    "alpha": 0
+                },
+                "gop_anomaly_bitrate_adjuster": {
+                    "enable": false
                 }
             },
             "monitors_control": {

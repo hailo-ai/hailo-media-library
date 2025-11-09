@@ -257,7 +257,8 @@ class MediaLibraryBufferPool : public std::enable_shared_from_this<MediaLibraryB
      *
      * @return media_library_return Returns MEDIA_LIBRARY_SUCCESS if all the buffers are used within the timeout.
      */
-    media_library_return wait_for_used_buffers(uint32_t timeout_ms);
+    media_library_return wait_for_used_buffers(
+        const std::chrono::milliseconds &timeout_ms = std::chrono::milliseconds(1000));
 
     /**
      * @brief Swaps the width and height of the buffer.
@@ -332,6 +333,7 @@ struct hailo_media_library_buffer
     uint64_t pts;
     HailoMediaLibraryBufferPtr motion_detection_buffer;
     bool motion_detected;
+    float optical_zoom_magnification;
 
     hailo_media_library_buffer()
         : m_buffer_mutex(std::make_shared<std::mutex>()), m_plane_mutex(std::make_shared<std::mutex>()),
@@ -339,7 +341,7 @@ struct hailo_media_library_buffer
           isp_ae_converged(HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE),
           isp_ae_integration_time(HAILO_ISP_AE_INTEGRATION_TIME_DEFAULT_VALUE),
           isp_ae_average_luma(HAILO_ISP_AE_LUMA_DEFUALT_VALUE), video_fd(-1), buffer_index(0), isp_timestamp_ns(0),
-          pts(0), motion_detection_buffer(nullptr), motion_detected(false)
+          pts(0), motion_detection_buffer(nullptr), motion_detected(false), optical_zoom_magnification(1.0f)
     {
         vsm.dx = HAILO_VSM_DEFAULT_VALUE;
         vsm.dy = HAILO_VSM_DEFAULT_VALUE;
@@ -390,6 +392,7 @@ struct hailo_media_library_buffer
         pts = other.pts;
         motion_detection_buffer = other.motion_detection_buffer;
         motion_detected = other.motion_detected;
+        optical_zoom_magnification = other.optical_zoom_magnification;
         on_free = other.on_free;
         on_free_data = other.on_free_data;
         other.buffer_data = nullptr;
@@ -408,6 +411,7 @@ struct hailo_media_library_buffer
         other.pts = 0;
         other.motion_detection_buffer = nullptr;
         other.motion_detected = false;
+        other.optical_zoom_magnification = 1.0f;
         other.on_free = nullptr;
         other.on_free_data = nullptr;
     }
@@ -432,6 +436,7 @@ struct hailo_media_library_buffer
             pts = other.pts;
             motion_detection_buffer = other.motion_detection_buffer;
             motion_detected = other.motion_detected;
+            optical_zoom_magnification = other.optical_zoom_magnification;
             on_free = other.on_free;
             on_free_data = other.on_free_data;
             other.buffer_data = nullptr;
@@ -450,6 +455,7 @@ struct hailo_media_library_buffer
             other.pts = 0;
             other.motion_detection_buffer = nullptr;
             other.motion_detected = false;
+            other.optical_zoom_magnification = 1.0f;
             other.on_free = nullptr;
             other.on_free_data = nullptr;
         }
@@ -478,6 +484,7 @@ struct hailo_media_library_buffer
         pts = other->pts;
         motion_detection_buffer = other->motion_detection_buffer;
         motion_detected = other->motion_detected;
+        optical_zoom_magnification = other->optical_zoom_magnification;
     }
 
     void *get_plane_ptr(uint32_t index)
