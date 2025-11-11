@@ -370,6 +370,87 @@ static nlohmann::json encoding_config_schema = R"(
                   "target_bitrate"
                 ],
                 "additionalProperties": false
+              },
+              "zoom_bitrate_adjuster": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": ["DISABLED", "ZOOMING_PROCESS", "ZOOM_LEVEL", "BOTH"]
+                  },
+                  "zooming_process_bitrate_factor": {
+                    "type": "number",
+                    "minimum": 1.0
+                  },
+                  "zooming_process_timeout_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "zooming_process_max_bitrate": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "zooming_process_force_keyframe": {
+                    "type": "boolean"
+                  },
+                  "zoom_level_threshold": {
+                    "type": "number",
+                    "minimum": 1.0
+                  },
+                  "zoom_level_bitrate_factor": {
+                    "type": "number",
+                    "minimum": 1.0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "qp_smooth_settings": {
+                "type": "object",
+                "properties": {
+                  "qp_delta": {
+                    "type": "integer"
+                  },
+                  "qp_delta_limit": {
+                    "type": "integer"
+                  },
+                  "qp_delta_step": {
+                    "type": "integer"
+                  },
+                  "qp_delta_limit_step": {
+                    "type": "integer"
+                  },
+                  "q_step_divisor": {
+                    "type": "integer"
+                  },
+                  "alpha": {
+                    "type": "number"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "gop_anomaly_bitrate_adjuster": {
+                "type": "object",
+                "properties": {
+                  "enable": {
+                    "type": "boolean"
+                  },
+                  "threshold_high": {
+                    "type": "number"
+                  },
+                  "threshold_low": {
+                    "type": "number"
+                  },
+                  "max_target_bitrate_factor": {
+                    "type": "number"
+                  },
+                  "adjustment_factor": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "enable"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -1154,13 +1235,19 @@ static nlohmann::json ldc_eis_config_schema = R"(
         "iir_hpf_coefficient": { "type": "number", "minimum": 0, "maximum": 1 },
         "camera_fov_factor": { "type": "number", "minimum": 0.1, "maximum": 1 },
         "line_readout_time": { "type": "number" },
-        "hdr_exposure_ratio": { "type": "number" }
+        "hdr_exposure_ratio": { "type": "number" },
+        "min_angle_deg": { "type": "number", "minimum": 0.0, "maximum": 360.0 },
+        "max_angle_deg": { "type": "number", "minimum": 0.0, "maximum": 360.0 },
+        "shakes_type_buff_size": { "type": "number", "minimum": 1 },
+        "max_extensions_per_thr": { "type": "number" },
+        "min_extensions_per_thr": { "type": "number" }
       },
       "additionalProperties": false,
       "required": [
         "enabled", "eis_config_path", "window_size",
         "rotational_smoothing_coefficient", "iir_hpf_coefficient",
-        "camera_fov_factor", "line_readout_time", "hdr_exposure_ratio"
+        "camera_fov_factor", "line_readout_time", "hdr_exposure_ratio",
+        "min_angle_deg", "max_angle_deg"
       ]
     }
   },
@@ -1221,7 +1308,8 @@ static nlohmann::json ldc_optical_zoom_config_schema = R"(
       "properties": {
         "enabled": { "type": "boolean" },
         "magnification": { "type": "number" },
-        "max_dewarping_magnification": { "type": "number" }
+        "max_dewarping_magnification": { "type": "number" },
+        "max_zoom_level": { "type": "number" }
       },
       "additionalProperties": false,
       "required": ["magnification", "enabled"]

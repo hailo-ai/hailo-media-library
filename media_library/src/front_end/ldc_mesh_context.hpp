@@ -12,6 +12,7 @@
 #include "gyro_device.hpp"
 #include "eis.hpp"
 #include "isp_utils.hpp"
+#include "env_vars.hpp"
 
 #define LDC_VSM_CONFIG "/usr/bin/media_server_cfg.json"
 
@@ -25,6 +26,7 @@ class LdcMeshContext
     uint64_t m_last_threshold_timestamp;
     std::time_t m_last_eis_update_time;
     std::shared_ptr<v4l2::v4l2ControlRepository> m_v4l2_ctrl_repo;
+    bool m_no_rotation_in_dewarp;
 
     // configuration manager
     std::shared_ptr<ConfigManager> m_config_manager;
@@ -42,6 +44,7 @@ class LdcMeshContext
     bool m_is_initialized = false;
     std::shared_mutex m_mutex;
     bool eis_prev_enabled = false;
+    size_t m_eis_stabilize_warmup_count = 0;
 
     media_library_return initialize_dewarp_mesh();
     media_library_return initialize_dis_context();

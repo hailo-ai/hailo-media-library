@@ -71,14 +71,16 @@ enum FlipMirrorRot
 /// (more info about the error is printed in the log), otherwise DIS_OK signals that everything is running as expected.
 enum RetCodes
 {
-    DIS_OK,           // 0 no error
-    ERROR_CTX,        // 1 ctx is NULL or *ctx already points to something in dis_init()
-    ERROR_CONFIG,     // 2 error in config file; more info is printed in the log
-    ERROR_CALIB,      // 3 error in calibration file; more info is printed in the log
-    ERROR_INIT,       // 4 error in dis_init()
-    ERROR_GRID,       // 5 error during grid calculation
-    ERROR_INPUT_DATA, // 6 error regarding input data. more info is printed in the log
-    ERROR_INTERNAL    // 7 internal error. more info is printed in the log
+    DIS_OK,            // 0 no error
+    ERROR_CTX,         // 1 ctx is NULL or *ctx already points to something in dis_init()
+    ERROR_CONFIG,      // 2 error in config file; more info is printed in the log
+    ERROR_CALIB,       // 3 error in calibration file; more info is printed in the log
+    ERROR_INIT,        // 4 error in dis_init()
+    ERROR_GRID,        // 5 error during grid calculation
+    ERROR_INPUT_DATA,  // 6 error regarding input data. more info is printed in the log
+    ERROR_INTERNAL,    // 7 internal error. more info is printed in the log
+    ERROR_EIS_BAD_MESH // 8 for some reason the EIS created an invalid mesh, create a mesh without EIS correction was
+                       // sent instead
 };
 
 struct dis_calibration_t

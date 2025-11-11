@@ -187,7 +187,7 @@ int update_encoders_bitrate()
                   << " current bitrate: " << hailo_encoder_config.rate_control.bitrate.target_bitrate << " Setting to "
                   << new_bitrate << std::endl;
         hailo_encoder_config.rate_control.bitrate.target_bitrate = new_bitrate;
-        if (m_media_lib->set_override_profile(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        if (m_media_lib->set_override_parameters(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
             std::cout << "Failed to set profile" << std::endl;
             return 1;
@@ -221,14 +221,13 @@ int update_jpeg_encoders_quality()
         std::cout << "Encoder " << enc_i << " current quality: " << jpeg_encoder_config.quality << " Setting to "
                   << new_quality << std::endl;
         jpeg_encoder_config.quality = new_quality;
-        if (m_media_lib->set_override_profile(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        if (m_media_lib->set_override_parameters(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
             std::cout << "Failed to set profile" << std::endl;
             return 1;
         }
         enc_i++;
     }
-
     return 0;
 }
 
@@ -253,7 +252,7 @@ int update_encoders_bitrate_monitor_period()
         hailo_encoder_config_t &hailo_encoder_config = std::get<hailo_encoder_config_t>(encoder_config);
         hailo_encoder_config.monitors_control.bitrate_monitor.period = period;
         std::cout << "Encoder " << enc_i << " setting bitrate monitor period to " << period << std::endl;
-        if (m_media_lib->set_override_profile(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        if (m_media_lib->set_override_parameters(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
             std::cout << "Failed to set profile" << std::endl;
             return 1;
@@ -284,7 +283,7 @@ int disable_encoders_bitrate_monitor()
         hailo_encoder_config_t &hailo_encoder_config = std::get<hailo_encoder_config_t>(encoder_config);
         hailo_encoder_config.monitors_control.bitrate_monitor.enable = false;
         std::cout << "Encoder " << enc_i << " disabling bitrate monitor" << std::endl;
-        if (m_media_lib->set_override_profile(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        if (m_media_lib->set_override_parameters(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
             std::cout << "Failed to set profile" << std::endl;
             return 1;
@@ -321,7 +320,7 @@ media_library_return toggle_frontend_config()
     ProfileConfig profile_config = profile_config_expected.value();
     profile_config.ldc_config.dewarp_config.enabled = false;
     std::cout << "Setting dewarp enable to false" << std::endl;
-    if (m_media_lib->set_override_profile(profile_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    if (m_media_lib->set_override_parameters(profile_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         std::cout << "Failed to set config" << std::endl;
         return media_library_return::MEDIA_LIBRARY_ERROR;
@@ -337,7 +336,15 @@ media_library_return toggle_frontend_config()
     profile_config = profile_config_expected.value();
     profile_config.ldc_config.dewarp_config.enabled = true;
     std::cout << "Setting dewarp enable to true" << std::endl;
-    if (m_media_lib->set_override_profile(profile_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    if (m_media_lib->set_override_parameters(profile_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        std::cout << "Failed to set config" << std::endl;
+        return media_library_return::MEDIA_LIBRARY_ERROR;
+    }
+    profile_config = profile_config_expected.value();
+    profile_config.ldc_config.dewarp_config.enabled = true;
+    std::cout << "Setting dewarp enable to true" << std::endl;
+    if (m_media_lib->set_override_parameters(profile_config) != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         std::cout << "Failed to set config" << std::endl;
         return media_library_return::MEDIA_LIBRARY_ERROR;
@@ -409,6 +416,7 @@ int main()
         std::cout << "Failed to initialize media library" << std::endl;
         return 1;
     }
+
     // register signal SIGINT and signal handler
     signal_utils::register_signal_handler([](int signal) {
         m_media_lib->stop_pipeline();

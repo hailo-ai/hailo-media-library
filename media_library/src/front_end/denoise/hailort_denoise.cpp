@@ -12,12 +12,27 @@ HailortAsyncDenoise::HailortAsyncDenoise(const OnInferCb &on_infer_finish) : m_o
 
 HailortAsyncDenoise::~HailortAsyncDenoise()
 {
+    wait_for_all_jobs_to_finish();
+}
+
+void HailortAsyncDenoise::wait_for_all_jobs_to_finish()
+{
     // Wait for last infer to finish
-    auto status = m_last_infer_job.wait(std::chrono::milliseconds(1000));
+    auto status = m_last_infer_job.wait(WAIT_FOR_LAST_INFER_TIMEOUT);
     if (HAILO_SUCCESS != status)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to wait for infer to finish, status = {}", status);
     }
+}
+
+bool HailortAsyncDenoise::has_pending_jobs()
+{
+    // Hailort wait api output error code
+    if (m_last_result_infer_output_buffer_timestamp == m_last_inserted_infer_output_buffer_timestamp)
+    {
+        return false;
+    }
+    return true;
 }
 
 bool HailortAsyncDenoise::set_config(const denoise_config_t &denoise_config, const std::string &group_id,
@@ -352,6 +367,7 @@ bool HailortAsyncDenoise::infer(HailoMediaLibraryBufferPtr output_buffer)
                                       completion_info.status);
             }
             m_on_infer_finish(output_buffer);
+            m_last_result_infer_output_buffer_timestamp = output_buffer->isp_timestamp_ns;
         });
 
     if (!job)
@@ -362,6 +378,7 @@ bool HailortAsyncDenoise::infer(HailoMediaLibraryBufferPtr output_buffer)
 
     job->detach();
     m_last_infer_job = job.release();
+    m_last_inserted_infer_output_buffer_timestamp = output_buffer->isp_timestamp_ns;
 
     return true;
 }

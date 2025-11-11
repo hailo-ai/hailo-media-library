@@ -1,6 +1,8 @@
+#include "logger_macros.hpp"
 #include "media_library_logger.hpp"
 #include "gyro_device.hpp"
 #include "arguments_parser.hpp"
+#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <fstream>
@@ -8,12 +10,16 @@
 #include <iomanip>
 #include "media_library/v4l2_ctrl.hpp"
 #include "media_library/isp_utils.hpp"
+#include <limits>
 
 #define MODULE_NAME LoggerType::Eis
 #define DEVICE_CLK_TIMESTAMP "monotonic_raw"
 
 #define IIO_CTX_TIMEOUT_MS (100)
-#define GYRO_USLEEP_BETWEEN_ITERATIONS (1000)
+#define GYRO_USLEEP_BETWEEN_ITERATIONS (500)
+#define GYRO_SAMPLE_MAX_VALUE (std::numeric_limits<decltype(gyro_sample_t::vx)>::max())
+#define GYRO_SATURATION_THRESHOLD (GYRO_SAMPLE_MAX_VALUE * 0.99f)
+#define GYRO_SATURATION_WAIT_FRAMES (15)
 
 static gyro_sample gyro_sampled;
 std::unique_ptr<GyroDevice> gyroApi = nullptr;
@@ -104,25 +110,22 @@ void GyroDevice::dump_rec_samples(const std::string &file_path)
          << std::left << std::setw(14) << " ---------------" << std::left << std::setw(14) << " ---------------"
          << std::left << std::setw(14) << " ---------------" << std::endl;
 
-    while (!m_stopRunningAck || !m_vector_samples.empty())
+    while (!m_stopRunningAck || !m_vector_samples->empty())
     {
-        if (m_vector_samples.empty())
+        if (m_vector_samples->empty())
         {
             usleep(100000); // 100 msec delay
             continue;
         }
 
-        auto last_sample_it = m_vector_samples.end();
-        for (auto it = m_vector_samples.begin(); it != last_sample_it; ++it)
+        for (auto item = m_vector_samples->dequeue(); item.has_value(); item = m_vector_samples->dequeue())
         {
-            const auto &sample = *it;
+            const auto &sample = item.value();
             file << std::left << std::setw(16) << idx << std::left << std::setw(16) << sample.vx << std::left
                  << std::setw(16) << sample.vy << std::left << std::setw(16) << sample.vz << std::left << std::setw(16)
                  << sample.timestamp_ns << std::endl;
             idx++;
         }
-
-        m_vector_samples.erase(m_vector_samples.begin(), last_sample_it);
         usleep(100000); // 100 msec delay
     }
 
@@ -131,64 +134,60 @@ void GyroDevice::dump_rec_samples(const std::string &file_path)
     file.close();
 }
 
-bool GyroDevice::get_closest_vsync_sample(uint64_t frame_timestamp, std::vector<gyro_sample_t>::iterator &it_closest)
+std::optional<gyro_sample_t> GyroDevice::get_closest_vsync_sample(uint64_t frame_timestamp)
 {
-    it_closest = m_vector_samples.end();
-
-    for (auto it = m_vector_samples.begin(); it != m_vector_samples.end(); it++)
-    {
-        if (it->timestamp_ns > frame_timestamp)
-            break;
-
-        if (it->vx % 2 != 0)
-            it_closest = it;
-    }
-    /* Return true if a VSYNC sample was found */
-    return it_closest != m_vector_samples.end();
+    return m_vector_samples->find_last([frame_timestamp](const gyro_sample_t &sample) {
+        return sample.vx % 2 != 0 && sample.timestamp_ns <= frame_timestamp;
+    });
 }
 
-std::vector<gyro_sample_t> GyroDevice::get_gyro_samples_for_frame_vsync(
-    std::vector<gyro_sample_t>::iterator odd_closest_sample, uint64_t threshold_timestamp)
+tl::expected<std::vector<gyro_sample_t>, gyro_status_t> GyroDevice::get_gyro_samples_by_threshold(
+    uint64_t threshold_timestamp)
 {
-    /* If no odd vx sample was found, return an empty vector */
-    if (odd_closest_sample == m_vector_samples.end())
-    {
-        return {};
-    }
+    auto samples = m_vector_samples->dequeue_many(
+        [&threshold_timestamp](const gyro_sample_t &sample) { return sample.timestamp_ns <= threshold_timestamp; });
 
-    /* We want all the gyro samples before: middle_exposure_timestamp + readout_time */
-    auto it_end = odd_closest_sample;
-    if (it_end->timestamp_ns >= threshold_timestamp)
+    if (samples.empty())
     {
-        while (it_end != m_vector_samples.begin() && (it_end - 1)->timestamp_ns >= threshold_timestamp)
-            it_end--;
+        // no samples found before the threshold
+        LOGGER__MODULE__WARNING(MODULE_NAME, "No gyro samples found before threshold: {}, frame will not be stabilized",
+                                threshold_timestamp);
     }
     else
     {
-        while (it_end != m_vector_samples.end() && (it_end + 1)->timestamp_ns < threshold_timestamp)
-            it_end++;
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Last gyro sample ts: {}, threshold ts: {}", samples.back().timestamp_ns,
+                              threshold_timestamp);
     }
-
-    std::vector<gyro_sample_t> result(m_vector_samples.begin(), it_end);
-    m_vector_samples.erase(m_vector_samples.begin(), it_end);
-    return result;
-}
-
-std::vector<gyro_sample_t> GyroDevice::get_gyro_samples_for_frame_isp_timestamp(uint64_t threshold_timestamp)
-{
-    auto last_relevant_sample = m_vector_samples.begin();
-
-    for (auto it = m_vector_samples.begin(); it != m_vector_samples.end(); it++)
+    if (m_vector_samples->empty())
     {
-        if ((*it).timestamp_ns > threshold_timestamp)
-            break;
-
-        last_relevant_sample = it;
+        // no more samples in the queue
+        LOGGER__MODULE__WARNING(
+            MODULE_NAME,
+            "Gyro samples buffer is empty, samples may be missing (last sample timestamp: {}, threshold: {})",
+            samples.empty() ? 0 : samples.back().timestamp_ns, threshold_timestamp);
+    }
+    else if (!samples.empty() && samples.back().timestamp_ns < threshold_timestamp)
+    {
+        LOGGER__MODULE__WARNING(MODULE_NAME,
+                                "Gyro samples buffer is not empty, but last sample timestamp ({}) is before threshold "
+                                "({}), samples may be missing",
+                                samples.back().timestamp_ns, threshold_timestamp);
     }
 
-    std::vector<gyro_sample_t> result(m_vector_samples.begin(), last_relevant_sample);
-    m_vector_samples.erase(m_vector_samples.begin(), last_relevant_sample);
-    return result;
+    using sample_type = decltype(gyro_sample_t::vx);
+    constexpr sample_type min_val = static_cast<sample_type>(-GYRO_SATURATION_THRESHOLD);
+    constexpr sample_type max_val = static_cast<sample_type>(GYRO_SATURATION_THRESHOLD);
+
+    for (auto &sample : samples)
+    {
+        sample.vx = std::clamp(sample.vx, min_val, max_val);
+        sample.vy = std::clamp(sample.vy, min_val, max_val);
+        sample.vz = std::clamp(sample.vz, min_val, max_val);
+    }
+
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Gyro samples for current frame: {}", samples.size());
+
+    return samples;
 }
 
 static void handle_sig(int)
@@ -515,6 +514,14 @@ gyro_status_t GyroDevice::prepare_device()
         return GYRO_STATUS_IIO_CONTEXT_FAILURE;
     }
 
+    if (iio_buffer_set_blocking_mode(m_iio_device_data.buf, false) < 0)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Unable to set IIO buffer to non-blocking mode for device {}",
+                              m_iio_device_data.name.c_str());
+        m_iio_dev = NULL;
+        return GYRO_STATUS_IIO_CONTEXT_FAILURE;
+    }
+
     return GYRO_STATUS_SUCCESS;
 }
 
@@ -533,9 +540,10 @@ gyro_status_t GyroDevice::configure()
 
 gyro_status_t GyroDevice::run()
 {
-    int max_tries = 10;
     gyro_status_t rc = GYRO_STATUS_SUCCESS;
 
+    std::vector<gyro_sample_t> samples;
+    samples.reserve(FIFO_BUF_SIZE);
     if (!m_ctx)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Gyro device not initialized and run called!");
@@ -545,26 +553,28 @@ gyro_status_t GyroDevice::run()
     LOGGER__MODULE__INFO(MODULE_NAME, "Gyro device {} started running...", m_iio_device_data.name.c_str());
     while (!m_stopRunning)
     {
-        for (int i = 0; i < max_tries && !m_stopRunning; i++)
+        ssize_t nbytes = iio_buffer_refill(m_iio_device_data.buf);
+        if (nbytes == -EAGAIN)
         {
-            ssize_t nbytes = iio_buffer_refill(m_iio_device_data.buf);
-            if (nbytes < 0 && !m_stopRunning)
-            {
-                LOGGER__MODULE__WARNING(MODULE_NAME,
-                                        "Could not refill buffer for device {}, rc = {}, restarting device",
-                                        m_iio_device_data.name.c_str(), nbytes);
-                rc = restart();
-                if (rc != GYRO_STATUS_SUCCESS)
-                {
-                    LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to restart Gyro device. err: {}", rc);
-                    return rc;
-                }
-                break;
-            }
-
-            iio_buffer_foreach_sample(m_iio_device_data.buf, rd_sample_demux, (void *)&m_vector_samples);
+            usleep(GYRO_USLEEP_BETWEEN_ITERATIONS); // 0.5 msec delay
+            continue;
         }
-        usleep(GYRO_USLEEP_BETWEEN_ITERATIONS); // 1 msec delay
+        if (nbytes < 0)
+        {
+            LOGGER__MODULE__WARNING(MODULE_NAME, "Could not refill buffer for device {}, rc = {}, restarting device",
+                                    m_iio_device_data.name.c_str(), nbytes);
+            rc = restart();
+            if (rc != GYRO_STATUS_SUCCESS)
+            {
+                LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to restart Gyro device. err: {}", rc);
+                return rc;
+            }
+            break;
+        }
+
+        iio_buffer_foreach_sample(m_iio_device_data.buf, rd_sample_demux, (void *)&samples);
+        m_vector_samples->enqueue_many(samples);
+        samples.clear();
     }
 
     shutdown();
