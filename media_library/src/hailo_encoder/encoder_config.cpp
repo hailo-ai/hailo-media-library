@@ -42,7 +42,8 @@ inline void strip_string_syntax(std::string &pipeline_input)
     }
 }
 
-EncoderConfig::EncoderConfig(const std::string &json_string) : m_json_string(json_string)
+EncoderConfig::EncoderConfig(const std::string &json_string)
+    : m_config_manager(ConfigSchema::CONFIG_SCHEMA_ENCODER), m_json_string(json_string)
 {
     if (configure(json_string) != MEDIA_LIBRARY_SUCCESS)
     {
@@ -55,10 +56,8 @@ media_library_return EncoderConfig::configure(const std::string &json_string)
     std::string strapped_json = json_string;
     strip_string_syntax(strapped_json);
 
-    m_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_ENCODER);
-
     media_library_return config_ret =
-        m_config_manager->config_string_to_struct<encoder_config_t>(strapped_json, m_config);
+        m_config_manager.config_string_to_struct<encoder_config_t>(strapped_json, m_config);
     if (config_ret != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "encoder's JSON config conversion failed: {}", strapped_json);

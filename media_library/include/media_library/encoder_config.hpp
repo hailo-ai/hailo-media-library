@@ -36,7 +36,7 @@ class EncoderConfig
 {
   private:
     EncoderType type;
-    std::shared_ptr<ConfigManager> m_config_manager;
+    ConfigManager m_config_manager;
     std::string m_json_string;
     nlohmann::json m_doc;
     encoder_config_t m_config;
