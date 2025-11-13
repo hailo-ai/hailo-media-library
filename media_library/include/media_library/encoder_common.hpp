@@ -96,6 +96,32 @@ extern "C"
 #define DEFAULT_HRD_CPB_SIZE (0)
 #define DEFAULT_CVBR_MODE (0)
 
+/* Smooth bitrate adjustment parameters */
+#define DEFAULT_ENABLE_GOP_BITRATE_ADJUSTER (false)
+#define DEFAULT_THRESHOLD_HIGH 0.3
+#define DEFAULT_THRESHOLD_LOW 0.125
+#define DEFAULT_MAX_TARGET_BITRATE_FACTOR 1.3
+#define DEFAULT_BITRATE_ADJUSTMENT_FACTOR 0.2
+
+/* QP smooth settings defaults */
+#define DEFAULT_QP_SMOOTH_QP_DELTA (128)                 // (0x80)  // default = DEFAULT_QP_DELTA
+#define DEFAULT_QP_SMOOTH_QP_DELTA_LIMIT (1536)          //(0x600) // default = DEFAULT_QP_DELTA_LIMIT
+#define DEFAULT_QP_SMOOTH_QP_DELTA_INCREMENT (128)       //(0x80)  // default = DEFAULT_QP_DELTA
+#define DEFAULT_QP_SMOOTH_QP_DELTA_LIMIT_INCREMENT (384) //(0x180)  // default = DEFAULT_QP_DELTA_LIMIT / 2
+#define DEFAULT_QP_SMOOTH_QP_ALPHA (0.0f)                /* Default smoothing ratio */
+#define DEFAULT_QP_SMOOTH_Q_STEP_DIVISOR (2)             /* Default Q step divisor */
+
+/* Boost parameters defaults */
+#define DEFAULT_BOOST_ENABLED (true)
+#define DEFAULT_BOOST_FACTOR (1.4f)
+#define DEFAULT_BOOST_TIMEOUT_MS (1000)
+#define DEFAULT_BOOST_MAX_BITRATE (16000000)
+#define DEFAULT_FORCE_KEYFRAME_ON_ZOOM (true)
+
+/* Constant optical zoom boost parameters defaults */
+#define DEFAULT_CONSTANT_OPTICAL_ZOOM_BOOST (true)
+#define DEFAULT_CONSTANT_OPTICAL_ZOOM_BOOST_THRESHOLD (2.5f)
+#define DEFAULT_CONSTANT_OPTICAL_ZOOM_BOOST_FACTOR (1.2f)
 typedef struct
 {
     i32 width;
@@ -183,6 +209,32 @@ typedef struct
     i32 nextGopSize;
     VCEncPictureCodingType nextCodingType;
 
+    /* Smooth bitrate adjustment parameters */
+    float gop_anomaly_bitrate_adjuster_high_threshold; /* High threshold for GOP frame analysis */
+    float gop_anomaly_bitrate_adjuster_low_threshold;  /* Low threshold for GOP frame analysis */
+    float gop_anomaly_bitrate_adjuster_max_factor;     /* Maximum target bitrate factor */
+    float gop_anomaly_bitrate_adjuster_factor;         /* Bitrate adjustment factor */
+    bool gop_anomaly_bitrate_adjuster_enable;          /* Enable/disable smooth bitrate adjustment, [0,1] */
+
+    /* QP smooth settings parameters */
+    i32 qp_smooth_qp_delta;            /* QP smooth QP delta parameter */
+    i32 qp_smooth_qp_delta_limit;      /* QP smooth QP delta limit parameter */
+    u32 qp_smooth_qp_delta_step;       /* QP smooth QP delta increment parameter */
+    u32 qp_smooth_qp_delta_limit_step; /* QP smooth QP delta limit increment parameter */
+    float qp_smooth_qp_alpha;          /* QP smooth alpha parameter */
+    i32 qp_smooth_q_step_divisor;      /* QP smooth Q step divisor parameter */
+
+    /* Adjust bitrate parameters for optical zoom */
+    bool zoom_bitrate_adjuster_enable;         /* Enable/disable boost for optical zoom */
+    float zoom_bitrate_adjuster_factor;        /* Bitrate boost factor */
+    u32 zoom_bitrate_adjuster_timeout_ms;      /* Boost timeout in milliseconds */
+    u32 zoom_bitrate_adjuster_max_bitrate;     /* Maximum bitrate when boosting (0 = no limit) */
+    bool zoom_bitrate_adjuster_force_keyframe; /* Force keyframe when optical zoom changes */
+
+    /* Constant optical zoom boost parameters */
+    bool constant_optical_zoom_boost;            /* Enable/disable constant boost for optical zoom */
+    float constant_optical_zoom_boost_threshold; /* Threshold level for constant boost activation */
+    float constant_optical_zoom_boost_factor;    /* Constant boost factor for optical zoom */
 } EncoderParams;
 
 /** @} */ // end of encoder_common_definitions

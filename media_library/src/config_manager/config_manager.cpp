@@ -29,6 +29,7 @@
 #include "config_manager.hpp"
 #include "config_manager_schemas.hpp"
 #include "config_type_conversions.hpp"
+#include "logger_macros.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
 
@@ -290,7 +291,21 @@ media_library_return ConfigManager::ConfigManagerImpl::validate_config_string(co
     const nlohmann::json user_config_json = nlohmann::json::parse(user_config_string, nullptr, false);
     if (user_config_json.is_discarded())
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to parse string as JSON");
+        try
+        {
+            // This will throw with the actual parse error
+            [[maybe_unused]] auto ignored_result = nlohmann::json::parse(user_config_string);
+        }
+        catch (const nlohmann::json::parse_error &e)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to parse string as JSON: {} at position {}",
+                                  e.what(), e.byte);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "The following string was not valid JSON: {}", user_config_string);
+        }
+        catch (const std::exception &e)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to parse string as JSON: {}", e.what());
+        }
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     media_library_return ret = validate_config(user_config_json);

@@ -247,6 +247,20 @@ static void gst_hailo_encoder_set_property(GObject *object, guint prop_id, const
     {
     case PROP_CONFIG_STRING: {
         hailoencoder->params->config = std::string(g_value_get_string(value));
+
+        if (hailoencoder->params->encoder)
+        {
+            if (hailoencoder->params->encoder->configure(hailoencoder->params->config) !=
+                media_library_return::MEDIA_LIBRARY_SUCCESS)
+            {
+                GST_ERROR_OBJECT(hailoencoder, "Failed to configure encoder with config string");
+            }
+        }
+        else
+        {
+            GST_ERROR_OBJECT(hailoencoder, "Encoder instance not initialized");
+        }
+
         break;
     }
     case PROP_CONFIG_PATH: {
@@ -530,7 +544,19 @@ static GstFlowReturn gst_hailo_encoder_finish(GstVideoEncoder *encoder)
     GstBuffer *eos_buffer = gst_hailo_encoder_get_output_buffer(output_expected.value());
     gst_buffer_add_hailo_buffer_meta(eos_buffer, output_expected.value().buffer, output_expected.value().size);
 
-    eos_buffer->pts = eos_buffer->dts = hailoencoder->params->dts_queue.back();
+    if (hailoencoder->params->dts_queue.empty())
+    {
+        GST_ERROR_OBJECT(hailoencoder, "DTS queue is empty when finishing encoder");
+    }
+    else
+    {
+        eos_buffer->pts = eos_buffer->dts = hailoencoder->params->dts_queue.back();
+    }
+
+    while (!hailoencoder->params->dts_queue.empty())
+    {
+        hailoencoder->params->dts_queue.pop();
+    }
 
     return gst_pad_push(GST_VIDEO_ENCODER_SRC_PAD(encoder), eos_buffer);
 }
@@ -655,6 +681,8 @@ static GstFlowReturn gst_hailo_encoder_handle_frame(GstVideoEncoder *encoder, Gs
     clock_gettime(CLOCK_MONOTONIC, &start_handle);
     GST_DEBUG_OBJECT(hailoencoder, "Received frame number %u", frame->system_frame_number);
 
+    uint64_t frame_duration_in_ms = frame->duration / 1000000000;
+
     if (frame->system_frame_number == 0)
     {
         switch (hailoencoder->params->encoder->get_gop_size())
@@ -663,11 +691,11 @@ static GstFlowReturn gst_hailo_encoder_handle_frame(GstVideoEncoder *encoder, Gs
             break;
         case 2:
         case 3:
-            hailoencoder->params->dts_queue.push(frame->pts - frame->duration);
+            hailoencoder->params->dts_queue.push(frame->pts - frame_duration_in_ms);
             break;
         default:
-            hailoencoder->params->dts_queue.push(frame->pts - 2 * frame->duration);
-            hailoencoder->params->dts_queue.push(frame->pts - frame->duration);
+            hailoencoder->params->dts_queue.push(frame->pts - 2 * frame_duration_in_ms);
+            hailoencoder->params->dts_queue.push(frame->pts - frame_duration_in_ms);
             break;
         }
     }

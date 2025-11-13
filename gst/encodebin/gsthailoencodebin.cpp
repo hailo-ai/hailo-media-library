@@ -185,16 +185,18 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id, const G
         hailoencodebin->params->config_file_path = glib_cpp::get_string_from_gvalue(value);
         GST_DEBUG_OBJECT(hailoencodebin, "config_file_path: %s", hailoencodebin->params->config_file_path.c_str());
 
+        nlohmann::json config_json = gst_hailoencodebin_get_encoder_json(g_value_get_string(value), true);
+        std::string config_json_str = config_json.dump();
+
         // set params for sub elements here
-        g_object_set(hailoencodebin->params->m_osd, "config-file-path", g_value_get_string(value), NULL);
+        g_object_set(hailoencodebin->params->m_osd, "config-string", config_json_str.c_str(), NULL);
         if (hailoencodebin->params->m_encoder)
         {
-            nlohmann::json config_json = gst_hailoencodebin_get_encoder_json(g_value_get_string(value), false);
             EncoderType encoder_type = gst_hailoencodebin_get_encoder_type(config_json);
+
             if (hailoencodebin->params->encoder_type == encoder_type)
             {
-                gst_hailoencodebin_set_encoder_properties(hailoencodebin, "config-file-path",
-                                                          g_value_get_string(value));
+                gst_hailoencodebin_set_encoder_properties(hailoencodebin, "config-string", config_json_str.c_str());
             }
             else
             {

@@ -112,7 +112,7 @@ media_library_return MediaLibrary::initialize(std::string medialib_config_string
     }
 
     LOGGER__MODULE__DEBUG(MODULE_NAME, "MediaLibrary initialized successfully");
-    set_override_profile(m_media_lib_config_manager.m_current_profile);
+    set_override_parameters(m_media_lib_config_manager.m_current_profile);
     configure_isp(m_media_lib_config_manager.get_3a_config(), m_media_lib_config_manager.get_sensor_entry());
 
     return MEDIA_LIBRARY_SUCCESS;
@@ -153,6 +153,7 @@ media_library_return MediaLibrary::configure_frontend_encoder(
             return encoder_config_return;
         }
     }
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "All encoders configured successfully");
 
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -217,7 +218,7 @@ media_library_return MediaLibrary::configure_isp(const std::string &_3aconfig, c
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibrary::set_override_profile(ProfileConfig profile)
+media_library_return MediaLibrary::set_override_parameters(ProfileConfig profile)
 {
     ProfileConfig previous_profile = m_media_lib_config_manager.m_current_profile;
     // Verify that denoise / hdr / didn't change
@@ -274,7 +275,7 @@ media_library_return MediaLibrary::set_profile(std::string profile_name)
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
-    return set_override_profile(m_media_lib_config_manager.m_medialib_config.profiles[profile_name]);
+    return set_override_parameters(m_media_lib_config_manager.m_medialib_config.profiles[profile_name]);
 }
 
 tl::expected<ProfileConfig, media_library_return> MediaLibrary::get_current_profile() const

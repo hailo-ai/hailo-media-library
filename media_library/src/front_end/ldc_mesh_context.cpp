@@ -15,6 +15,7 @@
 #include <opencv2/opencv.hpp>
 #include "isp_utils.hpp"
 #include "v4l2_ctrl.hpp"
+#include "gyro_device.hpp"
 #include "common.hpp"
 #include <tl/expected.hpp>
 #include <iomanip>
@@ -368,14 +369,16 @@ media_library_return LdcMeshContext::initialize_dis_context()
             if (m_eis_ptr != nullptr)
             {
                 /* We dynamically switched from EIS disabled to enabled, reset EIS data */
-                m_eis_ptr->reset_history();
+                m_eis_stabilize_warmup_count = 15;
+                m_eis_ptr->reset_history(true, true);
             }
             else
             {
                 /* This is the first time EIS is enabled, initialize it */
-                m_eis_ptr = std::make_unique<EIS>(m_ldc_configs.eis_config.eis_config_path.c_str(),
-                                                  m_ldc_configs.eis_config.window_size,
-                                                  std::stoi(m_ldc_configs.gyro_config.sensor_frequency));
+                m_eis_ptr = std::make_unique<EIS>(
+                    m_ldc_configs.eis_config.eis_config_path.c_str(), m_ldc_configs.eis_config.window_size,
+                    std::stoi(m_ldc_configs.gyro_config.sensor_frequency), m_ldc_configs.eis_config.min_angle_deg,
+                    m_ldc_configs.eis_config.max_angle_deg, m_ldc_configs.eis_config.shakes_type_buff_size);
             }
         }
     }
@@ -511,7 +514,7 @@ media_library_return LdcMeshContext::initialize_dewarp_mesh()
 
     flip_direction_t flip_dir = FLIP_DIRECTION_NONE;
     rotation_angle_t rotation_angle = ROTATION_ANGLE_0;
-    if (m_ldc_configs.flip_config.enabled)
+    if (!m_no_rotation_in_dewarp && m_ldc_configs.flip_config.enabled)
         flip_dir = m_ldc_configs.flip_config.direction;
     if (m_ldc_configs.rotation_config.enabled)
         rotation_angle = m_ldc_configs.rotation_config.angle;
@@ -543,6 +546,7 @@ media_library_return LdcMeshContext::configure(ldc_config_t &ldc_configs)
     m_input_height = m_ldc_configs.input_video_config.resolution.dimensions.destination_height;
     m_magnification = m_ldc_configs.optical_zoom_config.magnification;
     m_last_threshold_timestamp = 0;
+    m_no_rotation_in_dewarp = !is_env_variable_on(MEDIALIB_DEWARP_DSP_OPTIMIZATION_ENV_VAR);
 
     if (!ldc_configs.check_ops_enabled())
         return MEDIA_LIBRARY_SUCCESS;
@@ -608,7 +612,7 @@ media_library_return LdcMeshContext::configure(ldc_config_t &ldc_configs)
     {
         /* We dynamically switched from EIS disabled to enabled, reset EIS data */
         LOGGER__MODULE__INFO(MODULE_NAME, "EIS (stabilize) was disabled and now enabled, resetting EIS data");
-        m_eis_ptr->reset_history(false);
+        m_eis_ptr->reset_history(true, true);
     }
 
     m_is_initialized = true;
@@ -643,7 +647,7 @@ media_library_return LdcMeshContext::on_frame_vsm_update(struct hailo15_vsm &vsm
 
     flip_direction_t flip_dir = FLIP_DIRECTION_NONE;
     rotation_angle_t rotation_angle = ROTATION_ANGLE_0;
-    if (m_ldc_configs.flip_config.enabled)
+    if (!m_no_rotation_in_dewarp && m_ldc_configs.flip_config.enabled)
         flip_dir = m_ldc_configs.flip_config.direction;
     if (m_ldc_configs.rotation_config.enabled)
         rotation_angle = m_ldc_configs.rotation_config.angle;
@@ -671,32 +675,23 @@ media_library_return LdcMeshContext::on_frame_vsm_update(struct hailo15_vsm &vsm
 
     return MEDIA_LIBRARY_SUCCESS;
 }
-static std::vector<gyro_sample_t> get_gyro_samples(GyroDevice *gyroApi, EIS *eisApi,
-                                                   uint64_t curr_frame_isp_timestamp_ns, uint64_t integration_time,
-                                                   isp_utils::isp_hdr_sensor_params_t &hdr_sensor_params,
-                                                   uint64_t *threshold_timestamp, uint64_t *middle_exposure_timestamp,
-                                                   float exposures_ratio)
-{
-    std::vector<gyro_sample_t>::iterator closest_vsync_sample;
-    bool found_vsync_sample = gyroApi->get_closest_vsync_sample(curr_frame_isp_timestamp_ns, closest_vsync_sample);
 
-    std::vector<gyro_sample_t> gyro_samples;
-    uint64_t timestamp = found_vsync_sample ? (*closest_vsync_sample).timestamp_ns : curr_frame_isp_timestamp_ns;
+static tl::expected<std::vector<gyro_sample_t>, gyro_status_t> get_gyro_samples(
+    GyroDevice *gyroApi, EIS *eisApi, uint64_t curr_frame_isp_timestamp_ns, uint64_t integration_time,
+    isp_utils::isp_hdr_sensor_params_t &hdr_sensor_params, uint64_t *threshold_timestamp,
+    uint64_t *middle_exposure_timestamp, float exposures_ratio)
+{
+    std::optional<gyro_sample_t> closest_vsync_sample = gyroApi->get_closest_vsync_sample(curr_frame_isp_timestamp_ns);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Received VSYNC: {}", closest_vsync_sample.has_value());
+
+    uint64_t timestamp =
+        closest_vsync_sample.has_value() ? closest_vsync_sample.value().timestamp_ns : curr_frame_isp_timestamp_ns;
 
     (void)integration_time;
     *middle_exposure_timestamp =
         eisApi->get_middle_exposure_timestamp(timestamp, hdr_sensor_params, exposures_ratio, *threshold_timestamp);
 
-    if (found_vsync_sample)
-    {
-        gyro_samples = gyroApi->get_gyro_samples_for_frame_vsync(closest_vsync_sample, *threshold_timestamp);
-    }
-    else
-    {
-        gyro_samples = gyroApi->get_gyro_samples_for_frame_isp_timestamp(*threshold_timestamp);
-    }
-
-    return gyro_samples;
+    return gyroApi->get_gyro_samples_by_threshold(*threshold_timestamp);
 }
 
 media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp_timestamp_ns,
@@ -722,16 +717,18 @@ media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp
     if (m_last_eis_update_time != std::time(nullptr) &&
         std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) - m_last_eis_update_time > 100)
     {
-        m_eis_ptr->reset_history(false);
+        m_eis_ptr->reset_history(false, false);
     }
     m_last_eis_update_time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 
     std::vector<unbiased_gyro_sample_t> unbiased_gyro_samples;
     DewarpT grid = {(int)m_dewarp_mesh.mesh_width, (int)m_dewarp_mesh.mesh_height, (int *)m_dewarp_mesh.mesh_table};
 
-    FlipMirrorRot flip_mirror_rot =
-        get_flip_value(m_ldc_configs.flip_config.enabled ? m_ldc_configs.flip_config.direction : FLIP_DIRECTION_NONE,
-                       m_ldc_configs.rotation_config.enabled ? m_ldc_configs.rotation_config.angle : ROTATION_ANGLE_0);
+    FlipMirrorRot flip_mirror_rot = get_flip_value(
+        (!m_no_rotation_in_dewarp && m_ldc_configs.flip_config.enabled) ? m_ldc_configs.flip_config.direction
+                                                                        : FLIP_DIRECTION_NONE,
+        (!m_no_rotation_in_dewarp && m_ldc_configs.rotation_config.enabled) ? m_ldc_configs.rotation_config.angle
+                                                                            : ROTATION_ANGLE_0);
 
     std::vector<std::pair<uint64_t, cv::Mat>> current_orientations = {{0, cv::Mat::eye(3, 3, CV_64F)}};
     std::vector<cv::Mat> rolling_shutter_rotations(m_dewarp_mesh.mesh_height, cv::Mat::eye(3, 3, CV_32F));
@@ -741,9 +738,10 @@ media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp
         curr_frame_isp_timestamp_ns += 33000000;
 
     uint64_t threshold_timestamp, middle_exposure_timestamp;
-    auto gyro_samples = get_gyro_samples(gyroApi.get(), m_eis_ptr.get(), curr_frame_isp_timestamp_ns,
-                                         curr_frame_integration_time, isp_params, &threshold_timestamp,
-                                         &middle_exposure_timestamp, m_ldc_configs.eis_config.hdr_exposure_ratio);
+    std::vector<gyro_sample_t> gyro_samples;
+    tl::expected<std::vector<gyro_sample_t>, gyro_status_t> gyro_samples_expected = get_gyro_samples(
+        gyroApi.get(), m_eis_ptr.get(), curr_frame_isp_timestamp_ns, curr_frame_integration_time, isp_params,
+        &threshold_timestamp, &middle_exposure_timestamp, m_ldc_configs.eis_config.hdr_exposure_ratio);
 
     if ((m_last_threshold_timestamp == 0) || (!enabled))
     {
@@ -754,29 +752,45 @@ media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp
         goto generate_grid;
     }
 
+    if (!m_ldc_configs.eis_config.stabilize || m_eis_stabilize_warmup_count)
+    {
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "EIS stabilization is off, skipping");
+        m_last_threshold_timestamp = threshold_timestamp;
+        if (m_eis_stabilize_warmup_count > 0)
+        {
+            m_eis_stabilize_warmup_count--;
+        }
+        goto generate_grid;
+    }
+
+    gyro_samples = gyro_samples_expected.value();
+
     if (gyro_samples.size() <= 1)
     {
         /* If no gyro samples were found (at all) for any reason, perform dewarp with no correction */
         LOGGER__MODULE__WARNING(MODULE_NAME, "No gyro samples found for the current frame (at all)!");
-        m_eis_ptr->reset_history(false);
+        m_eis_ptr->reset_history(false, false);
         m_last_threshold_timestamp = threshold_timestamp;
         goto generate_grid;
     }
 
     m_eis_ptr->remove_bias(gyro_samples, unbiased_gyro_samples, m_ldc_configs.gyro_config.gyro_scale,
                            m_ldc_configs.eis_config.iir_hpf_coefficient);
-    if (!m_eis_ptr->converged() || !m_ldc_configs.eis_config.stabilize)
+    if (!m_eis_ptr->converged())
     {
         /* If the gyro samples did not converge or stabilization is paused, perform dewarp with no correction */
-        LOGGER__DEBUG("Gyro HPF is not converged yet, skipping EIS");
+        LOGGER__MODULE__WARNING(MODULE_NAME, "Gyro HPF is not converged yet, skipping EIS");
         m_last_threshold_timestamp = threshold_timestamp;
         goto generate_grid;
     }
     current_orientations = m_eis_ptr->integrate_rotations_rolling_shutter(unbiased_gyro_samples);
+    current_orientations = m_eis_ptr->get_orientations_based_on_shakes_state(current_orientations);
+
     if ((!current_orientations.empty()) && (current_orientations[0].first != 0))
     {
         rolling_shutter_rotations = m_eis_ptr->get_rolling_shutter_rotations(
-            current_orientations, m_dewarp_mesh.mesh_height, middle_exposure_timestamp, isp_params.rhs_times);
+            current_orientations, m_dewarp_mesh.mesh_height, middle_exposure_timestamp, isp_params.rhs_times,
+            m_ldc_configs.eis_config.camera_fov_factor);
     }
     m_last_threshold_timestamp = threshold_timestamp;
 
@@ -789,11 +803,16 @@ generate_grid:
 
         if (reset_needed)
         {
-            m_eis_ptr->reset_history(false);
+            m_eis_ptr->reset_history(false, false);
             m_last_threshold_timestamp = 0;
         }
     }
-    dis_generate_eis_grid_rolling_shutter(m_dis_ctx, flip_mirror_rot, rolling_shutter_rotations, &grid);
+
+    dis_generate_eis_grid_rolling_shutter(m_dis_ctx, flip_mirror_rot, rolling_shutter_rotations, &grid,
+                                          m_ldc_configs.eis_config.max_extensions_per_thr, m_magnification,
+                                          m_ldc_configs.eis_config.min_extensions_per_thr,
+                                          m_ldc_configs.optical_zoom_config.max_zoom_level);
+
     m_dewarp_mesh.mesh_table = grid.mesh_table;
     m_dewarp_mesh.mesh_width = grid.mesh_width;
     m_dewarp_mesh.mesh_height = grid.mesh_height;

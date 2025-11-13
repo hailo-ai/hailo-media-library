@@ -36,7 +36,7 @@ class EncoderConfig
 {
   private:
     EncoderType type;
-    std::shared_ptr<ConfigManager> m_config_manager;
+    ConfigManager m_config_manager;
     std::string m_json_string;
     nlohmann::json m_doc;
     encoder_config_t m_config;
@@ -53,4 +53,16 @@ class EncoderConfig
     encoder_config_t get_user_config();
     hailo_encoder_config_t get_hailo_config();
     jpeg_encoder_config_t get_jpeg_config();
+
+    /**
+     * @brief Compare two encoder_config_t structures for equality
+     *
+     * This method performs a deep comparison of all fields in both encoder config structures,
+     * including all nested structures and optional fields.
+     *
+     * @param old_config The first encoder configuration to compare
+     * @param new_config The second encoder configuration to compare
+     * @return true if all values in both structures are identical, false otherwise
+     */
+    static bool config_struct_equal(const encoder_config_t &old_config, const encoder_config_t &new_config);
 };
