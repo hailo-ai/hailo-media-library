@@ -24,7 +24,7 @@
 
 #include "encoder_config_types.hpp"
 #include "hailort_denoise.hpp"
-#include "config_manager.hpp"
+#include "config_parser.hpp"
 #include "media_library_types.hpp"
 #include "v4l2_ctrl.hpp"
 
@@ -60,15 +60,15 @@ class MediaLibraryDenoise
     MediaLibraryDenoise(MediaLibraryDenoise &&) = delete;
     MediaLibraryDenoise &operator=(MediaLibraryDenoise &&) = delete;
 
+    // Perform pre-processing on the input frame asynchronously
+    media_library_return handle_frame(HailoMediaLibraryBufferPtr input_frame);
+
     // Configure the denoise module with new json string
     media_library_return configure(const std::string &config_string);
 
     // Configure the denoise module with denoise_config_t and hailort_t object
     media_library_return configure(const denoise_config_t &denoise_configs, const hailort_t &hailort_configs,
                                    const input_video_config_t &input_video_configs);
-
-    // Perform pre-processing on the input frame and return the output frames
-    media_library_return handle_frame(HailoMediaLibraryBufferPtr input_frame, HailoMediaLibraryBufferPtr output_frame);
 
     // get the denoise configurations object
     denoise_config_t get_denoise_configs();
@@ -87,16 +87,16 @@ class MediaLibraryDenoise
 
     static constexpr int HAILORT_SCHEDULER_THRESHOLD = 1;
     static constexpr std::chrono::milliseconds HAILORT_SCHEDULER_TIMEOUT{1000};
-    static constexpr int HAILORT_SCHEDULER_BATCH_SIZE = 2;
+    static constexpr int HAILORT_SCHEDULER_BATCH_SIZE = 1;
 
     static constexpr size_t BUFFER_POOL_MAX_BUFFERS = 6;
     static constexpr int RESOULTION_MULTIPLE_REQUIRED_BY_DENOISE_NETWORK = 16;
 
     // configured flag - to determine if first configuration was done
     // configuration manager
-    ConfigManager m_denoise_config_manager;
-    ConfigManager m_frontend_config_manager;
-    ConfigManager m_hailort_config_manager;
+    ConfigParser m_denoise_config_parser;
+    ConfigParser m_frontend_config_parser;
+    ConfigParser m_hailort_config_parser;
     std::vector<MediaLibraryDenoise::callbacks_t> m_callbacks;
     // operation configurations
     denoise_config_t m_denoise_configs;
@@ -111,18 +111,18 @@ class MediaLibraryDenoise
     // loopback controls
     uint8_t m_queue_size = QUEUE_DEFAULT_SIZE;
     uint8_t m_loop_counter = 0;
-    uint8_t m_loopback_batch_counter = 0;
     uint8_t m_loopback_limit = 1;
     bool m_configured = false;
     size_t m_sensor_index = 0;
     std::atomic<bool> m_flushing = false;
+    bool m_should_queue_dummy_loopback_buffer = false;
     // startup buffer
     HailoMediaLibraryBufferPtr m_startup_buffer = nullptr;
 
     // loopback queue controls
     std::condition_variable m_loopback_condvar;
     std::mutex m_loopback_mutex;
-    std::queue<HailoMediaLibraryBufferPtr> m_loopback_queue;
+    std::queue<TensorBindings> m_loopback_queue;
     // timestamp queue controls
     std::condition_variable m_timestamp_condvar;
     std::mutex m_timestamp_mutex;
@@ -130,28 +130,30 @@ class MediaLibraryDenoise
     // callback queue controls
     std::condition_variable m_inference_callback_condvar;
     std::mutex m_inference_callback_mutex;
-    std::queue<HailoMediaLibraryBufferPtr> m_inference_callback_queue;
+    std::queue<NetworkInferenceBindingsPtr> m_inference_callback_queue;
 
     media_library_return decode_config_json_string(denoise_config_t &denoise_configs, hailort_t &hailort_configs,
                                                    std::string config_string);
-    media_library_return perform_denoise(HailoMediaLibraryBufferPtr input_buffer,
-                                         HailoMediaLibraryBufferPtr output_buffer);
-    media_library_return perform_initial_batch(HailoMediaLibraryBufferPtr input_buffer,
-                                               HailoMediaLibraryBufferPtr output_buffer);
-    media_library_return perform_subsequent_batches(HailoMediaLibraryBufferPtr input_buffer,
-                                                    HailoMediaLibraryBufferPtr output_buffer);
+    media_library_return perform_denoise(NetworkInferenceBindingsPtr bindings);
     void stamp_time_and_log_fps(timespec &start_handle);
-    void inference_callback(HailoMediaLibraryBufferPtr output_buffer);
+    void inference_callback(NetworkInferenceBindingsPtr bindings);
     void queue_timestamp_buffer(timespec start_handle);
     std::optional<timespec> dequeue_timestamp_buffer();
     void clear_timestamp_queue();
-    void queue_loopback_buffer(HailoMediaLibraryBufferPtr buffer);
-    HailoMediaLibraryBufferPtr dequeue_loopback_buffer();
+    void queue_loopback_buffer(const TensorBindings &loopback_buffers);
+    tl::expected<TensorBindings, media_library_return> dequeue_loopback_buffer();
     void clear_loopback_queue();
     void inference_callback_thread();
     std::thread m_inference_callback_thread;
-    void queue_inference_callback_buffer(HailoMediaLibraryBufferPtr buffer);
-    HailoMediaLibraryBufferPtr dequeue_inference_callback_buffer();
+    void queue_inference_callback_buffer(NetworkInferenceBindingsPtr bindings);
+    NetworkInferenceBindingsPtr dequeue_inference_callback_buffer();
+    media_library_return acquire_loopback_buffer(NetworkInferenceBindingsPtr bindings);
+    bool is_packed_output() const;
+    media_library_return initialize_loopback_buffers(const TensorBindings &loopback_buffers);
+
+    // Helper methods for derived classes to manage inference callback thread
+    void start_inference_callback_thread();
+    void stop_inference_callback_thread();
 
     // virtual functions to override
     virtual bool currently_enabled() = 0;
@@ -159,14 +161,19 @@ class MediaLibraryDenoise
     virtual bool disabled(const denoise_config_t &denoise_configs) = 0;
     virtual bool enable_changed(const denoise_config_t &denoise_configs) = 0;
     virtual bool network_changed(const denoise_config_t &denoise_configs, const hailort_t &hailort_configs) = 0;
+    virtual void prepare_hailort_instance(const denoise_config_t & /*denoise_configs*/){};
     virtual media_library_return create_and_initialize_buffer_pools(
         const input_video_config_t &input_video_configs) = 0;
-    virtual media_library_return close_buffer_pools() = 0;
-    virtual media_library_return acquire_output_buffer(HailoMediaLibraryBufferPtr output_buffer) = 0;
-    virtual bool process_inference(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr loopback_buffer,
-                                   HailoMediaLibraryBufferPtr output_buffer) = 0;
+    virtual media_library_return free_buffer_pools() = 0;
+    virtual media_library_return acquire_output_buffer(NetworkInferenceBindingsPtr bindings) = 0;
+    virtual media_library_return acquire_input_buffer(NetworkInferenceBindingsPtr bindings) = 0;
+    virtual bool process_inference(NetworkInferenceBindingsPtr bindings) = 0;
     virtual void copy_meta(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr output_buffer) = 0;
+    NetworkInferenceBindingsPtr create_bindings(HailoMediaLibraryBufferPtr input_buffer,
+                                                HailoMediaLibraryBufferPtr output_buffer) const;
+    media_library_return bind_loopback_buffers(NetworkInferenceBindingsPtr bindings,
+                                               const TensorBindings &loopback_buffers) const;
 
-    // Generate a startup buffer based on child class format
-    virtual media_library_return generate_startup_buffer() = 0;
+  public:
+    int get_denoised_output_index() const;
 };

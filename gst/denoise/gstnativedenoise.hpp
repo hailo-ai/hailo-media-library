@@ -69,7 +69,7 @@ struct __attribute__((visibility("hidden"))) _GstHailoDenoiseParams
     std::queue<GstBufferPtr> m_staging_queue;
 
     std::shared_ptr<MediaLibraryPostIspDenoise> medialib_denoise = nullptr;
-    std::unique_ptr<ConfigManager> m_config_manager;
+    std::unique_ptr<ConfigParser> m_config_parser;
     std::unique_ptr<frontend_config_t> m_frontend_config;
 
     media_library_return observe(const MediaLibraryDenoise::callbacks_t &callback)

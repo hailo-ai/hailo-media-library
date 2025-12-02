@@ -1,7 +1,7 @@
 #pragma once
 #include "dsp_utils.hpp"
 #include "interface_types.h"
-#include "config_manager.hpp"
+#include "config_parser.hpp"
 #include "media_library_types.hpp"
 #include "media_library_utils.hpp"
 #include "hailo_v4l2/hailo_v4l2.h"
@@ -29,7 +29,7 @@ class LdcMeshContext
     bool m_dsp_optimization;
 
     // configuration manager
-    std::shared_ptr<ConfigManager> m_config_manager;
+    std::shared_ptr<ConfigParser> m_config_parser;
     // Pointer to internally allocated DIS instance. used for DIS library mesh generation
     void *m_dis_ctx = nullptr;
     // dewarp mesh object

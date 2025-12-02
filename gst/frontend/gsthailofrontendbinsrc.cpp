@@ -24,6 +24,7 @@
 #include "gsthailofrontendbinsrc.hpp"
 #include "media_library/media_library_types.hpp"
 #include "media_library/sensor_registry.hpp"
+#include "media_library_logger.hpp"
 #include "multi_resize/gsthailomultiresize.hpp"
 #include "media_library/isp_utils.hpp"
 #include "common/gstmedialibcommon.hpp"
@@ -37,6 +38,8 @@
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailofrontendbinsrc_debug_category);
 #define GST_CAT_DEFAULT gst_hailofrontendbinsrc_debug_category
+
+static constexpr LoggerType MODULE_NAME = LoggerType::GstFrontendBin;
 
 static void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id, const GValue *value,
                                                  GParamSpec *pspec);
@@ -190,8 +193,8 @@ static void gst_hailofrontendbinsrc_init(GstHailoFrontendBinSrc *hailofrontendbi
     gst_bin_add_many(GST_BIN(hailofrontendbinsrc), hailofrontendbinsrc->params->m_v4l2src,
                      hailofrontendbinsrc->params->m_capsfilter, hailofrontendbinsrc->params->m_queue,
                      hailofrontendbinsrc->params->m_frontend, NULL);
-    hailofrontendbinsrc->params->m_frontend_config_manager =
-        std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_FRONTEND);
+    hailofrontendbinsrc->params->m_frontend_config_parser =
+        std::make_shared<ConfigParser>(ConfigSchema::CONFIG_SCHEMA_FRONTEND);
 }
 
 static GstElement *gst_hailofrontendbinsrc_init_queue(GstHailoFrontendBinSrc *hailofrontendbinsrc)
@@ -254,6 +257,7 @@ static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, fro
     if (!config_string.empty())
     {
         g_object_set(self->params->m_frontend, "config-string", config_string.c_str(), NULL);
+        GST_DEBUG_OBJECT(self, "Configure Pre ISP Denoise with string: %s", config_string.c_str());
         if (self->params->m_pre_isp_denoise->configure(config_string) != MEDIA_LIBRARY_SUCCESS)
             GST_ERROR_OBJECT(self, "configuration error: Pre ISP Denoise");
     }
@@ -263,6 +267,8 @@ static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, fro
 static std::optional<frontend_config_t> gst_hailofrontendbinsrc_load_config(GstHailoFrontendBinSrc *self,
                                                                             const std::string &config_string)
 {
+    LOGGER__MODULE__INFO(MODULE_NAME, "Frontend config to be applied: {}",
+                         config_string); // TODO: config should be handled in ConfigParser class
     if (config_string.empty())
     {
         GST_ERROR_OBJECT(self, "Config string is NULL");
@@ -270,8 +276,8 @@ static std::optional<frontend_config_t> gst_hailofrontendbinsrc_load_config(GstH
     }
 
     frontend_config_t out_config;
-    if (self->params->m_frontend_config_manager->config_string_to_struct<frontend_config_t>(
-            config_string, out_config) != MEDIA_LIBRARY_SUCCESS)
+    if (self->params->m_frontend_config_parser->config_string_to_struct<frontend_config_t>(config_string, out_config) !=
+        MEDIA_LIBRARY_SUCCESS)
     {
         GST_ERROR_OBJECT(self, "Failed to decode ISP config from json string: %s", config_string.c_str());
         return std::nullopt;
@@ -326,6 +332,7 @@ void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id, co
         g_object_set(self->params->m_frontend, "dewarp-config", &(config->ldc_config), NULL);
         g_object_set(self->params->m_frontend, "denoise-config", config, NULL);
         g_object_set(self->params->m_frontend, "multi-resize-config", &(config->multi_resize_config), NULL);
+        GST_DEBUG_OBJECT(self, "Configure Pre ISP Denoise with config struct");
         self->params->m_pre_isp_denoise->configure(config->denoise_config, config->hailort_config,
                                                    config->input_config);
         gst_hailofrontendbinsrc_set_config(self, *config);
@@ -513,7 +520,8 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
 
             GST_DEBUG_OBJECT(self, "Activate HDR forward timestamp");
         }
-        else if (self->params->m_pre_isp_denoise->is_enabled() && result != GST_STATE_CHANGE_FAILURE)
+        else if (self->params->m_pre_isp_denoise->is_enabled() &&
+                 result != GST_STATE_CHANGE_FAILURE)
         {
             GST_DEBUG_OBJECT(self, "Activate Pre-ISP Denoise");
             if (self->params->m_pre_isp_denoise->start() != MEDIA_LIBRARY_SUCCESS)
@@ -555,8 +563,10 @@ static GstPad *gst_hailofrontendbinsrc_request_new_pad(GstElement *element, GstP
     GST_DEBUG_OBJECT(self, "FrontendBinSrc requested frontend_srcpad: %s", frontend_srcpad_name);
 
     // Create a new ghost pad and target GstHailoMultiResize source pad
-    srcpad = gst_ghost_pad_new_no_target(NULL, GST_PAD_SRC);
-    const auto srcpad_name = glib_cpp::ptrs::get_pad_name(srcpad);
+    gchar *ghostpad_name = g_strdup_printf("frontendbinsrc_ghostpad_%s", frontend_srcpad_name);
+    srcpad = gst_ghost_pad_new_no_target(ghostpad_name, GST_PAD_SRC);
+    const char *srcpad_name = glib_cpp::ptrs::get_pad_name(srcpad);
+    g_free(ghostpad_name);
     gboolean link_status = gst_ghost_pad_set_target(GST_GHOST_PAD(srcpad.get()), frontend_srcpad);
     GST_DEBUG_OBJECT(self, "FrontendBinSrc setting %s to target %s", srcpad_name, frontend_srcpad_name);
     if (!link_status)
@@ -567,8 +577,7 @@ static GstPad *gst_hailofrontendbinsrc_request_new_pad(GstElement *element, GstP
     // Set the new ghostpad to active and add it to the bin
     gst_pad_set_active(srcpad, TRUE);
     glib_cpp::ptrs::add_pad_to_element(element, srcpad);
-    self->params->srcpads.emplace_back(srcpad);
-
+    // srcpad.set_auto_unref(false);
     return srcpad;
 }
 
@@ -576,19 +585,12 @@ static void gst_hailofrontendbinsrc_release_pad(GstElement *element, GstPad *pad
 {
     GstHailoFrontendBinSrc *self = GST_HAILO_FRONTEND_BINSRC(element);
     GST_DEBUG_OBJECT(self, "Release pad: %s", glib_cpp::get_name(pad).c_str());
-
-    GST_OBJECT_LOCK(self);
-
     // Find the corresponding source pad in GstHailoMultiResize
     GstPadPtr frontend_srcpad = gst_ghost_pad_get_target(GST_GHOST_PAD(pad));
-
     // Release the source pad in GstHailoFrontend
     gst_element_release_request_pad(self->params->m_frontend, frontend_srcpad);
-
     // Remove the ghost pad from GstHailoFrontendBinSrc
-    gst_element_remove_pad(element, pad);
-
-    GST_OBJECT_UNLOCK(self);
+    glib_cpp::ptrs::remove_pad_from_element(element, pad);
 }
 
 static gboolean gst_hailofrontendbinsrc_link_elements(GstElement *element)

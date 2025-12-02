@@ -208,6 +208,11 @@ bool add_pad_to_element(GstElement *element, GstPadPtr &pad)
     return ret;
 }
 
+bool remove_pad_from_element(GstElement *element, GstPad *pad)
+{
+    bool ret = gst_element_remove_pad(element, pad);
+    return ret;
+}
 } // namespace ptrs
 
 } // namespace glib_cpp

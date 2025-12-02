@@ -1,0 +1,27 @@
+{
+    "version": "1.1.0",
+    "metadata": {
+        "architecture": "hailo15h",
+        "content_hash": "18d39cc6ababf59f9a54d92dfdb0f6c9061f33905c32944af444b4a79020c52d",
+        "description": "",
+        "generation_timestamp": "2025-11-24T12:11:03.928893+00:00"
+    },
+    "application_settings": "/usr/bin/profile_hdr/application_settings.json",
+    "encoded_output_streams": [
+        {
+            "encoding": "/usr/bin/profile_hdr/encoder_sink0.json",
+            "masking": "/usr/bin/profile_hdr/masking_sink0.json",
+            "osd": "/usr/bin/profile_hdr/osd_sink0.json",
+            "stream_id": "sink0"
+        },
+        {
+            "encoding": "/usr/bin/profile_hdr/encoder_sink1.json",
+            "masking": "/usr/bin/profile_hdr/masking_sink1.json",
+            "osd": "/usr/bin/profile_hdr/osd_sink1.json",
+            "stream_id": "sink1"
+        }
+    ],
+    "iq_settings": "/usr/bin/profile_hdr/iq_settings.json",
+    "sensor_config": "/usr/bin/profile_hdr/sensor_config.json",
+    "stabilizer_settings": "/usr/bin/profile_hdr/stabilizer_settings.json"
+}

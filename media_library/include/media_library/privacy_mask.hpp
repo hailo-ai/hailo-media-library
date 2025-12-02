@@ -32,7 +32,7 @@
 #include <tl/expected.hpp>
 #include <nlohmann/json.hpp>
 #include <mutex>
-#include "config_manager.hpp"
+#include "config_parser.hpp"
 #include "media_library_types.hpp"
 #include "privacy_mask_types.hpp"
 #include "buffer_pool.hpp"
@@ -278,7 +278,7 @@ class PrivacyMaskBlender : public std::enable_shared_from_this<PrivacyMaskBlende
     bool m_static_mask_update_required;
     bool m_static_mask_enabled;
     bool m_dynamic_mask_enabled;
-    std::shared_ptr<ConfigManager> m_config_manager;
+    std::shared_ptr<ConfigParser> m_config_parser;
     media_library_return init_buffer_pool();
     media_library_return update_info();
     media_library_return update_static_mask();

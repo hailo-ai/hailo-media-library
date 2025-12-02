@@ -20,7 +20,7 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-#include "media_library/config_manager.hpp"
+#include "media_library/config_parser.hpp"
 #include "media_library/logger_macros.hpp"
 #include "media_library/media_library_logger.hpp"
 #include "media_library/encoder.hpp"
@@ -73,7 +73,7 @@ media_library_return MediaLibraryEncoder::Impl::init_buffer_pool(const InputPara
 
 MediaLibraryEncoder::Impl::Impl(media_library_return &status, std::string name)
     : m_main_context(g_main_context_default()), m_encoder_type(EncoderType::None),
-      m_config_manager(CONFIG_SCHEMA_ENCODER_AND_BLENDING)
+      m_config_parser(CONFIG_SCHEMA_ENCODER_AND_BLENDING)
 {
     m_name = name;
 
@@ -111,7 +111,15 @@ MediaLibraryEncoder::MediaLibraryEncoder(std::shared_ptr<MediaLibraryEncoder::Im
 
 media_library_return MediaLibraryEncoder::Impl::subscribe(AppWrapperCallback callback)
 {
+    std::unique_lock<std::shared_mutex> lock(m_callbacks_mutex);
     m_callbacks.push_back(callback);
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return MediaLibraryEncoder::Impl::unsubscribe()
+{
+    std::unique_lock<std::shared_mutex> lock(m_callbacks_mutex);
+    m_callbacks.clear();
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -148,7 +156,7 @@ media_library_return MediaLibraryEncoder::Impl::start()
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryEncoder::Impl::config_blenders()
+media_library_return MediaLibraryEncoder::Impl::load_blenders()
 {
     GstElementPtr encoder_bin = glib_cpp::ptrs::get_bin_by_name(m_pipeline, m_name);
     if (encoder_bin == nullptr)
@@ -236,19 +244,26 @@ std::string MediaLibraryEncoder::Impl::create_pipeline(const InputParams &input_
     {
         hailoencoderbin_setting + "hailoencodebin name=" + m_name + " ! " + caps2 + " ! ";
     }
+    std::string fpsdisplaysink_name = get_fpsdisplaysink_name();
     pipeline = std::string("appsrc do-timestamp=true format=time block=true is-live=true max-bytes=0 max-buffers=1 "
                            "name=encoder_src ! "
                            "queue name=") +
                ENCODER_QUEUE_NAME + " leaky=no max-size-buffers=1 max-size-bytes=0 max-size-time=0 ! " +
                hailoencoderbin_setting +
                "queue leaky=no max-size-buffers=3 max-size-bytes=0 max-size-time=0 ! "
-               "fpsdisplaysink fps-update-interval=2000 signal-fps-measurements=true name=fpsdisplaysink "
+               "fpsdisplaysink fps-update-interval=2000 signal-fps-measurements=true name=" +
+               fpsdisplaysink_name + " " +
                "text-overlay=false sync=false video-sink=\"appsink wait-on-eos=false max-buffers=1 qos=false "
                "name=encoder_sink\"";
 
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Pipeline: gst-launch-1.0 {}", pipeline);
 
     return pipeline;
+}
+
+std::string MediaLibraryEncoder::Impl::get_fpsdisplaysink_name() const
+{
+    return "fpsdisplaysink_sensor" + std::to_string(m_sensor_index) + "_" + m_name;
 }
 
 // /**
@@ -301,15 +316,15 @@ bool MediaLibraryEncoder::Impl::set_gst_callbacks(GstElementPtr &pipeline)
 {
     GstAppSinkCallbacks appsink_callbacks = {};
 
-    const gchar *gst_element_name = "fpsdisplaysink";
-    GstElementPtr fpssink = glib_cpp::ptrs::get_bin_by_name(pipeline, gst_element_name);
+    std::string fpsdisplaysink_name = get_fpsdisplaysink_name();
+    GstElementPtr fpssink = glib_cpp::ptrs::get_bin_by_name(pipeline, fpsdisplaysink_name.c_str());
     if (fpssink == nullptr)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Could not find gst element {}", gst_element_name);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Could not find gst element {}", fpsdisplaysink_name);
         return false;
     }
 
-    gst_element_name = "encoder_sink";
+    const gchar *gst_element_name = "encoder_sink";
     GstElementPtr appsink = glib_cpp::ptrs::get_bin_by_name(pipeline, gst_element_name);
     if (appsink == nullptr)
     {
@@ -409,9 +424,12 @@ GstFlowReturn MediaLibraryEncoder::Impl::add_buffer_internal(GstBufferPtr &buffe
 
 GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
 {
-    if (m_callbacks.empty())
     {
-        return GST_FLOW_OK;
+        std::shared_lock<std::shared_mutex> lock(m_callbacks_mutex);
+        if (m_callbacks.empty())
+        {
+            return GST_FLOW_OK;
+        }
     }
     GstSamplePtr sample;
     GstBufferPtr buffer;
@@ -478,9 +496,12 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
         return GST_FLOW_ERROR;
     }
 
-    for (auto &callback : m_callbacks)
     {
-        callback(buffer_ptr, used_size);
+        std::shared_lock<std::shared_mutex> lock(m_callbacks_mutex);
+        for (auto &callback : m_callbacks)
+        {
+            callback(buffer_ptr, used_size);
+        }
     }
 
     return GST_FLOW_OK;
@@ -489,6 +510,11 @@ GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
 media_library_return MediaLibraryEncoder::subscribe(AppWrapperCallback callback)
 {
     return m_impl->subscribe(callback);
+}
+
+media_library_return MediaLibraryEncoder::unsubscribe()
+{
+    return m_impl->unsubscribe();
 }
 
 media_library_return MediaLibraryEncoder::start()
@@ -581,7 +607,7 @@ bool MediaLibraryEncoder::Impl::init_pipeline(const encoder_config_t &config, co
     m_appsrc = glib_cpp::ptrs::element_to_app_src(appsrc);
     m_pipeline = std::move(pipeline);
 
-    config_blenders();
+    load_blenders();
     return true;
 }
 
@@ -602,13 +628,13 @@ media_library_return MediaLibraryEncoder::Impl::set_config(const std::string &js
 {
     LOGGER__MODULE__INFO(MODULE_NAME, "Configuring encoder using json config");
 
-    if (m_config_manager.validate_configuration(json_config_str) != MEDIA_LIBRARY_SUCCESS)
+    if (m_config_parser.validate_configuration(json_config_str) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Validation of encoder json config failed");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     encoder_config_t encoder_config{};
-    if (m_config_manager.config_string_to_struct<encoder_config_t>(json_config_str, encoder_config) !=
+    if (m_config_parser.config_string_to_struct<encoder_config_t>(json_config_str, encoder_config) !=
         MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to convert encoder JSON config to struct");
@@ -769,6 +795,16 @@ encoder_monitors MediaLibraryEncoder::Impl::get_encoder_monitors()
 encoder_monitors MediaLibraryEncoder::get_encoder_monitors()
 {
     return m_impl->get_encoder_monitors();
+}
+
+void MediaLibraryEncoder::Impl::set_sensor_index(size_t sensor_index)
+{
+    m_sensor_index = sensor_index;
+}
+
+void MediaLibraryEncoder::set_sensor_index(size_t sensor_index)
+{
+    m_impl->set_sensor_index(sensor_index);
 }
 
 InputParams MediaLibraryEncoder::Impl::extract_input_params(const encoder_config_t &cfg)

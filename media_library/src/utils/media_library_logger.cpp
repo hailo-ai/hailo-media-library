@@ -33,8 +33,9 @@
 
 #define MEDIALIB_NAME ("hailo_media_library")
 #define MEDIALIB_LOGGER_FILENAME ("medialib.log")
-#define MEDIALIB_MAX_NUMBER_OF_LOG_FILES (0) // Do not create more log files
-#define DEFAULT_FILE_LEVEL (spdlog::level::level_enum::info)
+// if rotation is enabled but set to 0, the rotation first fully remove current file before starting to use it again
+#define MEDIALIB_MAX_NUMBER_OF_LOG_FILES (1)
+#define DEFAULT_FILE_LEVEL (spdlog::level::level_enum::debug)
 #define DEFAULT_CONSOLE_LEVEL (spdlog::level::level_enum::err)
 
 #define MEDIALIB_LOGGER_PATTERN ("[%Y-%m-%d %X.%e] [%P] [%t] [hailo_media_library] [%n] [%^%l%$] [%s:%#] [%!] %v")
@@ -73,6 +74,8 @@ std::unordered_map<LoggerType, std::string> LoggerManager::logger_names = {
     {LoggerType::Hdr, "hdr"},
     {LoggerType::NamedPipe, "named_pipe"},
     {LoggerType::AnalyticsDB, "analytics_db"},
+    {LoggerType::GstFrontendBin, "gst_frontend_bin"},
+    {LoggerType::GstEncoderBin, "gst_encoder_bin"},
 };
 
 std::unordered_map<LoggerType, std::shared_ptr<spdlog::logger>> LoggerManager::loggers = {};
@@ -255,14 +258,29 @@ void media_lib_logger_setup()
     }
 }
 
+static bool has_null_shared_ptr(const std::vector<std::shared_ptr<spdlog::sinks::sink>> &vec)
+{
+    // std::any_of returns true if the predicate (the lambda) is true for any element
+    return std::any_of(vec.begin(), vec.end(), [](const std::shared_ptr<spdlog::sinks::sink> &ptr) {
+        return ptr == nullptr; // The predicate checks if the shared_ptr is null
+    });
+}
+
 std::shared_ptr<spdlog::logger> create_logger(std::string logger_str, spdlog::level::level_enum file_level,
                                               spdlog::level::level_enum console_level, const char *file_name,
                                               const std::string &pattern, bool rotate, std::size_t max_file_size)
 {
-    auto log_file_sink = create_file_sink(get_log_dir_path(), file_name, rotate, max_file_size, file_level);
-    auto console_sink = create_console_sink(console_level);
+    std::vector<std::shared_ptr<spdlog::sinks::sink>> sinks;
+    sinks.push_back(create_file_sink(get_log_dir_path(), file_name, rotate, max_file_size, file_level));
+    sinks.push_back(create_console_sink(console_level));
+    if (file_level < spdlog::level::info)
+    {
+        std::string file_name_for_reduced_sink = std::string("info-") + std::string(file_name);
+        sinks.push_back(create_file_sink(get_log_dir_path(), file_name_for_reduced_sink, rotate, max_file_size,
+                                         spdlog::level::info));
+    }
 
-    if ((nullptr == log_file_sink) || (nullptr == console_sink))
+    if (has_null_shared_ptr(sinks))
     {
         std::cerr << "Allocating memory on heap for logger sinks has failed! "
                      "Please check if this host has enough memory. Writing to "
@@ -272,8 +290,7 @@ std::shared_ptr<spdlog::logger> create_logger(std::string logger_str, spdlog::le
     }
 
     // create logger
-    spdlog::sinks_init_list logger_sinks = {log_file_sink, console_sink};
-    auto logger = make_shared_nothrow<spdlog::logger>(logger_str, logger_sinks.begin(), logger_sinks.end());
+    auto logger = make_shared_nothrow<spdlog::logger>(logger_str, sinks.begin(), sinks.end());
     if (nullptr == logger)
     {
         std::cerr << "Allocating memory on heap for MediaLib logger has "

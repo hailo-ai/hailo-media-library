@@ -20,15 +20,17 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+#include <fcntl.h>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
 #include <nlohmann/json.hpp>
-#include "config_manager.hpp"
+#include "config_parser.hpp"
 #include "encoder_class.hpp"
 #include "encoder_config.hpp"
 #include "encoder_internal.hpp"
+#include "files_utils.hpp"
 #include "media_library_logger.hpp"
 #include "encoder_config_presets.hpp"
 
@@ -62,9 +64,9 @@ media_library_return EncoderConfig::configure(const std::string &json_string)
     encoding_only_json["encoding"] = unified_json["encoding"];
     std::string encoding_only_string = encoding_only_json.dump();
 
-    m_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_ENCODER);
+    m_config_parser = std::make_shared<ConfigParser>(ConfigSchema::CONFIG_SCHEMA_ENCODER);
     media_library_return config_ret =
-        m_config_manager->config_string_to_struct<encoder_config_t>(encoding_only_string, m_config);
+        m_config_parser->config_string_to_struct<encoder_config_t>(encoding_only_string, m_config);
     if (config_ret != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "encoder's JSON config conversion failed: {}", strapped_json);
@@ -74,7 +76,7 @@ media_library_return EncoderConfig::configure(const std::string &json_string)
     nlohmann::json parsed_json = nlohmann::json::parse(encoding_only_string);
     std::string encoder_name;
 
-    type = ConfigManager::get_encoder_type(parsed_json);
+    type = ConfigParser::get_encoder_type(parsed_json);
     switch (type)
     {
     case EncoderType::Jpeg:
@@ -789,24 +791,26 @@ media_library_return Encoder::Impl::init_monitors_config()
 
     if (monitors_control.bitrate_monitor.output_result_to_file)
     {
-        m_bitrate_monitor.output_file =
-            std::ofstream(monitors_control.bitrate_monitor.result_output_path, std::ios::out | std::ios::trunc);
-        if (m_bitrate_monitor.output_file.bad())
+        int bitrate_monitor_output_fd = open(monitors_control.bitrate_monitor.result_output_path.c_str(),
+                                             O_CREAT | O_WRONLY | O_TRUNC | O_CLOEXEC, 0644);
+        if (bitrate_monitor_output_fd < 0)
         {
             LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder - Failed to open bitrate output file");
             ret = VCENC_SYSTEM_ERROR;
         }
+        m_bitrate_monitor.output_file = files_utils::make_shared_fd(bitrate_monitor_output_fd);
     }
 
     if (monitors_control.cycle_monitor.output_result_to_file)
     {
-        m_cycle_monitor.output_file =
-            std::ofstream(monitors_control.cycle_monitor.result_output_path, std::ios::out | std::ios::trunc);
-        if (m_cycle_monitor.output_file.bad())
+        int cycle_monitor_output_fd = open(monitors_control.cycle_monitor.result_output_path.c_str(),
+                                           O_CREAT | O_WRONLY | O_TRUNC | O_CLOEXEC, 0644);
+        if (cycle_monitor_output_fd < 0)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder - Failed to open cycle output file");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder - Failed to open bitrate output file");
             ret = VCENC_SYSTEM_ERROR;
         }
+        m_cycle_monitor.output_file = files_utils::make_shared_fd(cycle_monitor_output_fd);
     }
 
     if (ret != VCENC_OK)

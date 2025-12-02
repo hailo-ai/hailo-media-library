@@ -32,9 +32,12 @@
 
 #include "media_library/media_library_types.hpp"
 #include "common/gstmedialibcommon.hpp"
+#include "media_library_logger.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailoencodebin_debug_category);
 #define GST_CAT_DEFAULT gst_hailoencodebin_debug_category
+
+static constexpr LoggerType MODULE_NAME = LoggerType::GstEncoderBin;
 
 static void gst_hailoencodebin_set_property(GObject *object, guint property_id, const GValue *value, GParamSpec *pspec);
 static void gst_hailoencodebin_get_property(GObject *object, guint property_id, GValue *value, GParamSpec *pspec);
@@ -193,8 +196,11 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id, const G
         GST_DEBUG_OBJECT(hailoencodebin, "config_file_path: %s", hailoencodebin->params->config_file_path.c_str());
 
         nlohmann::json config_json = gst_hailoencodebin_get_encoder_json(g_value_get_string(value), true);
-        std::string config_json_str = config_json.dump();
 
+        static constexpr int INDENT = 4;
+        std::string config_json_str = config_json.dump(INDENT); // indentation for pretty print
+        LOGGER__MODULE__INFO(MODULE_NAME, "Encoder config to be applied in {}: {}",
+                             gst_element_get_name(hailoencodebin), config_json_str);
         // set params for sub elements here
         g_object_set(hailoencodebin->params->m_osd, "config-string", config_json_str.c_str(), NULL);
         if (hailoencodebin->params->m_encoder)
@@ -231,6 +237,8 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id, const G
         hailoencodebin->params->config_string = std::string(g_value_get_string(value));
         GST_DEBUG_OBJECT(hailoencodebin, "config-string: %s", hailoencodebin->params->config_string.c_str());
 
+        LOGGER__MODULE__INFO(MODULE_NAME, "Encoder config to be applied on {}: {}", glib_cpp::get_name(hailoencodebin),
+                             hailoencodebin->params->config_string);
         // set params for sub elements here
         g_object_set(hailoencodebin->params->m_osd, "config-string", g_value_get_string(value), NULL);
         if (hailoencodebin->params->m_encoder)

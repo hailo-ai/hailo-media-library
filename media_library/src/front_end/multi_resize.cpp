@@ -27,7 +27,7 @@
 #include "opencv2/imgproc.hpp"
 
 #include "buffer_pool.hpp"
-#include "config_manager.hpp"
+#include "config_parser.hpp"
 #include "dsp_utils.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_utils.hpp"
@@ -139,7 +139,7 @@ class MediaLibraryMultiResize::Impl final
     // frame counter - used internally for matching requested framerate
     uint m_frame_counter;
     // configuration manager
-    std::shared_ptr<ConfigManager> m_config_manager;
+    std::shared_ptr<ConfigParser> m_config_parser;
     // operation configurations
     multi_resize_config_t m_multi_resize_config;
     // callbacks
@@ -278,7 +278,7 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
     // Start frame count from 0 - to make sure we always handle the first frame even if framerate is set to 0
     m_frame_counter = 0;
     m_buffer_pools.reserve(MAX_NUM_OF_OUTPUTS);
-    m_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_MULTI_RESIZE);
+    m_config_parser = std::make_shared<ConfigParser>(ConfigSchema::CONFIG_SCHEMA_MULTI_RESIZE);
     m_multi_resize_config.application_input_streams_config.resolutions.reserve(MAX_NUM_OF_OUTPUTS);
     if (decode_config_json_string(m_multi_resize_config, config_string) != MEDIA_LIBRARY_SUCCESS)
     {
@@ -314,6 +314,11 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
 
 MediaLibraryMultiResize::Impl::~Impl()
 {
+    if (m_multi_resize_config.motion_detection_config.enabled)
+    {
+        m_motion_detection.deinit();
+    }
+
     m_multi_resize_config.application_input_streams_config.resolutions.clear();
     dsp_status status = dsp_utils::release_device();
     if (status != DSP_SUCCESS)
@@ -338,7 +343,7 @@ MediaLibraryMultiResize::Impl::~Impl()
 media_library_return MediaLibraryMultiResize::Impl::decode_config_json_string(multi_resize_config_t &mresize_config,
                                                                               std::string config_string)
 {
-    return m_config_manager->config_string_to_struct<multi_resize_config_t>(config_string, mresize_config);
+    return m_config_parser->config_string_to_struct<multi_resize_config_t>(config_string, mresize_config);
 }
 
 media_library_return MediaLibraryMultiResize::Impl::configure(std::string config_string)
@@ -446,9 +451,7 @@ media_library_return MediaLibraryMultiResize::Impl::configure(multi_resize_confi
     {
         m_timestamps.push_back({0, 0});
     }
-
     m_configured = true;
-
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -476,14 +479,13 @@ media_library_return MediaLibraryMultiResize::Impl::configure_internal(multi_res
 media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer_pools()
 {
     uint num_of_outputs = GET_NUM_OF_OUTPUTS(m_multi_resize_config);
-    bool first = false;
     m_max_buffer_pool_size = 0;
     if (m_buffer_pools.empty())
     {
         m_buffer_pools.reserve(num_of_outputs);
-        first = true;
     }
 
+    m_buffer_pools.resize(num_of_outputs, nullptr);
     for (uint i = 0; i < num_of_outputs; i++)
     {
         auto output_res_expected = m_multi_resize_config.get_output_resolution_by_index(i);
@@ -505,13 +507,12 @@ media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer
             output_res.pool_max_buffers = m_max_buffer_pool_size;
         }
 
-        if (!first && m_buffer_pools[i] != nullptr && width == m_buffer_pools[i]->get_width() &&
+        if (m_buffer_pools.size() > i && m_buffer_pools[i] != nullptr && width == m_buffer_pools[i]->get_width() &&
             height == m_buffer_pools[i]->get_height())
         {
             LOGGER__MODULE__DEBUG(MODULE_NAME, "Buffer pool already exists, skipping creation");
             continue;
         }
-
         auto bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width(width);
         LOGGER__MODULE__INFO(
             MODULE_NAME,
@@ -526,17 +527,10 @@ media_library_return MediaLibraryMultiResize::Impl::create_and_initialize_buffer
             LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init buffer pool");
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
-        if (first)
-        {
-            m_buffer_pools.emplace_back(buffer_pool);
-        }
-        else
-        {
-            m_buffer_pools[i] = buffer_pool;
-        }
+
+        m_buffer_pools[i] = buffer_pool;
     }
     LOGGER__MODULE__DEBUG(MODULE_NAME, "multi-resize holding {} buffer pools", m_buffer_pools.size());
-
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -616,7 +610,7 @@ bool MediaLibraryMultiResize::Impl::should_push_frame_timestamp_logic(uint32_t o
 
     if (timestamps[output_index].accumulated_diff >= expected_frame_latency)
     {
-        LOGGER__MODULE__DEBUG(
+        LOGGER__MODULE__TRACE(
             MODULE_NAME, "Should push frame (timestamp case), accumulated diff is {} and expected frame latency is {}",
             timestamps[output_index].accumulated_diff, expected_frame_latency);
         timestamps[output_index].accumulated_diff -= expected_frame_latency;
@@ -707,7 +701,6 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(
     HailoMediaLibraryBufferPtr input_buffer, std::vector<HailoMediaLibraryBufferPtr> &buffers)
 {
     uint8_t num_of_outputs = GET_NUM_OF_OUTPUTS(m_multi_resize_config);
-
     for (uint8_t i = 0; i < num_of_outputs; i++)
     {
         HailoMediaLibraryBufferPtr buffer = std::make_shared<hailo_media_library_buffer>();
@@ -719,7 +712,6 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(
         output_resolution_t &output_res = output_res_expected.value().get();
         bool should_acquire_buffer = should_push_frame_logic(output_res.framerate, i, input_buffer->isp_timestamp_ns);
 
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "Acquiring buffer {}, target framerate is {}", i, output_res.framerate);
         if (!should_acquire_buffer)
         {
             LOGGER__MODULE__DEBUG(MODULE_NAME,
@@ -729,6 +721,7 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(
             continue;
         }
 
+        LOGGER__MODULE__TRACE(MODULE_NAME, "Acquiring buffer {}, target framerate is {}", i, output_res.framerate);
         if (m_buffer_pools[i]->acquire_buffer(buffer) != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__MODULE__WARNING(MODULE_NAME, "Failed to acquire buffer, skipping buffer");
@@ -738,7 +731,7 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(
 
         buffer->copy_metadata_from(input_buffer);
         buffers.emplace_back(buffer);
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "buffer acquired successfully");
+        LOGGER__MODULE__TRACE(MODULE_NAME, "buffer acquired successfully");
     }
 
     return MEDIA_LIBRARY_SUCCESS;
@@ -1010,7 +1003,7 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
             return MEDIA_LIBRARY_ERROR;
         }
 
-        LOGGER__MODULE__DEBUG(
+        LOGGER__MODULE__TRACE(
             MODULE_NAME,
             "Multi resize output frame ({}) - y_ptr = {}, uv_ptr = {}. dims: width = {}, output frame height "
             "= {}, y plane fd = {}",
@@ -1084,12 +1077,6 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(
         }
     }
 
-    LOGGER__MODULE__DEBUG(
-        MODULE_NAME,
-        "Performing multi resize on the DSP with digital zoom ROI: start_x {} start_y {} end_x {} end_y "
-        "{} and post denoise filter",
-        input_roi->start_x, input_roi->start_y, input_roi->end_x, input_roi->end_y);
-
     // enable only if not already done in dewarp
     std::optional<dsp_flip_rotate_params_t> dsp_flip_rotate_params;
     if (m_do_flip_rotate)
@@ -1130,7 +1117,7 @@ void MediaLibraryMultiResize::Impl::stamp_time_and_log_fps(timespec &start_handl
     clock_gettime(CLOCK_MONOTONIC, &end_handle);
     long ms = (long)media_library_difftimespec_ms(end_handle, start_handle);
     uint framerate = 1000 / ms;
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "multi-resize handle_frame took {} milliseconds ({} fps)", ms, framerate);
+    LOGGER__MODULE__TRACE(MODULE_NAME, "multi-resize handle_frame took {} milliseconds ({} fps)", ms, framerate);
 }
 
 void MediaLibraryMultiResize::Impl::increase_frame_counter()
@@ -1219,7 +1206,8 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(HailoMediaLibra
 
     for (size_t i = 0; i < output_frames.size(); i++)
     {
-        // In cases where we have multiple fps outputs, the frame might be null if the buffer was shouldn't be pushed
+        // In cases where we have multiple fps outputs, the frame might be null if the buffer was shouldn't be
+        // pushed
         if (output_frames[i]->buffer_data == nullptr)
         {
             LOGGER__MODULE__TRACE(MODULE_NAME, "Output frame at index {} is empty, skipping snapshot", i);

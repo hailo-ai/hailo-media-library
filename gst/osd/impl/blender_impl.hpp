@@ -22,7 +22,7 @@
  */
 
 #pragma once
-#include "media_library/config_manager.hpp"
+#include "media_library/config_parser.hpp"
 #include "media_library/media_library_logger.hpp"
 #include "media_library/media_library_types.hpp"
 #include "overlay_impl.hpp"
@@ -101,7 +101,7 @@ class Blender::Impl final
     std::shared_mutex m_mutex;
 
     nlohmann::json m_config;
-    std::shared_ptr<ConfigManager> m_config_manager;
+    std::shared_ptr<ConfigParser> m_config_parser;
 
     int m_frame_width;
     int m_frame_height;

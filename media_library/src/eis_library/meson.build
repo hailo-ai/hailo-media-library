@@ -1,21 +1,19 @@
-eis_incdir = [include_directories('./')]
+medialib_include_dirs += [include_directories('.')]
+eis_incdir = [include_directories('.')]
 
-eis_sources = [
+eis_sources = files(
   'eis.cpp',
   'iir_filter.cpp',
-]
-
-eis_lib = shared_library('eis_library',
-    eis_sources,
-    cpp_args: common_args,
-    include_directories: [eis_incdir, incdir, utils_incdir],
-    dependencies : [opencv_dep, json_dep, spdlog_dep, media_library_common_dep],
-    version: meson.project_version(),
-    install: true,
-    install_dir: get_option('libdir'),
+  'gyro_device.cpp',
+  'arguments_parser.cpp',
 )
 
-eis_lib_dep = declare_dependency(
-  include_directories: [include_directories('.')],
-  dependencies : [],
-  link_with : eis_lib)
+libeis = static_library('eis_internal',
+    eis_sources,
+    cpp_args: common_args,
+    include_directories: medialib_include_dirs,
+    dependencies: medialib_dependencies,
+    pic: true,
+)
+
+medialib_components += [libeis]

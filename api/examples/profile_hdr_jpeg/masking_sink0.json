@@ -1,7 +1,0 @@
-{
-    "masking": {
-        "mask_type": "COLOR",
-        "pixelization_size": 60,
-        "color_value": [0, 0, 0]
-    }
-}

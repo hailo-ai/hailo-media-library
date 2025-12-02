@@ -1,0 +1,175 @@
+{
+    "version": "1.1.0",
+    "metadata": {
+        "architecture": "hailo15h",
+        "content_hash": "b6b48c215856f4fb1c0492e1cbf423e03b7dc4d089e9dbde0774189d9b41a82b",
+        "description": "",
+        "generation_timestamp": "2025-11-24T12:11:03.807387+00:00"
+    },
+    "encoding": {
+        "hailo_encoder": {
+            "coding_control": {
+                "deblocking_filter": {
+                    "beta_offset": 5,
+                    "deblock_override": false,
+                    "tc_offset": -2,
+                    "type": "DEBLOCKING_FILTER_ENABLED"
+                },
+                "intra_area": {
+                    "bottom": 0,
+                    "enable": false,
+                    "left": 0,
+                    "right": 0,
+                    "top": 0
+                },
+                "ipcm_area1": {
+                    "bottom": 0,
+                    "enable": false,
+                    "left": 0,
+                    "right": 0,
+                    "top": 0
+                },
+                "ipcm_area2": {
+                    "bottom": 0,
+                    "enable": false,
+                    "left": 0,
+                    "right": 0,
+                    "top": 0
+                },
+                "roi_area1": {
+                    "bottom": 0,
+                    "enable": false,
+                    "left": 0,
+                    "qp_delta": 0,
+                    "right": 0,
+                    "top": 0
+                },
+                "roi_area2": {
+                    "bottom": 0,
+                    "enable": false,
+                    "left": 0,
+                    "qp_delta": 0,
+                    "right": 0,
+                    "top": 0
+                },
+                "sei_messages": true
+            },
+            "config": {
+                "output_stream": {
+                    "codec": "CODEC_TYPE_H264"
+                }
+            },
+            "gop_config": {
+                "b_frame_qp_delta": 0,
+                "gop_size": 2
+            },
+            "monitors_control": {
+                "bitrate_monitor": {
+                    "enable": true,
+                    "output_result_to_file": false,
+                    "period": 3,
+                    "result_output_path": "bitrate.txt"
+                },
+                "cycle_monitor": {
+                    "deviation_threshold": 5,
+                    "enable": true,
+                    "output_result_to_file": false,
+                    "result_output_path": "cycle.txt",
+                    "start_delay": 0
+                }
+            },
+            "rate_control": {
+                "bitrate": {
+                    "target_bitrate": 16000000
+                },
+                "gop_anomaly_bitrate_adjuster": {
+                    "enable": false
+                },
+                "intra_pic_rate": 60,
+                "padding": false,
+                "picture_rc": true,
+                "picture_skip": false,
+                "qp_smooth_settings": {
+                    "alpha": 0,
+                    "q_step_divisor": 2,
+                    "qp_delta": 128,
+                    "qp_delta_limit": 1536,
+                    "qp_delta_limit_step": 384,
+                    "qp_delta_step": 128
+                },
+                "quantization": {
+                    "qp_hdr": -1
+                },
+                "rc_mode": "VBR",
+                "zoom_bitrate_adjuster": {
+                    "mode": "DISABLED"
+                }
+            }
+        },
+        "input_stream": {
+            "format": "NV12",
+            "framerate": 30,
+            "height": 2160,
+            "width": 3840
+        }
+    },
+    "osd": {
+        "dateTime": [
+            {
+                "angle": 0,
+                "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
+                "font_size": 100,
+                "id": "example_datetime",
+                "rotation_policy": "CENTER",
+                "text_color": [255, 0, 0],
+                "x": 0.1,
+                "y": 0.7,
+                "z-index": 3
+            }
+        ],
+        "image": [
+            {
+                "angle": 0,
+                "height": 0.13,
+                "id": "example_image",
+                "image_path": "/home/root/apps/webserver/resources/configs/osd_hailo_static_image.png",
+                "rotation_policy": "CENTER",
+                "width": 0.2,
+                "x": 0.76,
+                "y": 0.3,
+                "z-index": 1
+            }
+        ],
+        "text": [
+            {
+                "angle": 0,
+                "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
+                "font_size": 100,
+                "id": "example_text1",
+                "label": "HailoAI",
+                "rotation_policy": "CENTER",
+                "text_color": [255, 255, 255],
+                "x": 0.7,
+                "y": 0.05,
+                "z-index": 2
+            },
+            {
+                "angle": 0,
+                "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
+                "font_size": 100,
+                "id": "example_text2",
+                "label": "camera name",
+                "rotation_policy": "CENTER",
+                "text_color": [102, 0, 51],
+                "x": 0.05,
+                "y": 0.1,
+                "z-index": 1
+            }
+        ]
+    },
+    "privacy_mask": {
+        "color_value": [0, 0, 0],
+        "mask_type": "COLOR",
+        "pixelization_size": 60
+    }
+}

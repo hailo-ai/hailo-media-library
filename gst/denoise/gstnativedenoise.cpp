@@ -23,7 +23,7 @@
 #include "gstnativedenoise.hpp"
 #include "common/gstmedialibcommon.hpp"
 #include "gstmedialibptrs.hpp"
-#include "media_library/config_manager.hpp"
+#include "media_library/config_parser.hpp"
 #include "media_library/snapshot.hpp"
 #include "hailo_media_library_perfetto.hpp"
 #include "buffer_utils/buffer_utils.hpp"
@@ -118,7 +118,7 @@ static void gst_hailo_denoise_init(GstHailoDenoise *denoise)
 {
     GST_DEBUG_OBJECT(denoise, "init");
     denoise->params = new GstHailoDenoiseParams();
-    denoise->params->m_config_manager = std::make_unique<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_FRONTEND);
+    denoise->params->m_config_parser = std::make_unique<ConfigParser>(ConfigSchema::CONFIG_SCHEMA_FRONTEND);
 
     denoise->params->sinkpad = gst_pad_new_from_static_template(&sink_template, "sink");
     denoise->params->srcpad = gst_pad_new_from_static_template(&src_template, "src");
@@ -145,7 +145,7 @@ static void gst_hailo_denoise_set_property(GObject *object, guint property_id, c
         std::string config_string = gstmedialibcommon::read_json_string_from_file(self->params->config_file_path);
 
         auto frontend_config = std::make_unique<frontend_config_t>();
-        if (self->params->m_config_manager->config_string_to_struct(config_string, *frontend_config) !=
+        if (self->params->m_config_parser->config_string_to_struct(config_string, *frontend_config) !=
             MEDIA_LIBRARY_SUCCESS)
         {
             GST_ERROR_OBJECT(self, "Failed to load config from file %s", self->params->config_file_path.c_str());
@@ -159,11 +159,21 @@ static void gst_hailo_denoise_set_property(GObject *object, guint property_id, c
         }
         else
         {
-            media_library_return config_status = self->params->medialib_denoise->configure(
-                self->params->m_frontend_config->denoise_config, self->params->m_frontend_config->hailort_config,
-                self->params->m_frontend_config->input_config);
-            if (config_status != MEDIA_LIBRARY_SUCCESS)
-                GST_ERROR_OBJECT(self, "configuration error: %d", config_status);
+            // Only configure Post-ISP denoise if Pre-ISP denoise is not active
+            if (!self->params->m_frontend_config->denoise_config.bayer)
+            {
+                GST_DEBUG_OBJECT(self, "Configure Post-ISP Denoise with config struct (Pre-ISP disabled)");
+                media_library_return config_status = self->params->medialib_denoise->configure(
+                    self->params->m_frontend_config->denoise_config, self->params->m_frontend_config->hailort_config,
+                    self->params->m_frontend_config->input_config);
+                if (config_status != MEDIA_LIBRARY_SUCCESS)
+                    GST_ERROR_OBJECT(self, "configuration error: %d", config_status);
+            }
+            else
+            {
+                GST_DEBUG_OBJECT(self,
+                                 "Pre-ISP denoise is active (bayer=true), skipping Post-ISP denoise configuration");
+            }
         }
         break;
     }
@@ -173,7 +183,7 @@ static void gst_hailo_denoise_set_property(GObject *object, guint property_id, c
         gstmedialibcommon::strip_string_syntax(self->params->config_string);
 
         auto frontend_config = std::make_unique<frontend_config_t>();
-        if (self->params->m_config_manager->config_string_to_struct(self->params->config_string, *frontend_config) !=
+        if (self->params->m_config_parser->config_string_to_struct(self->params->config_string, *frontend_config) !=
             MEDIA_LIBRARY_SUCCESS)
         {
             GST_ERROR_OBJECT(self, "Failed to load config from file %s", self->params->config_file_path.c_str());
@@ -187,27 +197,49 @@ static void gst_hailo_denoise_set_property(GObject *object, guint property_id, c
         }
         else
         {
-            media_library_return config_status = self->params->medialib_denoise->configure(
-                self->params->m_frontend_config->denoise_config, self->params->m_frontend_config->hailort_config,
-                self->params->m_frontend_config->input_config);
-            if (config_status != MEDIA_LIBRARY_SUCCESS)
-                GST_ERROR_OBJECT(self, "configuration error: %d", config_status);
+            // Only configure Post-ISP denoise if Pre-ISP denoise is not active
+            if (!self->params->m_frontend_config->denoise_config.bayer)
+            {
+                GST_DEBUG_OBJECT(self, "Configure Post-ISP Denoise with config struct (Pre-ISP disabled)");
+                media_library_return config_status = self->params->medialib_denoise->configure(
+                    self->params->m_frontend_config->denoise_config, self->params->m_frontend_config->hailort_config,
+                    self->params->m_frontend_config->input_config);
+                if (config_status != MEDIA_LIBRARY_SUCCESS)
+                    GST_ERROR_OBJECT(self, "configuration error: %d", config_status);
+            }
+            else
+            {
+                GST_DEBUG_OBJECT(self,
+                                 "Pre-ISP denoise is active (bayer=true), skipping Post-ISP denoise configuration");
+            }
         }
         break;
     }
     case PROP_CONFIG: {
         frontend_config_t *frontend_config = static_cast<frontend_config_t *>(g_value_get_pointer(value));
         self->params->m_frontend_config = std::make_unique<frontend_config_t>(*frontend_config);
-        if (self->params->medialib_denoise == nullptr)
-        {
-            gst_hailo_denoise_create(self, *frontend_config);
-        }
 
-        if (self->params->medialib_denoise->configure(frontend_config->denoise_config, frontend_config->hailort_config,
-                                                      frontend_config->input_config) != MEDIA_LIBRARY_SUCCESS)
+        // Only configure Post-ISP denoise if Pre-ISP denoise is not active (bayer=false)
+        if (!frontend_config->denoise_config.bayer)
         {
-            GST_ERROR_OBJECT(self, "Failed to configure dewarp with denoise_config_t object");
-            return;
+            if (self->params->medialib_denoise == nullptr)
+            {
+                gst_hailo_denoise_create(self, *frontend_config);
+            }
+            else
+            {
+                GST_DEBUG_OBJECT(self, "Configure Post-ISP Denoise with config struct (Pre-ISP disabled)");
+                if (self->params->medialib_denoise->configure(frontend_config->denoise_config,
+                                                              frontend_config->hailort_config,
+                                                              frontend_config->input_config) != MEDIA_LIBRARY_SUCCESS)
+                {
+                    GST_ERROR_OBJECT(self, "Failed to configure Post-ISP denoise with denoise_config_t object");
+                }
+            }
+        }
+        else
+        {
+            GST_DEBUG_OBJECT(self, "Pre-ISP denoise is active (bayer=true), skipping Post-ISP denoise configuration");
         }
         break;
     }
@@ -245,15 +277,23 @@ static void gst_hailo_denoise_get_property(GObject *object, guint property_id, G
 static gboolean gst_hailo_denoise_create(GstHailoDenoise *self, const frontend_config_t &frontend_config)
 // gst_hailo_denoise_create(GstHailoDenoise *self)
 {
-    auto medialb_denoise = std::make_shared<MediaLibraryPostIspDenoise>();
-    if (medialb_denoise->configure(frontend_config.denoise_config, frontend_config.hailort_config,
-                                   frontend_config.input_config) != MEDIA_LIBRARY_SUCCESS)
+    // Only create Post-ISP denoise if Pre-ISP is not active (bayer=false)
+    if (frontend_config.denoise_config.bayer)
     {
-        GST_ERROR_OBJECT(self, "Failed to config denoise");
+        GST_DEBUG_OBJECT(self, "Pre-ISP denoise is active (bayer=true), not creating Post-ISP denoise instance");
+        return TRUE; // Return success but don't create the instance
+    }
+
+    GST_DEBUG_OBJECT(self, "Configure Post-ISP Denoise with config struct (Pre-ISP disabled)");
+    auto medialib_denoise = std::make_shared<MediaLibraryPostIspDenoise>();
+    if (medialib_denoise->configure(frontend_config.denoise_config, frontend_config.hailort_config,
+                                    frontend_config.input_config) != MEDIA_LIBRARY_SUCCESS)
+    {
+        GST_ERROR_OBJECT(self, "Failed to config Post-ISP denoise");
         return FALSE;
     }
 
-    self->params->medialib_denoise = medialb_denoise;
+    self->params->medialib_denoise = medialib_denoise;
     // set event callbacks
     MediaLibraryDenoise::callbacks_t callbacks;
     callbacks.on_buffer_ready = [self](HailoMediaLibraryBufferPtr out_buf) {
@@ -383,11 +423,8 @@ static GstFlowReturn gst_hailo_denoise_chain(GstPad *pad, GstObject *parent, Gst
     }
     gst_video_info_free(video_info);
 
-    HailoMediaLibraryBufferPtr output_frame_ptr = std::make_shared<hailo_media_library_buffer>();
-
     GST_DEBUG_OBJECT(self, "Call media library handle frame - GstBuffer offset %ld", GST_BUFFER_OFFSET(buffer));
-    media_library_return media_lib_ret =
-        self->params->medialib_denoise->handle_frame(input_frame_ptr, output_frame_ptr);
+    media_library_return media_lib_ret = self->params->medialib_denoise->handle_frame(input_frame_ptr);
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
     {
         if (media_lib_ret == MEDIA_LIBRARY_UNINITIALIZED)
@@ -399,12 +436,6 @@ static GstFlowReturn gst_hailo_denoise_chain(GstPad *pad, GstObject *parent, Gst
 
         GST_ERROR_OBJECT(self, "Media library handle frame failed on error %d", media_lib_ret);
         return GST_FLOW_ERROR;
-    }
-    if (output_frame_ptr->buffer_data == nullptr)
-    {
-        GST_DEBUG_OBJECT(self, "Post ISP Denoise disabled, pushing buffer to srcpad");
-        gst_hailo_denoise_push_output_frame(self, input_frame_ptr, buffer);
-        return GST_FLOW_OK;
     }
 
     GST_DEBUG_OBJECT(self, "Handle frame done");

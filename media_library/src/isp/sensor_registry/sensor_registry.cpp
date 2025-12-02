@@ -83,6 +83,25 @@ std::optional<SensorType> SensorRegistry::detect_sensor_type(size_t sensor_index
     return std::nullopt;
 }
 
+std::optional<std::string> SensorRegistry::detect_sensor_type_str(size_t sensor_index) const
+{
+    auto sensor_type = detect_sensor_type(sensor_index);
+    if (!sensor_type)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to detect sensor type string for index {}", sensor_index);
+        return std::nullopt;
+    }
+    auto sensor_capabilities = get_sensor_capabilities(sensor_type.value());
+    if (!sensor_capabilities)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get sensor capabilities for index {}", sensor_index);
+        return std::nullopt;
+    }
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Detected sensor type string: {} for index {}", sensor_capabilities->sensor_name,
+                          sensor_index);
+    return sensor_capabilities.value().sensor_name;
+}
+
 std::optional<std::pair<int, std::string>> SensorRegistry::get_i2c_bus_and_address(size_t sensor_index)
 {
     auto device_info = get_sensor_device_info(sensor_index);

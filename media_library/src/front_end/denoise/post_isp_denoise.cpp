@@ -25,7 +25,7 @@
 #include "hailort_denoise.hpp"
 #include "denoise_common.hpp"
 #include "buffer_pool.hpp"
-#include "config_manager.hpp"
+#include "config_parser.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
 #include "media_library_utils.hpp"
@@ -67,7 +67,7 @@ static int round_up_to_multiple(int num_to_round, int multiple)
 MediaLibraryPostIspDenoise::MediaLibraryPostIspDenoise() : MediaLibraryDenoise()
 {
     m_hailort_denoise = std::make_unique<HailortAsyncDenoisePostISP>(
-        [this](HailoMediaLibraryBufferPtr output_buffer) { inference_callback(output_buffer); });
+        [this](NetworkInferenceBindingsPtr bindings) { inference_callback(bindings); });
 }
 
 MediaLibraryPostIspDenoise::~MediaLibraryPostIspDenoise()
@@ -132,7 +132,7 @@ media_library_return MediaLibraryPostIspDenoise::create_and_initialize_buffer_po
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryPostIspDenoise::close_buffer_pools()
+media_library_return MediaLibraryPostIspDenoise::free_buffer_pools()
 {
     if (m_output_buffer_pool->wait_for_used_buffers() != MEDIA_LIBRARY_SUCCESS)
     {
@@ -147,17 +147,15 @@ media_library_return MediaLibraryPostIspDenoise::close_buffer_pools()
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-bool MediaLibraryPostIspDenoise::process_inference(HailoMediaLibraryBufferPtr input_buffer,
-                                                   HailoMediaLibraryBufferPtr loopback_buffer,
-                                                   HailoMediaLibraryBufferPtr output_buffer)
+bool MediaLibraryPostIspDenoise::process_inference(NetworkInferenceBindingsPtr bindings)
 {
-    return static_cast<HailortAsyncDenoisePostISP *>(m_hailort_denoise.get())
-        ->process(input_buffer, loopback_buffer, output_buffer);
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Processing Post-ISP denoise inference");
+    return m_hailort_denoise->process(std::move(bindings));
 }
 
-media_library_return MediaLibraryPostIspDenoise::acquire_output_buffer(HailoMediaLibraryBufferPtr output_buffer)
+media_library_return MediaLibraryPostIspDenoise::acquire_output_buffer(NetworkInferenceBindingsPtr bindings)
 {
-    return m_output_buffer_pool->acquire_buffer(output_buffer);
+    return m_output_buffer_pool->acquire_buffer(get_output_buffer(bindings, get_denoised_output_index()));
 }
 
 void MediaLibraryPostIspDenoise::copy_meta(HailoMediaLibraryBufferPtr input_buffer,
@@ -166,7 +164,7 @@ void MediaLibraryPostIspDenoise::copy_meta(HailoMediaLibraryBufferPtr input_buff
     output_buffer->copy_metadata_from(input_buffer);
 }
 
-media_library_return MediaLibraryPostIspDenoise::generate_startup_buffer()
+media_library_return MediaLibraryPostIspDenoise::acquire_input_buffer(NetworkInferenceBindingsPtr /*bindings*/)
 {
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }

@@ -23,7 +23,7 @@
 
 #include "dewarp.hpp"
 #include "buffer_pool.hpp"
-#include "config_manager.hpp"
+#include "config_parser.hpp"
 #include "dsp_utils.hpp"
 #include "ldc_mesh_context.hpp"
 #include "logger_macros.hpp"
@@ -143,7 +143,7 @@ class MediaLibraryDewarp::Impl final
     // frame counter - used internally for matching requested framerate
     uint m_frame_counter;
     // configuration manager
-    std::shared_ptr<ConfigManager> m_config_manager;
+    std::shared_ptr<ConfigParser> m_config_parser;
     // operation configurations
     ldc_config_t m_ldc_configs;
     // last vsm
@@ -261,7 +261,7 @@ MediaLibraryDewarp::Impl::Impl(media_library_return &status, std::string config_
 
     // Start frame count from 0 - to make sure we always handle the first frame even if framerate is set to 0
     m_frame_counter = 0;
-    m_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_LDC);
+    m_config_parser = std::make_shared<ConfigParser>(ConfigSchema::CONFIG_SCHEMA_LDC);
     if (decode_config_json_string(m_ldc_configs, config_string) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to decode json string");
@@ -301,7 +301,7 @@ MediaLibraryDewarp::Impl::~Impl()
 media_library_return MediaLibraryDewarp::Impl::decode_config_json_string(ldc_config_t &ldc_configs,
                                                                          std::string config_string)
 {
-    return m_config_manager->config_string_to_struct<ldc_config_t>(config_string, ldc_configs);
+    return m_config_parser->config_string_to_struct<ldc_config_t>(config_string, ldc_configs);
 }
 
 media_library_return MediaLibraryDewarp::Impl::configure(std::string config_string)
@@ -588,7 +588,7 @@ void MediaLibraryDewarp::Impl::stamp_time_and_log_fps(timespec &start_handle, ti
     clock_gettime(CLOCK_MONOTONIC, &end_handle);
     long ms = (long)media_library_difftimespec_ms(end_handle, start_handle);
     uint framerate = 1000 / ms;
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "dewarp handle_frame took {} milliseconds ({} fps)", ms, framerate);
+    LOGGER__MODULE__TRACE(MODULE_NAME, "dewarp handle_frame took {} milliseconds ({} fps)", ms, framerate);
 }
 
 void MediaLibraryDewarp::Impl::increase_frame_counter()
@@ -635,9 +635,9 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBuf
            input_frame->isp_ae_fps == HAILO_ISP_AE_FPS_DEFAULT_VALUE)) ||
         (input_frame->isp_ae_average_luma < m_ldc_configs.dis_config.average_luminance_threshold))
     {
-        LOGGER__MODULE__INFO(MODULE_NAME,
-                             "Resetting VSM  - reason could be ae converged {} ae fps {} or ae luminance {}",
-                             input_frame->isp_ae_converged, input_frame->isp_ae_fps, input_frame->isp_ae_average_luma);
+        LOGGER__MODULE__DEBUG(MODULE_NAME,
+                              "Resetting VSM  - reason could be ae converged {} ae fps {} or ae luminance {}",
+                              input_frame->isp_ae_converged, input_frame->isp_ae_fps, input_frame->isp_ae_average_luma);
         input_frame->vsm.dx = HAILO_VSM_DEFAULT_VALUE;
         input_frame->vsm.dy = HAILO_VSM_DEFAULT_VALUE;
     }

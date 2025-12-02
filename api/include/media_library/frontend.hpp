@@ -43,6 +43,7 @@ struct frontend_output_stream_t
     uint32_t height;
     uint32_t target_fps;
     float current_fps;
+    std::string srcpad_name;
 };
 
 /*!
@@ -153,6 +154,42 @@ class MediaLibraryFrontend
     media_library_return subscribe(FrontendCallbacksMap callbacks);
 
     /**
+     * @brief Get all subscriber IDs currently registered with the MediaLibraryFrontend module
+     *
+     * This function retrieves a list of all subscriber IDs that are currently registered
+     * to receive output buffers from the MediaLibraryFrontend module.
+     *
+     * @return tl::expected<std::vector<std::string>, media_library_return> -
+     * An expected object that holds either a vector of subscriber ID strings,
+     * or an error code indicating the reason for failure.
+     */
+    tl::expected<std::vector<std::string>, media_library_return> get_all_subscribers_ids();
+
+    /**
+     * @brief Unsubscribe all currently registered subscribers from the MediaLibraryFrontend module
+     *
+     * This function removes all active subscriptions, effectively stopping all callback
+     * functions from receiving output buffers. After calling this function, no callbacks
+     * will be invoked until new subscriptions are made.
+     *
+     * @return media_library_return - status of the unsubscribe all operation
+     */
+    media_library_return unsubscribe_all();
+
+    /**
+     * @brief Unsubscribe a specific subscriber from the MediaLibraryFrontend module
+     *
+     * This function removes the subscription for a specific subscriber ID, stopping
+     * the associated callback function from receiving output buffers. Other active
+     * subscriptions remain unaffected.
+     *
+     * @param[in] id - the subscriber ID to unsubscribe. This should match an ID
+     * that was previously registered through the subscribe function.
+     * @return media_library_return - status of the unsubscribe operation
+     */
+    media_library_return unsubscribe(const std::string &id);
+
+    /**
      * @brief Add a buffer to the MediaLibraryFrontend module, to be processed.
      * The add_buffer function receives raw video frame and applies
      * Dewarping and MultiResize on the raw frames.
@@ -198,4 +235,15 @@ class MediaLibraryFrontend
      *
      */
     media_library_return set_freeze(bool freeze);
+
+    /**
+     * @brief Wait for the pipeline to reach PLAYING state
+     *
+     * This function waits for the frontend pipeline to transition to the PLAYING state
+     * within the specified timeout period.
+     *
+     * @param timeout - the maximum time to wait for the pipeline to reach PLAYING state
+     * @return bool - true if the pipeline reached PLAYING state within the timeout, false otherwise
+     */
+    bool wait_for_pipeline_playing(std::chrono::milliseconds timeout);
 };

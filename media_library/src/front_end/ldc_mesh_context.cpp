@@ -150,7 +150,7 @@ media_library_return LdcMeshContext::read_vsm_config()
     std::string vsm_string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 
     // convert string to struct
-    return m_config_manager->config_string_to_struct<vsm_config_t>(vsm_string, m_vsm_config);
+    return m_config_parser->config_string_to_struct<vsm_config_t>(vsm_string, m_vsm_config);
 }
 
 tl::expected<dis_calibration_t, media_library_return> LdcMeshContext::read_calibration_file(const char *name)
@@ -342,7 +342,7 @@ media_library_return LdcMeshContext::initialize_dis_context()
     float camera_fov_factor = m_ldc_configs.dis_config.camera_fov_factor;
 
     // Read the sensor calibration and dewarp configuration files
-    m_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_VSM);
+    m_config_parser = std::make_shared<ConfigParser>(ConfigSchema::CONFIG_SCHEMA_VSM);
     std::vector<char> calib_file;
     status = read_vsm_config();
     if (status != MEDIA_LIBRARY_SUCCESS)

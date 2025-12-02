@@ -78,7 +78,7 @@ class VideoDevice
     unsigned int m_num_buffers;
     std::vector<VideoBuffer *> m_buffers;
     v4l2_buf_type m_format_type;
-    unsigned int m_used_buffers_count;
+    std::atomic<unsigned int> m_used_buffers_count;
     std::string m_name;
     std::string m_buffers_counter_name;
     std::string m_queue_event_name;

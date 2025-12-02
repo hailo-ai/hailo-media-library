@@ -48,9 +48,10 @@ namespace isp_utils
 enum isp_mcm_mode
 {
     ISP_MCM_MODE_OFF = 0,
-    ISP_MCM_MODE_STITCHING = 1, // default mode for MCM
-    ISP_MCM_MODE_INJECTION = 2, // read raw and write back to MCM, 16 bit
-    ISP_MCM_MODE_PACKED = 3,    // read raw and write back to MCM, 12 bit
+    ISP_MCM_MODE_STITCHING = 1,    // default mode for MCM
+    ISP_MCM_MODE_INJECTION = 2,    // read raw and write back to MCM, 16 bit
+    ISP_MCM_MODE_PACKED = 3,       // read raw and write back to MCM, 12 bit
+    ISP_MCM_MODE_MULTI_SENSOR = 4, // read raw from multiple sensors and write back to MCM, 12 bit
     ISP_MCM_MODE_MAX
 };
 

@@ -366,7 +366,9 @@ static GstPad *gst_hailofrontend_request_new_pad(GstElement *element, GstPadTemp
     GST_DEBUG_OBJECT(self, "Frontend requested multi_resize_srcpad: %s", multi_resize_srcpad_name);
 
     // Create a new ghost pad and target GstHailoMultiResize source pad
-    srcpad = gst_ghost_pad_new_no_target(NULL, GST_PAD_SRC);
+    gchar *ghostpad_name = g_strdup_printf("frontend_ghostpad_%s", multi_resize_srcpad_name);
+    srcpad = gst_ghost_pad_new_no_target(ghostpad_name, GST_PAD_SRC);
+    g_free(ghostpad_name);
     const char *srcpad_name = glib_cpp::ptrs::get_pad_name(srcpad);
     gboolean link_status = gst_ghost_pad_set_target(GST_GHOST_PAD(srcpad.get()), multi_resize_srcpad.get());
     GST_DEBUG_OBJECT(self, "Frontend setting %s to target %s", srcpad_name, multi_resize_srcpad_name);
@@ -386,19 +388,13 @@ static void gst_hailofrontend_release_pad(GstElement *element, GstPad *pad)
 {
     GstHailoFrontend *self = GST_HAILO_FRONTEND(element);
     GST_DEBUG_OBJECT(self, "Release pad: %s", glib_cpp::get_name(pad).c_str());
-
-    GST_OBJECT_LOCK(self);
-
     // Find the corresponding source pad in GstHailoMultiResize
     GstPadPtr multi_resize_srcpad = gst_ghost_pad_get_target(GST_GHOST_PAD(pad));
-
     // Release the source pad in GstHailoMultiResize
     gst_element_release_request_pad(self->params->m_multi_resize, multi_resize_srcpad);
-
     // Remove the ghost pad from GstHailoFrontend
+    // Note: gst_element_remove_pad handles locking internally
     gst_element_remove_pad(element, pad);
-
-    GST_OBJECT_UNLOCK(self);
 }
 
 static gboolean gst_hailofrontend_link_elements(GstElement *element)

@@ -27,7 +27,7 @@
 #include <variant>
 
 // Open source includes
-#include "config_manager.hpp"
+#include "config_parser.hpp"
 #include "encoder_config_types.hpp"
 #include <nlohmann/json-schema.hpp>
 #include <nlohmann/json.hpp>
@@ -36,7 +36,7 @@ class EncoderConfig
 {
   private:
     EncoderType type;
-    std::shared_ptr<ConfigManager> m_config_manager;
+    std::shared_ptr<ConfigParser> m_config_parser;
     std::string m_json_string;
     nlohmann::json m_doc;
     encoder_config_t m_config;

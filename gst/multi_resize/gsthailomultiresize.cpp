@@ -504,25 +504,22 @@ static gboolean intersect_peer_srcpad_caps(GstHailoMultiResize *self, GstPad *si
 
     return ret;
 }
-
 static gboolean gst_hailo_handle_caps_query(GstHailoMultiResize *self, GstPad *pad, GstQuery *query)
 {
     // get pad name and direction
     GstPadDirection pad_direction = gst_pad_get_direction(pad);
-
     auto pad_name = glib_cpp::get_name(pad);
     GST_DEBUG_OBJECT(pad, "Received caps query from sinkpad name %s direction %d", pad_name.c_str(), pad_direction);
     GstCapsPtr caps_result, allowed_caps, qcaps;
     /* we should report the supported caps here which are all */
     allowed_caps = gst_pad_get_pad_template_caps(pad);
-
     qcaps = glib_cpp::ptrs::parse_query_caps(query);
-
     if (qcaps && allowed_caps && !gst_caps_is_any(allowed_caps))
     {
         GST_DEBUG_OBJECT(pad, "qcaps %" GST_PTR_FORMAT, qcaps.get());
         // caps query - intersect template caps (allowed caps) with incomming caps query
         caps_result = gst_caps_intersect(allowed_caps, qcaps);
+        GST_DEBUG_OBJECT(pad, "Caps intersection completed");
     }
     else
     {
@@ -538,6 +535,7 @@ static gboolean gst_hailo_handle_caps_query(GstHailoMultiResize *self, GstPad *p
     }
     application_input_streams_config_t output_config =
         self->params->medialib_multi_resize->get_application_input_streams_config();
+
     for (guint i = 0; i < self->params->srcpads.size(); i++)
     {
         if (!intersect_peer_srcpad_caps(self, pad, self->params->srcpads.at(i), output_config.resolutions[i]))
@@ -743,6 +741,7 @@ static GstPad *gst_hailo_multi_resize_request_new_pad(GstElement *element, GstPa
     gst_pad_set_active(srcpad, TRUE);
     glib_cpp::ptrs::add_pad_to_element(GST_ELEMENT(self), srcpad);
     self->params->srcpads.emplace_back(srcpad);
+    srcpad.set_auto_unref(false);
 
     return srcpad;
 }
@@ -775,5 +774,7 @@ static void gst_hailo_multi_resize_release_pad(GstElement *element, GstPad *pad)
     GstHailoMultiResize *self = GST_HAILO_MULTI_RESIZE(element);
     auto name = glib_cpp::get_name(pad);
     GST_DEBUG_OBJECT(self, "Release pad: %s", name.c_str());
-    gst_element_remove_pad(element, pad);
+    self->params->srcpads.erase(std::remove(self->params->srcpads.begin(), self->params->srcpads.end(), pad),
+                                self->params->srcpads.end());
+    glib_cpp::ptrs::remove_pad_from_element(GST_ELEMENT(self), pad);
 }

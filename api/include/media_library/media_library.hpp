@@ -10,11 +10,16 @@
 #include <unistd.h>
 #include "media_library/encoder.hpp"
 #include "media_library/frontend.hpp"
-#include "media_library/medialib_config_manager.hpp"
+#include "config_manager.hpp"
 #include "media_library/media_library_api_types.hpp"
 #include "media_library/throttling_state_monitor.hpp"
 #include "media_library/analytics_db.hpp"
 #include "media_library/media_library_types.hpp"
+
+namespace v4l2
+{
+class v4l2ControlManager;
+}
 
 namespace fs = std::filesystem;
 
@@ -168,8 +173,7 @@ class MediaLibrary
 
     MediaLibraryFrontendPtr m_frontend;                              ///< Pointer to the frontend object.
     std::map<output_stream_id_t, MediaLibraryEncoderPtr> m_encoders; ///< Map of output stream IDs to encoder pointers.
-    std::unique_ptr<MediaLibConfigManager>
-        m_media_lib_config_manager; ///< Manager for media library configuration settings.
+    std::unique_ptr<ConfigManager> m_config_manager; ///< Manager for media library configuration settings.
 
     /**
      *  @brief Set the On profile restricted user callback.
@@ -223,6 +227,7 @@ class MediaLibrary
     bool m_enable_profile_restriction;               ///< Flag to enable profile restriction.
     media_library_pipeline_state_t m_pipeline_state; ///< State of the media pipeline (STARTED or STOPPED).
     std::shared_ptr<ThrottlingStateMonitor> m_throttling_monitor;
+    std::shared_ptr<v4l2::v4l2ControlManager> m_v4l2_ctrl_manager;
     std::function<void(media_library_pipeline_state_t)> m_pipeline_state_change_callback;
     std::function<void(config_profile_t, config_profile_t)> m_profile_restricted_callback;
     std::function<void()> m_profile_restriction_done_callback;

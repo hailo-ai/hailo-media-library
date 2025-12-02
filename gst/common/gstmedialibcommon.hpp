@@ -93,6 +93,7 @@ GstAppSrcPtr element_to_app_src(GstElementPtr &element);
 const char *get_pad_name(const GstPadPtr &pad);
 gboolean pad_event_default(GstPad *pad, GstObject *parent, GstEventPtr &event);
 bool add_pad_to_element(GstElement *element, GstPadPtr &pad);
+bool remove_pad_from_element(GstElement *element, GstPad *pad);
 
 } // namespace ptrs
 

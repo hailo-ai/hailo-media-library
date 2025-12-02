@@ -1,6 +1,7 @@
 #include "hdr_manager_impl.hpp"
 
 #include "hdr_manager.hpp"
+#include "hrt_stitcher/hrt_stitcher.hpp"
 #include "logger_macros.hpp"
 #include "media_library_types.hpp"
 #include "sensor_registry.hpp"
@@ -456,8 +457,16 @@ void HdrManager::Impl::hdr_loop()
         auto raw_planes = stitch_ctx->m_raw_buffer->get_planes();
         int wb_fd = stitch_ctx->m_wb_buffer.get_fd();
         auto stitched_plane = stitch_ctx->m_stitched_buffer->get_planes()[0];
-        m_stitcher->process(raw_planes, wb_fd, stitched_plane, std::move(stitch_ctx));
+        if (m_stitcher->process(raw_planes, wb_fd, stitched_plane, std::move(stitch_ctx)) == HAILO_STITCH_SUCCESS)
+        {
+            ++m_infer_jobs_contexts_queue_size;
+        }
         HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(HDR_THREADED_TRACK);
+    }
+
+    while (m_infer_jobs_contexts_queue_size != 0)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
 
@@ -517,4 +526,5 @@ void HdrManager::Impl::on_infer(std::shared_ptr<void> ptr)
     put_stitch_context(stitch_ctx);
     m_raw_capture_device->put_buffer(raw_buffer);
     m_isp_in_device->put_buffer(stitched_buffer);
+    --m_infer_jobs_contexts_queue_size;
 }

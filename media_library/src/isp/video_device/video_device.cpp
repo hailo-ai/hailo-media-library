@@ -131,8 +131,8 @@ bool VideoDevice::init_buffers(DMABufferAllocator &allocator, size_t plane_size,
     if (req.count != m_num_buffers)
         return false;
 
-    m_used_buffers_count = m_num_buffers;
-    HAILO_MEDIA_LIBRARY_TRACE_COUNTER(perfetto::DynamicString(m_buffers_counter_name), m_used_buffers_count,
+    m_used_buffers_count.store(m_num_buffers);
+    HAILO_MEDIA_LIBRARY_TRACE_COUNTER(perfetto::DynamicString(m_buffers_counter_name), m_used_buffers_count.load(),
                                       VIDEO_DEV_TRACK);
 
     for (unsigned int index = 0; index < m_num_buffers; ++index)
@@ -389,8 +389,8 @@ bool VideoDevice::put_buffer(VideoBuffer *buffer)
         return false;
     }
 
-    m_used_buffers_count--;
-    HAILO_MEDIA_LIBRARY_TRACE_COUNTER(perfetto::DynamicString(m_buffers_counter_name), m_used_buffers_count,
+    m_used_buffers_count.fetch_sub(1);
+    HAILO_MEDIA_LIBRARY_TRACE_COUNTER(perfetto::DynamicString(m_buffers_counter_name), m_used_buffers_count.load(),
                                       VIDEO_DEV_TRACK);
     return true;
 }
@@ -428,8 +428,8 @@ bool VideoDevice::get_buffer(VideoBuffer **o_buffer)
 
     *o_buffer = m_buffers[buf.index];
     (*o_buffer)->get_v4l2_buffer()->timestamp = buf.timestamp;
-    m_used_buffers_count++;
-    HAILO_MEDIA_LIBRARY_TRACE_COUNTER(perfetto::DynamicString(m_buffers_counter_name), m_used_buffers_count,
+    m_used_buffers_count.fetch_add(1);
+    HAILO_MEDIA_LIBRARY_TRACE_COUNTER(perfetto::DynamicString(m_buffers_counter_name), m_used_buffers_count.load(),
                                       VIDEO_DEV_TRACK);
     return true;
 }

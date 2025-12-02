@@ -33,88 +33,34 @@ utils_sources = [
     'dsp/gsthailodspbasetransform.cpp',
 ]
 
-freetype_dep = dependency('freetype2', method : 'pkg-config', include_type : 'system')
-harfbuzz_dep = dependency('harfbuzz', method : 'pkg-config', include_type : 'system')
-v4l_dep = [
-    meson.get_compiler('cpp').find_library('libgstvideo4linux2', required: true, dirs: sysroot + '/usr/lib/gstreamer-1.0/')
+# GStreamer utils - Static library
+gst_utils_include_dirs = [
+    include_directories('./buffer_utils'), 
+    include_directories('./osd'), 
+    include_directories('./common'),
+    include_directories('./dsp'),
 ]
+medialib_include_dirs += gst_utils_include_dirs
 
-gstmedialibutils_lib = shared_library('gstmedialibutils',
+libgst_utils = static_library('gst_utils_internal',
     utils_sources,
-    cpp_args : common_args,
-    link_args: ['-lm', '-Wl,-rpath,/usr/lib/gstreamer-1.0'],
-    dependencies : gstreamer_deps + 
-                   [dsp_dep, media_library_common_dep, opencv_dep, spdlog_dep, v4l_dep, freetype_dep, harfbuzz_dep, fmt_dep],
-    link_whole: git_metadata_lib,
-    gnu_symbol_visibility : 'default',
-    version: meson.project_version(),
-    install: true,
-    install_dir: get_option('libdir'),
-    install_rpath: '/usr/lib/gstreamer-1.0',
-    include_directories: include_directories(sysroot+'/usr/include/freetype2'),
+    cpp_args: common_args,
+    link_args: ['-lm'],
+    dependencies: medialib_dependencies,
+    include_directories: medialib_include_dirs,
+    pic: true,
 )
 
-gstmedialibrary_utils_dep = declare_dependency(
-  include_directories: [include_directories('./buffer_utils', './osd', './common')],
-  dependencies : [media_library_common_dep, v4l_dep],
-  link_with : gstmedialibutils_lib)
+medialib_components += [libgst_utils]
 
-
-pkgc.generate(
-    name : 'gstmedialibutils',
-    libraries : gstmedialibutils_lib,
-    subdirs : ['hailo_encoder', 'buffer_utils'],
-    version : meson.project_version(),
-    description : 'Gstreamer Media Library Utils',
-)
-
-install_headers('common/gstmedialibcommon.hpp')
-install_headers('common/gstmedialibptrs.hpp')
-install_headers('buffer_utils/buffer_utils.hpp')
-install_headers('buffer_utils/gsthailobuffermeta.hpp')
-install_headers('osd/osd.hpp')
-
-headers_to_install = ['dsp/gsthailodspbasetransform.hpp',
-                      'dsp/gsthailodspbufferpool.hpp', 
-                      'dsp/gsthailodspbufferpoolutils.hpp']
-install_headers(headers_to_install)
-
-
-plugin_sources = [
-    'gstmedialib.cpp',
-    'osd/gsthailoosd.cpp',
-    'encoder/gsthailoenc.cpp',
-    'encoder/gsthailoh265enc.cpp',
-    'encoder/gsthailoh264enc.cpp',
-    'hailo_encoder/gsthailoencoder.cpp',
-    'jpeg/gsthailojpeg.cpp',
-    'multi_resize/gsthailomultiresize.cpp',
-    'dewarp/gsthailodewarp.cpp',
-    'denoise/gstnativedenoise.cpp',
-    'frontend/gsthailofrontend.cpp',
-    'frontend/gsthailofrontendbinsrc.cpp',
-    'encodebin/gsthailoencodebin.cpp',
-    'upload/gsthailoupload.cpp',
-    'image_freeze/gsthailoimagefreeze.cpp'
+headers_to_install = [
+    'common/gstmedialibcommon.hpp',
+    'common/gstmedialibptrs.hpp',
+    'buffer_utils/buffer_utils.hpp',
+    'buffer_utils/gsthailobuffermeta.hpp',
+    'osd/osd.hpp',
+    'dsp/gsthailodspbasetransform.hpp',
+    'dsp/gsthailodspbufferpool.hpp',
+    'dsp/gsthailodspbufferpoolutils.hpp'
 ]
-
-hailort_inc_dirs = include_directories(
-    sysroot + '/usr/include/hailo',
-    is_system: true
-)
-
-shared_library('gstmedialib',
-    plugin_sources,
-    cpp_args : common_args,
-    link_args: ['-lhantro_vc8000e', '-lm'],
-    include_directories: [hailort_inc_dirs],
-    dependencies : gstreamer_deps + [opencv_dep, rapidjson_dep] + hailort_dep +
-                   [dsp_dep, gstmedialibrary_utils_dep, encoder_dep,
-                   media_library_common_dep, media_library_frontend_dep, media_library_encoder_dep, fmt_dep],
-    link_whole: git_metadata_lib,
-    gnu_symbol_visibility : 'default',
-    version: meson.project_version(),
-    install: true,
-    install_dir: get_option('libdir') / 'gstreamer-1.0',
-    install_rpath: '/usr/lib/gstreamer-1.0',
-)
+install_headers(headers_to_install, subdir: 'hailo')

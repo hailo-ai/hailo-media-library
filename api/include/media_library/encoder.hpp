@@ -114,6 +114,12 @@ class MediaLibraryEncoder
      */
     media_library_return subscribe(AppWrapperCallback callback);
     /**
+     * @brief Unsubscribe all currently registered subscribers from the MediaLibraryEncoder module
+     * @return media_library_return - status of the unsubscription operation
+     */
+    media_library_return unsubscribe();
+
+    /**
      * @brief Add a buffer to the MediaLibraryEncoder module, to be encoded.
      * The add_buffer function receives raw video frame, and applies the
      * stream's overlays on the raw frames, before encoding according to the
@@ -205,6 +211,12 @@ class MediaLibraryEncoder
      * @return encoder_monitors - the encoder_monitors of the encoder
      */
     encoder_monitors get_encoder_monitors();
+
+    /**
+     * @brief Set the sensor index for this encoder
+     * @param sensor_index - the sensor index
+     */
+    void set_sensor_index(size_t sensor_index);
 
     /**
      * @brief Destructor for the encoder module

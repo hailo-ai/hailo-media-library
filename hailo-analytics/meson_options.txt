@@ -1,0 +1,5 @@
+# APPS
+option('apps_install_dir', type : 'string', value : '')
+
+# Platform
+option('platform', type : 'combo', choices : ['15l', '15h'], value : '15h')

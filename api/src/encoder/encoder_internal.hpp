@@ -21,7 +21,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #pragma once
-#include "media_library/config_manager.hpp"
+#include "media_library/config_parser.hpp"
 #include "media_library/encoder.hpp"
 #include "gstmedialibcommon.hpp"
 #include "media_library/privacy_mask.hpp"
@@ -34,6 +34,7 @@
 #include <queue>
 #include <thread>
 #include <vector>
+#include <shared_mutex>
 #include <nlohmann/json.hpp>
 
 #define MIN_QUEUE_SIZE 5
@@ -65,6 +66,7 @@ class MediaLibraryEncoder::Impl final
     std::string m_name;
     InputParams m_input_params;
     std::vector<AppWrapperCallback> m_callbacks;
+    std::shared_mutex m_callbacks_mutex;
     MediaLibraryBufferPoolPtr m_buffer_pool;
     std::shared_ptr<std::thread> m_main_loop_thread;
     std::string m_json_config_str;
@@ -73,10 +75,11 @@ class MediaLibraryEncoder::Impl final
     appsrc_state m_appsrc_state;
     EncoderType m_encoder_type;
     float m_current_fps;
-    ConfigManager m_config_manager;
+    ConfigParser m_config_parser;
     bool m_has_config = false;
     bool m_set_config_by_string = false;
     encoder_config_t m_current_config{};
+    size_t m_sensor_index = 0;
 
     bool init_pipeline_string(const std::string &encoder_json_config, const InputParams &input_params,
                               EncoderType encoder_type);
@@ -91,12 +94,13 @@ class MediaLibraryEncoder::Impl final
 
   public:
     media_library_return subscribe(AppWrapperCallback callback);
+    media_library_return unsubscribe();
     media_library_return start();
     media_library_return stop();
     media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
     std::shared_ptr<osd::Blender> get_osd_blender();
     std::shared_ptr<PrivacyMaskBlender> get_privacy_mask_blender();
-    media_library_return config_blenders();
+    media_library_return load_blenders();
     media_library_return set_config(const encoder_config_t &config);
     media_library_return set_config(const std::string &json_config);
     media_library_return set_force_videorate(bool force);
@@ -106,6 +110,7 @@ class MediaLibraryEncoder::Impl final
     media_library_return force_keyframe();
     float get_current_fps();
     encoder_monitors get_encoder_monitors();
+    void set_sensor_index(size_t sensor_index);
     static InputParams extract_input_params(const encoder_config_t &cfg);
     static EncoderType extract_encoder_type(const encoder_config_t &cfg);
     static constexpr uint32_t DEFAULT_MAX_POOL_SIZE = 5;
@@ -148,4 +153,5 @@ class MediaLibraryEncoder::Impl final
     std::string create_pipeline_string(const std::string &encoder_json_config, const InputParams &input_params,
                                        EncoderType encoder_type);
     std::string create_pipeline(const InputParams &input_params, EncoderType encoder_type);
+    std::string get_fpsdisplaysink_name() const;
 };

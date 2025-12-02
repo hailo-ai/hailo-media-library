@@ -161,9 +161,10 @@ enum motion_detection_sensitivity_levels_t
     MOTION_DETECTION_SENSITIVITY_LEVELS_MAX = INT_MAX
 };
 
-enum sensor_index_t
+enum sensor_id_t
 {
     SENSOR_0 = 0,
+    SENSOR_1 = 1,
 
     /** Max enum value to maintain ABI Integrity */
     SENSOR_INDEX_MAX = INT_MAX
@@ -242,7 +243,13 @@ struct bayer_network_config_t
     {
         return (network_path == other.network_path) && (bayer_channel == other.bayer_channel) &&
                (feedback_bayer_channel == other.feedback_bayer_channel) && (dgain_channel == other.dgain_channel) &&
-               (bls_channel == other.bls_channel) && (output_bayer_channel == other.output_bayer_channel);
+               (bls_channel == other.bls_channel) && (output_bayer_channel == other.output_bayer_channel) &&
+               (input_fusion_feedback == other.input_fusion_feedback) &&
+               (input_gamma_feedback == other.input_gamma_feedback) &&
+               (output_fusion_feedback == other.output_fusion_feedback) &&
+               (output_gamma_feedback == other.output_gamma_feedback) &&
+               (skip0_fusion_channel == other.skip0_fusion_channel) &&
+               (skip1_fusion_channel == other.skip1_fusion_channel);
     }
     std::string network_path;
     std::string bayer_channel;
@@ -250,6 +257,12 @@ struct bayer_network_config_t
     std::string dgain_channel;
     std::string bls_channel;
     std::string output_bayer_channel;
+    std::string input_fusion_feedback;
+    std::string input_gamma_feedback;
+    std::string output_fusion_feedback;
+    std::string output_gamma_feedback;
+    std::string skip0_fusion_channel;
+    std::string skip1_fusion_channel;
 };
 
 struct dewarp_config_t
@@ -382,6 +395,7 @@ struct motion_detection_config_t
     roi_t roi;
     motion_detection_sensitivity_levels_t sensitivity_level;
     float threshold;
+    uint32_t buffer_pool_size;
 };
 
 struct config_application_input_streams_t
@@ -411,6 +425,7 @@ struct application_input_streams_config_t
     {
     }
 
+    // Explicit assignment operator to avoid deprecation warning
     application_input_streams_config_t &operator=(const application_input_streams_config_t &other)
     {
         if (this != &other)
@@ -425,28 +440,6 @@ struct application_input_streams_config_t
 
     // Default constructor
     application_input_streams_config_t() = default;
-
-    // Conversion operator to output_resolution_t (takes first resolution if available)
-    operator output_resolution_t() const
-    {
-        if (!resolutions.empty())
-        {
-            return resolutions[0];
-        }
-
-        // Return default output_resolution_t if no resolutions available
-        return output_resolution_t{.framerate = 30,
-                                   .pool_max_buffers = 10,
-                                   .dimensions = dsp_utils::crop_resize_dims_t{.perform_crop = 0,
-                                                                               .crop_start_x = 0,
-                                                                               .crop_end_x = 0,
-                                                                               .crop_start_y = 0,
-                                                                               .crop_end_y = 0,
-                                                                               .destination_width = 1920,
-                                                                               .destination_height = 1080},
-                                   .stream_id = "",
-                                   .scaling_mode = DSP_SCALING_MODE_STRETCH};
-    }
 };
 
 struct input_video_config_t
@@ -455,7 +448,7 @@ struct input_video_config_t
     HailoFormat format;
     output_resolution_t resolution;
     std::string source;
-    size_t sensor_index; // Only sensor_index 0 is supported
+    size_t sensor_index;
 
     bool operator==(const input_video_config_t &other) const
     {
@@ -495,17 +488,7 @@ struct multi_resize_config_t
     {
         digital_zoom_config = mresize_config.digital_zoom_config;
         motion_detection_config = mresize_config.motion_detection_config;
-        application_input_streams_config.grayscale = mresize_config.application_input_streams_config.grayscale;
-        application_input_streams_config.interpolation_type =
-            mresize_config.application_input_streams_config.interpolation_type;
-
-        for (uint8_t i = 0; i < mresize_config.application_input_streams_config.resolutions.size(); i++)
-        {
-            output_resolution_t &current_res = application_input_streams_config.resolutions[i];
-            output_resolution_t &new_res = mresize_config.application_input_streams_config.resolutions[i];
-            current_res.framerate = new_res.framerate;
-            current_res.dimensions = new_res.dimensions;
-        }
+        application_input_streams_config = mresize_config.application_input_streams_config;
 
         // rotate if necessary
         return set_output_dimensions_rotation(mresize_config.rotation_config);
@@ -942,7 +925,7 @@ struct config_input_video_t
     } resolution;
     std::string source;
     frontend_src_element_t source_type;
-    sensor_index_t sensor_index; // Only SENSOR_0 is supported
+    sensor_id_t sensor_id;
 };
 
 struct config_sensor_configuration_t
@@ -1047,7 +1030,7 @@ struct config_application_settings_t
 struct config_dis_angular_t
 {
     bool enabled;
-    nlohmann::json vsm; // Complex VSM configuration
+    nlohmann::json vsm;
 };
 
 struct config_dis_debug_t
@@ -1117,6 +1100,12 @@ struct config_denoise_network_t
     std::string dgain_channel;
     std::string bls_channel;
     std::string output_bayer_channel;
+    std::string input_fusion_feedback;
+    std::string input_gamma_feedback;
+    std::string output_fusion_feedback;
+    std::string output_gamma_feedback;
+    std::string skip0_fusion_channel;
+    std::string skip1_fusion_channel;
 };
 
 struct config_denoise_t
@@ -1196,16 +1185,14 @@ struct config_profile_t
                                     .stream_id = "",
                                     .scaling_mode = DSP_SCALING_MODE_STRETCH},
             .source = sensor_config.input_video.source,
-            .sensor_index = 0};
+            .sensor_index = static_cast<size_t>(sensor_config.input_video.sensor_id)};
         frontend_config.ldc_config.rotation_config = application_settings.rotation;
         frontend_config.ldc_config.flip_config = application_settings.flip;
         frontend_config.ldc_config.dewarp_config = iq_settings.dewarp;
         frontend_config.ldc_config.dis_config = stabilizer_settings.dis;
         frontend_config.ldc_config.optical_zoom_config = application_settings.optical_zoom;
         frontend_config.ldc_config.input_video_config = frontend_config.input_config;
-        application_input_streams_config_t app_input_streams_config(application_settings.application_input_streams,
-                                                                    iq_settings.grayscale.enabled);
-        frontend_config.ldc_config.application_input_streams_config = app_input_streams_config;
+        frontend_config.ldc_config.application_input_streams_config = frontend_config.input_config.resolution;
         frontend_config.ldc_config.eis_config = stabilizer_settings.eis;
         frontend_config.ldc_config.gyro_config = stabilizer_settings.gyro;
         frontend_config.denoise_config = iq_settings.denoise;
@@ -1222,6 +1209,8 @@ struct config_profile_t
                                               .destination_height = sensor_config.input_video.resolution.height},
             .stream_id = "",
             .scaling_mode = DSP_SCALING_MODE_STRETCH};
+        application_input_streams_config_t app_input_streams_config(application_settings.application_input_streams,
+                                                                    iq_settings.grayscale.enabled);
         frontend_config.multi_resize_config.application_input_streams_config = app_input_streams_config;
         frontend_config.multi_resize_config.digital_zoom_config = application_settings.digital_zoom;
         frontend_config.multi_resize_config.rotation_config = application_settings.rotation;

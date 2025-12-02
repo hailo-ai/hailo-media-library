@@ -36,7 +36,7 @@
 #include <tl/expected.hpp>
 #include "media_library/isp_utils.hpp"
 #include "media_library/media_library_types.hpp"
-#include "media_library/config_manager.hpp"
+#include "media_library/config_parser.hpp"
 #include "media_library/post_isp_denoise.hpp"
 #include "media_library/pre_isp_denoise.hpp"
 #include "media_library/hdr_manager.hpp"
@@ -58,8 +58,6 @@ typedef struct _GstHailoFrontendBinSrcClass GstHailoFrontendBinSrcClass;
 
 struct _GstHailoFrontendBinSrcParams
 {
-    std::vector<GstPad *> srcpads;
-
     std::string config_file_path;
     std::string config_string;
     std::string device_id;
@@ -69,7 +67,7 @@ struct _GstHailoFrontendBinSrcParams
     GstElement *m_capsfilter = nullptr;
     GstElement *m_queue = nullptr;
     GstElement *m_frontend = nullptr;
-    std::shared_ptr<ConfigManager> m_frontend_config_manager;
+    std::shared_ptr<ConfigParser> m_frontend_config_parser;
     frontend_config_t m_frontend_config;
     std::unique_ptr<HdrManager> m_hdr;
     MediaLibraryPreIspDenoisePtr m_pre_isp_denoise;

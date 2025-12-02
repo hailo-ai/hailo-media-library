@@ -21,6 +21,7 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #pragma once
+#include "files_utils.hpp"
 #include <condition_variable>
 #include <iostream>
 #include <memory>
@@ -87,7 +88,8 @@ enum encoder_config_type_t
     ENCODER_CONFIG_CODING_CONTROL,
     ENCODER_CONFIG_GOP,
     ENCODER_CONFIG_STREAM,
-    ENCODER_CONFIG_MONITORS
+    ENCODER_CONFIG_MONITORS,
+    ENCODER_CONFIG_MAX = ENCODER_CONFIG_MONITORS
 };
 
 enum class encoder_operation_t
@@ -113,7 +115,7 @@ struct EncoderCycleMonitor
     u32 frame_count;
     u32 sum;
     std::time_t start_time;
-    std::ofstream output_file;
+    files_utils::SharedFd output_file;
 };
 
 enum encoder_state_t
@@ -132,7 +134,7 @@ struct EncoderBitrateMonitor
     u32 sum_period;
     u32 ma_bitrate;
     std::queue<u32> frame_sizes;
-    std::ofstream output_file;
+    files_utils::SharedFd output_file;
 };
 
 class Encoder::Impl final
@@ -275,7 +277,7 @@ class Encoder::Impl final
     VCEncProfile get_profile(bool codecH264);
     void bitrate_monitor_sample();
     void cycle_monitor_sample();
-    void monitor_write_to_file(std::ofstream &file, const std::string &data);
+    void monitor_write_to_file(int fd, const std::string &data);
 };
 
 class Encoder::Impl::gopConfig

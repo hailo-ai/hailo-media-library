@@ -1,0 +1,24 @@
+{
+    "version": "1.0.0",
+    "metadata": {
+        "architecture": "hailo15h",
+        "content_hash": "94d922a20ca3a9548b19ed13d830eac7c8e184b0745d4b94f11acc73da946001",
+        "description": "",
+        "generation_timestamp": "2025-11-24T12:11:03.806196+00:00"
+    },
+    "default_profile": "Daylight",
+    "profiles": [
+        {
+            "config_file": "/usr/bin/profile_jpeg/profile_jpeg.json",
+            "name": "Daylight"
+        },
+        {
+            "config_file": "/usr/bin/profile_hdr_jpeg/profile_hdr_jpeg.json",
+            "name": "High_Dynamic_Range"
+        },
+        {
+            "config_file": "/usr/bin/lowlight_r0225c8_jpeg/lowlight_r0225c8_profile_jpeg.json",
+            "name": "Lowlight"
+        }
+    ]
+}

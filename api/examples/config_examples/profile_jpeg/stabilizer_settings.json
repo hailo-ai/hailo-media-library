@@ -1,0 +1,56 @@
+{
+    "version": "1.1.0",
+    "metadata": {
+        "architecture": "hailo15h",
+        "content_hash": "3594620deacf2bfe8a8eb5224637dd56246f6e3ab423a29ac52e120f28a5ed7a",
+        "description": "",
+        "generation_timestamp": "2025-11-24T12:11:03.838686+00:00"
+    },
+    "dis": {
+        "angular_dis": {
+            "enabled": false,
+            "vsm": {
+                "height": 1080,
+                "hoffset": 1856,
+                "max_displacement": 64,
+                "voffset": 1016,
+                "width": 1920
+            }
+        },
+        "average_luminance_threshold": 0,
+        "black_corners_correction_enabled": true,
+        "black_corners_threshold": 0.5,
+        "camera_fov_factor": 0.85,
+        "debug": {
+            "fix_stabilization": false,
+            "fix_stabilization_latitude": 0.0,
+            "fix_stabilization_longitude": 0.0,
+            "generate_resize_grid": false
+        },
+        "decrement_coefficient_threshold": 0.001,
+        "enabled": false,
+        "increment_coefficient_threshold": 0.01,
+        "minimun_coefficient_filter": 0.1,
+        "running_average_coefficient": 0.033,
+        "std_multiplier": 3.0
+    },
+    "eis": {
+        "camera_fov_factor": 0.85,
+        "eis_config_path": "/home/root/apps/resources/eis_calibration.json",
+        "enabled": false,
+        "hdr_exposure_ratio": 0.2,
+        "iir_hpf_coefficient": 0.997,
+        "line_readout_time": 7410,
+        "max_angle_deg": 6.0,
+        "min_angle_deg": 0.005,
+        "rotational_smoothing_coefficient": 0.0,
+        "stabilize": true,
+        "window_size": 10
+    },
+    "gyro": {
+        "enabled": false,
+        "scale": 0.000152716,
+        "sensor_frequency": "833.000000",
+        "sensor_name": "lsm6dsr_gyro"
+    }
+}

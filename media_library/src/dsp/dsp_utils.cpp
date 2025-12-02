@@ -597,6 +597,14 @@ dsp_status perform_dsp_telescopic_multi_resize(dsp_multi_crop_resize_params_t *m
  */
 dsp_status perform_dsp_frontend_process(const dsp_frontend_params_t &frontend_params)
 {
+    LOGGER__MODULE__TRACE(
+        MODULE_NAME,
+        "Performing multi resize on the DSP with digital zoom ROI: start_x {} start_y {} end_x {} end_y "
+        "{} and post denoise filter",
+        frontend_params.multi_crop_resize_params->crop_resize_params->crop->start_x,
+        frontend_params.multi_crop_resize_params->crop_resize_params->crop->start_y,
+        frontend_params.multi_crop_resize_params->crop_resize_params->crop->end_x,
+        frontend_params.multi_crop_resize_params->crop_resize_params->crop->end_y);
     dsp_status status;
     HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_frontend_process", DSP_THREADED_TRACK);
     status = dsp_frontend_process(device, &frontend_params);
@@ -621,6 +629,8 @@ dsp_status perform_dsp_privacy_mask(hailo_buffer_data_t *input_buffer_data,
         return DSP_SUCCESS;
     }
 
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Performing privacy mask type {} on buffer: {}", privacy_mask_params->type,
+                          static_cast<void *>(input_buffer_data));
     dsp_status status;
     hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
     HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_privacy_mask", DSP_THREADED_TRACK);
@@ -733,6 +743,8 @@ dsp_status perform_dsp_dewarp(hailo_buffer_data_t *input_buffer_data, hailo_buff
 dsp_status perform_dsp_multiblend(hailo_buffer_data_t *input_buffer_data, dsp_overlay_properties_t *overlay,
                                   size_t overlays_count)
 {
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Blending overlay, x: {} y: {} for buffer: {}", overlay->x_offset,
+                          overlay->y_offset, static_cast<void *>(input_buffer_data));
     hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
     dsp_status status;
     HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_blend", DSP_THREADED_TRACK);

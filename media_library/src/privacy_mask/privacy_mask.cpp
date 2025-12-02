@@ -55,7 +55,7 @@ PrivacyMaskBlender::PrivacyMaskBlender()
     m_latest_privacy_masks = NULL;
     m_static_mask_enabled = true;
     m_dynamic_mask_enabled = false;
-    m_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_PRIVACY_MASK);
+    m_config_parser = std::make_shared<ConfigParser>(ConfigSchema::CONFIG_SCHEMA_PRIVACY_MASK);
 
     m_dynamic_masks_rois.clear();
 }
@@ -74,7 +74,7 @@ PrivacyMaskBlender::PrivacyMaskBlender(uint frame_width, uint frame_height)
     m_latest_privacy_masks = NULL;
     m_static_mask_enabled = true;
     m_dynamic_mask_enabled = false;
-    m_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_PRIVACY_MASK);
+    m_config_parser = std::make_shared<ConfigParser>(ConfigSchema::CONFIG_SCHEMA_PRIVACY_MASK);
 
     m_dynamic_masks_rois.clear();
 }
@@ -510,12 +510,11 @@ media_library_return PrivacyMaskBlender::update_static_mask()
 
 media_library_return PrivacyMaskBlender::update_dynamic_mask(uint64_t isp_timestamp_ns)
 {
-    LOGGER__MODULE__TRACE(MODULE_NAME, "Updating dynamic mask");
     if (!m_dynamic_mask_enabled || m_latest_privacy_masks->dynamic_data == NULL)
     {
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "Dynamic mask is not enabled, skipping update");
         return media_library_return::MEDIA_LIBRARY_SUCCESS;
     }
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Updating dynamic mask");
     m_dynamic_masks_rois.clear();
 
     m_latest_privacy_masks->dynamic_data->dynamic_mask_group.masks = NULL;
@@ -627,7 +626,7 @@ media_library_return PrivacyMaskBlender::update_dynamic_mask(uint64_t isp_timest
         static_cast<float>(original_width_ratio) / original_height_ratio;
 
     // TODO : add support for aspect ratio preservation
-    m_latest_privacy_masks->dynamic_data->dynamic_mask_group.is_aspect_ratio_preserved = false;
+    m_latest_privacy_masks->dynamic_data->dynamic_mask_group.scaling_mode = DSP_SCALING_MODE_STRETCH;
 
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
@@ -729,7 +728,7 @@ media_library_return PrivacyMaskBlender::blend(HailoMediaLibraryBufferPtr &input
         (privacy_mask_data->dynamic_data && privacy_mask_data->dynamic_data->dynamic_mask_group.masks_count > 0)
             ? &privacy_mask_data->dynamic_data->dynamic_mask_group
             : nullptr;
-    LOGGER__MODULE__DEBUG(
+    LOGGER__MODULE__TRACE(
         MODULE_NAME, "Blending {} static masks and {} dynamic masks", privacy_mask_data->static_data->rois_count,
         privacy_mask_data->dynamic_data ? privacy_mask_data->dynamic_data->dynamic_mask_group.masks_count : 0);
     dsp_status status = dsp_utils::perform_dsp_privacy_mask(input_buffer->buffer_data.get(), &privacy_mask_params);
@@ -786,7 +785,7 @@ media_library_return PrivacyMaskBlender::configure(const std::string &config)
         clean_config = clean_config.substr(1, config.size() - 2);
     }
 
-    if (m_config_manager->validate_configuration(clean_config) != MEDIA_LIBRARY_SUCCESS)
+    if (m_config_parser->validate_configuration(clean_config) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to validate configuration");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
@@ -795,8 +794,8 @@ media_library_return PrivacyMaskBlender::configure(const std::string &config)
     std::string privacy_mask_config_string = config_json.dump();
 
     auto privacy_mask_config = std::make_unique<privacy_mask_config_t>();
-    if (m_config_manager->config_string_to_struct<privacy_mask_config_t>(privacy_mask_config_string,
-                                                                         *privacy_mask_config) != MEDIA_LIBRARY_SUCCESS)
+    if (m_config_parser->config_string_to_struct<privacy_mask_config_t>(privacy_mask_config_string,
+                                                                        *privacy_mask_config) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to convert config string to struct");
         return MEDIA_LIBRARY_INVALID_ARGUMENT;

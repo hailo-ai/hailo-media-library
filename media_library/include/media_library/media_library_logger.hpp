@@ -80,7 +80,9 @@ enum class LoggerType
     ThrottlingMonitor,
     Hdr,
     NamedPipe,
-    AnalyticsDB
+    AnalyticsDB,
+    GstFrontendBin,
+    GstEncoderBin,
 };
 
 class LoggerManager

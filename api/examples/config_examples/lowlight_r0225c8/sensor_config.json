@@ -1,0 +1,26 @@
+{
+    "version": "1.1.0",
+    "metadata": {
+        "architecture": "hailo15h",
+        "content_hash": "3d1799d4edbd21d7ae07ba417722651dd8dadaf232614a78a8a7598ef9c82602",
+        "description": "",
+        "generation_timestamp": "2025-11-24T12:11:03.810425+00:00"
+    },
+    "input_video": {
+        "resolution": {
+            "framerate": 30,
+            "height": 2160,
+            "width": 3840
+        }
+    },
+    "sensor_calibration_file": "/usr/bin/lowlight_r0225c8/calib.json",
+    "sensor_configuration": {
+        "af_i2c_addr": "0x0",
+        "af_i2c_bus": -1,
+        "drv": "HAILO_IMX678.drv",
+        "mode": 0,
+        "name": "imx678",
+        "pixel_mode": 0,
+        "sensor_only": 0
+    }
+}

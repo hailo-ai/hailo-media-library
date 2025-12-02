@@ -23,6 +23,7 @@
 #include <iostream>
 #include <memory>
 #include <stdexcept>
+#include <unistd.h>
 #include <unordered_map>
 #include <thread>
 #include <fstream>
@@ -37,6 +38,8 @@
 
 #define BITS_IN_BYTE 8
 
+static std::unordered_map<void *, std::string> encoder_names = {};
+
 Encoder::Encoder(std::string json_string)
 {
     m_impl = std::make_unique<Impl>(json_string);
@@ -46,9 +49,10 @@ Encoder::~Encoder() = default;
 
 Encoder::Impl::~Impl()
 {
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoder - Destructor");
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "[{}] Destructor", encoder_names[this], encoder_names[this]);
     release();
     dispose();
+    encoder_names.erase(this);
 }
 
 media_library_return Encoder::Impl::allocate_output_memory(HailoMediaLibraryBufferPtr buffer_ptr)
@@ -61,13 +65,13 @@ media_library_return Encoder::Impl::allocate_output_memory(HailoMediaLibraryBuff
 
     if (m_buffer_pool == nullptr)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "buffer pool not allocated");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] buffer pool not allocated", encoder_names[this]);
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
     if (m_buffer_pool->acquire_buffer(buffer_ptr) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to acquire buffer");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to acquire buffer", encoder_names[this]);
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
     int planeFd = buffer_ptr->get_plane_fd(0);
@@ -76,11 +80,13 @@ media_library_return Encoder::Impl::allocate_output_memory(HailoMediaLibraryBuff
 
     if (ret != EWL_OK)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Could not get physical address of plane {} planeFd {}", 0, planeFd);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Could not get physical address of plane {} planeFd {}",
+                              encoder_names[this], 0, planeFd);
         ret = EWLUnshareDmabuf(m_ewl, buffer_ptr->get_plane_fd(0));
         if (ret != EWL_OK)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Could not unshare buffer plane {} planeFd {}", 0, planeFd);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Could not unshare buffer plane {} planeFd {}", encoder_names[this],
+                                  0, planeFd);
         }
         return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
     }
@@ -98,7 +104,7 @@ tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::encode_ex
     HailoMediaLibraryBufferPtr buffer_ptr = std::make_shared<hailo_media_library_buffer>();
     if (allocate_output_memory(buffer_ptr) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to allocate output memory");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to allocate output memory", encoder_names[this]);
         return tl::make_unexpected(MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR);
     }
 
@@ -108,7 +114,8 @@ tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::encode_ex
         encoder_ret_code = VCEncStrmStart(m_inst, &m_enc_in, &m_enc_out);
         if (VCENC_OK != encoder_ret_code)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to start stream Encoder error {}", encoder_ret_code);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to start stream Encoder error {}", encoder_names[this],
+                                  encoder_ret_code);
             ret = MEDIA_LIBRARY_ERROR;
         }
         break;
@@ -117,7 +124,8 @@ tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::encode_ex
         encoder_ret_code = VCEncStrmEnd(m_inst, &m_enc_in, &m_enc_out);
         if (VCENC_OK != encoder_ret_code)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to stop stream Encoder error {}", encoder_ret_code);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to stop stream Encoder error {}", encoder_names[this],
+                                  encoder_ret_code);
             ret = MEDIA_LIBRARY_ERROR;
         }
         break;
@@ -126,19 +134,27 @@ tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::encode_ex
         encoder_ret_code = VCEncStrmEncode(m_inst, &m_enc_in, &m_enc_out, NULL, NULL);
         if (VCENC_FRAME_READY != encoder_ret_code)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to encode stream Encoder error {}", encoder_ret_code);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to encode stream Encoder error {}", encoder_names[this],
+                                  encoder_ret_code);
             ret = MEDIA_LIBRARY_ERROR;
         }
         break;
     }
     default:
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Invalid encoder operation");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Invalid encoder operation", encoder_names[this]);
         ret = MEDIA_LIBRARY_ERROR;
+    }
+    if (encoder_ret_code == VCENC_HW_TIMEOUT)
+    {
+        LOGGER__MODULE__WARN(MODULE_NAME,
+                             "Encode frame returned hardware timeout - Sending empty frame and restarting encoder sw");
+
+        m_stream_restart = STREAM_RESTART_HARD;
     }
     unshare_ret_code = EWLUnshareDmabuf(m_ewl, buffer_ptr->get_plane_fd(0));
     if (unshare_ret_code != EWL_OK)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to unshare dmabuf");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to unshare dmabuf", encoder_names[this]);
         ret = MEDIA_LIBRARY_ERROR;
     }
     if (ret != MEDIA_LIBRARY_SUCCESS)
@@ -165,13 +181,15 @@ void Encoder::Impl::init_buffer_pool(uint pool_size)
                                                                  (pool_size), HAILO_MEMORY_TYPE_DMABUF, name);
         if (m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder - init_buffer_pool - Failed to init buffer pool");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] init_buffer_pool - Failed to init buffer pool",
+                                  encoder_names[this]);
         }
     }
 }
 
 Encoder::Impl::Impl(std::string json_string) : m_config(std::make_unique<EncoderConfig>(json_string))
 {
+    encoder_names[this] = std::string("enc") + std::to_string(encoder_names.size());
     m_state = ENCODER_STATE_UNINITIALIZED;
     m_previous_optical_zoom_magnification = 1.0f;
     m_zooming_boost_enabled = false;
@@ -195,7 +213,8 @@ media_library_return Encoder::Impl::release()
 {
     if (m_state == ENCODER_STATE_UNINITIALIZED)
     {
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoder - dispose requested - but it is already in uninitialized state");
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "[{}] dispose requested - but it is already in uninitialized state",
+                              encoder_names[this]);
         return MEDIA_LIBRARY_SUCCESS;
     }
 
@@ -206,16 +225,6 @@ media_library_return Encoder::Impl::release()
 
     while (!m_bitrate_monitor.frame_sizes.empty())
         m_bitrate_monitor.frame_sizes.pop();
-
-    if (m_bitrate_monitor.output_file.is_open())
-    {
-        m_bitrate_monitor.output_file.close();
-    }
-
-    if (m_cycle_monitor.output_file.is_open())
-    {
-        m_cycle_monitor.output_file.close();
-    }
 
     m_state = ENCODER_STATE_UNINITIALIZED;
 
@@ -250,12 +259,12 @@ media_library_return Encoder::Impl::init()
     create_gop_config();
     if ((ret = init_gop_config()) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init gop config");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to init gop config", encoder_names[this]);
         return ret;
     }
     if (init_encoder_config() != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init encoder config");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to init encoder config", encoder_names[this]);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -271,7 +280,7 @@ media_library_return Encoder::Impl::init()
     m_bitrate_monitor.enabled = true;
     if (m_vc_cfg.frameRateDenom == 0)
     {
-        LOGGER__MODULE__WARNING(MODULE_NAME, "Encoder - Frame rate denominator is 0");
+        LOGGER__MODULE__WARNING(MODULE_NAME, "[{}] Frame rate denominator is 0", encoder_names[this]);
         m_vc_cfg.frameRateDenom = 1;
     }
     m_bitrate_monitor.fps = m_vc_cfg.frameRateNum / m_vc_cfg.frameRateDenom;
@@ -291,25 +300,25 @@ media_library_return Encoder::Impl::init()
     // The init functions must be in this order
     if ((ret = init_coding_control_config()) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init coding control config");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to init coding control config", encoder_names[this]);
         return ret;
     }
 
     if ((ret = init_preprocessing_config()) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init preprocessing config");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to init preprocessing config", encoder_names[this]);
         return ret;
     }
 
     if ((ret = init_rate_control_config()) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init rate control config");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to init rate control config", encoder_names[this]);
         return ret;
     }
 
     if ((ret = init_monitors_config()) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init monitors config");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to init monitors config", encoder_names[this]);
         return ret;
     }
 
@@ -342,13 +351,14 @@ media_library_return Encoder::Impl::configure(std::string json_string)
     encoder_config_t temp_prev_encoder_config = m_config->get_config();
     if (m_config->configure(json_string) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure encoder");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to configure encoder", encoder_names[this]);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
     if (m_config->config_struct_equal(m_config->get_config(), temp_prev_encoder_config))
     {
-        LOGGER__MODULE__INFO(MODULE_NAME, "No configuration change detected, skipping configuration");
+        LOGGER__MODULE__INFO(MODULE_NAME, "[{}] No configuration change detected, skipping configuration",
+                             encoder_names[this]);
         return MEDIA_LIBRARY_SUCCESS;
     }
 
@@ -385,7 +395,7 @@ media_library_return Encoder::Impl::configure(const encoder_config_t &config)
     auto old_config = m_config->get_hailo_config();
     if (m_config->configure(config) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure encoder");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to configure encoder", encoder_names[this]);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -394,7 +404,8 @@ media_library_return Encoder::Impl::configure(const encoder_config_t &config)
 
     if (m_config->config_struct_equal(old_config, new_config))
     {
-        LOGGER__MODULE__INFO(MODULE_NAME, "No configuration change detected, skipping configuration");
+        LOGGER__MODULE__INFO(MODULE_NAME, "[{}] No configuration change detected, skipping configuration",
+                             encoder_names[this]);
         return MEDIA_LIBRARY_SUCCESS;
     }
 
@@ -433,7 +444,7 @@ media_library_return Encoder::Impl::update_gop_configurations()
     {
         if (init_gop_config() != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init gop config");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to init gop config", encoder_names[this]);
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
 
@@ -475,7 +486,7 @@ media_library_return Encoder::Impl::update_configurations()
             break;
         }
         default:
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Unknown configuration type");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Unknown configuration type", encoder_names[this]);
             m_update_required.clear();
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
@@ -486,7 +497,7 @@ media_library_return Encoder::Impl::update_configurations()
 
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to update configurations");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to update configurations", encoder_names[this]);
     }
 
     return ret;
@@ -497,7 +508,8 @@ media_library_return Encoder::Impl::stream_restart()
     VCEncRet enc_ret = VCEncStrmEnd(m_inst, &m_enc_in, &m_enc_out);
     if (enc_ret != VCENC_OK)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder restart - Failed to end stream, returned {}", enc_ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Encoder restart - Failed to end stream, returned {}",
+                              encoder_names[this], enc_ret);
         return MEDIA_LIBRARY_ERROR;
     }
 
@@ -506,15 +518,16 @@ media_library_return Encoder::Impl::stream_restart()
         m_header.buffer = nullptr;
         if ((enc_ret = VCEncRelease(m_inst)) != VCENC_OK)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder HARD restart - Failed to release encoder, returned {}",
-                                  enc_ret);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Encoder HARD restart - Failed to release encoder, returned {}",
+                                  encoder_names[this], enc_ret);
             return MEDIA_LIBRARY_ERROR;
         }
     }
 
     if (update_gop_configurations() != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder restart - Failed to update gop configurations");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Encoder restart - Failed to update gop configurations",
+                              encoder_names[this]);
         return MEDIA_LIBRARY_ERROR;
     }
 
@@ -523,20 +536,28 @@ media_library_return Encoder::Impl::stream_restart()
         media_library_return ret = init_encoder_config();
         if (ret != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder HARD restart - Failed to init encoder config");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Encoder HARD restart - Failed to init encoder config",
+                                  encoder_names[this]);
             return ret;
         }
     }
 
+    m_update_required.clear();
+    for (int i = 0; i <= ENCODER_CONFIG_MAX; ++i)
+    {
+        m_update_required.push_back(static_cast<encoder_config_type_t>(i));
+    }
+
     if (update_configurations() != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder restart - Failed to update configurations");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Encoder restart - Failed to update configurations",
+                              encoder_names[this]);
         return MEDIA_LIBRARY_ERROR;
     }
 
     if (encode_header() != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder restart - Failed to encode header");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Encoder restart - Failed to encode header", encoder_names[this]);
         return MEDIA_LIBRARY_ERROR;
     }
     m_stream_restart = STREAM_RESTART_NONE;
@@ -547,13 +568,13 @@ media_library_return Encoder::Impl::encode_header()
 {
     if (m_inst == NULL)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder not initialized");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Encoder not initialized", encoder_names[this]);
         return MEDIA_LIBRARY_UNINITIALIZED;
     }
     auto expected_encoded_header = encode_executer(encoder_operation_t::ENCODER_OPERATION_START);
     if (!expected_encoded_header.has_value())
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to encode header");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to encode header", encoder_names[this]);
         return MEDIA_LIBRARY_ERROR;
     }
     m_header = expected_encoded_header.value();
@@ -578,7 +599,7 @@ void Encoder::Impl::update_stride(uint32_t stride)
         m_input_stride = stride;
         if (init_preprocessing_config() != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init preprocessing config");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to init preprocessing config", encoder_names[this]);
             // TOTO return error
         }
     }
@@ -603,13 +624,16 @@ void Encoder::Impl::force_keyframe()
 {
     if (m_state != ENCODER_STATE_START)
     {
-        LOGGER__MODULE__WARNING(MODULE_NAME, "Encoder is not started, skipping force keyframe");
+        LOGGER__MODULE__WARNING(MODULE_NAME, "[{}] Encoder is not started, skipping force keyframe",
+                                encoder_names[this]);
         return;
     }
 
     LOGGER__MODULE__INFO(
-        MODULE_NAME, "Encoder internal - Force Keyframe, setting next coding type to INTRA_FRAME poc to 0 and removing "
-                     "oldest input buffer");
+        MODULE_NAME,
+        "[{}] Encoder internal - Force Keyframe, setting next coding type to INTRA_FRAME poc to 0 and removing "
+        "oldest input buffer",
+        encoder_names[this]);
     m_enc_in.codingType = m_next_coding_type = VCENC_INTRA_FRAME;
     m_enc_in.poc = 0;
     m_counters.last_idr_picture_cnt = m_counters.picture_cnt;
@@ -649,11 +673,11 @@ tl::expected<EncoderOutputBuffer, media_library_return> Encoder::start()
 
 tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::start()
 {
-    LOGGER__MODULE__INFO(MODULE_NAME, "Encoder - Start the stream");
+    LOGGER__MODULE__INFO(MODULE_NAME, "[{}] Start the stream", encoder_names[this]);
 
     if (m_state == ENCODER_STATE_UNINITIALIZED)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder is not initialized");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Encoder is not initialized", encoder_names[this]);
         m_header.buffer = nullptr;
         m_header.size = 0;
         return tl::make_unexpected(MEDIA_LIBRARY_UNINITIALIZED);
@@ -661,7 +685,7 @@ tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::start()
 
     if (m_state == ENCODER_STATE_START)
     {
-        LOGGER__MODULE__WARNING(MODULE_NAME, "Encoder is already started");
+        LOGGER__MODULE__WARNING(MODULE_NAME, "[{}] Encoder is already started", encoder_names[this]);
         return m_header;
     }
 
@@ -670,7 +694,7 @@ tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::start()
     auto expected_encoded_header = encode_executer(encoder_operation_t::ENCODER_OPERATION_START);
     if (!expected_encoded_header.has_value())
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to start encoder");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to start encoder", encoder_names[this]);
         return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
     }
     m_header = expected_encoded_header.value();
@@ -706,7 +730,7 @@ tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::finish()
     auto expected_encoded_eos = encode_executer(encoder_operation_t::ENCODER_OPERATION_STOP);
     if (!expected_encoded_eos.has_value())
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to stop encoder");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to stop encoder", encoder_names[this]);
         return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
     }
     m_header = expected_encoded_eos.value();
@@ -724,8 +748,9 @@ media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferP
 
     if (num_of_planes == 0 || num_of_planes > 3)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Could not get number of planes of buffer - Invalid number of planes {}",
-                              num_of_planes);
+        LOGGER__MODULE__ERROR(MODULE_NAME,
+                              "[{}] Could not get number of planes of buffer - Invalid number of planes {}",
+                              encoder_names[this], num_of_planes);
         return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
     }
     update_stride(buf->get_plane_stride(0));
@@ -737,13 +762,14 @@ media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferP
             planeFd = buf->get_plane_fd(i);
             if (planeFd <= 0)
             {
-                LOGGER__MODULE__ERROR(MODULE_NAME, "Could not get dmabuf fd of plane {}", i);
+                LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Could not get dmabuf fd of plane {}", encoder_names[this], i);
                 return MEDIA_LIBRARY_BUFFER_NOT_FOUND;
             }
             ret = EWLShareDmabuf(m_ewl, planeFd, bus_addresses[i]);
             if (ret != EWL_OK)
             {
-                LOGGER__MODULE__ERROR(MODULE_NAME, "Could not get physical address of plane {}", i);
+                LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Could not get physical address of plane {}",
+                                      encoder_names[this], i);
                 for (uint32_t j = 0; j <= i; j++)
                 {
                     EWLUnshareDmabuf(m_ewl, buf->get_plane_fd(j));
@@ -760,13 +786,14 @@ media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferP
             plane_size = buf->get_plane_size(i);
             if (plane_ptr == nullptr || plane_size == 0)
             {
-                LOGGER__MODULE__ERROR(MODULE_NAME, "Could not get plane {} of buffer", i);
+                LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Could not get plane {} of buffer", encoder_names[this], i);
                 return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
             }
             ret = EWLGetBusAddress(m_ewl, plane_ptr, bus_addresses[i], plane_size);
             if (ret != EWL_OK)
             {
-                LOGGER__MODULE__ERROR(MODULE_NAME, "Could not get physical address of plane {}", i);
+                LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Could not get physical address of plane {}",
+                                      encoder_names[this], i);
                 return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
             }
         }
@@ -777,12 +804,12 @@ media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferP
 
 media_library_return Encoder::Impl::encode_multiple_frames(std::vector<EncoderOutputBuffer> &outputs)
 {
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoder - encode_multiple_frames");
+    LOGGER__MODULE__TRACE(MODULE_NAME, "[{}] encode_multiple_frames", encoder_names[this]);
     media_library_return ret = MEDIA_LIBRARY_UNINITIALIZED;
     auto gop_size = m_enc_in.gopSize;
     if (gop_size == 0)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder - encode_multiple_frames - gop size is 0");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] encode_multiple_frames - gop size is 0", encoder_names[this]);
         return MEDIA_LIBRARY_ERROR;
     }
 
@@ -797,7 +824,8 @@ media_library_return Encoder::Impl::encode_multiple_frames(std::vector<EncoderOu
         ret = encode_frame(m_inputs[poc - 1].second, outputs, m_inputs[poc - 1].first);
         if (ret != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Error encoding frame {} with error {}", i, ret);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Error encoding frame {} with error {}", encoder_names[this], i,
+                                  ret);
             break;
         }
     }
@@ -834,14 +862,14 @@ static void releaseDmabuf(HailoMediaLibraryBufferPtr buf, void *ewl)
 media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
                                                  std::vector<EncoderOutputBuffer> &outputs, uint32_t frame_number)
 {
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoder - encode_frame");
+    LOGGER__MODULE__TRACE(MODULE_NAME, "[{}] encode_frame", encoder_names[this]);
     VCEncRet enc_ret = VCENC_OK;
     media_library_return ret = MEDIA_LIBRARY_UNINITIALIZED;
     struct timespec start_encode, end_encode;
     ret = update_input_buffer(buf);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder - encode_frame - Failed to update input buffer");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] encode_frame - Failed to update input buffer", encoder_names[this]);
         return ret;
     }
 
@@ -863,14 +891,31 @@ media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
     auto expected_encoded_frame = encode_executer(encoder_operation_t::ENCODER_OPERATION_ENCODE);
     if (!expected_encoded_frame.has_value())
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to encode frame");
+        if (buf->is_dmabuf())
+        {
+            for (uint32_t i = 0; i < buf->get_num_of_planes(); ++i)
+            {
+                for (uint32_t j = 0; j <= i; j++)
+                {
+                    EWLUnshareDmabuf(m_ewl, buf->get_plane_fd(j));
+                }
+            }
+        }
+
+        EncoderOutputBuffer output;
+        output.size = 0;
+        output.frame_number = frame_number;
+        outputs.push_back(output);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to encode frame", encoder_names[this]);
         return MEDIA_LIBRARY_ENCODER_ENCODE_ERROR;
     }
     EncoderOutputBuffer output = expected_encoded_frame.value();
     enc_ret = output.encoder_ret_code;
     clock_gettime(CLOCK_MONOTONIC, &end_encode);
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoding of frame took {} ms", time_diff(end_encode, start_encode));
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoding performance is {} cycles", VCEncGetPerformance(m_inst));
+    LOGGER__MODULE__TRACE(MODULE_NAME, "[{}] Encoding of frame took {} ms", encoder_names[this],
+                          time_diff(end_encode, start_encode));
+    LOGGER__MODULE__TRACE(MODULE_NAME, "[{}] Encoding performance is {} cycles", encoder_names[this],
+                          VCEncGetPerformance(m_inst));
 
     switch (enc_ret)
     {
@@ -885,8 +930,8 @@ media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
 
             if (m_enc_out.streamSize == 0)
             {
-                LOGGER__MODULE__INFO(MODULE_NAME, "Dropping frame {} of type {}", m_counters.picture_enc_cnt - 1,
-                                     m_enc_in.codingType);
+                LOGGER__MODULE__INFO(MODULE_NAME, "[{}] Dropping frame {} of type {}", encoder_names[this],
+                                     m_counters.picture_enc_cnt - 1, m_enc_in.codingType);
 
                 /* restart with yuv of next frame for IDR or GOP start */
                 if (m_enc_in.poc == 0 || m_enc_in.gopPicIdx == 0)
@@ -933,8 +978,8 @@ media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
     }
     case VCENC_OUTPUT_BUFFER_OVERFLOW: {
         m_counters.picture_enc_cnt++;
-        LOGGER__MODULE__WARNING(MODULE_NAME, "Got buffer overflow IRQ for frame {} in resolution {}x{}",
-                                m_counters.picture_enc_cnt - 1, m_vc_cfg.width, m_vc_cfg.height);
+        LOGGER__MODULE__WARNING(MODULE_NAME, "[{}] Got buffer overflow IRQ for frame {} in resolution {}x{}",
+                                encoder_names[this], m_counters.picture_enc_cnt - 1, m_vc_cfg.width, m_vc_cfg.height);
         if (m_bitrate_monitor.enabled)
             bitrate_monitor_sample();
         if (m_cycle_monitor.enabled)
@@ -950,8 +995,8 @@ media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
         }
         else
         {
-            LOGGER__MODULE__WARNING(MODULE_NAME, "Buffer overflow on inter frame (type:{}), restart stream",
-                                    m_enc_in.codingType);
+            LOGGER__MODULE__WARNING(MODULE_NAME, "[{}] Buffer overflow on inter frame (type:{}), restart stream",
+                                    encoder_names[this], m_enc_in.codingType);
             m_stream_restart = STREAM_RESTART_HARD;
         }
         output.size = 0;
@@ -961,7 +1006,7 @@ media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
         break;
     }
     default: {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder - encode_frame - Error encoding frame {}", enc_ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] encode_frame - Error encoding frame {}", encoder_names[this], enc_ret);
         ret = MEDIA_LIBRARY_ENCODER_ENCODE_ERROR;
         break;
     }
@@ -1004,7 +1049,8 @@ void Encoder::Impl::boost_settings_for_optical_zoom()
         VCEncRet ret = VCEncGetRateCtrl(m_inst, &m_vc_rate_cfg);
         if (ret != VCENC_OK)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get current bitrate, error: {}", ret);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to get current bitrate, error: {}", encoder_names[this],
+                                  ret);
             return;
         }
         u32 current_bitrate = m_vc_rate_cfg.bitPerSecond;
@@ -1030,14 +1076,15 @@ void Encoder::Impl::boost_settings_for_optical_zoom()
         //                                                     : "unlimited")
         //           << ") due to optical zoom" << std::endl;
         LOGGER__MODULE__INFO(
-            MODULE_NAME, "ZOOMING bitrate adjust from {} to {} (factor: {:.1f}, max: {}) due to optical zoom",
-            current_bitrate, m_vc_rate_cfg.bitPerSecond, zoom_bitrate_adjuster_factor,
+            MODULE_NAME, "[{}] ZOOMING bitrate adjust from {} to {} (factor: {:.1f}, max: {}) due to optical zoom",
+            encoder_names[this], current_bitrate, m_vc_rate_cfg.bitPerSecond, zoom_bitrate_adjuster_factor,
             zoom_bitrate_adjuster_max_bitrate > 0 ? std::to_string(zoom_bitrate_adjuster_max_bitrate) : "unlimited");
 
         ret = VCEncSetRateCtrl(m_inst, &m_vc_rate_cfg);
         if (ret != VCENC_OK)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set boosted bitrate, error: {}", ret);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to set boosted bitrate, error: {}", encoder_names[this],
+                                  ret);
         }
 
         bool zoom_bitrate_adjuster_force_keyframe =
@@ -1045,7 +1092,9 @@ void Encoder::Impl::boost_settings_for_optical_zoom()
                 DEFAULT_ZOOM_BITRATE_ADJUSTER_ZOOMING_FORCE_KEYFRAME);
         if (zoom_bitrate_adjuster_force_keyframe)
         {
-            LOGGER__MODULE__INFO(MODULE_NAME, "ZOOMING bitrate adjust: Forcing keyframe during optical zoom change");
+            LOGGER__MODULE__INFO(MODULE_NAME,
+                                 "[{}] ZOOMING bitrate adjust: Forcing keyframe during optical zoom change",
+                                 encoder_names[this]);
             force_keyframe();
         }
     }
@@ -1085,13 +1134,15 @@ void Encoder::Impl::check_and_restore_settings(float current_optical_zoom)
             // std::cout << "ZOOM Boost OUT: Restored bitrate from " << current_bitrate << " to " << config_bitrate
             //           << " after " << elapsed.count() << "ms timeout" << " set gop anomaly to "
             //           << m_vc_rate_cfg.gop_anomaly_bitrate_adjuster.enable << std::endl;
-            LOGGER__MODULE__INFO(MODULE_NAME, "Restored bitrate from {} to {} after {}ms timeout", current_bitrate,
-                                 config_bitrate, zoom_bitrate_adjuster_timeout_ms);
+            LOGGER__MODULE__INFO(MODULE_NAME, "[{}] Restored bitrate from {} to {} after {}ms timeout",
+                                 encoder_names[this], current_bitrate, config_bitrate,
+                                 zoom_bitrate_adjuster_timeout_ms);
 
             ret = VCEncSetRateCtrl(m_inst, &m_vc_rate_cfg);
             if (ret != VCENC_OK)
             {
-                LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to restore original bitrate, error: {}", ret);
+                LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to restore original bitrate, error: {}",
+                                      encoder_names[this], ret);
             }
 
             auto hailo_config = m_config->get_hailo_config();
@@ -1101,7 +1152,8 @@ void Encoder::Impl::check_and_restore_settings(float current_optical_zoom)
             if (zoom_bitrate_adjuster_force_keyframe)
             {
                 LOGGER__MODULE__INFO(MODULE_NAME,
-                                     "ZOOMING bitrate adjust done: Forcing keyframe after optical zoom change");
+                                     "[{}] ZOOMING bitrate adjust done: Forcing keyframe after optical zoom change",
+                                     encoder_names[this]);
                 force_keyframe();
             }
         }
@@ -1114,8 +1166,9 @@ media_library_return Encoder::Impl::handle_bitrate_adjustment_hooks(HailoMediaLi
     if (m_is_user_set_bitrate)
     {
         LOGGER__MODULE__DEBUG(
-            MODULE_NAME, "Delaying handle_bitrate_adjustment_hooks - due to bitrate update to {}, requested by user",
-            m_config->get_hailo_config().rate_control.bitrate.target_bitrate);
+            MODULE_NAME,
+            "[{}] Delaying handle_bitrate_adjustment_hooks - due to bitrate update to {}, requested by user",
+            encoder_names[this], m_config->get_hailo_config().rate_control.bitrate.target_bitrate);
         return MEDIA_LIBRARY_SUCCESS;
     }
 
@@ -1125,8 +1178,9 @@ media_library_return Encoder::Impl::handle_bitrate_adjustment_hooks(HailoMediaLi
 
     if (current_optical_zoom != m_previous_optical_zoom_magnification)
     {
-        LOGGER__MODULE__INFO(MODULE_NAME, "Optical zoom magnification changed from {:.2f} to {:.2f} for frame {}",
-                             m_previous_optical_zoom_magnification, current_optical_zoom, frame_number);
+        LOGGER__MODULE__INFO(MODULE_NAME, "[{}] Optical zoom magnification changed from {:.2f} to {:.2f} for frame {}",
+                             encoder_names[this], m_previous_optical_zoom_magnification, current_optical_zoom,
+                             frame_number);
         m_previous_optical_zoom_magnification = current_optical_zoom;
 
         boost_settings_for_optical_zoom();
@@ -1136,7 +1190,7 @@ media_library_return Encoder::Impl::handle_bitrate_adjustment_hooks(HailoMediaLi
 
     if (buf->motion_detected)
     {
-        LOGGER__MODULE__INFO(MODULE_NAME, "Motion detected for frame {}", frame_number);
+        LOGGER__MODULE__INFO(MODULE_NAME, "[{}] Motion detected for frame {}", encoder_names[this], frame_number);
     }
 
     return MEDIA_LIBRARY_SUCCESS;
@@ -1145,15 +1199,16 @@ media_library_return Encoder::Impl::handle_bitrate_adjustment_hooks(HailoMediaLi
 std::vector<EncoderOutputBuffer> Encoder::Impl::handle_frame(HailoMediaLibraryBufferPtr buf, uint32_t frame_number)
 {
     media_library_return ret = MEDIA_LIBRARY_UNINITIALIZED;
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Start Handling Frame with plane 0 of size {} for buffer id {}",
-                          buf->get_plane_size(0), buf->buffer_index);
+    LOGGER__MODULE__TRACE(MODULE_NAME, "[{}] Start Handling Frame with plane 0 of size {} for buffer id {}",
+                          encoder_names[this], buf->get_plane_size(0), buf->buffer_index);
 
     std::string name = "encoder_" + std::to_string(m_vc_cfg.width) + "x" + std::to_string(m_vc_cfg.height);
     SnapshotManager::get_instance().take_snapshot(name, buf);
 
     if (handle_bitrate_adjustment_hooks(buf, frame_number) != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to handle hooks for frame {}", frame_number);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to handle hooks for frame {}", encoder_names[this],
+                              frame_number);
         ret = MEDIA_LIBRARY_ERROR;
     }
 
@@ -1162,9 +1217,10 @@ std::vector<EncoderOutputBuffer> Encoder::Impl::handle_frame(HailoMediaLibraryBu
 
     if (m_stream_restart != STREAM_RESTART_NONE)
     {
+        LOGGER__MODULE__WARN(MODULE_NAME, "Restarting encoder, reset type: {}", m_stream_restart);
         if (stream_restart() != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder - encode_frame - Failed to restart stream");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] encode_frame - Failed to restart stream", encoder_names[this]);
             // Stream restart failed, clear update required list
             m_update_required.clear();
             ret = MEDIA_LIBRARY_ERROR;
@@ -1174,10 +1230,12 @@ std::vector<EncoderOutputBuffer> Encoder::Impl::handle_frame(HailoMediaLibraryBu
     switch (m_next_coding_type)
     {
     case VCENC_INTRA_FRAME: {
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "[{}] Encodes frame {} as i frame", encoder_names[this], frame_number);
         ret = encode_frame(buf, outputs, frame_number);
         break;
     }
     case VCENC_PREDICTED_FRAME: {
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "[{}] Encodes frame {} as p frame", encoder_names[this], frame_number);
         if (m_inputs.size() == (size_t)m_enc_in.gopSize - 1)
         {
             m_inputs.emplace_back(frame_number, buf);
@@ -1191,27 +1249,31 @@ std::vector<EncoderOutputBuffer> Encoder::Impl::handle_frame(HailoMediaLibraryBu
         }
         else
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder Error - Too many inputs");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Encoder Error - Too many inputs", encoder_names[this]);
             ret = MEDIA_LIBRARY_ERROR;
         }
         break;
     }
     case VCENC_BIDIR_PREDICTED_FRAME: {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder Error - BIDIR Predicted Frame");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Encoder Error - BIDIR Predicted Frame", encoder_names[this]);
         break;
     }
     default: {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder Error - Unknown coding type");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Encoder Error - Unknown coding type", encoder_names[this]);
         break;
     }
     }
 
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder Error - encoding frame returned {}", ret);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Encoder Error - encoding frame returned {}", encoder_names[this], ret);
     }
 
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoder - handle_frame - returns {} outputs", outputs.size());
+    for (auto &output : outputs)
+    {
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "[{}] Returning frame {} from encoder", encoder_names[this],
+                              output.frame_number);
+    }
     return outputs;
 }
 
@@ -1349,14 +1411,14 @@ void Encoder::Impl::bitrate_monitor_sample()
     {
         m_bitrate_monitor.ma_bitrate =
             m_bitrate_monitor.sum_period / (m_bitrate_monitor.frame_sizes.size() / m_bitrate_monitor.fps);
-        LOGGER__MODULE__TRACE(MODULE_NAME, "Stream with res: {}x{}, current bitrate = {}", m_vc_cfg.width,
-                              m_vc_cfg.height, m_bitrate_monitor.ma_bitrate);
+        LOGGER__MODULE__TRACE(MODULE_NAME, "[{}] Stream with res: {}x{}, current bitrate = {}", encoder_names[this],
+                              m_vc_cfg.width, m_vc_cfg.height, m_bitrate_monitor.ma_bitrate);
 
-        if (m_bitrate_monitor.output_file.is_open())
+        if (m_bitrate_monitor.output_file)
         {
-            monitor_write_to_file(m_bitrate_monitor.output_file,
-                                  "Stream with res: " + std::to_string(m_vc_cfg.width) + "x" +
-                                      std::to_string(m_vc_cfg.height) +
+            monitor_write_to_file(*m_bitrate_monitor.output_file,
+                                  "[" + encoder_names[this] + "]" + "Stream with res: " +
+                                      std::to_string(m_vc_cfg.width) + "x" + std::to_string(m_vc_cfg.height) +
                                       ", current bitrate = " + std::to_string(m_bitrate_monitor.ma_bitrate));
         }
     }
@@ -1390,27 +1452,26 @@ void Encoder::Impl::cycle_monitor_sample()
     if (cur_frame_cycles > (u32)(avg + (avg * m_cycle_monitor.deviation_threshold / 100)) ||
         cur_frame_cycles < (u32)(avg - (avg * m_cycle_monitor.deviation_threshold / 100)))
     {
-        LOGGER__MODULE__INFO(MODULE_NAME,
-                             "Encoder - Performance Warning - Current frame cycles: {}, Average cycles: {}",
-                             cur_frame_cycles, avg);
-        if (m_cycle_monitor.output_file.is_open())
+        LOGGER__MODULE__TRACE(MODULE_NAME, "[{}] Performance Warning - Current frame cycles: {}, Average cycles: {}",
+                              encoder_names[this], cur_frame_cycles, avg);
+        if (m_cycle_monitor.output_file)
         {
-            monitor_write_to_file(m_cycle_monitor.output_file,
+            monitor_write_to_file(*m_cycle_monitor.output_file,
                                   "Performance Warning - Current frame cycles: " + std::to_string(cur_frame_cycles) +
                                       ", Average cycles: " + std::to_string(avg));
         }
     }
     else
     {
-        if (m_cycle_monitor.output_file.is_open())
+        if (m_cycle_monitor.output_file)
         {
-            monitor_write_to_file(m_cycle_monitor.output_file,
+            monitor_write_to_file(*m_cycle_monitor.output_file,
                                   "Current frame cycles: " + std::to_string(cur_frame_cycles));
         }
     }
 }
 
-void Encoder::Impl::monitor_write_to_file(std::ofstream &file, const std::string &data)
+void Encoder::Impl::monitor_write_to_file(int fd, const std::string &data)
 {
     std::time_t now = std::time(nullptr);
     std::tm *timeinfo = std::localtime(&now);
@@ -1418,7 +1479,14 @@ void Encoder::Impl::monitor_write_to_file(std::ofstream &file, const std::string
     char timestamp[24];
     std::strftime(timestamp, sizeof(timestamp), "[%Y-%m-%d %H:%M:%S]", timeinfo);
     std::string timestampStr(timestamp);
-    file << timestampStr << " " << data << std::endl;
+
+    std::string data_to_write = std::string("[") + encoder_names[this] + "] " + timestampStr + " " + data + "\n";
+    int res = write(fd, data_to_write.data(), data_to_write.size());
+    if (res == -1)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to write to monitor file descriptor: {}", encoder_names[this],
+                              strerror(errno));
+    }
 }
 
 encoder_monitors Encoder::Impl::get_monitors()
@@ -1464,8 +1532,9 @@ u32 Encoder::Impl::get_constant_optical_zoom_boost(float optical_zoom_magnificat
     {
         boosted_bitrate = current_bitrate; // No boost
         LOGGER__MODULE__DEBUG(
-            MODULE_NAME, "Optical zoom magnification {:.1f}x is below threshold {:.1f}x, no zoom level boost applied",
-            optical_zoom_magnification, threshold);
+            MODULE_NAME,
+            "[{}] Optical zoom magnification {:.1f}x is below threshold {:.1f}x, no zoom level boost applied",
+            encoder_names[this], optical_zoom_magnification, threshold);
     }
 
     return boosted_bitrate;
@@ -1506,12 +1575,13 @@ void Encoder::Impl::apply_constant_optical_zoom_boost(float optical_zoom_magnifi
         ret = VCEncSetRateCtrl(m_inst, &temp_rc_cfg);
         if (ret != VCENC_OK)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set zoom level boost bitrate, error: {}", ret);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to set zoom level boost bitrate, error: {}",
+                                  encoder_names[this], ret);
             return;
         }
 
-        LOGGER__MODULE__INFO(MODULE_NAME,
-                             "Applied zoom level boost: bitrate {} -> {} (factor: {:.1f}) for zoom {:.1f}x",
-                             current_bitrate, boosted_bitrate, boost_factor, optical_zoom_magnification);
+        LOGGER__MODULE__INFO(
+            MODULE_NAME, "[{}] Applied zoom level boost: bitrate {} -> {} (factor: {:.1f}) for zoom {:.1f}x",
+            encoder_names[this], current_bitrate, boosted_bitrate, boost_factor, optical_zoom_magnification);
     }
 }

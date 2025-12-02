@@ -1,615 +1,720 @@
-/*
- * Copyright (c) 2017-2024 Hailo Technologies Ltd. All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
-
-// Includes
-#include <nlohmann/json-schema.hpp>
-#include <string>
-
-// Media Library Includes
 #include "config_manager.hpp"
-#include "config_manager_schemas.hpp"
-#include "config_type_conversions.hpp"
-#include "media_library_logger.hpp"
+#include "config_parser.hpp"
+#include "logger_macros.hpp"
 #include "media_library_types.hpp"
+#include "sensor_registry.hpp"
+
+#include <nlohmann/json.hpp>
+#include <algorithm>
+#include <cctype>
+#include <ranges>
+#include <optional>
+#include <string>
+#include <map>
+#include <set>
 
 #define MODULE_NAME LoggerType::Config
+using json = nlohmann::json;
 
-/* json-parse configurations - with custom error handler */
-class config_manager_error_handler : public nlohmann::json_schema::basic_error_handler
+ConfigManagerCore::ConfigManagerCore()
+    : m_medialib_config_parser(ConfigSchema::CONFIG_SCHEMA_MEDIALIB_CONFIG),
+      m_profile_config_parser(ConfigSchema::CONFIG_SCHEMA_PROFILE),
+      m_frontend_config_parser(ConfigSchema::CONFIG_SCHEMA_FRONTEND),
+      m_encoder_config_parser(ConfigSchema::CONFIG_SCHEMA_ENCODER_AND_BLENDING)
 {
-    void error(const nlohmann::json_pointer<nlohmann::basic_json<>> &pointer, const nlohmann::json &instance,
-               const std::string &message) override
+}
+
+ConfigManagerCore::~ConfigManagerCore()
+{
+}
+
+media_library_return ConfigManagerCore::validate_configuration(std::string config_string,
+                                                               ConfigSchema config_schema_type)
+{
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Validating configuration");
+    ConfigParser config_manager = ConfigParser(config_schema_type);
+    media_library_return validation_status = config_manager.validate_configuration(config_string);
+    if (validation_status != MEDIA_LIBRARY_SUCCESS)
     {
-        nlohmann::json_schema::basic_error_handler::error(pointer, instance, message);
-        LOGGER__MODULE__ERROR(
-            MODULE_NAME,
-            "Configuration Manager encountered an error: {} \nEncountered in: {} \nEncountered instance: {}", message,
-            pointer.to_string(), instance.dump());
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Configuration validation failed");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-};
+    return MEDIA_LIBRARY_SUCCESS;
+}
 
-class config_manager_error_handler_does_not_throw : public nlohmann::json_schema::basic_error_handler
+media_library_return ConfigManagerCore::validate_metadata(std::string config_string)
 {
-  public:
-    bool valid = true;
-    void error(const nlohmann::json_pointer<nlohmann::basic_json<>> &pointer, const nlohmann::json &instance,
-               const std::string &message) override
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Validating configuration metadata");
+    ConfigParser config_manager = ConfigParser(ConfigSchema::CONFIG_SCHEMA_MEDIALIB_CONFIG);
+    media_library_return validation_status = config_manager.validate_config_metadata(config_string);
+    if (validation_status != MEDIA_LIBRARY_SUCCESS)
     {
-        (void)pointer;
-        (void)instance;
-        (void)message;
-        valid = false;
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Configuration metadata validation failed");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-};
+    return MEDIA_LIBRARY_SUCCESS;
+}
 
-class ConfigManager::ConfigManagerImpl
+bool ConfigManagerCore::is_valid_configuration(const std::string &config_string, ConfigSchema config_schema_type)
 {
-  public:
-    /**
-     * @brief Constructor for the ConfigManagerImpl module
-     *
-     */
-    ConfigManagerImpl(ConfigSchema schema)
+    ConfigParser config_manager = ConfigParser(config_schema_type);
+    return config_manager.is_valid_configuration(config_string);
+}
+
+media_library_return ConfigManagerCore::configure_medialib(std::string medialib_json_config_string, size_t idx)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
+    if (m_medialib_json_config_strings.find(idx) == m_medialib_json_config_strings.end())
     {
-        switch (schema)
-        {
-        case ConfigSchema::CONFIG_SCHEMA_ENCODER_AND_BLENDING:
-            m_config_validator.set_root_schema(config_schemas::encoder_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_ENCODER:
-            m_config_validator.set_root_schema(config_schemas::encoding_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_MULTI_RESIZE:
-            m_config_validator.set_root_schema(config_schemas::multi_resize_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_OSD:
-            m_config_validator.set_root_schema(config_schemas::osd_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_PRIVACY_MASK:
-            m_config_validator.set_root_schema(config_schemas::privacy_mask_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_LDC:
-            m_config_validator.set_root_schema(config_schemas::ldc_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_VSM:
-            m_config_validator.set_root_schema(config_schemas::vsm_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_HAILORT:
-            m_config_validator.set_root_schema(config_schemas::hailort_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_ISP:
-            m_config_validator.set_root_schema(config_schemas::isp_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_HDR:
-            m_config_validator.set_root_schema(config_schemas::hdr_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_DENOISE:
-            m_config_validator.set_root_schema(config_schemas::denoise_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_INPUT_VIDEO:
-            m_config_validator.set_root_schema(config_schemas::input_video_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_APPLICATION_ANALYTICS:
-            m_config_validator.set_root_schema(config_schemas::application_analytics_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_FRONTEND:
-            m_config_validator.set_root_schema(config_schemas::frontend_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_MEDIALIB_CONFIG:
-            m_config_validator.set_root_schema(config_schemas::medialib_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_PROFILE:
-            m_config_validator.set_root_schema(config_schemas::profile_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_NONE:
-            m_config_validator.set_root_schema(config_schemas::empty_config_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_IQ_SETTINGS:
-            m_config_validator.set_root_schema(config_schemas::iq_settings_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_STABILIZER_SETTINGS:
-            m_config_validator.set_root_schema(config_schemas::stebilizer_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_APPLICATION_SETTINGS:
-            m_config_validator.set_root_schema(config_schemas::application_settings_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_SENSOR_CONFIG:
-            m_config_validator.set_root_schema(config_schemas::sensor_config_file_schema);
-            break;
-        case ConfigSchema::CONFIG_SCHEMA_AUTOMATIC_ALGORITHMS:
-            m_config_validator.set_root_schema(config_schemas::automatic_algorithms_schema);
-            break;
-        }
-    };
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Media library idx not found: {}", idx);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
 
-    /**
-     * @brief Destructor for the ConfigManagerImpl module
-     */
-    ~ConfigManagerImpl() {};
-
-    /**
-     * @brief Copy constructor (deleted)
-     */
-    ConfigManagerImpl(const ConfigManagerImpl &) = delete;
-
-    /**
-     * @brief Copy assignment operator (deleted)
-     */
-    ConfigManagerImpl &operator=(const ConfigManagerImpl &) = delete;
-
-    /**
-     * @brief Move constructor
-     */
-    ConfigManagerImpl(ConfigManagerImpl &&) = delete;
-
-    /**
-     * @brief Move assignment
-     */
-    ConfigManagerImpl &operator=(ConfigManagerImpl &&) = delete;
-
-    /**
-     * @brief Validate the user's configuration json string against internal schema
-     *
-     * @param[in] user_config - the user's configuration (as a json string)
-     * @return media_library_return
-     */
-    media_library_return validate_config_string(const std::string &user_config_string);
-
-    /**
-     * @brief Validate the user's configuration json string against internal schema
-     *
-     * @param[in] user_config_string - the user's configuration (as a json string)
-     * @return bool - true if the configuration string is valid, false otherwise
-     */
-    bool is_valid_configuration(const std::string &user_config_string);
-
-    /**
-     * @brief Validate a json string and populate a configuration struct
-     *
-     * @param[in] user_config - the user's configuration (as a json string)
-     * @param[out] pre_proc_conf - the user's configuration (as a json string)
-     * @return media_library_return
-     */
-    template <typename TConf>
-    media_library_return config_string_to_struct(const std::string &user_config_string, TConf &conf);
-
-    /**
-     * @brief Convert a configuration struct to a json string
-     *
-     * @param[in] conf - the configuration struct
-     * @return std::string
-     */
-    template <typename TConf> std::string config_struct_to_string(const TConf &conf, int spaces = 0);
-
-    /**
-     * @brief Retrieve an entry from an input JSON string
-     *
-     * @param[in] config_string - the user's configuration (as a json string)
-     * @param[out] entry - the entry name to retrieve
-     * @return tl::expected<std::string, media_library_return>
-     */
-    static tl::expected<std::string, media_library_return> parse_config(std::string config_string, std::string entry);
-
-    /**
-     * @brief Retrieve the encoder type from an input JSON configuration
-     *
-     * @param[in] config_json - the user's configuration (as a json object)
-     * @return EncoderType
-     */
-    static EncoderType get_encoder_type(const nlohmann::json &config_json);
-
-    /**
-     * @brief Retrieve the input source element type from a frontend configuration
-     *
-     * @param[in] cfg - the user's frontend configuration (as a struct)
-     * @return frontend_src_element_t
-     */
-    static frontend_src_element_t get_input_stream_type(const frontend_config_t &cfg);
-
-    /**
-     * @brief Retrieve the input resolution (width, height) from a frontend configuration
-     *
-     * @param[in] cfg - the user's frontend configuration (as a struct)
-     * @return std::pair<uint16_t, uint16_t> as {width, height} in pixels
-     */
-    static std::pair<uint16_t, uint16_t> get_input_resolution(const frontend_config_t &cfg);
-
-    /**
-     * @brief Check whether changing from old_config to new_config is allowed without rebuilding the pipeline.
-     *
-     * @param[in] old_config The previously applied frontend configuration.
-     * @param[in] new_config The candidate frontend configuration to switch to.
-     * @return true if the change is allowed (i.e., only framerate may differ); false otherwise.
-     */
-    static bool is_config_change_allowed(const frontend_config_t &old_config, const frontend_config_t &new_config);
-
-  private:
-    nlohmann::json_schema::json_validator m_config_validator;
-
-    /*
-     * @brief Validate the user's configuration json against internal schema
-     *
-     * @param[in] user_config - the user's configuration
-     * @param[in] treat_invalid_as_error - if true, treat invalid configurations as errors
-     * @return media_library_return
-     */
-    media_library_return validate_config(const nlohmann::json &user_config, bool treat_invalid_as_error = true);
-    /**
-     * @brief Validate a configuration string and populate a configuration struct
-     *
-     * @param[in] user_config_string - the user's configuration (as a json string)
-     * @param[out] conf - the user's configuration (as a json string)
-     * @param treat_invalid_as_error - if true, treat invalid configurations as errors
-     * @return media_library_return
-     */
-    media_library_return validate_config_string(const std::string &user_config_string, bool treat_invalid_as_error);
-};
-
-//------------------------ ConfigManager ------------------------
-
-ConfigManager::ConfigManager(ConfigSchema schema) : m_config_manager_impl{std::make_unique<ConfigManagerImpl>(schema)}
-{
-}
-
-ConfigManager::~ConfigManager()
-{
-    // Defined this in the .cpp file(s) or you will get incomplete type errors
-}
-
-media_library_return ConfigManager::validate_configuration(const std::string &user_config_string)
-{
-    return m_config_manager_impl->validate_config_string(user_config_string);
-}
-
-bool ConfigManager::is_valid_configuration(const std::string &user_config_string)
-{
-    return m_config_manager_impl->is_valid_configuration(user_config_string);
-}
-
-template <typename TConf>
-media_library_return ConfigManager::config_string_to_struct(const std::string &user_config_string, TConf &conf)
-{
-    return m_config_manager_impl->config_string_to_struct<TConf>(user_config_string, conf);
-}
-
-template <typename TConf> std::string ConfigManager::config_struct_to_string(const TConf &conf, int spaces)
-{
-    return m_config_manager_impl->config_struct_to_string(conf, spaces);
-}
-
-// Explicit instantiation for config types (because they were defined in a .cpp file)
-template media_library_return ConfigManager::config_string_to_struct<input_video_config_t>(
-    const std::string &user_config_string, input_video_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<multi_resize_config_t>(
-    const std::string &user_config_string, multi_resize_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<eis_config_t>(
-    const std::string &user_config_string, eis_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<gyro_config_t>(
-    const std::string &user_config_string, gyro_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<ldc_config_t>(
-    const std::string &user_config_string, ldc_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<denoise_config_t>(
-    const std::string &user_config_string, denoise_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<isp_t>(const std::string &user_config_string,
-                                                                            isp_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<hailort_t>(const std::string &user_config_string,
-                                                                                hailort_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<hdr_config_t>(
-    const std::string &user_config_string, hdr_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<encoder_config_t>(
-    const std::string &user_config_string, encoder_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<vsm_config_t>(
-    const std::string &user_config_string, vsm_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<codec_config_t>(
-    const std::string &user_config_string, codec_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<application_analytics_config_t>(
-    const std::string &user_config_string, application_analytics_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<frontend_config_t>(
-    const std::string &user_config_string, frontend_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<medialib_config_t>(
-    const std::string &user_config_string, medialib_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<automatic_algorithms_config_t>(
-    const std::string &user_config_string, automatic_algorithms_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<privacy_mask_config_t>(
-    const std::string &user_config_string, privacy_mask_config_t &conf);
-template media_library_return ConfigManager::config_string_to_struct<config_profile_t>(
-    const std::string &user_config_string, config_profile_t &conf);
-
-template std::string ConfigManager::config_struct_to_string<input_video_config_t>(const input_video_config_t &conf,
-                                                                                  int spaces);
-template std::string ConfigManager::config_struct_to_string<multi_resize_config_t>(const multi_resize_config_t &conf,
-                                                                                   int spaces);
-template std::string ConfigManager::config_struct_to_string<eis_config_t>(const eis_config_t &conf, int spaces);
-template std::string ConfigManager::config_struct_to_string<gyro_config_t>(const gyro_config_t &conf, int spaces);
-template std::string ConfigManager::config_struct_to_string<ldc_config_t>(const ldc_config_t &conf, int spaces);
-template std::string ConfigManager::config_struct_to_string<denoise_config_t>(const denoise_config_t &conf, int spaces);
-template std::string ConfigManager::config_struct_to_string<isp_t>(const isp_t &conf, int spaces);
-template std::string ConfigManager::config_struct_to_string<hailort_t>(const hailort_t &conf, int spaces);
-template std::string ConfigManager::config_struct_to_string<hdr_config_t>(const hdr_config_t &conf, int spaces);
-template std::string ConfigManager::config_struct_to_string<encoder_config_t>(const encoder_config_t &conf, int spaces);
-template std::string ConfigManager::config_struct_to_string<vsm_config_t>(const vsm_config_t &conf, int spaces);
-template std::string ConfigManager::config_struct_to_string<codec_config_t>(const codec_config_t &conf, int spaces);
-template std::string ConfigManager::config_struct_to_string<application_analytics_config_t>(
-    const application_analytics_config_t &conf, int spaces);
-template std::string ConfigManager::config_struct_to_string<medialib_config_t>(const medialib_config_t &conf,
-                                                                               int spaces);
-template std::string ConfigManager::config_struct_to_string<frontend_config_t>(const frontend_config_t &conf,
-                                                                               int spaces);
-template std::string ConfigManager::config_struct_to_string<automatic_algorithms_config_t>(
-    const automatic_algorithms_config_t &conf, int spaces);
-template std::string ConfigManager::config_struct_to_string<isp_format_aaa_config_t>(
-    const isp_format_aaa_config_t &conf, int spaces);
-template std::string ConfigManager::config_struct_to_string<privacy_mask_config_t>(const privacy_mask_config_t &conf,
-                                                                                   int spaces);
-template std::string ConfigManager::config_struct_to_string<config_sensor_configuration_t>(
-    const config_sensor_configuration_t &conf, int spaces);
-template std::string ConfigManager::config_struct_to_string<config_stream_osd_t>(const config_stream_osd_t &conf,
-                                                                                 int spaces);
-template std::string ConfigManager::config_struct_to_string<isp_format_config_sensor_configuration_t>(
-    const isp_format_config_sensor_configuration_t &conf, int spaces);
-template std::string ConfigManager::config_struct_to_string<config_encoded_output_stream_t>(
-    const config_encoded_output_stream_t &conf, int spaces);
-template std::string ConfigManager::config_struct_to_string<config_profile_t>(const config_profile_t &conf, int spaces);
-
-tl::expected<std::string, media_library_return> ConfigManager::parse_config(std::string config_string,
-                                                                            std::string entry)
-{
-    return ConfigManager::ConfigManagerImpl::parse_config(config_string, entry);
-}
-
-EncoderType ConfigManager::get_encoder_type(const nlohmann::json &config_json)
-{
-    return ConfigManager::ConfigManagerImpl::get_encoder_type(config_json);
-}
-
-frontend_src_element_t ConfigManager::get_input_stream_type(const frontend_config_t &config)
-{
-    return ConfigManager::ConfigManagerImpl::get_input_stream_type(config);
-}
-
-std::pair<uint16_t, uint16_t> ConfigManager::get_input_resolution(const frontend_config_t &config)
-{
-    return ConfigManager::ConfigManagerImpl::get_input_resolution(config);
-}
-
-bool ConfigManager::is_config_change_allowed(const frontend_config_t &old_config, const frontend_config_t &new_config)
-{
-    return ConfigManager::ConfigManagerImpl::is_config_change_allowed(old_config, new_config);
-}
-
-//------------------------ ConfigManagerImpl ------------------------
-
-media_library_return ConfigManager::ConfigManagerImpl::validate_config(const nlohmann::json &user_config,
-                                                                       bool treat_invalid_as_error)
-{
-    if (treat_invalid_as_error)
+    if (!medialib_json_config_string.empty() && (medialib_json_config_string == m_medialib_json_config_strings[idx]))
     {
-        config_manager_error_handler err;
-        m_config_validator.validate(user_config, err);
-        if (err)
-        {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to validate given json against schema");
-            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-        }
         return MEDIA_LIBRARY_SUCCESS;
     }
-    config_manager_error_handler_does_not_throw err_f;
-    m_config_validator.validate(user_config, err_f);
-    return err_f.valid ? MEDIA_LIBRARY_SUCCESS : MEDIA_LIBRARY_CONFIGURATION_ERROR;
-}
-
-bool ConfigManager::ConfigManagerImpl::is_valid_configuration(const std::string &user_config_string)
-{
-    return validate_config_string(user_config_string, false) == MEDIA_LIBRARY_SUCCESS;
-}
-
-media_library_return ConfigManager::ConfigManagerImpl::validate_config_string(const std::string &user_config_string)
-{
-    return validate_config_string(user_config_string, true);
-}
-
-media_library_return ConfigManager::ConfigManagerImpl::validate_config_string(const std::string &user_config_string,
-                                                                              bool treat_invalid_as_error)
-{
-    const nlohmann::json user_config_json = nlohmann::json::parse(user_config_string, nullptr, false);
-    if (user_config_json.is_discarded())
+    m_medialib_json_config_strings[idx] = medialib_json_config_string;
+    if (validate_configuration(medialib_json_config_string, ConfigSchema::CONFIG_SCHEMA_MEDIALIB_CONFIG) !=
+        MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to parse string as JSON");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to validate media library config");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-    media_library_return ret = validate_config(user_config_json, treat_invalid_as_error);
-    return ret;
+    if (validate_metadata(medialib_json_config_string) != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to validate media library config metadata");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    medialib_config_t medialib_config;
+    auto status = m_medialib_config_parser.config_string_to_struct<medialib_config_t>(medialib_json_config_string,
+                                                                                      medialib_config);
+    if (status != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to parse medialib config json string");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    status = m_medialib_configs[idx].set(medialib_config);
+    if (status != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to parse medialib config");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    m_current_profiles[idx] = m_medialib_configs[idx].profiles[m_medialib_configs[idx].default_profile];
+    m_medialib_json_config_strings[idx] = medialib_json_config_string;
+
+    // Validate configuration restrictions
+    media_library_return sensor_validation = validate_sensor_index_uniqueness();
+    if (sensor_validation != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to validate sensor index uniqueness");
+        return sensor_validation;
+    }
+
+    return validate_multi_instance_restrictions();
 }
 
-template <typename TConf>
-media_library_return ConfigManager::ConfigManagerImpl::config_string_to_struct(const std::string &user_config_string,
-                                                                               TConf &conf)
+media_library_return ConfigManagerCore::set_profile(std::string profile, size_t idx)
 {
-    // Convert string to JSON
-    const nlohmann::json user_config_json = nlohmann::json::parse(user_config_string, nullptr, false);
-    if (user_config_json.is_discarded())
+    std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
+    if (m_medialib_configs.find(idx) == m_medialib_configs.end())
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to parse string as JSON");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Media library idx not found: {}", idx);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
-    // Validate against internal schema
-    media_library_return validation_status = validate_config(user_config_json);
-    if (validation_status == MEDIA_LIBRARY_CONFIGURATION_ERROR)
+    auto it = m_medialib_configs[idx].profiles.find(profile);
+    if (it != m_medialib_configs[idx].profiles.end())
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to validate json against schema");
-        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-    }
+        m_current_profiles[idx] = it->second;
 
-    // Convert JSON to struct
-    try
-    {
-        if constexpr (std::is_same<TConf, encoder_config_t>::value)
+        // Validate configuration restrictions
+        media_library_return sensor_validation = validate_sensor_index_uniqueness();
+        if (sensor_validation != MEDIA_LIBRARY_SUCCESS)
         {
-            switch (get_encoder_type(user_config_json))
-            {
-            case EncoderType::Jpeg:
-                conf = user_config_json.get<jpeg_encoder_config_t>();
-                break;
-            case EncoderType::Hailo:
-                conf = user_config_json.get<hailo_encoder_config_t>();
-                break;
-            case EncoderType::None:
-                LOGGER__MODULE__ERROR(MODULE_NAME,
-                                      "Config Manager failed to convert JSON to struct: No supported encoder found");
-                return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-            }
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to validate sensor index uniqueness when setting profile");
+            return sensor_validation;
         }
-        else
+
+        media_library_return multi_instance_validation = validate_multi_instance_restrictions();
+        if (multi_instance_validation != MEDIA_LIBRARY_SUCCESS)
         {
-            conf = user_config_json.get<TConf>();
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to validate multi instance restrictions when setting profile");
+            return multi_instance_validation;
         }
     }
-    catch (const nlohmann::json::exception &e)
+    else
     {
-        // Enhanced error logging with JSON content and type information
-        std::string config_type_name = typeid(TConf).name();
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to convert JSON to struct of type '{}': {}\n",
-                              config_type_name, e.what());
-
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Profile '{}' does not exist in medialib_config", profile);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+std::optional<config_profile_t> ConfigManagerCore::get_profile(const std::string &profile_name, size_t idx)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
+    if (m_medialib_configs.find(idx) == m_medialib_configs.end())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Media library idx not found: {}", idx);
+        return std::nullopt;
+    }
+    return m_medialib_configs[idx].profiles[profile_name];
+}
+
+std::string ConfigManager::profile_struct_to_string(config_profile_t profile)
+{
+    ConfigParser profile_config_manager = ConfigParser(ConfigSchema::CONFIG_SCHEMA_PROFILE);
+    std::string profile_string = profile_config_manager.config_struct_to_string<config_profile_t>(profile);
+    return profile_string;
+}
+
+std::optional<config_profile_t> ConfigManagerCore::get_default_profile(size_t idx)
+{
+    return get_profile(m_medialib_configs[idx].default_profile, idx);
+}
+
+media_library_return ConfigManagerCore::set_profile(config_profile_t profile, size_t idx)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
+    if (m_current_profiles.find(idx) == m_current_profiles.end())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Media library idx not found: {}", idx);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    m_current_profiles[idx] = profile;
+
+    // Validate configuration restrictions
+    media_library_return sensor_validation = validate_sensor_index_uniqueness();
+    if (sensor_validation != MEDIA_LIBRARY_SUCCESS)
+    {
+        return sensor_validation;
+    }
+
+    media_library_return multi_instance_validation = validate_multi_instance_restrictions();
+    if (multi_instance_validation != MEDIA_LIBRARY_SUCCESS)
+    {
+        return multi_instance_validation;
     }
 
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-template <typename TConf>
-std::string ConfigManager::ConfigManagerImpl::config_struct_to_string(const TConf &conf, int spaces)
+std::optional<frontend_config_t> ConfigManagerCore::get_frontend_config(size_t idx)
 {
-    try
+    std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
+    if (m_current_profiles.find(idx) == m_current_profiles.end())
     {
-        nlohmann::json j;
-        if constexpr (std::is_same<TConf, encoder_config_t>::value)
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Media library idx not found: {}", idx);
+        return std::nullopt;
+    }
+    frontend_config_t frontend = m_current_profiles[idx].to_frontend_config();
+    return frontend;
+}
+
+std::optional<config_profile_t> ConfigManagerCore::set_frontend_config(frontend_config_t frontend_config, size_t idx)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
+    if (m_current_profiles.find(idx) == m_current_profiles.end())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Media library idx not found: {}", idx);
+        return std::nullopt;
+    }
+    m_current_profiles[idx].from_frontend_config(frontend_config);
+
+    // Validate configuration restrictions
+    media_library_return sensor_validation = validate_sensor_index_uniqueness();
+    if (sensor_validation != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Frontend config validation failed: sensor index uniqueness check");
+        return std::nullopt;
+    }
+
+    media_library_return multi_instance_validation = validate_multi_instance_restrictions();
+    if (multi_instance_validation != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Frontend config validation failed: multi-instance restrictions check");
+        return std::nullopt;
+    }
+    return m_current_profiles[idx];
+}
+
+std::optional<std::string> ConfigManagerCore::get_frontend_config_as_string(size_t idx)
+{
+    auto frontend_config = get_frontend_config(idx);
+    if (!frontend_config.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Media library idx out of bounds: {}", idx);
+        return std::nullopt;
+    }
+    return m_frontend_config_parser.config_struct_to_string<frontend_config_t>(frontend_config.value());
+}
+
+std::optional<std::map<output_stream_id_t, encoder_config_t>> ConfigManagerCore::get_encoder_configs(size_t idx)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
+    if (m_current_profiles.find(idx) == m_current_profiles.end())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Media library idx not found: {}", idx);
+        return std::nullopt;
+    }
+    return m_current_profiles[idx].to_encoder_config_map();
+}
+
+std::optional<std::map<output_stream_id_t, config_encoded_output_stream_t>> ConfigManagerCore::
+    get_encoded_output_streams(size_t idx)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
+    if (m_current_profiles.find(idx) == m_current_profiles.end())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Media library idx not found: {}", idx);
+        return std::nullopt;
+    }
+    return m_current_profiles[idx].to_encoded_output_stream_config_map();
+}
+
+media_library_return ConfigManagerCore::get_sensor_entry_config(std::string &sensor_entry, size_t idx)
+{
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Entering get_sensor_entry_config with idx: {}", idx);
+
+    std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
+    if (m_current_profiles.find(idx) == m_current_profiles.end())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Media library idx not found: {}", idx);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    auto ret = is_sensor_connected_by_name(m_current_profiles[idx].sensor_config.sensor_configuration.name, idx);
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Invalid sensor configured for idx: {}", idx);
+        return ret;
+    }
+
+    auto i2c_info_opt = get_i2c_bus_and_address(idx);
+    if (!i2c_info_opt.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get I2C bus and address for idx: {}", idx);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    int i2c_bus = i2c_info_opt.value().first;
+    std::string i2c_address_raw = i2c_info_opt.value().second;
+
+    // Convert address from string format (e.g., "001a") to hex format (e.g., "0x1a")
+    // Parse the hex value and format it properly without leading zeros
+    unsigned long addr_value = std::stoul(i2c_address_raw, nullptr, 16);
+    std::stringstream addr_stream;
+    addr_stream << "0x" << std::hex << addr_value;
+    std::string i2c_address = addr_stream.str();
+
+    LOGGER__MODULE__TRACE(MODULE_NAME, "I2C bus: {}, I2C address: {} for idx: {}", i2c_bus, i2c_address, idx);
+
+    isp_format_config_sensor_configuration_t isp_format_sensor_entry(
+        m_current_profiles[idx].iq_settings.hdr.enabled,
+        m_current_profiles[idx].sensor_config.sensor_calibration_file_path,
+        m_current_profiles[idx].sensor_config.sensor_configuration, i2c_bus, i2c_address);
+    ConfigParser config_manager = ConfigParser(CONFIG_SCHEMA_NONE);
+    sensor_entry =
+        config_manager.config_struct_to_string<isp_format_config_sensor_configuration_t>(isp_format_sensor_entry, 2);
+
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Successfully generated sensor entry config for idx: {}", idx);
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return ConfigManagerCore::get_3a_config(std::string &aaa_config_string, size_t idx)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
+    if (m_current_profiles.find(idx) == m_current_profiles.end())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Media library idx not found: {}", idx);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "creating Isp 3a config from current 3a config struct");
+    auto isp_format_aaa_config =
+        isp_format_aaa_config_t::initialize(m_current_profiles[idx].iq_settings.automatic_algorithms_config);
+    ConfigParser isp_format_aaa_config_manager = ConfigParser(ConfigSchema::CONFIG_SCHEMA_NONE);
+    std::string isp_format_json =
+        isp_format_aaa_config_manager.config_struct_to_string<isp_format_aaa_config_t>(isp_format_aaa_config);
+    aaa_config_string = isp_format_json;
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+std::optional<std::pair<int, std::string>> ConfigManagerCore::get_i2c_bus_and_address(size_t idx)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
+    if (m_current_profiles.find(idx) == m_current_profiles.end())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Media library idx not found: {}", idx);
+        return std::nullopt;
+    }
+
+    size_t sensor_index = m_current_profiles[idx].sensor_config.input_video.sensor_id;
+
+    auto &registry = SensorRegistry::get_instance();
+    return registry.get_i2c_bus_and_address(sensor_index);
+}
+
+std::optional<SensorType> ConfigManagerCore::get_sensor_type(size_t idx)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
+    if (m_current_profiles.find(idx) == m_current_profiles.end())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Media library idx not found: {}", idx);
+        return std::nullopt;
+    }
+
+    size_t sensor_index = m_current_profiles[idx].sensor_config.input_video.sensor_id;
+
+    auto &registry = SensorRegistry::get_instance();
+    return registry.detect_sensor_type(sensor_index);
+}
+
+std::optional<std::string> ConfigManagerCore::get_connected_sensor_name(size_t idx)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
+    if (m_current_profiles.find(idx) == m_current_profiles.end())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Media library idx not found: {}", idx);
+        return std::nullopt;
+    }
+
+    size_t sensor_index = m_current_profiles[idx].sensor_config.input_video.sensor_id;
+
+    auto &registry = SensorRegistry::get_instance();
+    return registry.detect_sensor_type_str(sensor_index);
+}
+
+media_library_return ConfigManagerCore::is_sensor_connected_by_name(const std::string &sensor_type_str, size_t idx)
+{
+    auto sensor_type_opt = get_connected_sensor_name(idx);
+    if (!sensor_type_opt.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get sensor type for idx: {}", idx);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    std::string &sensor_type = sensor_type_opt.value();
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Successfully retrieved sensor type: {} for idx: {}", sensor_type, idx);
+
+    bool sensor_compare_without_case_sensitivity = std::ranges::equal(
+        sensor_type_str, sensor_type, [](char c1, char c2) { return std::tolower(c1) == std::tolower(c2); });
+    if (!sensor_compare_without_case_sensitivity)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME,
+                              "Sensor type mismatch for idx: {}. Detected sensor: {}, Configured sensor: {}", idx,
+                              sensor_type, sensor_type_str);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return ConfigManagerCore::initialize_instance(size_t idx)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
+    if (m_medialib_configs.size() >= MAX_INSTANCES)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Cannot initialize index {}: MAX_INSTANCES {} already reached", idx,
+                              MAX_INSTANCES);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    // Initialize default entries for this idx if they don't exist
+    if (m_medialib_json_config_strings.find(idx) == m_medialib_json_config_strings.end())
+    {
+        m_medialib_json_config_strings[idx] = "";
+    }
+    if (m_medialib_configs.find(idx) == m_medialib_configs.end())
+    {
+        m_medialib_configs[idx] = MediaLibraryConfig{};
+    }
+    if (m_current_profiles.find(idx) == m_current_profiles.end())
+    {
+        m_current_profiles[idx] = config_profile_t{};
+    }
+    if (m_restricted_profile_types.find(idx) == m_restricted_profile_types.end())
+    {
+        m_restricted_profile_types[idx] = restricted_profile_type_t::RESTICTED_PROFILE_NONE;
+    }
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+void ConfigManagerCore::cleanup_instance(size_t idx)
+{
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Cleaning up ConfigManagerCore instance data for index {}", idx);
+    std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
+
+    // Remove the data for this specific index from all maps
+    m_medialib_json_config_strings.erase(idx);
+    m_medialib_configs.erase(idx);
+    m_current_profiles.erase(idx);
+    m_restricted_profile_types.erase(idx);
+}
+
+bool ConfigManagerCore::is_dual_sensor()
+{
+    std::lock_guard<std::recursive_mutex> lock(m_maps_mutex);
+
+    // return (m_current_profiles.size() == 2);
+
+    // TODO: Use commented code instead once https://hailotech.atlassian.net/browse/MSW-13099 is fixed
+    for (const auto &[idx, profile] : m_current_profiles)
+    {
+        if (profile.sensor_config.input_video.sensor_id == SENSOR_1)
         {
-            std::visit([&j](auto &&arg) { j = arg; }, conf);
+            return true;
         }
-        else
+    }
+    return false;
+}
+
+// ConfigManager implementations
+ConfigManager::ConfigManager(size_t idx, ConfigManagerCore &medialib_config_manager_core)
+    : m_idx(idx), m_medialib_config_manager_core(medialib_config_manager_core)
+{
+}
+
+ConfigManager::~ConfigManager()
+{
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "ConfigManager destructor called for index {}", m_idx);
+    m_medialib_config_manager_core.cleanup_instance(m_idx);
+}
+
+media_library_return ConfigManager::initialize()
+{
+    return m_medialib_config_manager_core.initialize_instance(m_idx);
+}
+
+media_library_return ConfigManager::validate_configuration(std::string config_string, ConfigSchema config_schema_type)
+{
+    return m_medialib_config_manager_core.validate_configuration(config_string, config_schema_type);
+}
+
+bool ConfigManager::is_valid_configuration(const std::string &config_string, ConfigSchema config_schema_type)
+{
+    return m_medialib_config_manager_core.is_valid_configuration(config_string, config_schema_type);
+}
+
+media_library_return ConfigManager::configure_medialib(std::string medialib_json_config_string)
+{
+    return m_medialib_config_manager_core.configure_medialib(medialib_json_config_string, m_idx);
+}
+
+media_library_return ConfigManager::set_profile(std::string profile)
+{
+    return m_medialib_config_manager_core.set_profile(profile, m_idx);
+}
+
+media_library_return ConfigManager::set_profile(config_profile_t profile)
+{
+    return m_medialib_config_manager_core.set_profile(profile, m_idx);
+}
+
+config_profile_t ConfigManager::set_frontend_config(frontend_config_t frontend_config)
+{
+    // Result doesn't have value only if m_idx is out of range, which is not possible
+    return m_medialib_config_manager_core.set_frontend_config(frontend_config, m_idx).value();
+}
+
+config_profile_t ConfigManager::get_profile(const std::string &profile_name)
+{
+    // Result doesn't have value only if m_idx is out of range, which is not possible
+    return m_medialib_config_manager_core.get_profile(profile_name, m_idx).value();
+}
+
+config_profile_t ConfigManager::get_default_profile()
+{
+    // Result doesn't have value only if m_idx is out of range, which is not possible
+    return m_medialib_config_manager_core.get_default_profile(m_idx).value();
+}
+
+frontend_config_t ConfigManager::get_frontend_config()
+{
+    // Result doesn't have value only if m_idx is out of range, which is not possible
+    return m_medialib_config_manager_core.get_frontend_config(m_idx).value();
+}
+
+std::string ConfigManager::get_frontend_config_as_string()
+{
+    // Result doesn't have value only if m_idx is out of range, which is not possible
+    return m_medialib_config_manager_core.get_frontend_config_as_string(m_idx).value();
+}
+
+std::map<output_stream_id_t, encoder_config_t> ConfigManager::get_encoder_configs()
+{
+    // Result doesn't have value only if m_idx is out of range, which is not possible
+    return m_medialib_config_manager_core.get_encoder_configs(m_idx).value();
+}
+
+std::map<output_stream_id_t, config_encoded_output_stream_t> ConfigManager::get_encoded_output_streams()
+{
+    // Result doesn't have value only if m_idx is out of range, which is not possible
+    return m_medialib_config_manager_core.get_encoded_output_streams(m_idx).value();
+}
+
+std::optional<std::pair<int, std::string>> ConfigManager::get_i2c_bus_and_address()
+{
+    return m_medialib_config_manager_core.get_i2c_bus_and_address(m_idx);
+}
+
+std::optional<SensorType> ConfigManager::get_sensor_type()
+{
+    return m_medialib_config_manager_core.get_sensor_type(m_idx);
+}
+
+media_library_return ConfigManager::get_sensor_entry_config(std::string &sensor_entry_string)
+{
+    return m_medialib_config_manager_core.get_sensor_entry_config(sensor_entry_string, m_idx);
+}
+
+media_library_return ConfigManager::get_3a_config(std::string &aaa_config_string)
+{
+    return m_medialib_config_manager_core.get_3a_config(aaa_config_string, m_idx);
+}
+
+restricted_profile_type_t ConfigManager::get_restricted_profile_type()
+{
+    std::lock_guard<std::recursive_mutex> lock(m_medialib_config_manager_core.m_maps_mutex);
+    return m_medialib_config_manager_core.m_restricted_profile_types[m_idx];
+}
+
+void ConfigManager::set_restricted_profile_type(restricted_profile_type_t type)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_medialib_config_manager_core.m_maps_mutex);
+    m_medialib_config_manager_core.m_restricted_profile_types[m_idx] = type;
+}
+
+config_profile_t ConfigManager::get_current_profile()
+{
+    std::lock_guard<std::recursive_mutex> lock(m_medialib_config_manager_core.m_maps_mutex);
+    return m_medialib_config_manager_core.m_current_profiles[m_idx];
+}
+
+MediaLibraryConfig ConfigManager::get_medialib_config()
+{
+    std::lock_guard<std::recursive_mutex> lock(m_medialib_config_manager_core.m_maps_mutex);
+    return m_medialib_config_manager_core.m_medialib_configs[m_idx];
+}
+
+std::string ConfigManager::get_isp_sensor_symlink_path()
+{
+    std::lock_guard<std::recursive_mutex> lock(m_medialib_config_manager_core.m_maps_mutex);
+    size_t sensor_index = m_medialib_config_manager_core.m_current_profiles[m_idx].sensor_config.input_video.sensor_id;
+    return "/usr/bin/isp_sensor_" + std::to_string(sensor_index) + "_entry";
+}
+
+std::string ConfigManager::get_isp_3a_config_symlink_path()
+{
+    std::lock_guard<std::recursive_mutex> lock(m_medialib_config_manager_core.m_maps_mutex);
+    size_t sensor_index = m_medialib_config_manager_core.m_current_profiles[m_idx].sensor_config.input_video.sensor_id;
+    return "/usr/bin/isp_3aconfig_" + std::to_string(sensor_index);
+}
+
+bool ConfigManager::is_dual_sensor()
+{
+    return m_medialib_config_manager_core.is_dual_sensor();
+}
+
+media_library_return ConfigManagerCore::validate_sensor_index_uniqueness()
+{
+    // Only validate if there are multiple instances
+    if (m_current_profiles.size() <= 1)
+    {
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    std::set<size_t> sensor_indices;
+
+    for (const auto &[idx, profile] : m_current_profiles)
+    {
+        size_t sensor_index = profile.sensor_config.input_video.sensor_id;
+
+        // Check if sensor_index is already used
+        if (sensor_indices.find(sensor_index) != sensor_indices.end())
         {
-            j = conf;
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Duplicate sensor_index {} found in configuration at index {}",
+                                  sensor_index, idx);
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
-        if (spaces == 0)
+
+        sensor_indices.insert(sensor_index);
+    }
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return ConfigManagerCore::validate_multi_instance_restrictions()
+{
+    // Only validate if there are multiple instances
+    if (m_current_profiles.size() <= 1)
+    {
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    for (const auto &[idx, profile] : m_current_profiles)
+    {
+        // Check if EIS is enabled
+        if (profile.stabilizer_settings.eis.enabled)
         {
-            return j.dump();
+            LOGGER__MODULE__ERROR(MODULE_NAME,
+                                  "EIS is enabled in configuration at index {} but multiple instances are active. EIS "
+                                  "must be disabled when using multiple instances.",
+                                  idx);
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
-        return j.dump(spaces);
-    }
-    catch (const nlohmann::json::exception &e)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to convert struct to JSON string: {}", e.what());
-        return "";
-    }
-}
 
-tl::expected<std::string, media_library_return> ConfigManager::ConfigManagerImpl::parse_config(
-    std::string config_string, std::string entry)
-{
-    // Convert string to JSON
-    const nlohmann::json user_config_json = nlohmann::json::parse(config_string, nullptr, false);
-    if (user_config_json.is_discarded())
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to parse string as JSON");
-        return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
-    }
-
-    // Check that the key exists
-    if (!user_config_json.contains(entry))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Config Manager failed to find requested entry in JSON string");
-        return tl::make_unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
-    }
-
-    // return as a string
-    return user_config_json[entry].dump();
-}
-
-EncoderType ConfigManager::ConfigManagerImpl::get_encoder_type(const nlohmann::json &config_json)
-{
-    if (!config_json.contains("encoding"))
-    {
-        return EncoderType::None;
-    }
-
-    if (config_json["encoding"].contains("jpeg_encoder"))
-    {
-        return EncoderType::Jpeg;
-    }
-
-    if (config_json["encoding"].contains("hailo_encoder"))
-    {
-        return EncoderType::Hailo;
-    }
-
-    return EncoderType::None;
-}
-
-frontend_src_element_t ConfigManager::ConfigManagerImpl::get_input_stream_type(const frontend_config_t &cfg)
-{
-    return cfg.input_config.source_type;
-}
-
-std::pair<uint16_t, uint16_t> ConfigManager::ConfigManagerImpl::get_input_resolution(const frontend_config_t &cfg)
-{
-    const auto &dims = cfg.input_config.resolution.dimensions;
-    return {static_cast<uint16_t>(dims.destination_width), static_cast<uint16_t>(dims.destination_height)};
-}
-
-bool ConfigManager::ConfigManagerImpl::is_config_change_allowed(const frontend_config_t &old_config,
-                                                                const frontend_config_t &new_config)
-{
-    if (ConfigManager::get_input_stream_type(old_config) != ConfigManager::get_input_stream_type(new_config))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Config change not allowed, input stream type is different");
-        return false;
-    }
-
-    const auto &old_res = old_config.multi_resize_config.application_input_streams_config.resolutions;
-    const auto &new_res = new_config.multi_resize_config.application_input_streams_config.resolutions;
-
-    if (old_res.size() != new_res.size())
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Config change not allowed, number of output streams is different");
-        return false;
-    }
-
-    for (size_t i = 0; i < old_res.size(); ++i)
-    {
-        const uint16_t old_w = static_cast<uint16_t>(old_res[i].dimensions.destination_width);
-        const uint16_t old_h = static_cast<uint16_t>(old_res[i].dimensions.destination_height);
-        const uint16_t new_w = static_cast<uint16_t>(new_res[i].dimensions.destination_width);
-        const uint16_t new_h = static_cast<uint16_t>(new_res[i].dimensions.destination_height);
-
-        // Ignore framerate differences; enforce all other compared fields equal (order-aware)
-        if (old_w != new_w || old_h != new_h)
+        // Check if HDR is enabled
+        if (profile.iq_settings.hdr.enabled)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Config change not allowed, output streams are different");
-            return false;
+            LOGGER__MODULE__ERROR(MODULE_NAME,
+                                  "HDR is enabled in configuration at index {} but multiple instances are active. HDR "
+                                  "must be disabled when using multiple instances.",
+                                  idx);
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+        }
+
+        // Check if pre-ISP denoise is enabled
+        if (profile.iq_settings.denoise.enabled && profile.iq_settings.denoise.bayer &&
+            !profile.iq_settings.denoise.bayer_network_config.dgain_channel.empty())
+        {
+            LOGGER__MODULE__ERROR(
+                MODULE_NAME,
+                "Pre-ISP denoise is enabled in configuration at index {} but multiple instances are active. "
+                "Pre-ISP denoise must be disabled when using multiple instances.",
+                idx);
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
     }
 
-    return true; // FPS may change
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return MediaLibraryConfig::set(const medialib_config_t &medialib_conf)
+{
+    default_profile = medialib_conf.default_profile;
+
+    ConfigParser config_manager = ConfigParser(ConfigSchema::CONFIG_SCHEMA_PROFILE);
+    for (const auto &profile : medialib_conf.profiles)
+    {
+        config_profile_t profile_config;
+        LOGGER__MODULE__INFO(MODULE_NAME, "Parsing profile: {} from file: {}", profile.name, profile.config_file);
+        LOGGER__MODULE__TRACE(MODULE_NAME, "Profile config content: {}", profile.flattened_config_file_content.dump());
+        auto status = config_manager.config_string_to_struct<config_profile_t>(
+            profile.flattened_config_file_content.dump(), profile_config);
+        if (status != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to parse profile: {} from file: {}", profile.name,
+                                  profile.config_file);
+            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+        }
+        profiles[profile.name] = profile_config;
+        profiles[profile.name].name = profile.name;
+    }
+    if (profiles.find(default_profile) == profiles.end())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Default profile '{}' not found in profiles", default_profile);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    return MEDIA_LIBRARY_SUCCESS;
 }

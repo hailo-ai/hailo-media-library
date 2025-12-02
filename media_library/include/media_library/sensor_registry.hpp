@@ -37,6 +37,7 @@ class SensorRegistry
     static SensorRegistry &get_instance();
     std::optional<SensorCapabilities> get_sensor_capabilities(SensorType sensor) const;
     std::optional<SensorType> detect_sensor_type(size_t sensor_index = 0) const;
+    std::optional<std::string> detect_sensor_type_str(size_t sensor_index = 0) const;
     std::optional<std::pair<int, std::string>> get_i2c_bus_and_address(size_t sensor_index);
     std::optional<Resolution> detect_resolution(const output_resolution_t &resolution) const;
     std::optional<ResolutionInfo> get_resolution_info(Resolution res) const;

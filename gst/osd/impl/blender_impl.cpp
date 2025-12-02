@@ -90,7 +90,7 @@ media_library_return Blender::Impl::configure(const std::string &config)
         clean_config = clean_config.substr(1, config.size() - 2);
     }
 
-    auto ret = m_config_manager->validate_configuration(clean_config);
+    auto ret = m_config_parser->validate_configuration(clean_config);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to validate configuration: {}", ret);
@@ -167,7 +167,7 @@ Blender::Impl::Impl(const std::string &config, media_library_return &status)
     m_frame_width = 0;
     m_frame_height = 0;
     m_frame_size_set = false;
-    m_config_manager = std::make_shared<ConfigManager>(ConfigSchema::CONFIG_SCHEMA_OSD);
+    m_config_parser = std::make_shared<ConfigParser>(ConfigSchema::CONFIG_SCHEMA_OSD);
 
     // Acquire DSP device
     dsp_status dsp_result = dsp_utils::acquire_device();
@@ -537,8 +537,6 @@ media_library_return Blender::Impl::blend(HailoMediaLibraryBufferPtr &input_buff
         dsp_overlay.x_offset -= dsp_overlay.x_offset % 2;
         dsp_overlay.y_offset -= dsp_overlay.y_offset % 2;
     }
-
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Blending {} overlays", all_overlays_to_blend.size());
 
     // Perform blending for all overlays
     for (unsigned int i = 0; i < all_overlays_to_blend.size(); i += dsp_utils::max_blend_overlays)

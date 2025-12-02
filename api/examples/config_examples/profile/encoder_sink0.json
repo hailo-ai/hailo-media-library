@@ -1,0 +1,116 @@
+{
+    "version": "1.1.0",
+    "metadata": {
+        "architecture": "hailo15h",
+        "content_hash": "4d384c00e8000befa5e949f1ceeaf3d3528c4e3819d2e0c34ced62481c7b09e0",
+        "description": "",
+        "generation_timestamp": "2025-11-24T12:11:03.928383+00:00"
+    },
+    "encoding": {
+        "hailo_encoder": {
+            "coding_control": {
+                "deblocking_filter": {
+                    "beta_offset": 5,
+                    "deblock_override": false,
+                    "tc_offset": -2,
+                    "type": "DEBLOCKING_FILTER_ENABLED"
+                },
+                "intra_area": {
+                    "bottom": 0,
+                    "enable": false,
+                    "left": 0,
+                    "right": 0,
+                    "top": 0
+                },
+                "ipcm_area1": {
+                    "bottom": 0,
+                    "enable": false,
+                    "left": 0,
+                    "right": 0,
+                    "top": 0
+                },
+                "ipcm_area2": {
+                    "bottom": 0,
+                    "enable": false,
+                    "left": 0,
+                    "right": 0,
+                    "top": 0
+                },
+                "roi_area1": {
+                    "bottom": 0,
+                    "enable": false,
+                    "left": 0,
+                    "qp_delta": 0,
+                    "right": 0,
+                    "top": 0
+                },
+                "roi_area2": {
+                    "bottom": 0,
+                    "enable": false,
+                    "left": 0,
+                    "qp_delta": 0,
+                    "right": 0,
+                    "top": 0
+                },
+                "sei_messages": true
+            },
+            "config": {
+                "output_stream": {
+                    "codec": "CODEC_TYPE_H264"
+                }
+            },
+            "gop_config": {
+                "b_frame_qp_delta": 0,
+                "gop_size": 2
+            },
+            "monitors_control": {
+                "bitrate_monitor": {
+                    "enable": true,
+                    "output_result_to_file": false,
+                    "period": 3,
+                    "result_output_path": "bitrate.txt"
+                },
+                "cycle_monitor": {
+                    "deviation_threshold": 5,
+                    "enable": true,
+                    "output_result_to_file": false,
+                    "result_output_path": "cycle.txt",
+                    "start_delay": 0
+                }
+            },
+            "rate_control": {
+                "bitrate": {
+                    "target_bitrate": 16000000
+                },
+                "gop_anomaly_bitrate_adjuster": {
+                    "enable": false
+                },
+                "intra_pic_rate": 60,
+                "padding": false,
+                "picture_rc": true,
+                "picture_skip": false,
+                "qp_smooth_settings": {
+                    "alpha": 0,
+                    "q_step_divisor": 2,
+                    "qp_delta": 128,
+                    "qp_delta_limit": 1536,
+                    "qp_delta_limit_step": 384,
+                    "qp_delta_step": 128
+                },
+                "quantization": {
+                    "qp_hdr": -1
+                },
+                "rc_mode": "VBR",
+                "zoom_bitrate_adjuster": {
+                    "mode": "DISABLED"
+                }
+            }
+        },
+        "input_stream": {
+            "format": "NV12",
+            "framerate": 30,
+            "height": 2160,
+            "width": 3840
+        }
+    }
+}
