@@ -169,6 +169,15 @@ enum sensor_index_t
     SENSOR_INDEX_MAX = INT_MAX
 };
 
+enum class PipelineState
+{
+    VOID_PENDING,
+    NULL_STATE,
+    READY,
+    PAUSED,
+    PLAYING
+};
+
 struct roi_t
 {
     uint32_t x;
@@ -382,6 +391,7 @@ struct motion_detection_config_t
     roi_t roi;
     motion_detection_sensitivity_levels_t sensitivity_level;
     float threshold;
+    uint32_t buffer_pool_size;
 };
 
 struct config_application_input_streams_t

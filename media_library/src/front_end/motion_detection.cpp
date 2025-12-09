@@ -34,33 +34,51 @@ MotionDetection::MotionDetection(motion_detection_config_t &motion_detection_con
     m_motion_detection_previous_buffer_ptr = nullptr;
 }
 
+void MotionDetection::deinit()
+{
+    LOGGER__MODULE__INFO(MODULE_NAME, "MotionDetection deinit: releasing multi-resize refs");
+
+    m_motion_detection_previous_frame.release();
+    m_motion_detection_current_frame.release();
+    m_motion_detection_mask.release();
+
+    // this is the key: drop the last multi_resize output buffer ref
+    m_motion_detection_previous_buffer_ptr.reset();
+}
+
 media_library_return MotionDetection::allocate_motion_detection(uint32_t max_buffer_pool_size)
 {
     m_motion_detection_roi = cv::Rect(m_motion_detection_config.roi.x, m_motion_detection_config.roi.y,
                                       m_motion_detection_config.roi.width, m_motion_detection_config.roi.height);
+
+    // Decide actual pool size: config overrides, 0 means "use default"
+    uint32_t pool_size = (m_motion_detection_config.buffer_pool_size > 0) ? m_motion_detection_config.buffer_pool_size
+                                                                          : max_buffer_pool_size;
 
     if (m_motion_detection_buffer_pool != nullptr &&
         m_motion_detection_buffer_pool->get_width() ==
             m_motion_detection_config.resolution.dimensions.destination_width &&
         m_motion_detection_buffer_pool->get_height() ==
             m_motion_detection_config.resolution.dimensions.destination_height &&
-        max_buffer_pool_size == m_motion_detection_buffer_pool->get_size())
+        pool_size == m_motion_detection_buffer_pool->get_size())
     {
         LOGGER__MODULE__DEBUG(MODULE_NAME, "Buffer pool already exists, skipping creation");
         return MEDIA_LIBRARY_SUCCESS;
     }
+
     std::string name = "motion_detection_bitmask";
     auto bytes_per_line =
         dsp_utils::get_dsp_desired_stride_from_width(m_motion_detection_config.resolution.dimensions.destination_width);
-    LOGGER__MODULE__INFO(
-        MODULE_NAME,
-        "Creating buffer pool named {} for output resolution: width {} height {} in buffers size of {} and "
-        "bytes per line {}",
-        name, m_motion_detection_config.resolution.dimensions.destination_width,
-        m_motion_detection_config.resolution.dimensions.destination_height, max_buffer_pool_size, bytes_per_line);
+
+    LOGGER__MODULE__INFO(MODULE_NAME,
+                         "Creating buffer pool named {} for output resolution: width {} height {} with {} buffers and "
+                         "bytes per line {}",
+                         name, m_motion_detection_config.resolution.dimensions.destination_width,
+                         m_motion_detection_config.resolution.dimensions.destination_height, pool_size, bytes_per_line);
+
     MediaLibraryBufferPoolPtr buffer_pool = std::make_shared<MediaLibraryBufferPool>(
         m_motion_detection_config.resolution.dimensions.destination_width,
-        m_motion_detection_config.resolution.dimensions.destination_height, HAILO_FORMAT_GRAY8, max_buffer_pool_size,
+        m_motion_detection_config.resolution.dimensions.destination_height, HAILO_FORMAT_GRAY8, pool_size,
         HAILO_MEMORY_TYPE_DMABUF, bytes_per_line, name);
 
     if (buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
@@ -161,9 +179,41 @@ void MotionDetection::create_motion_mask()
 
 bool MotionDetection::detect_motion() const
 {
-    int threshold = m_motion_detection_mask.total() * m_motion_detection_config.threshold;
+    if (m_motion_detection_mask.empty())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Motion detection mask is empty. Skipping motion detection.");
+        return false;
+    }
+
+    const int cols = m_motion_detection_mask.cols;
+    const int rows = m_motion_detection_mask.rows;
+    if (m_motion_detection_roi.width <= 0 || m_motion_detection_roi.height <= 0)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME,
+                              "Invalid motion_detection ROI size at runtime: width={} height={}. "
+                              "Skipping motion detection for this frame.",
+                              m_motion_detection_roi.width, m_motion_detection_roi.height);
+        return false;
+    }
+
+    if (m_motion_detection_roi.x < 0 || m_motion_detection_roi.y < 0 ||
+        m_motion_detection_roi.x + m_motion_detection_roi.width > cols ||
+        m_motion_detection_roi.y + m_motion_detection_roi.height > rows)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME,
+                              "Invalid motion_detection ROI at runtime: x={} y={} width={} height={} "
+                              "is out of bounds for mask size {}x{}. "
+                              "Skipping motion detection for this frame.",
+                              m_motion_detection_roi.x, m_motion_detection_roi.y, m_motion_detection_roi.width,
+                              m_motion_detection_roi.height, cols, rows);
+        return false;
+    }
+
+    const int total_pixels = static_cast<int>(m_motion_detection_mask.total());
+    const int threshold = static_cast<int>(static_cast<double>(total_pixels) * m_motion_detection_config.threshold);
+
     cv::Scalar sum = cv::sum(m_motion_detection_mask(m_motion_detection_roi));
-    bool motion_detected = sum[0] > threshold;
+    bool motion_detected = (sum[0] > threshold);
 
     if (motion_detected)
     {

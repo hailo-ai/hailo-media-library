@@ -1178,6 +1178,7 @@ void to_json(nlohmann::json &j, const motion_detection_config_t &md_conf)
         {"roi", md_conf.roi},
         {"sensitivity_level", md_conf.sensitivity_level},
         {"threshold", md_conf.threshold},
+        {"buffer_pool_size", md_conf.buffer_pool_size},
     };
 }
 
@@ -1188,6 +1189,7 @@ void from_json(const nlohmann::json &j, motion_detection_config_t &md_conf)
     j.at("roi").get_to(md_conf.roi);
     j.at("sensitivity_level").get_to(md_conf.sensitivity_level);
     j.at("threshold").get_to(md_conf.threshold);
+    j.at("buffer_pool_size").get_to(md_conf.buffer_pool_size);
 }
 
 //------------------------ multi_resize_config_t ------------------------

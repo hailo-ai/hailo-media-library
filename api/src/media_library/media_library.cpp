@@ -33,7 +33,6 @@ MediaLibrary::MediaLibrary()
     m_profile_restriction_done_callback = nullptr;
     m_pipeline_state = media_library_pipeline_state_t::PIPELINE_STATE_UNINITIALIZED;
     m_enable_profile_restriction = true;
-    m_switching_full_profile = false;
     m_active_aaa_config_path = std::nullopt;
 
     LOGGER__MODULE__DEBUG(MODULE_NAME, "MediaLibrary instance created");
@@ -551,23 +550,21 @@ media_library_return MediaLibrary::on_throttling_state_change(throttling_state_t
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibrary::configure_isp(bool restart_required, config_profile_t &previous_profile,
+media_library_return MediaLibrary::configure_isp(bool reconfigure_required, config_profile_t &previous_profile,
                                                  config_profile_t &new_profile)
 {
-    bool automatic_algorithems_changed =
+    bool automatic_algorithms_changed =
         previous_profile.iq_settings.automatic_algorithms_config != new_profile.iq_settings.automatic_algorithms_config;
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Checking if pipeline restart is required: {}", restart_required);
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Checking if 3A config changed: {}", automatic_algorithems_changed);
-    bool aaa_feild_that_needs_restart_changed = false;
-    if (restart_required &&
-        (aaa_feild_that_needs_restart_changed /**TODO changing feilds that are not requere reset in isp */ ||
-         m_switching_full_profile))
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Checking if pipeline 3aconfig and sensor entry reconfiguration is required: {}",
+                          reconfigure_required);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Checking if 3A config changed: {}", automatic_algorithms_changed);
+    if (reconfigure_required)
     {
-        LOGGER__MODULE__INFO(MODULE_NAME, "user switched profile or changed 3A config file path");
+        LOGGER__MODULE__INFO(MODULE_NAME,
+                             "Configuring ISP files due to pipeline requiring restart or frontend required pause");
         return configure_isp_with_current_profile();
     }
-    else if (automatic_algorithems_changed &&
-             !aaa_feild_that_needs_restart_changed /**TODO changing feilds that are not requer reset in isp */)
+    else if (automatic_algorithms_changed)
     {
         LOGGER__MODULE__INFO(MODULE_NAME, "3A config struct changed, updating 3A config file");
         std::string aaa_config_string;
@@ -586,6 +583,7 @@ media_library_return MediaLibrary::configure_isp(bool restart_required, config_p
     }
     return MEDIA_LIBRARY_SUCCESS;
 }
+
 media_library_return MediaLibrary::configure_isp_with_current_profile()
 {
     std::string aaa_config_content;
@@ -748,6 +746,7 @@ media_library_return MediaLibrary::set_override_parameters(config_profile_t prof
     }
     config_profile_t new_profile = m_media_lib_config_manager->get_current_profile();
     bool restart_required = stream_restart_required(previous_profile, new_profile);
+    bool frontend_pause_unpause_required = frontend_pause_required(previous_profile, new_profile, restart_required);
     if (restart_required)
     {
         LOGGER__MODULE__INFO(MODULE_NAME, "Restarting pipeline");
@@ -759,12 +758,25 @@ media_library_return MediaLibrary::set_override_parameters(config_profile_t prof
             return stop_result;
         }
     }
-    media_library_return result = configure_isp(restart_required, previous_profile, new_profile);
+    else if (frontend_pause_unpause_required)
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Pausing frontend pipeline");
+        media_library_return pause_result = m_frontend->pause_pipeline();
+        if (pause_result != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to pause frontend pipeline");
+            return pause_result;
+        }
+    }
+
+    bool reconfigure_isp_required = restart_required || frontend_pause_unpause_required;
+    media_library_return result = configure_isp(reconfigure_isp_required, previous_profile, new_profile);
     if (result != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure ISP");
         return result;
     }
+
     media_library_return frontend_encoder_result = configure_frontend_encoder(
         m_media_lib_config_manager->get_frontend_config(), m_media_lib_config_manager->get_encoded_output_streams());
     if (frontend_encoder_result != MEDIA_LIBRARY_SUCCESS)
@@ -785,6 +797,16 @@ media_library_return MediaLibrary::set_override_parameters(config_profile_t prof
         {
             LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to start pipeline after profile change");
             return start_result;
+        }
+    }
+    else if (frontend_pause_unpause_required)
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Unpausing frontend pipeline");
+        media_library_return unpause_result = m_frontend->unpause_pipeline();
+        if (unpause_result != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to unpause frontend pipeline");
+            return unpause_result;
         }
     }
     return MEDIA_LIBRARY_SUCCESS;
@@ -838,8 +860,10 @@ bool MediaLibrary::validate_profile_restrictions(const config_profile_t &profile
 bool MediaLibrary::stream_restart_required(config_profile_t previous_profile, config_profile_t new_profile)
 {
     // ISP changes
-    bool restart_required =
-        previous_profile.sensor_config.sensor_configuration != new_profile.sensor_config.sensor_configuration;
+    bool restart_required = false;
+
+    restart_required |= previous_profile.iq_settings.hdr.enabled != new_profile.iq_settings.hdr.enabled;
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Restart required due to hdr change: {}", restart_required);
     // Res changes
     for (const auto &resolution : previous_profile.application_settings.application_input_streams.resolutions)
     {
@@ -856,8 +880,37 @@ bool MediaLibrary::stream_restart_required(config_profile_t previous_profile, co
     // if rotation is 90 or 180 restart is required
     restart_required |= previous_profile.application_settings.rotation.effective_value() !=
                         new_profile.application_settings.rotation.effective_value();
-    restart_required |= new_profile.iq_settings.denoise.bayer != previous_profile.iq_settings.denoise.bayer;
     return restart_required;
+}
+
+bool MediaLibrary::frontend_pause_required(config_profile_t previous_profile, config_profile_t new_profile,
+                                           bool restart_required)
+{
+    // pause is not relevant when restart is required
+    if (restart_required)
+    {
+        return false;
+    }
+
+    bool pause_required = false;
+    // Check for sensor configuration changes
+    auto &prev_sensor = previous_profile.sensor_config;
+    auto &new_sensor = new_profile.sensor_config;
+    auto &prev_res = prev_sensor.input_video.resolution;
+    auto &new_res = new_sensor.input_video.resolution;
+
+    pause_required |=
+        prev_res.width != new_res.width || prev_res.height != new_res.height || prev_res.framerate != new_res.framerate;
+    pause_required |= prev_sensor.input_video.source != new_sensor.input_video.source;
+    pause_required |= prev_sensor.input_video.source_type != new_sensor.input_video.source_type;
+    pause_required |= prev_sensor.input_video.sensor_index != new_sensor.input_video.sensor_index;
+    pause_required |= prev_sensor.sensor_calibration_file_path != new_sensor.sensor_calibration_file_path;
+    pause_required |= prev_sensor.sensor_configuration != new_sensor.sensor_configuration;
+    pause_required |= prev_sensor.input_video.sensor_index != new_sensor.input_video.sensor_index;
+
+    bool denoise_bayer_changed = new_profile.iq_settings.denoise.bayer != previous_profile.iq_settings.denoise.bayer;
+    pause_required |= denoise_bayer_changed;
+    return pause_required;
 }
 
 media_library_return MediaLibrary::set_profile(std::string profile_name)
@@ -869,9 +922,7 @@ media_library_return MediaLibrary::set_profile(std::string profile_name)
         LOGGER__MODULE__ERROR(MODULE_NAME, "Profile name '{}' does not exist in medialib_config", profile_name);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-    m_switching_full_profile = true;
     media_library_return status = set_override_parameters(profiles[profile_name]);
-    m_switching_full_profile = false;
     return status;
 }
 

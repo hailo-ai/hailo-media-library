@@ -22,6 +22,8 @@ class MediaLibraryFrontend::Impl final
     media_library_return subscribe(FrontendCallbacksMap callback);
     media_library_return start();
     media_library_return stop();
+    media_library_return pause_pipeline();
+    media_library_return unpause_pipeline();
     media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
     media_library_return set_config(const std::string &json_config);
     media_library_return set_config(const frontend_config_t &config);
@@ -30,6 +32,7 @@ class MediaLibraryFrontend::Impl final
     media_library_return set_freeze(bool freeze);
     void on_need_data(GstAppSrc *appsrc, guint size);
     bool is_started();
+    bool wait_for_pipeline_state(PipelineState target_state, std::chrono::milliseconds timeout);
     bool wait_for_main_loop(std::chrono::milliseconds timeout);
     void on_enough_data(GstAppSrc *appsrc);
     GstFlowReturn on_new_sample(output_stream_id_t id, GstAppSink *appsink);

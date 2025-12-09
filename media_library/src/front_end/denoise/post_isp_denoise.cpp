@@ -132,18 +132,32 @@ media_library_return MediaLibraryPostIspDenoise::create_and_initialize_buffer_po
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryPostIspDenoise::close_buffer_pools()
+media_library_return MediaLibraryPostIspDenoise::free_buffer_pools()
 {
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Closing Post-ISP denoise buffer pool");
+
+    if (m_output_buffer_pool == nullptr)
+    {
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Post-ISP buffer pool already closed or not initialized");
+        return media_library_return::MEDIA_LIBRARY_SUCCESS;
+    }
+
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Waiting for Post-ISP output buffer pool to release used buffers");
     if (m_output_buffer_pool->wait_for_used_buffers() != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to wait for used buffers to be released");
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
+
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Freeing Post-ISP output buffer pool");
     if (m_output_buffer_pool->free() != MEDIA_LIBRARY_SUCCESS)
     {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to free Post-ISP buffer pool");
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
 
+    m_output_buffer_pool = nullptr;
+    LOGGER__MODULE__INFO(MODULE_NAME, "Post-ISP buffer pool closed successfully");
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 

@@ -314,12 +314,12 @@ void DspImageEnhancement::update_dsp_params_from_isp()
 void DspImageEnhancement::read_params_from_isp()
 {
     struct mq_attr attr;
-    attr.mq_flags = 0;
+    attr.mq_flags = O_NONBLOCK;
     attr.mq_maxmsg = 10;
     attr.mq_msgsize = sizeof(m_isp_params);
     attr.mq_curmsgs = 0;
 
-    mqd_t mq = mq_open(isp_data, O_RDONLY | O_CREAT, 0666, &attr);
+    mqd_t mq = mq_open(isp_data, O_RDONLY | O_CREAT | O_NONBLOCK, 0666, &attr);
     if (mq == (mqd_t)-1)
     {
         LOGGER__MODULE__ERROR(
@@ -330,22 +330,23 @@ void DspImageEnhancement::read_params_from_isp()
     }
     while (m_running)
     {
-        struct timespec timeout;
-        int ret = clock_gettime(CLOCK_REALTIME, &timeout);
-        if (ret != 0)
-        {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get current time: {}", strerror(errno));
-            break;
-        }
-
-        timeout.tv_sec++; // Set the timeout to 1 second
         LOGGER__MODULE__TRACE(MODULE_NAME, "Reading from the message queue {} from ISP", isp_data);
-        ssize_t bytes_read =
-            mq_timedreceive(mq, reinterpret_cast<char *>(&m_isp_params), sizeof(m_isp_params), NULL, &timeout);
+
+        // Non-blocking receive, because mq_timedreceive uses CLOCK_REALTIME which is not immune to system time changes
+        ssize_t bytes_read = mq_receive(mq, reinterpret_cast<char *>(&m_isp_params), sizeof(m_isp_params), NULL);
+
         if (bytes_read < 0)
         {
-            if (errno == ETIMEDOUT)
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
             {
+                LOGGER__MODULE__TRACE(MODULE_NAME, "No message available, waiting 1 second");
+
+                // Instead of timeout in the receive function, wait 1 second between receive calls
+                struct timespec sleep_time;
+                sleep_time.tv_sec = 1;
+                sleep_time.tv_nsec = 0;
+                // Use CLOCK_MONOTONIC to be immune to system time changes
+                clock_nanosleep(CLOCK_MONOTONIC, 0, &sleep_time, NULL);
                 continue;
             }
             else

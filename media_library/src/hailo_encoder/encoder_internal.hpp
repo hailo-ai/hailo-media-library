@@ -87,7 +87,8 @@ enum encoder_config_type_t
     ENCODER_CONFIG_CODING_CONTROL,
     ENCODER_CONFIG_GOP,
     ENCODER_CONFIG_STREAM,
-    ENCODER_CONFIG_MONITORS
+    ENCODER_CONFIG_MONITORS,
+    ENCODER_CONFIG_MAX = ENCODER_CONFIG_MONITORS
 };
 
 enum class encoder_operation_t
@@ -275,6 +276,7 @@ class Encoder::Impl final
     VCEncProfile get_profile(bool codecH264);
     void bitrate_monitor_sample();
     void cycle_monitor_sample();
+    media_library_return prepare_empty_output_buffer(EncoderOutputBuffer &output, uint32_t frame_number);
     void monitor_write_to_file(std::ofstream &file, const std::string &data);
 };
 

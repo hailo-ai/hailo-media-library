@@ -17,12 +17,30 @@
 #include <nlohmann/json.hpp>
 
 static constexpr std::chrono::milliseconds MAIN_LOOP_WAIT_DURATION{100};
+static constexpr std::chrono::milliseconds PAUSE_WAIT_DURATION{100};
 
 #define OUTPUT_SINK_ID(idx) ("sink" + std::to_string(idx))
 #define OUTPUT_FPS_SINK_ID(idx) ("fpsdisplaysink" + std::to_string(idx))
 #define PRINT_FPS false
 
 #define MODULE_NAME LoggerType::Api
+
+static GstState pipeline_state_to_gst_state(PipelineState state)
+{
+    static const std::unordered_map<PipelineState, GstState> state_map = {
+        {PipelineState::VOID_PENDING, GST_STATE_VOID_PENDING},
+        {PipelineState::NULL_STATE, GST_STATE_NULL},
+        {PipelineState::READY, GST_STATE_READY},
+        {PipelineState::PAUSED, GST_STATE_PAUSED},
+        {PipelineState::PLAYING, GST_STATE_PLAYING}};
+
+    auto it = state_map.find(state);
+    if (it != state_map.end())
+    {
+        return it->second;
+    }
+    return GST_STATE_VOID_PENDING;
+}
 
 MediaLibraryFrontend::MediaLibraryFrontend(std::shared_ptr<Impl> impl) : m_impl(impl)
 {
@@ -47,6 +65,16 @@ media_library_return MediaLibraryFrontend::start()
 media_library_return MediaLibraryFrontend::stop()
 {
     return m_impl->stop();
+}
+
+media_library_return MediaLibraryFrontend::pause_pipeline()
+{
+    return m_impl->pause_pipeline();
+}
+
+media_library_return MediaLibraryFrontend::unpause_pipeline()
+{
+    return m_impl->unpause_pipeline();
 }
 
 media_library_return MediaLibraryFrontend::set_config(const std::string &json_config)
@@ -83,6 +111,11 @@ media_library_return MediaLibraryFrontend::set_config(const frontend_config_t &c
 std::unordered_map<output_stream_id_t, float> MediaLibraryFrontend::get_output_streams_current_fps()
 {
     return m_impl->get_output_streams_current_fps();
+}
+
+bool MediaLibraryFrontend::wait_for_pipeline_state(PipelineState target_state, std::chrono::milliseconds timeout)
+{
+    return m_impl->wait_for_pipeline_state(target_state, timeout);
 }
 
 media_library_return MediaLibraryFrontend::set_freeze(bool freeze)
@@ -349,6 +382,89 @@ media_library_return MediaLibraryFrontend::Impl::stop()
     return MEDIA_LIBRARY_SUCCESS;
 }
 
+media_library_return MediaLibraryFrontend::Impl::pause_pipeline()
+{
+    if (!is_started())
+    {
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Pausing frontend gst pipeline");
+    GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_PAUSED);
+
+    if (ret == GST_STATE_CHANGE_FAILURE)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to pause pipeline");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    // Wait for pipeline to reach paused state
+    if (!wait_for_pipeline_state(PipelineState::PAUSED, PAUSE_WAIT_DURATION))
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Pipeline did not reach PAUSED state within timeout");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    // Stop v4l2src element
+    auto frontendbinsrc = glib_cpp::ptrs::get_bin_by_name(m_pipeline, "frontend");
+    if (frontendbinsrc != nullptr)
+    {
+        GstElementPtr v4l2src = glib_cpp::ptrs::get_bin_by_name(frontendbinsrc, "v4l2src");
+        if (v4l2src != nullptr)
+        {
+            LOGGER__MODULE__INFO(MODULE_NAME, "Setting v4l2src state to NULL");
+            GstStateChangeReturn v4l2_ret = gst_element_set_state(v4l2src, GST_STATE_NULL);
+            if (v4l2_ret == GST_STATE_CHANGE_FAILURE)
+            {
+                LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set v4l2src to NULL state");
+                return MEDIA_LIBRARY_ERROR;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        else
+        {
+            LOGGER__MODULE__WARNING(MODULE_NAME, "Could not find v4l2src element in frontendbinsrc");
+        }
+    }
+    else
+    {
+        LOGGER__MODULE__WARNING(MODULE_NAME, "Could not find frontendbinsrc element");
+    }
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return MediaLibraryFrontend::Impl::unpause_pipeline()
+{
+    if (!is_started())
+    {
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    GstState state;
+    GstStateChangeReturn ret = gst_element_get_state(m_pipeline, &state, NULL, GST_CLOCK_TIME_NONE);
+    if (ret == GST_STATE_CHANGE_SUCCESS && state == GST_STATE_PLAYING)
+    {
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+
+    ret = gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
+
+    if (ret == GST_STATE_CHANGE_FAILURE)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to unpause pipeline");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    if (!wait_for_main_loop(MAIN_LOOP_WAIT_DURATION))
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to start main loop thread");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
 media_library_return MediaLibraryFrontend::Impl::set_config(const std::string &json_config)
 {
     if (!json_config.empty() && (json_config == m_json_config_str))
@@ -446,6 +562,29 @@ bool MediaLibraryFrontend::Impl::wait_for_main_loop(std::chrono::milliseconds ti
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
+
+    return true;
+}
+
+bool MediaLibraryFrontend::Impl::wait_for_pipeline_state(PipelineState target_state, std::chrono::milliseconds timeout)
+{
+    if (m_pipeline == nullptr)
+    {
+        return false;
+    }
+
+    GstState gst_target_state = pipeline_state_to_gst_state(target_state);
+    auto start_time = std::chrono::steady_clock::now();
+    GstState curr, pending;
+    do
+    {
+        gst_element_get_state(m_pipeline, &curr, &pending, 0);
+        if (std::chrono::steady_clock::now() - start_time > timeout)
+        {
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    } while (curr != gst_target_state);
 
     return true;
 }

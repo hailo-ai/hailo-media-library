@@ -227,7 +227,6 @@ class MediaLibrary
     std::function<void(config_profile_t, config_profile_t)> m_profile_restricted_callback;
     std::function<void()> m_profile_restriction_done_callback;
     std::optional<std::string> m_active_aaa_config_path;
-    bool m_switching_full_profile;
 
     media_library_return stop_pipeline_internal();
     media_library_return start_pipeline_internal();
@@ -346,4 +345,15 @@ class MediaLibrary
      */
     media_library_return configure_privacy_mask(MediaLibraryEncoderPtr encoder,
                                                 const privacy_mask_config_t &privacy_mask_config);
+
+    /**
+     * @brief Checks if frontend pause/unpause is required based on the provided profile.
+     * @param previous_profile The configuration of the previously active profile.
+     * @param new_profile The configuration of the new profile.
+     * @param restart_required Indicates whether a stream restart is required. if restart is required, pause is not
+     * relevant.
+     * @return A boolean value indicating whether frontend pause/unpause is required.
+     */
+    bool frontend_pause_required(config_profile_t previous_profile, config_profile_t new_profile,
+                                 bool restart_required);
 };

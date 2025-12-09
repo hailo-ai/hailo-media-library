@@ -158,7 +158,7 @@ static void gst_hailofrontendbinsrc_init(GstHailoFrontendBinSrc *hailofrontendbi
         std::make_shared<MediaLibraryPreIspDenoise>(hailofrontendbinsrc->params->m_v4l2_ctrl_manager);
     // Prepare internal elements
     // v4l2src
-    hailofrontendbinsrc->params->m_v4l2src = gst_element_factory_make("v4l2src", NULL);
+    hailofrontendbinsrc->params->m_v4l2src = gst_element_factory_make("v4l2src", "v4l2src");
     if (nullptr == hailofrontendbinsrc->params->m_v4l2src)
     {
         GST_ELEMENT_ERROR(hailofrontendbinsrc, RESOURCE, FAILED, ("Failed creating v4l2src element in bin!"), (NULL));
@@ -254,6 +254,7 @@ static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, fro
     if (!config_string.empty())
     {
         g_object_set(self->params->m_frontend, "config-string", config_string.c_str(), NULL);
+        GST_DEBUG_OBJECT(self, "Configure Pre ISP Denoise with string: %s", config_string.c_str());
         if (self->params->m_pre_isp_denoise->configure(config_string) != MEDIA_LIBRARY_SUCCESS)
             GST_ERROR_OBJECT(self, "configuration error: Pre ISP Denoise");
     }
@@ -326,6 +327,7 @@ void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id, co
         g_object_set(self->params->m_frontend, "dewarp-config", &(config->ldc_config), NULL);
         g_object_set(self->params->m_frontend, "denoise-config", config, NULL);
         g_object_set(self->params->m_frontend, "multi-resize-config", &(config->multi_resize_config), NULL);
+        GST_DEBUG_OBJECT(self, "Configure Pre ISP Denoise with config struct");
         self->params->m_pre_isp_denoise->configure(config->denoise_config, config->hailort_config,
                                                    config->input_config);
         gst_hailofrontendbinsrc_set_config(self, *config);
@@ -468,6 +470,22 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
                 GST_ERROR_OBJECT(self, "Failed to setup SDR");
                 return GST_STATE_CHANGE_FAILURE;
             }
+        }
+        break;
+    }
+    case GST_STATE_CHANGE_PAUSED_TO_PLAYING: {
+        if (self->params->m_pre_isp_denoise->is_enabled())
+        {
+            GST_DEBUG_OBJECT(self, "Intializing Pre-ISP Denoise");
+            if (self->params->m_pre_isp_denoise->init() != MEDIA_LIBRARY_SUCCESS)
+            {
+                GST_ERROR_OBJECT(self, "Failed to initialize Pre-ISP Denoise");
+                return GST_STATE_CHANGE_FAILURE;
+            }
+        }
+        else
+        {
+            self->params->m_pre_isp_denoise->deinit();
         }
         break;
     }

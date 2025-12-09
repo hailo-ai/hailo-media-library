@@ -126,6 +126,20 @@ class MediaLibraryFrontend
     media_library_return stop();
 
     /**
+     * @brief Pause the MediaLibraryFrontend module, the MediaLibraryFrontend
+     * module will pause processing and wait for the pipeline to reach paused state.
+     * @return media_library_return - status of the pause operation
+     */
+    media_library_return pause_pipeline();
+
+    /**
+     * @brief Unpause the MediaLibraryFrontend module, the MediaLibraryFrontend
+     * module will resume processing and wait for the pipeline to reach playing state.
+     * @return media_library_return - status of the unpause operation
+     */
+    media_library_return unpause_pipeline();
+
+    /**
      * @brief Configure the MediaLibraryFrontend module with the given
      * configuration.
      * @param[in] json_config - a json string containing the configuration
@@ -198,4 +212,17 @@ class MediaLibraryFrontend
      *
      */
     media_library_return set_freeze(bool freeze);
+
+    /**
+     * @brief Wait for the pipeline to reach a target state
+     *
+     * This function waits for the frontend pipeline to transition to the specified target state
+     * within the specified timeout period.
+     *
+     * @param target_state - the PipelineState to wait for (e.g., PipelineState::PLAYING,
+     * PipelineState::PAUSED)
+     * @param timeout - the maximum time to wait for the pipeline to reach the target state
+     * @return bool - true if the pipeline reached the target state within the timeout, false otherwise
+     */
+    bool wait_for_pipeline_state(PipelineState target_state, std::chrono::milliseconds timeout);
 };

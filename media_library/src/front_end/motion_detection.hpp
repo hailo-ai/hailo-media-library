@@ -32,6 +32,7 @@ class MotionDetection
   public:
     MotionDetection();
     MotionDetection(motion_detection_config_t &motion_detection_config);
+    void deinit();
 
     media_library_return perform_motion_detection(std::vector<HailoMediaLibraryBufferPtr> &output_frames);
     media_library_return allocate_motion_detection(uint32_t max_buffer_pool_size);

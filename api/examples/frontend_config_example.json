@@ -108,13 +108,14 @@
             "framerate": 30
         },
         "roi": {
-            "x": 200,
-            "y": 200,
+            "x": 0,
+            "y": 0,
             "width": 640,
             "height": 480
         },
         "sensitivity_level": "MEDIUM",
-        "threshold": 0.5
+        "threshold": 0.5,
+        "buffer_pool_size": 8
     },
     "rotation": {
         "enabled": false,

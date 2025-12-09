@@ -51,7 +51,8 @@
             "height": 480
         },
         "sensitivity_level": "MEDIUM",
-        "threshold": 0.5
+        "threshold": 0.5,
+        "buffer_pool_size": 8
     },
     "rotation": {
         "enabled": false,
