@@ -153,6 +153,10 @@ class MediaLibraryDenoise
     void queue_inference_callback_buffer(HailoMediaLibraryBufferPtr buffer);
     HailoMediaLibraryBufferPtr dequeue_inference_callback_buffer();
 
+    // Helper methods for derived classes to manage inference callback thread
+    void start_inference_callback_thread();
+    void stop_inference_callback_thread();
+
     // virtual functions to override
     virtual bool currently_enabled() = 0;
     virtual bool enabled(const denoise_config_t &denoise_configs) = 0;
@@ -161,7 +165,7 @@ class MediaLibraryDenoise
     virtual bool network_changed(const denoise_config_t &denoise_configs, const hailort_t &hailort_configs) = 0;
     virtual media_library_return create_and_initialize_buffer_pools(
         const input_video_config_t &input_video_configs) = 0;
-    virtual media_library_return close_buffer_pools() = 0;
+    virtual media_library_return free_buffer_pools() = 0;
     virtual media_library_return acquire_output_buffer(HailoMediaLibraryBufferPtr output_buffer) = 0;
     virtual bool process_inference(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr loopback_buffer,
                                    HailoMediaLibraryBufferPtr output_buffer) = 0;

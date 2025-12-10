@@ -1194,6 +1194,11 @@ static const nlohmann::json multi_resize_motion_detection_config_schema = R"(
           },
           "sensitivity_level": {
             "type": "string"
+          },
+          "buffer_pool_size": {
+            "type": "number",
+            "minimum": 0,
+            "default": 8
           }
         },
         "additionalProperties": false,
@@ -1202,7 +1207,8 @@ static const nlohmann::json multi_resize_motion_detection_config_schema = R"(
           "roi",
           "resolution",
           "threshold",
-          "sensitivity_level"
+          "sensitivity_level",
+          "buffer_pool_size"
         ]
       }
     }

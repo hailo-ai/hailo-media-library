@@ -159,6 +159,10 @@ static void gst_hailo_denoise_set_property(GObject *object, guint property_id, c
         }
         else
         {
+            // Always configure Post-ISP denoise so it knows when to disable
+            // When bayer=true, Post-ISP will see disabled() return true and clean up resources
+            GST_DEBUG_OBJECT(self, "Configure Post-ISP Denoise with config (bayer=%s)",
+                             self->params->m_frontend_config->denoise_config.bayer ? "true" : "false");
             media_library_return config_status = self->params->medialib_denoise->configure(
                 self->params->m_frontend_config->denoise_config, self->params->m_frontend_config->hailort_config,
                 self->params->m_frontend_config->input_config);
@@ -187,6 +191,10 @@ static void gst_hailo_denoise_set_property(GObject *object, guint property_id, c
         }
         else
         {
+            // Always configure Post-ISP denoise so it knows when to disable
+            // When bayer=true, Post-ISP will see disabled() return true and clean up resources
+            GST_DEBUG_OBJECT(self, "Configure Post-ISP Denoise with config (bayer=%s)",
+                             self->params->m_frontend_config->denoise_config.bayer ? "true" : "false");
             media_library_return config_status = self->params->medialib_denoise->configure(
                 self->params->m_frontend_config->denoise_config, self->params->m_frontend_config->hailort_config,
                 self->params->m_frontend_config->input_config);
@@ -198,16 +206,23 @@ static void gst_hailo_denoise_set_property(GObject *object, guint property_id, c
     case PROP_CONFIG: {
         frontend_config_t *frontend_config = static_cast<frontend_config_t *>(g_value_get_pointer(value));
         self->params->m_frontend_config = std::make_unique<frontend_config_t>(*frontend_config);
+
+        // Always configure Post-ISP denoise so it knows when to disable
+        // When bayer=true, Post-ISP will see disabled() return true and clean up resources
         if (self->params->medialib_denoise == nullptr)
         {
             gst_hailo_denoise_create(self, *frontend_config);
         }
-
-        if (self->params->medialib_denoise->configure(frontend_config->denoise_config, frontend_config->hailort_config,
-                                                      frontend_config->input_config) != MEDIA_LIBRARY_SUCCESS)
+        else
         {
-            GST_ERROR_OBJECT(self, "Failed to configure dewarp with denoise_config_t object");
-            return;
+            GST_DEBUG_OBJECT(self, "Configure Post-ISP Denoise with config struct (bayer=%s)",
+                             frontend_config->denoise_config.bayer ? "true" : "false");
+            if (self->params->medialib_denoise->configure(frontend_config->denoise_config,
+                                                          frontend_config->hailort_config,
+                                                          frontend_config->input_config) != MEDIA_LIBRARY_SUCCESS)
+            {
+                GST_ERROR_OBJECT(self, "Failed to configure Post-ISP denoise with denoise_config_t object");
+            }
         }
         break;
     }
@@ -245,11 +260,19 @@ static void gst_hailo_denoise_get_property(GObject *object, guint property_id, G
 static gboolean gst_hailo_denoise_create(GstHailoDenoise *self, const frontend_config_t &frontend_config)
 // gst_hailo_denoise_create(GstHailoDenoise *self)
 {
+    // Only create Post-ISP denoise if Pre-ISP is not active (bayer=false)
+    if (frontend_config.denoise_config.bayer)
+    {
+        GST_DEBUG_OBJECT(self, "Pre-ISP denoise is active (bayer=true), not creating Post-ISP denoise instance");
+        return TRUE; // Return success but don't create the instance
+    }
+
+    GST_DEBUG_OBJECT(self, "Configure Post-ISP Denoise with config struct (Pre-ISP disabled)");
     auto medialb_denoise = std::make_shared<MediaLibraryPostIspDenoise>();
     if (medialb_denoise->configure(frontend_config.denoise_config, frontend_config.hailort_config,
                                    frontend_config.input_config) != MEDIA_LIBRARY_SUCCESS)
     {
-        GST_ERROR_OBJECT(self, "Failed to config denoise");
+        GST_ERROR_OBJECT(self, "Failed to config Post-ISP denoise");
         return FALSE;
     }
 

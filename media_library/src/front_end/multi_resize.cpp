@@ -314,6 +314,11 @@ MediaLibraryMultiResize::Impl::Impl(media_library_return &status, std::string co
 
 MediaLibraryMultiResize::Impl::~Impl()
 {
+    if (m_multi_resize_config.motion_detection_config.enabled)
+    {
+        m_motion_detection.deinit();
+    }
+
     m_multi_resize_config.application_input_streams_config.resolutions.clear();
     dsp_status status = dsp_utils::release_device();
     if (status != DSP_SUCCESS)

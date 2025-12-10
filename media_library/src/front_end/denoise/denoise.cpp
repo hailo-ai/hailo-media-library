@@ -109,10 +109,13 @@ media_library_return MediaLibraryDenoise::configure(const denoise_config_t &deno
                                                     const hailort_t &hailort_configs,
                                                     const input_video_config_t &input_video_configs)
 {
-    LOGGER__MODULE__INFO(MODULE_NAME, "Configuring denoise");
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Configuring denoise - enabled: {}, bayer: {}, loopback_count: {}",
+                          denoise_configs.enabled, denoise_configs.bayer, denoise_configs.loopback_count);
     std::unique_lock<std::shared_mutex> lock(rw_lock);
 
     bool enabled_changed = enable_changed(denoise_configs);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Configuration state - enabled_changed: {}, currently_enabled: {}",
+                          enabled_changed, currently_enabled());
     LOGGER__MODULE__INFO(MODULE_NAME, "NOTE: Loopback limit configurations are only applied when denoise is enabled.");
 
     if (!enabled_changed && !denoise_configs.enabled)
@@ -123,17 +126,21 @@ media_library_return MediaLibraryDenoise::configure(const denoise_config_t &deno
 
     if (network_changed(denoise_configs, hailort_configs))
     {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Network configuration changed, reinitializing HailoRT with device_id: {}",
+                             hailort_configs.device_id);
         if (!m_hailort_denoise->set_config(denoise_configs, hailort_configs.device_id, HAILORT_SCHEDULER_THRESHOLD,
                                            HAILORT_SCHEDULER_TIMEOUT, HAILORT_SCHEDULER_BATCH_SIZE))
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init hailort");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init hailort with device_id: {}", hailort_configs.device_id);
             return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
+        LOGGER__MODULE__INFO(MODULE_NAME, "HailoRT configuration updated successfully");
     }
 
     // check if enabling
     if (enabled(denoise_configs))
     {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Enabling denoise - initializing buffer pools and threads");
         media_library_return ret = create_and_initialize_buffer_pools(input_video_configs);
         if (ret != MEDIA_LIBRARY_SUCCESS)
         {
@@ -145,28 +152,38 @@ media_library_return MediaLibraryDenoise::configure(const denoise_config_t &deno
         m_loopback_limit = denoise_configs.loopback_count;
         m_flushing = false;
         m_inference_callback_thread = std::thread(&MediaLibraryDenoise::inference_callback_thread, this);
+        LOGGER__MODULE__INFO(MODULE_NAME, "Denoise enabled successfully - loopback_limit: {}", m_loopback_limit);
     }
 
     // check if disabling
     if (disabled(denoise_configs))
     {
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "Denoise disable requested, starting flushing");
+        LOGGER__MODULE__INFO(MODULE_NAME, "Disabling denoise - stopping threads and cleaning up resources");
         m_flushing = true;
 
+        LOGGER__MODULE__TRACE(MODULE_NAME, "Notifying inference callback thread to stop");
         m_inference_callback_condvar.notify_all();
 
         if (m_inference_callback_thread.joinable())
+        {
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "Waiting for inference callback thread to join");
             m_inference_callback_thread.join();
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "Inference callback thread joined successfully");
+        }
 
+        LOGGER__MODULE__TRACE(MODULE_NAME, "Clearing loopback and timestamp queues");
         m_loopback_condvar.notify_all();
         clear_loopback_queue();
         m_timestamp_condvar.notify_all();
         clear_timestamp_queue();
 
-        if (close_buffer_pools() != MEDIA_LIBRARY_SUCCESS)
+        LOGGER__MODULE__TRACE(MODULE_NAME, "Closing buffer pools");
+        if (free_buffer_pools() != MEDIA_LIBRARY_SUCCESS)
         {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to close buffer pools during disable");
             return media_library_return::MEDIA_LIBRARY_ERROR;
         }
+        LOGGER__MODULE__INFO(MODULE_NAME, "Denoise disabled successfully");
     }
 
     // Call observing callbacks in case configuration changed
@@ -221,14 +238,19 @@ void MediaLibraryDenoise::stamp_time_and_log_fps(timespec &start_handle)
 media_library_return MediaLibraryDenoise::perform_initial_batch(HailoMediaLibraryBufferPtr input_buffer,
                                                                 HailoMediaLibraryBufferPtr output_buffer)
 {
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Performing initial batch - loop_counter: {}, loopback_limit: {}",
+                          m_loop_counter, m_loopback_limit);
+
     if (!process_inference(input_buffer, input_buffer, output_buffer))
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to process denoise, during initial batch");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to process denoise during initial batch - loop_counter: {}",
+                              m_loop_counter);
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
 
     if ((m_loop_counter + 1) == m_loopback_limit)
     {
+        LOGGER__MODULE__TRACE(MODULE_NAME, "Initial batch complete - queuing {} loopback buffers", m_loopback_limit);
         for (int i = 0; i < m_loopback_limit; i++)
         {
             queue_loopback_buffer(output_buffer);
@@ -237,6 +259,8 @@ media_library_return MediaLibraryDenoise::perform_initial_batch(HailoMediaLibrar
 
     m_loop_counter++;
     m_loopback_batch_counter++;
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Initial batch processed - loop_counter: {}, batch_counter: {}", m_loop_counter,
+                          m_loopback_batch_counter);
 
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
@@ -252,9 +276,14 @@ media_library_return MediaLibraryDenoise::perform_initial_batch(HailoMediaLibrar
 media_library_return MediaLibraryDenoise::perform_subsequent_batches(HailoMediaLibraryBufferPtr input_buffer,
                                                                      HailoMediaLibraryBufferPtr output_buffer)
 {
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Performing subsequent batch - batch_counter: {}, loopback_limit: {}",
+                          m_loopback_batch_counter, m_loopback_limit);
+
     // Loopback in batches of m_loopback_limit
     if ((m_loopback_batch_counter + 1) % m_loopback_limit == 0)
     {
+        LOGGER__MODULE__TRACE(MODULE_NAME, "Batch complete - resetting counter and queuing {} loopback buffers",
+                              m_loopback_limit);
         m_loopback_batch_counter = 0;
 
         for (int i = 0; i < m_loopback_limit; i++)
@@ -273,18 +302,22 @@ media_library_return MediaLibraryDenoise::perform_subsequent_batches(HailoMediaL
     {
         if (m_flushing)
         {
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "Flushing in progress - returning success with null loopback buffer");
             return media_library_return::MEDIA_LIBRARY_SUCCESS;
         }
-        LOGGER__MODULE__ERROR(MODULE_NAME, "loopback buffer is null");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Loopback buffer is null - batch_counter: {}", m_loopback_batch_counter);
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
 
     if (!process_inference(input_buffer, loopback_buffer, output_buffer))
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to process denoise");
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to process denoise in subsequent batch - batch_counter: {}",
+                              m_loopback_batch_counter);
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
 
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Subsequent batch processed successfully - batch_counter: {}",
+                          m_loopback_batch_counter);
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -327,7 +360,7 @@ media_library_return MediaLibraryDenoise::handle_frame(HailoMediaLibraryBufferPt
 {
     if (!is_enabled())
     {
-        LOGGER__MODULE__INFO(MODULE_NAME, "Denoise is disabled - skipping handle_frame");
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Denoise is disabled globally - skipping handle_frame");
         return media_library_return::MEDIA_LIBRARY_UNINITIALIZED;
     }
 
@@ -335,9 +368,13 @@ media_library_return MediaLibraryDenoise::handle_frame(HailoMediaLibraryBufferPt
 
     if (!currently_enabled())
     {
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "Denoise is disabled, skipping denoise [handle_frame]");
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Denoise is currently disabled - skipping denoise processing");
         return media_library_return::MEDIA_LIBRARY_SUCCESS;
     }
+
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Processing frame - loop_counter: {}, batch_counter: {}", m_loop_counter,
+                          m_loopback_batch_counter);
+
     // Stamp start time and queue for retrieval after inference
     struct timespec start_handle;
     clock_gettime(CLOCK_MONOTONIC, &start_handle);
@@ -348,8 +385,13 @@ media_library_return MediaLibraryDenoise::handle_frame(HailoMediaLibraryBufferPt
     media_library_return media_lib_ret = perform_denoise(input_frame, output_frame);
 
     if (media_lib_ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to perform denoise in handle_frame - result: {}",
+                              static_cast<int>(media_lib_ret));
         return media_lib_ret;
+    }
 
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Frame processed successfully");
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -379,20 +421,26 @@ media_library_return MediaLibraryDenoise::observe(const MediaLibraryDenoise::cal
 
 void MediaLibraryDenoise::inference_callback_thread()
 {
+    LOGGER__MODULE__INFO(MODULE_NAME, "Inference callback thread started");
+
     while (true)
     {
         std::unique_lock<std::mutex> lock(m_inference_callback_mutex);
         if (m_flushing && !m_hailort_denoise->has_pending_jobs() && m_inference_callback_queue.empty())
         {
-            LOGGER__MODULE__INFO(MODULE_NAME, "Inference callback thread is exiting");
+            LOGGER__MODULE__INFO(MODULE_NAME, "Inference callback thread exiting - flushing complete");
             return;
         }
         lock.unlock();
+
         HailoMediaLibraryBufferPtr output_buffer = dequeue_inference_callback_buffer();
         if (output_buffer == nullptr)
         {
             continue;
         }
+
+        LOGGER__MODULE__TRACE(MODULE_NAME, "Processing inference callback - queue size: {}",
+                              m_inference_callback_queue.size());
 
         // This is when we push the output buffer, so stamp now for latency measurement
         auto timestamp_opt = dequeue_timestamp_buffer();
@@ -413,6 +461,8 @@ void MediaLibraryDenoise::inference_callback_thread()
         {
             SnapshotManager::get_instance().take_snapshot("post_isp_denoise", output_buffer);
         }
+
+        LOGGER__MODULE__TRACE(MODULE_NAME, "Inference callback processed successfully");
     }
 }
 
@@ -428,6 +478,7 @@ void MediaLibraryDenoise::queue_loopback_buffer(HailoMediaLibraryBufferPtr buffe
     std::unique_lock<std::mutex> lock(m_loopback_mutex);
     m_loopback_condvar.wait(lock, [this] { return m_loopback_queue.size() < m_queue_size; });
     m_loopback_queue.push(buffer);
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Queued loopback buffer - queue size: {}", m_loopback_queue.size());
     HAILO_MEDIA_LIBRARY_TRACE_COUNTER("loopback queue", m_loopback_queue.size(), DENOISE_TRACK);
     m_loopback_condvar.notify_one();
 }
@@ -438,10 +489,12 @@ HailoMediaLibraryBufferPtr MediaLibraryDenoise::dequeue_loopback_buffer()
     m_loopback_condvar.wait(lock, [this] { return !m_loopback_queue.empty() || m_flushing; });
     if (m_loopback_queue.empty())
     {
+        LOGGER__MODULE__TRACE(MODULE_NAME, "Loopback queue is empty, returning nullptr");
         return nullptr;
     }
     HailoMediaLibraryBufferPtr buffer = m_loopback_queue.front();
     m_loopback_queue.pop();
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Dequeued loopback buffer - remaining queue size: {}", m_loopback_queue.size());
     HAILO_MEDIA_LIBRARY_TRACE_COUNTER("loopback queue", m_loopback_queue.size(), DENOISE_TRACK);
     m_loopback_condvar.notify_one();
     return buffer;
@@ -520,4 +573,41 @@ void MediaLibraryDenoise::clear_timestamp_queue()
         m_timestamp_queue.pop();
     }
     m_timestamp_condvar.notify_one();
+}
+
+void MediaLibraryDenoise::start_inference_callback_thread()
+{
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Starting inference callback thread");
+    if (!m_inference_callback_thread.joinable())
+    {
+        m_flushing = false;
+        m_inference_callback_thread = std::thread(&MediaLibraryDenoise::inference_callback_thread, this);
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Inference callback thread started successfully");
+    }
+    else
+    {
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Inference callback thread already running");
+    }
+}
+
+void MediaLibraryDenoise::stop_inference_callback_thread()
+{
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Stopping inference callback thread");
+    m_flushing = true;
+
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Notifying inference callback thread to stop");
+    m_inference_callback_condvar.notify_all();
+
+    if (m_inference_callback_thread.joinable())
+    {
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Waiting for inference callback thread to join");
+        m_inference_callback_thread.join();
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Inference callback thread joined successfully");
+    }
+
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Clearing callback queues");
+    m_loopback_condvar.notify_all();
+    clear_loopback_queue();
+    m_timestamp_condvar.notify_all();
+    clear_timestamp_queue();
 }

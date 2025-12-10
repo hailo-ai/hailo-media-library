@@ -135,6 +135,13 @@ tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::encode_ex
         LOGGER__MODULE__ERROR(MODULE_NAME, "Invalid encoder operation");
         ret = MEDIA_LIBRARY_ERROR;
     }
+    if (encoder_ret_code == VCENC_HW_TIMEOUT)
+    {
+        LOGGER__MODULE__WARN(MODULE_NAME,
+                             "Encode frame returned hardware timeout - Sending empty frame and restarting encoder sw");
+
+        m_stream_restart = STREAM_RESTART_HARD;
+    }
     unshare_ret_code = EWLUnshareDmabuf(m_ewl, buffer_ptr->get_plane_fd(0));
     if (unshare_ret_code != EWL_OK)
     {
@@ -528,6 +535,12 @@ media_library_return Encoder::Impl::stream_restart()
         }
     }
 
+    m_update_required.clear();
+    for (int i = 0; i <= ENCODER_CONFIG_MAX; ++i)
+    {
+        m_update_required.push_back(static_cast<encoder_config_type_t>(i));
+    }
+
     if (update_configurations() != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder restart - Failed to update configurations");
@@ -831,6 +844,25 @@ static void releaseDmabuf(HailoMediaLibraryBufferPtr buf, void *ewl)
     }
 }
 
+media_library_return Encoder::Impl::prepare_empty_output_buffer(EncoderOutputBuffer &output, uint32_t frame_number)
+{
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Preparing empty output buffer");
+    output.size = 0;
+    output.frame_number = frame_number;
+
+    // Allocate empty buffer output on error
+    output.encoder_ret_code = VCENC_ERROR;
+    HailoMediaLibraryBufferPtr buffer_ptr = std::make_shared<hailo_media_library_buffer>();
+    if (m_buffer_pool->acquire_buffer(buffer_ptr) != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to acquire buffer");
+        return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+    }
+    output.buffer = buffer_ptr;
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
 media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
                                                  std::vector<EncoderOutputBuffer> &outputs, uint32_t frame_number)
 {
@@ -851,18 +883,39 @@ media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
         m_enc_in.poc = 0;
         m_enc_in.resendSPS = 1;
         m_enc_in.resendPPS = 1;
+        m_enc_in.resendVPS = 1;
         m_counters.last_idr_picture_cnt = m_counters.picture_cnt;
     }
     else
     {
         m_enc_in.resendSPS = 0;
         m_enc_in.resendPPS = 0;
+        m_enc_in.resendVPS = 0;
     }
 
     clock_gettime(CLOCK_MONOTONIC, &start_encode);
     auto expected_encoded_frame = encode_executer(encoder_operation_t::ENCODER_OPERATION_ENCODE);
     if (!expected_encoded_frame.has_value())
     {
+        if (buf->is_dmabuf())
+        {
+            for (uint32_t i = 0; i < buf->get_num_of_planes(); ++i)
+            {
+                for (uint32_t j = 0; j <= i; j++)
+                {
+                    EWLUnshareDmabuf(m_ewl, buf->get_plane_fd(j));
+                }
+            }
+        }
+
+        EncoderOutputBuffer output;
+        media_library_return ret = prepare_empty_output_buffer(output, frame_number);
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to prepare empty output buffer");
+            return ret;
+        }
+        outputs.emplace_back(output);
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to encode frame");
         return MEDIA_LIBRARY_ENCODER_ENCODE_ERROR;
     }
@@ -1162,6 +1215,7 @@ std::vector<EncoderOutputBuffer> Encoder::Impl::handle_frame(HailoMediaLibraryBu
 
     if (m_stream_restart != STREAM_RESTART_NONE)
     {
+        LOGGER__MODULE__WARN(MODULE_NAME, "Restarting encoder, reset type: {}", m_stream_restart);
         if (stream_restart() != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder - encode_frame - Failed to restart stream");

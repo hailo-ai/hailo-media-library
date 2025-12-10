@@ -93,8 +93,9 @@ class MediaLibraryPreIspDenoise final : public MediaLibraryDenoise
     std::atomic<bool> m_isp_thread_running;
 
     media_library_return start_isp_thread();
-    media_library_return stop_isp_thread();
+    void stop_isp_thread();
     bool wait_for_stream_start();
+
     uint16_t get_dgain();
     uint16_t get_bls(v4l2::Video0Ctrl ctrl);
     void write_output_buffer(HailoMediaLibraryBufferPtr output_buffer);
@@ -106,7 +107,7 @@ class MediaLibraryPreIspDenoise final : public MediaLibraryDenoise
     bool enable_changed(const denoise_config_t &denoise_configs) override;
     bool network_changed(const denoise_config_t &denoise_configs, const hailort_t &hailort_configs) override;
     media_library_return create_and_initialize_buffer_pools(const input_video_config_t &input_video_configs) override;
-    media_library_return close_buffer_pools() override;
+    media_library_return free_buffer_pools() override;
     media_library_return acquire_output_buffer(HailoMediaLibraryBufferPtr output_buffer) override;
     media_library_return acquire_dgain_buffer(HailoMediaLibraryBufferPtr dgain_buffer);
     media_library_return acquire_bls_buffer(HailoMediaLibraryBufferPtr bls_buffer);

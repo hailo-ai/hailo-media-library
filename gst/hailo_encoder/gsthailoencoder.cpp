@@ -556,7 +556,6 @@ static GstFlowReturn gst_hailo_encoder_finish(GstVideoEncoder *encoder)
 static GstFlowReturn gst_hailo_encoder_encode_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *input_frame)
 {
     GstHailoEncoder *hailoencoder = (GstHailoEncoder *)encoder;
-    GstBuffer *null_buffer;
     HailoMediaLibraryBufferPtr hailo_buffer_ptr =
         hailo_buffer_from_gst_buffer(input_frame->input_buffer, hailoencoder->params->input_state->caps);
     if (!hailo_buffer_ptr)
@@ -570,6 +569,8 @@ static GstFlowReturn gst_hailo_encoder_encode_frame(GstVideoEncoder *encoder, Gs
 
     for (EncoderOutputBuffer &output : outputs)
     {
+        GST_DEBUG_OBJECT(hailoencoder, "Encode fram - Processing output of size %u for frame number %u", output.size,
+                         output.frame_number);
         auto current_frame = gst_video_encoder_get_frame(encoder, output.frame_number);
         if (current_frame == nullptr)
         {
@@ -579,24 +580,39 @@ static GstFlowReturn gst_hailo_encoder_encode_frame(GstVideoEncoder *encoder, Gs
 
         if (output.size == 0)
         {
-            GST_INFO_OBJECT(hailoencoder, "Send null buffer");
-            null_buffer = gst_buffer_new();
-            gst_buffer_set_size(null_buffer, 0);
-            current_frame->output_buffer = null_buffer;
+            GST_INFO_OBJECT(hailoencoder, "got null buffer");
+        }
+
+        if (!hailoencoder->params->dts_queue.empty())
+        {
+            current_frame->dts = hailoencoder->params->dts_queue.front();
+            hailoencoder->params->dts_queue.pop();
         }
         else
         {
+            GST_ERROR_OBJECT(hailoencoder, "dts_queue is empty, setting frame dts to GST_CLOCK_TIME_NONE");
+            current_frame->dts = GST_CLOCK_TIME_NONE;
+        }
+        GST_DEBUG_OBJECT(hailoencoder, "Frame DTS set to %" GST_TIME_FORMAT, GST_TIME_ARGS(current_frame->dts));
+
+        if (output.buffer != nullptr)
+        {
             current_frame->output_buffer = gst_hailo_encoder_get_output_buffer(output);
+            gst_buffer_add_hailo_buffer_meta(current_frame->output_buffer, output.buffer, output.size);
+        }
+        else
+        {
+            GST_ERROR_OBJECT(hailoencoder, "Encoder output buffer is nullptr sending empty GST buffer");
         }
 
-        current_frame->dts = hailoencoder->params->dts_queue.front();
-        hailoencoder->params->dts_queue.pop();
-        gst_buffer_add_hailo_buffer_meta(current_frame->output_buffer, output.buffer, output.size);
+        GST_DEBUG_OBJECT(hailoencoder, "Pushing encoded frame number %u (finish frame)",
+                         current_frame->system_frame_number);
         if (gst_video_encoder_finish_frame(encoder, current_frame) != GST_FLOW_OK)
         {
-            GST_WARNING_OBJECT(hailoencoder, "Failed to finish frame");
+            GST_ERROR_OBJECT(hailoencoder, "Failed to finish frame");
             return GST_FLOW_OK;
         }
+        GST_DEBUG_OBJECT(hailoencoder, "Finished encoded frame number %u", current_frame->system_frame_number);
     }
 
     return GST_FLOW_OK;
