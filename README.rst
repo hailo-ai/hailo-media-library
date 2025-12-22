@@ -18,7 +18,7 @@ Hailo Media Library
    :alt: License: LGPL v2.1
    :height: 20
 
-.. image:: ./dodocuhailo_med_lib.png
+.. image:: ./docs/hailo_med_lib.png
   :height: 300
   :width: 600
   :align: center
