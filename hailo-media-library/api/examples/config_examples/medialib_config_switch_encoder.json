@@ -1,0 +1,37 @@
+{
+    "version": "2.0.0",
+    "metadata": {
+        "architecture": "hailo15h",
+        "content_hash": "4d36f2eeb29fdd1de864fe21254d5d9d6fd29fb67a939ed2304ee350b588d844",
+        "description": "",
+        "generation_timestamp": "2026-01-06T09:56:16.961424+00:00"
+    },
+    "backup_folder_path": "",
+    "default_profile": "Daylight",
+    "profiles": [
+        {
+            "config_file": "/usr/bin/profile/profile.json",
+            "name": "Daylight"
+        },
+        {
+            "config_file": "/usr/bin/profile_hdr/profile_hdr.json",
+            "name": "High_Dynamic_Range"
+        },
+        {
+            "config_file": "/usr/bin/lowlight_r0225c8/lowlight_r0225c8_profile.json",
+            "name": "Lowlight"
+        },
+        {
+            "config_file": "/usr/bin/profile_jpeg/profile_jpeg.json",
+            "name": "Daylight_Jpeg"
+        },
+        {
+            "config_file": "/usr/bin/profile_hdr_jpeg/profile_hdr_jpeg.json",
+            "name": "High_Dynamic_Range_Jpeg"
+        },
+        {
+            "config_file": "/usr/bin/lowlight_r0225c8_jpeg/lowlight_r0225c8_profile_jpeg.json",
+            "name": "Lowlight_Jpeg"
+        }
+    ]
+}

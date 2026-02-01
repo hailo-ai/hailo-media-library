@@ -1,0 +1,142 @@
+#pragma once
+
+#include <gst/gst.h>
+#include <gst/app/gstappsrc.h>
+#include <string>
+#include <queue>
+#include <memory>
+#include <chrono>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <algorithm>
+#include <map>
+#include <atomic>
+
+enum class CodecType
+{
+    H264,
+    H265
+};
+
+struct FrameData
+{
+    std::vector<uint8_t> data;
+    uint64_t pts; // in nanoseconds
+    uint64_t dts; // in nanoseconds (will be calculated if needed)
+    bool is_keyframe;
+
+    FrameData(const uint8_t *nal_data, size_t size, uint64_t timestamp)
+        : data(nal_data, nal_data + size), pts(timestamp), dts(0), is_keyframe(false)
+    {
+    }
+};
+
+// Callback function type for segment notifications
+typedef void (*SegmentNotificationCallback)(const char *filename,         // Full path to completed file
+                                            uint32_t duration_ms,         // Duration in milliseconds
+                                            uint64_t start_time_epoch_ms, // Start time in epoch milliseconds
+                                            uint32_t segment_index,       // Segment number
+                                            void *user_data               // User data pointer
+);
+
+struct SegmentInfo
+{
+    std::string filename;
+    uint64_t start_pts;
+    uint64_t end_pts;
+    uint64_t start_time_epoch_ms;
+    uint32_t index;
+    bool completed;
+
+    SegmentInfo() : start_pts(0), end_pts(0), start_time_epoch_ms(0), index(0), completed(false)
+    {
+    }
+};
+
+struct EpochNamingData
+{
+    std::string output_path;
+    std::string file_prefix;
+    std::atomic<uint32_t> segment_counter;
+    std::mutex data_mutex;
+    bool is_valid;
+
+    EpochNamingData(const std::string &path, const std::string &prefix)
+        : output_path(path), file_prefix(prefix), segment_counter(0), is_valid(true)
+    {
+    }
+};
+
+class GStreamerMkvSegmenter
+{
+  public:
+    GStreamerMkvSegmenter(CodecType codec, const std::string &output_path, const std::string &file_prefix,
+                          uint32_t segment_duration_sec);
+    ~GStreamerMkvSegmenter();
+
+    bool initialize();
+    bool start();
+    bool stop();
+    void cleanup();
+
+    // Feed raw NAL unit with PTS (in nanoseconds)
+    bool feed_frame(const uint8_t *nal_data, size_t size, uint64_t pts_ns);
+
+    // Set callback for segment notifications
+    void set_segment_notification_callback(SegmentNotificationCallback callback, void *user_data);
+
+  private:
+    // GStreamer pipeline setup
+    bool create_pipeline();
+    void destroy_pipeline();
+
+    // Frame processing
+    void process_frame_queue();
+    bool is_keyframe(const uint8_t *nal_data, size_t size) const;
+    void reorder_frames(std::queue<FrameData> &frames);
+
+    // GStreamer callbacks
+    static GstBusSyncReply on_bus_message(GstBus *bus, GstMessage *message, gpointer user_data);
+    static gchar *on_epoch_format_location_safe(GstElement *splitmux, guint fragment_id, GstSample *first_sample,
+                                                gpointer user_data);
+
+    // Utility functions
+    std::string generate_location_pattern() const;
+    uint64_t get_current_epoch_time_ms() const;
+    uint32_t extract_segment_index(const char *filename);
+    void handle_split_mux_segment_with_running_time(const char *filename, uint64_t end_running_time);
+
+    // Configuration
+    CodecType m_codec_type;
+    std::string m_output_path;
+    std::string m_file_prefix;
+    uint32_t m_segment_duration_sec;
+    EpochNamingData *m_epoch_naming_data;
+
+    // Notification callback
+    SegmentNotificationCallback m_notification_callback;
+    void *m_callback_user_data;
+
+    // GStreamer elements
+    GstElement *m_pipeline;
+    GstElement *m_appsrc;
+    GstElement *m_parser; // h264parse or h265parse
+    GstBus *m_bus;
+
+    // Segment management
+    uint64_t m_last_segment_end_running_time;           // Running time when last segment ended
+    uint64_t m_current_segment_start_running_time;      // Running time when current segment started
+    std::map<uint32_t, uint64_t> m_segment_start_times; // Map to store segment running time information
+
+    // Frame processing
+    std::queue<FrameData> m_frame_queue;
+    std::mutex m_queue_mutex;
+    std::condition_variable m_queue_cv;
+    std::thread m_processing_thread;
+    bool m_processing_active;
+
+    // Statistics
+    bool m_initialized;
+    bool m_running;
+};

@@ -1,0 +1,31 @@
+[Unit]
+Description=Keepalive daemon for camera-viewer-server
+After=network.target
+
+[Service]
+Type=simple
+# Set default environment variables (can be overridden by user environment)
+# Args for daemon. By default, use none.
+Environment="DAEMON_ARGS="
+
+# Start the server. Usage examples:
+# Start with default values (no arguments):
+#   systemctl start webserver_daemon
+# Start with custom arguments:
+#   DAEMON_ARGS=your_argument systemctl start webserver_daemon
+ExecStartPre=/bin/sh -c 'echo "Starting webserver_daemon${DAEMON_ARGS:+ with args: $DAEMON_ARGS}"'
+ExecStart=/usr/bin/python3 /usr/bin/webserver_daemon.py $DAEMON_ARGS
+ExecStopPost=/bin/echo "Stopping webserver_daemon..."
+KillSignal=SIGTERM
+TimeoutStopSec=2
+
+# Restart on failure - systemd will monitor and restart the service
+Restart=on-failure
+RestartSec=1
+
+# Set standard output and error as inherited from the service
+StandardOutput=inherit
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target

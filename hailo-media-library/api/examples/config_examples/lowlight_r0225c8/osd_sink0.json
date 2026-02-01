@@ -1,0 +1,63 @@
+{
+    "version": "1.1.0",
+    "metadata": {
+        "architecture": "hailo15h",
+        "content_hash": "dab153e74e350f116a0d235ed23e433d86a80b29f3569844724106891a54cd20",
+        "description": "",
+        "generation_timestamp": "2025-11-24T12:11:03.810860+00:00"
+    },
+    "osd": {
+        "dateTime": [
+            {
+                "angle": 0,
+                "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
+                "font_size": 100,
+                "id": "example_datetime",
+                "rotation_policy": "CENTER",
+                "text_color": [255, 0, 0],
+                "x": 0.1,
+                "y": 0.7,
+                "z-index": 3
+            }
+        ],
+        "image": [
+            {
+                "angle": 0,
+                "height": 0.13,
+                "id": "example_image",
+                "image_path": "/home/root/apps/webserver/resources/configs/osd_hailo_static_image.png",
+                "rotation_policy": "CENTER",
+                "width": 0.2,
+                "x": 0.76,
+                "y": 0.3,
+                "z-index": 1
+            }
+        ],
+        "text": [
+            {
+                "angle": 0,
+                "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
+                "font_size": 100,
+                "id": "example_text1",
+                "label": "HailoAI",
+                "rotation_policy": "CENTER",
+                "text_color": [255, 255, 255],
+                "x": 0.7,
+                "y": 0.05,
+                "z-index": 2
+            },
+            {
+                "angle": 0,
+                "font_path": "/usr/share/fonts/ttf/LiberationMono-Regular.ttf",
+                "font_size": 100,
+                "id": "example_text2",
+                "label": "camera name",
+                "rotation_policy": "CENTER",
+                "text_color": [102, 0, 51],
+                "x": 0.05,
+                "y": 0.1,
+                "z-index": 1
+            }
+        ]
+    }
+}

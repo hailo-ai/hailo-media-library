@@ -1,0 +1,371 @@
+#include "gsthailojpeg.hpp"
+
+#include "buffer_pool.hpp"
+#include "common/gstmedialibcommon.hpp"
+#include "buffer_utils.hpp"
+#include "encoder_config_types.hpp"
+#include <algorithm>
+#include <gst/video/video.h>
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <variant>
+
+GST_DEBUG_CATEGORY_STATIC(gst_hailojpegenc_debug_category);
+#define GST_CAT_DEFAULT gst_hailojpegenc_debug_category
+
+#define INNER_QUEUE_SIZE 3
+
+#define gst_hailojpegenc_parent_class parent_class
+
+static void gst_hailojpegenc_set_property(GObject *object, guint property_id, const GValue *value, GParamSpec *pspec);
+static void gst_hailojpegenc_get_property(GObject *object, guint property_id, GValue *value, GParamSpec *pspec);
+static void gst_hailojpegenc_dispose(GObject *object);
+void construct_internal_pipeline(GstHailoJpegEnc *hailojpegenc);
+bool link_elements(GstHailoJpegEnc *hailojpegenc);
+void clear_internal_pipeline(GstHailoJpegEnc *hailojpegenc);
+
+GType gst_idct_method_get_type(void)
+{
+    static GType idct_method_type = 0;
+    static const GEnumValue idct_method[] = {
+        {JDCT_ISLOW, "Slow but accurate integer algorithm", "islow"},
+        {JDCT_IFAST, "Faster, less accurate integer method", "ifast"},
+        {JDCT_FLOAT, "Floating-point: accurate, fast on fast HW", "float"},
+        {0, NULL, NULL},
+    };
+
+    if (!idct_method_type)
+    {
+        idct_method_type = g_enum_register_static("GstHailoIDCTMethod", idct_method);
+    }
+    return idct_method_type;
+}
+
+enum
+{
+    PROP_0,
+    PROP_STREAM_ID,
+    PROP_MIN_FORCE_KEY_UNIT_INTERVAL,
+    PROP_IDCT_METHOD,
+    PROP_CONFIG,
+    PROP_USER_CONFIG,
+};
+
+#define _do_init GST_DEBUG_CATEGORY_INIT(gst_hailojpegenc_debug_category, "hailojpegenc", 0, "hailojpegenc element");
+#define gst_hailo_encoder_parent_class parent_class
+G_DEFINE_TYPE_WITH_CODE(GstHailoJpegEnc, gst_hailojpegenc, GST_TYPE_BIN, _do_init);
+
+GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE("src", GST_PAD_SRC, GST_PAD_ALWAYS,
+                                                            GST_STATIC_CAPS("image/jpeg, "
+                                                                            "width = (int) [ 1, 65535 ], "
+                                                                            "height = (int) [ 1, 65535 ], "
+                                                                            "framerate = (fraction) [ 0/1, MAX ], "
+                                                                            "sof-marker = (int) { 0, 1, 2, 4, 9 }"));
+
+GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE(
+    "sink", GST_PAD_SINK, GST_PAD_ALWAYS,
+    GST_STATIC_CAPS(GST_VIDEO_CAPS_MAKE("{ I420, YV12, YUY2, UYVY, Y41B, Y42B, YVYU, Y444, NV21, "
+                                        "NV12, RGB, BGR, RGBx, xRGB, BGRx, xBGR, GRAY8 }")));
+
+static void gst_hailojpegenc_class_init(GstHailoJpegEncClass *klass)
+{
+    GObjectClass *gobject_class = G_OBJECT_CLASS(klass);
+
+    gobject_class->set_property = gst_hailojpegenc_set_property;
+    gobject_class->get_property = gst_hailojpegenc_get_property;
+    gobject_class->dispose = GST_DEBUG_FUNCPTR(gst_hailojpegenc_dispose);
+
+    g_object_class_install_property(
+        gobject_class, PROP_STREAM_ID,
+        g_param_spec_string("stream-id", "Stream id", "Stream id string", NULL,
+                            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+
+    g_object_class_install_property(
+        gobject_class, PROP_MIN_FORCE_KEY_UNIT_INTERVAL,
+        g_param_spec_uint64("min-force-key-unit-interval", "Minimum Force Keyunit Interval",
+                            "Minimum interval between force-keyunit requests in nanoseconds", 0, G_MAXUINT64,
+                            DEFAULT_MIN_FORCE_KEY_UNIT_INTERVAL,
+                            (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+
+    g_object_class_install_property(gobject_class, PROP_IDCT_METHOD,
+                                    g_param_spec_enum("idct-method", "IDCT Method", "The IDCT algorithm to use",
+                                                      GST_TYPE_IDCT_METHOD, JPEG_DEFAULT_IDCT_METHOD,
+                                                      (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+
+    g_object_class_install_property(
+        gobject_class, PROP_CONFIG,
+        g_param_spec_pointer("config", "Encoder config", "Encoder config as encoder_config_t",
+                             (GParamFlags)(G_PARAM_READABLE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+
+    g_object_class_install_property(
+        gobject_class, PROP_USER_CONFIG,
+        g_param_spec_pointer("user-config", "Encoder user config",
+                             "Encoder user config, used for setting the encoder configuration",
+                             (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+}
+
+void handle_new_config(GstHailoJpegEnc *hailojpegenc, std::optional<jpeg_encoder_config_t> old_encoder_config,
+                       jpeg_encoder_config_t new_encoder_config)
+{
+    if ((!old_encoder_config))
+    {
+        // need to clean old pipeline that was set in init
+        clear_internal_pipeline(hailojpegenc);
+        hailojpegenc->params->num_of_threads = new_encoder_config.n_threads;
+        construct_internal_pipeline(hailojpegenc);
+    }
+    else if (old_encoder_config->n_threads != new_encoder_config.n_threads)
+    {
+        GST_WARNING_OBJECT(hailojpegenc, "Changing number of threads while running is not supported");
+    }
+
+    if ((!old_encoder_config) || old_encoder_config->quality != new_encoder_config.quality)
+    {
+        hailojpegenc->params->jpeg_quality = new_encoder_config.quality;
+        for (auto jpegenc : hailojpegenc->params->m_jpegencs)
+        {
+            g_object_set(jpegenc, "quality", hailojpegenc->params->jpeg_quality, NULL);
+        }
+    }
+}
+
+static void gst_hailojpegenc_set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
+{
+    GstHailoJpegEnc *hailojpegenc = GST_HAILOJPEGENC(object);
+    GST_DEBUG_OBJECT(hailojpegenc, "set_property");
+
+    if ((object == nullptr) || (value == nullptr) || (pspec == nullptr))
+    {
+        g_error("set_property got null parameter!");
+        return;
+    }
+
+    switch (prop_id)
+    {
+    case PROP_STREAM_ID: {
+        hailojpegenc->params->stream_id = std::string(g_value_get_string(value));
+        break;
+    }
+    case PROP_MIN_FORCE_KEY_UNIT_INTERVAL: {
+        hailojpegenc->params->jpegenc_min_force_key_unit_interval = g_value_get_uint64(value);
+        for (auto jpegenc : hailojpegenc->params->m_jpegencs)
+        {
+            g_object_set(jpegenc, "min-force-key-unit-interval",
+                         hailojpegenc->params->jpegenc_min_force_key_unit_interval, NULL);
+        }
+        break;
+    }
+    case PROP_IDCT_METHOD: {
+        hailojpegenc->params->jpeg_idct_method = g_value_get_enum(value);
+        for (auto jpegenc : hailojpegenc->params->m_jpegencs)
+        {
+            g_object_set(jpegenc, "idct-method", hailojpegenc->params->jpeg_idct_method, NULL);
+        }
+        break;
+    }
+    }
+}
+
+static void gst_hailojpegenc_get_property(GObject *object, guint property_id, GValue *value, GParamSpec *pspec)
+{
+    GstHailoJpegEnc *hailojpegenc = GST_HAILOJPEGENC(object);
+    GST_DEBUG_OBJECT(hailojpegenc, "get_property");
+
+    if ((object == nullptr) || (value == nullptr) || (pspec == nullptr))
+    {
+        g_error("get_property got null parameter!");
+        return;
+    }
+
+    switch (property_id)
+    {
+    case PROP_MIN_FORCE_KEY_UNIT_INTERVAL: {
+        g_value_set_uint64(value, hailojpegenc->params->jpegenc_min_force_key_unit_interval);
+        break;
+    }
+    case PROP_IDCT_METHOD: {
+        g_value_set_enum(value, hailojpegenc->params->jpeg_idct_method);
+        break;
+    }
+    default:
+        G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
+        break;
+    }
+}
+
+static GstPadProbeReturn configure_on_new_config(GstPad *sinkpad, GstPadProbeInfo *info, gpointer _hailojpegenc)
+{
+    GstHailoJpegEnc *hailojpegenc = static_cast<GstHailoJpegEnc *>(_hailojpegenc);
+
+    if (!GST_PAD_PROBE_INFO_BUFFER(info))
+    {
+        GST_ERROR_OBJECT(hailojpegenc, "Probe info does not contain a buffer");
+        return GST_PAD_PROBE_OK;
+    }
+
+    GstBuffer *buffer = GST_PAD_PROBE_INFO_BUFFER(info); // cannot be casted to GstBufferPtr
+    GstCapsPtr caps = gst_pad_get_current_caps(sinkpad);
+    HailoMediaLibraryBufferPtr hailo_buffer = hailo_buffer_from_gst_buffer(buffer, caps);
+
+    if (!hailo_buffer)
+    {
+        GST_ERROR_OBJECT(hailojpegenc, "Failed to get hailo buffer from gst buffer");
+        return GST_PAD_PROBE_OK;
+    }
+
+    encoder_config_t attached_encoder_config =
+        hailo_buffer->get_attached_profile()->encoded_output_streams.at(hailojpegenc->params->stream_id).encoding;
+
+    if (attached_encoder_config == hailojpegenc->params->encoder_user_config)
+    {
+        return GST_PAD_PROBE_OK;
+    }
+
+    hailojpegenc->params->encoder_user_config = attached_encoder_config;
+
+    auto new_encoder_config = std::get<jpeg_encoder_config_t>(hailojpegenc->params->encoder_user_config);
+    auto old_encoder_config = std::get<jpeg_encoder_config_t>(hailojpegenc->params->encoder_user_config);
+    handle_new_config(hailojpegenc, old_encoder_config, new_encoder_config);
+
+    return GST_PAD_PROBE_OK;
+}
+
+void init_ghost_sink(GstHailoJpegEnc *hailojpegenc)
+{
+    const gchar *pad_name = "sink";
+    GstPadPtr pad = gst_element_get_static_pad(hailojpegenc->params->m_roundrobin, pad_name);
+
+    GstPadTemplatePtr pad_tmpl = gst_static_pad_template_get(&sink_template);
+
+    GstPadPtr ghost_pad = gst_ghost_pad_new_from_template("sink", pad, pad_tmpl);
+    gst_pad_set_active(ghost_pad, TRUE);
+    gst_pad_add_probe(ghost_pad, GST_PAD_PROBE_TYPE_BUFFER, configure_on_new_config, hailojpegenc, NULL);
+    glib_cpp::ptrs::add_pad_to_element(GST_ELEMENT(hailojpegenc), ghost_pad);
+}
+
+void init_ghost_src(GstHailoJpegEnc *hailojpegenc)
+{
+    const gchar *pad_name = "src";
+
+    GstPadPtr pad = gst_element_get_static_pad(hailojpegenc->params->m_hailoroundrobin, pad_name);
+
+    GstPadTemplatePtr pad_tmpl = gst_static_pad_template_get(&src_template);
+
+    GstPadPtr ghost_pad = gst_ghost_pad_new_from_template("src", pad, pad_tmpl);
+    gst_pad_set_active(ghost_pad, TRUE);
+    glib_cpp::ptrs::add_pad_to_element(GST_ELEMENT(hailojpegenc), ghost_pad);
+}
+
+bool link_elements(GstHailoJpegEnc *hailojpegenc)
+{
+    for (uint i = 0; i < hailojpegenc->params->num_of_threads; i++)
+    {
+        if (!gst_element_link_many(hailojpegenc->params->m_roundrobin, hailojpegenc->params->m_queues[i],
+                                   hailojpegenc->params->m_jpegencs[i], hailojpegenc->params->m_hailoroundrobin, NULL))
+        {
+            GST_ERROR_OBJECT(hailojpegenc, "Could not add link elements in bin");
+            return false;
+        }
+    }
+    return true;
+}
+
+void clear_internal_pipeline(GstHailoJpegEnc *hailojpegenc)
+{
+    GST_DEBUG_OBJECT(hailojpegenc, "clear_internal_pipeline");
+    for (uint i = 0; i < hailojpegenc->params->num_of_threads; i++)
+    {
+        gboolean remove_success = gst_bin_remove(GST_BIN(hailojpegenc), hailojpegenc->params->m_queues[i]);
+        if (!remove_success)
+        {
+            GST_ERROR_OBJECT(hailojpegenc, "Could not remove queue element from bin");
+        }
+
+        remove_success = gst_bin_remove(GST_BIN(hailojpegenc), hailojpegenc->params->m_jpegencs[i]);
+        if (!remove_success)
+        {
+            GST_ERROR_OBJECT(hailojpegenc, "Could not remove jpegenc element from bin");
+        }
+    }
+    hailojpegenc->params->m_queues.clear();
+    hailojpegenc->params->m_jpegencs.clear();
+}
+
+void construct_internal_pipeline(GstHailoJpegEnc *hailojpegenc)
+{
+    std::string name;
+    GST_DEBUG_OBJECT(hailojpegenc, "construct_internal_pipeline");
+    for (uint i = 0; i < hailojpegenc->params->num_of_threads; i++)
+    {
+        std::stringstream ss;
+        ss << "jpegenc_" << i;
+        name = ss.str();
+        GstElement *jpegenc = gst_element_factory_make("jpegenc", name.c_str());
+        g_object_set(jpegenc, "min-force-key-unit-interval", hailojpegenc->params->jpegenc_min_force_key_unit_interval,
+                     NULL);
+        g_object_set(jpegenc, "quality", hailojpegenc->params->jpeg_quality, NULL);
+        g_object_set(jpegenc, "idct-method", hailojpegenc->params->jpeg_idct_method, NULL);
+
+        hailojpegenc->params->m_jpegencs.push_back(jpegenc);
+        if (!gst_bin_add(GST_BIN(hailojpegenc), jpegenc))
+        {
+            GST_ERROR_OBJECT(hailojpegenc, "could not add jpegenc to bin");
+        }
+
+        std::stringstream ss2;
+        ss2 << "queue_" << i;
+        name = ss2.str();
+        GstElement *queue = gst_element_factory_make("queue", name.c_str());
+        g_object_set(queue, "max-size-buffers", INNER_QUEUE_SIZE, NULL);
+        g_object_set(queue, "max-size-bytes", 0, NULL);
+        g_object_set(queue, "max-size-time", 0, NULL);
+        g_object_set(queue, "leaky", 0, NULL);
+        hailojpegenc->params->m_queues.push_back(queue);
+        if (!gst_bin_add(GST_BIN(hailojpegenc), queue))
+        {
+            GST_ERROR_OBJECT(hailojpegenc, "Could not add queue to bin");
+        }
+    }
+
+    link_elements(hailojpegenc);
+}
+
+static void gst_hailojpegenc_init(GstHailoJpegEnc *hailojpegenc)
+{
+    hailojpegenc->params = new GstHailoJpegEncParams();
+
+    GstElement *roundrobin = gst_element_factory_make("roundrobin", "roundrobin");
+    hailojpegenc->params->m_roundrobin = roundrobin;
+    if (!gst_bin_add(GST_BIN(hailojpegenc), hailojpegenc->params->m_roundrobin))
+    {
+        GST_ERROR_OBJECT(hailojpegenc, "Could not add roundrobin to bin");
+    }
+
+    GstElement *hailoroundrobin = gst_element_factory_make("hailoroundrobin", "hailoroundrobin");
+    g_object_set(hailoroundrobin, "mode", 1, NULL);
+    hailojpegenc->params->m_hailoroundrobin = hailoroundrobin;
+
+    if (!gst_bin_add(GST_BIN(hailojpegenc), hailojpegenc->params->m_hailoroundrobin))
+    {
+        GST_ERROR_OBJECT(hailojpegenc, "Could not add hailoroundrobin to bin");
+    }
+
+    construct_internal_pipeline(hailojpegenc);
+
+    init_ghost_sink(hailojpegenc);
+    init_ghost_src(hailojpegenc);
+}
+
+static void gst_hailojpegenc_dispose(GObject *object)
+{
+    GstHailoJpegEnc *hailojpegenc = GST_HAILOJPEGENC(object);
+    GST_DEBUG_OBJECT(hailojpegenc, "dispose");
+    if (hailojpegenc->params != nullptr)
+    {
+        delete hailojpegenc->params;
+        hailojpegenc->params = nullptr;
+    }
+
+    G_OBJECT_CLASS(parent_class)->dispose(object);
+}

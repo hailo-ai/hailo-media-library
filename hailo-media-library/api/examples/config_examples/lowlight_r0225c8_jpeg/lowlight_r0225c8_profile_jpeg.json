@@ -1,0 +1,27 @@
+{
+    "version": "1.1.0",
+    "metadata": {
+        "architecture": "hailo15h",
+        "content_hash": "f42ea26f883c0bc936a5dd0cd37966ac099687880fe9da78ca11a38374a748e4",
+        "description": "",
+        "generation_timestamp": "2025-11-24T12:11:03.859558+00:00"
+    },
+    "application_settings": "/usr/bin/lowlight_r0225c8_jpeg/application_settings.json",
+    "encoded_output_streams": [
+        {
+            "encoding": "/usr/bin/lowlight_r0225c8_jpeg/encoder_sink0.json",
+            "masking": "/usr/bin/lowlight_r0225c8_jpeg/masking_sink0.json",
+            "osd": "/usr/bin/lowlight_r0225c8_jpeg/osd_sink0.json",
+            "stream_id": "sink0"
+        },
+        {
+            "encoding": "/usr/bin/lowlight_r0225c8_jpeg/encoder_sink1.json",
+            "masking": "/usr/bin/lowlight_r0225c8_jpeg/masking_sink1.json",
+            "osd": "/usr/bin/lowlight_r0225c8_jpeg/osd_sink1.json",
+            "stream_id": "sink1"
+        }
+    ],
+    "iq_settings": "/usr/bin/lowlight_r0225c8_jpeg/iq_settings.json",
+    "sensor_config": "/usr/bin/lowlight_r0225c8_jpeg/sensor_config.json",
+    "stabilizer_settings": "/usr/bin/lowlight_r0225c8_jpeg/stabilizer_settings.json"
+}

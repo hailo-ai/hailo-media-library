@@ -1,0 +1,6 @@
+# Platform
+option('platform', type : 'combo', choices : ['15l', '15h'], value : '15h')
+# Unit tests
+option('include_unit_tests', type : 'boolean', value : true)
+# Build docs
+option('build_docs', type : 'boolean', value : false)

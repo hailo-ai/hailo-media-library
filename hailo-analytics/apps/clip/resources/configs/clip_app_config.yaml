@@ -1,0 +1,99 @@
+server:
+    host: 0.0.0.0 #Bind to 0.0.0.0 for all network interface for maximum flexibility
+    port: 80
+
+hailortdevice:
+    #Device ID of the Hailo device to use, recommend to be the same from frontend config device-id
+    #Usually default to "device0"
+    device_id: "device0"
+
+# Storage Configuration
+# This section defines the storage configuration for the CLIP application.
+# WARNING: If you change the mount location to SD Card, make sure your SD Card is AT LEAST Application 2 (A2) class
+storage:
+    mount_location: /var/volatile #Mount location for the storage device
+    root_directory: storage #Root directory for the CLIP application, this will be created under mount_location
+    database_directory: database #Directory for the database, this will be created under root_directory
+    faissdb_directory: faissdb #Directory for FAISS index files, this will be created under root_directory
+    thumbnail_directory: thumbnails #Directory for thumbnail images, this will be created under root_directory
+    video_directory: videos #Directory for video files, this will be created under root_directory
+    low_disk_threshold_percent: 25 #Threshold percentage for low disk space warning
+    check_interval_seconds: 15 #Interval in seconds to check disk space
+
+# Text Encoder Network Support/Configuration
+# This section defines the available text encoder networks for the CLIP application.
+# Note that this is temporary as text encoding is currently done in the browser. Later we will have
+# text encoder also running on the backend (H15)
+text_encoders:
+    - name: CLIP Vit B32
+      id: clip_vit_b_32 #This must be the same as the encoder id in image_encoders section
+      onnx_path: /home/root/apps/clip/resources/onnx/clip_vit_b32_text_encoder.onnx #This onnx will be uploaded to browser
+      embedding_size: 512
+      context_length: 77 #Token
+      tokenizer_path: /home/root/apps/clip/resources/tokenizer.json
+      embedding_lookup_path: /home/root/apps/clip/resources/clip_vit_b32_embedding_lookup.bin
+      projection_weights_path: /home/root/apps/clip/resources/clip_vit_b32_text_projection_weights.bin
+      projection_bias_path: /home/root/apps/clip/resources/clip_vit_b32_text_projection_bias.bin
+      hef_file_path: /home/root/apps/clip/resources/clip_vit_b_32_text_encoder.hef
+
+# Image Encoder Network Support/Configuration
+# This section defines the image encoder networks that needs to be added to the CLIP application.
+# Each selected image will be inferred by listed network (if enabled) and saved to FAISS index.
+# There will be separate FAISS index file for each network.
+image_encoders:
+    image_size_width: 224 #At the moment this must be the same across all encoder
+    image_size_height: 224 #At the moment this must be the same across all encoder
+    encoders:
+        - name: CLIP ViT B32
+          id: clip_vit_b_32 #This must be unique and will be used to name the index file
+          hef_path: /home/root/apps/clip/resources/clip_vit_b_32_image_encoder_nv12.hef
+          embedding_size: 512
+          postprocess_file: /usr/lib/hailo-post-processes/libclipgen_post.so
+          postprocess_function_name: clip_vit_b_32
+          enabled: true #Set to true to enable this network
+
+# FAISS Index Configuration (mainly for testing/debug purposes)
+faiss_config:
+    random_data:
+        enabled: false #Set to true to enable random data generation for testing
+        # If enabled, the application will generate random vectors and save them to each FAISS index.
+        # This is useful for testing purposes.
+        # NOTE: If FAISS index already exist and number of verctor is more than num_vectors
+        # it will not generate new vectors, but will use existing ones.
+        num_vectors: 1000 #Number of random vectors to generate
+
+# Pipeline Configuration
+pipeline_config:
+    clip_quality_check_stage:
+        enabled: false #Set to true to enable this stage
+        description: "Stage for image quality checking of the input data"
+    tracker_traffic_ctrl_stage:
+        # Number of unclassified frames to block before allowing a detection frame to pass
+        # Note that this is the parameter we use since in new clip app we do not classify the object and only
+        # store unclassified embeddings.
+        unclassified_fps_to_block: 15
+    video_storage_stage:
+        enabled: true #Set to true to enable this stage
+        # Maximum video duration in second to store per file
+        # Highly suggest to keep this value between 5 to 10 seconds
+        video_segment_duration_seconds: 6 # Minimum 5 seconds.
+
+# Frontend Configuration
+# This section defines the frontend configuration for the CLIP application.
+# You can choose to use camera input or video file as input source.
+# NOTE: If you choose to use video file as input, make sure the file is in NV12 format only and provide the
+# correct media config file for configured for the video file.
+# WARNING: Make sure the sensor_config from the profile sets the resolution and framerate that matches the video file
+frontend_source_from_file:
+    #Set to true to enable frontend source from file, otherwise it will use camera input
+    enabled: false
+    #Path to the video file to use as input in NV12 format only
+    #WARNING: Resolution MUST be 1920x1080 and framerate 30fps for this sample video in NV12 format
+    file_path: /data/sample_videos/sample_video_1080p_30fps.nv12
+
+query_defaults:
+    score_threshold: 0.4
+    max_query: 100
+    remove_duplicate_within_sec: 60
+    negative_prompts:
+        - "an image of a person"
