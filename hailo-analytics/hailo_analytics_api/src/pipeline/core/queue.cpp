@@ -10,10 +10,22 @@ class QueueTracing
 {
   private:
     std::string m_counter_name;
+#ifdef HAVE_PERFETTO
+    perfetto::DynamicString m_frame_dropped_event_name;
+#else
+    std::string m_frame_dropped_event_name;
+#endif
 
   public:
     QueueTracing(const std::string &parent_name, const std::string &queue_name, size_t max_buffers)
-        : m_counter_name("queue_" + parent_name + "_" + queue_name + "_" + std::to_string(max_buffers))
+        : m_counter_name("queue_" + parent_name + "_" + queue_name + "_" + std::to_string(max_buffers)),
+          m_frame_dropped_event_name(
+#ifdef HAVE_PERFETTO
+              perfetto::DynamicString(queue_name + "_frame_dropped")
+#else
+              queue_name + "_frame_dropped"
+#endif
+          )
     {
     }
 
@@ -21,6 +33,12 @@ class QueueTracing
     {
         HAILO_ANALYTICS_TRACE_COUNTER(m_counter_name, size, HAILO_ANALYTICS_QUEUE_LEVEL_TRACK,
                                       HAILO_ANALYTICS_CATEGORY);
+    }
+
+    void track_frame_dropped(uint64_t isp_timestamp_ns)
+    {
+        HAILO_ANALYTICS_TRACE_EVENT(m_frame_dropped_event_name, HAILO_ANALYTICS_PROCESSING_TRACK,
+                                    HAILO_ANALYTICS_DETAILED_CATEGORY, "isp_timestamp_ms", isp_timestamp_ns / 1000000);
     }
 };
 
@@ -68,6 +86,7 @@ void Queue::push(BufferPtr buffer)
         // if leaky, pop the front for a full queue
         if (m_queue.size() >= m_max_buffers)
         {
+            m_tracing->track_frame_dropped(m_queue.front()->get_buffer()->isp_timestamp_ns);
             m_queue.pop();
         }
     }

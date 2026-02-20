@@ -344,7 +344,7 @@ class StorageMonitorServiceExt : public hailo_analytics::analytics::app_construc
                 // We make sure the directory exists by creating it if it doesn't
                 if (!FileSysUtils::ensure_directory_exists(dir))
                 {
-                    std::cerr << "Failed to ensure directory exists: " << dir << std::endl;
+                    HAILO_ANALYTICS_LOG_ERROR("Failed to ensure directory exists: {}", dir);
                     return tl::unexpected(Error::DIRECTORY_NOT_FOUND); // Directory creation failed
                 }
             }
@@ -547,7 +547,7 @@ class StorageMonitorServiceExt : public hailo_analytics::analytics::app_construc
             auto result = update_storage_info();
             if (!result)
             {
-                std::cerr << "Error updating storage info: " << static_cast<int>(result.error()) << std::endl;
+                HAILO_ANALYTICS_LOG_ERROR("Error updating storage info: {}", static_cast<int>(result.error()));
             }
 
             // Sleep for the configured interval

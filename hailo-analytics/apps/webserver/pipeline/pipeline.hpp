@@ -75,6 +75,7 @@ class BasePipeline
     virtual ~BasePipeline();
 
     virtual void init(ProfileType profile_type);
+    virtual void uninitialize();
     virtual void start();
     virtual void stop();
 
@@ -112,6 +113,7 @@ class BasePipeline
     std::vector<ProfileType> m_supported_profiles;
     std::string m_stream_4k_name = DEFAULT_STREAM_4K_NAME;
     ProfileType m_default_profile;
+    bool m_hdr_valve_active = false;
 
     virtual void subscribe_callbacks();
     virtual void register_endpoints();

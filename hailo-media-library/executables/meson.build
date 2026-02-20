@@ -104,7 +104,7 @@ executable('profile_switching',
 )
 
 # OSD Example
-osd_example_src = files('../api/examples/osd/osd_example.cpp')
+osd_example_src = files('../api/examples/osd_example/osd_example.cpp')
 executable('osd_example',
   osd_example_src,
   cpp_args: common_args,
@@ -116,7 +116,7 @@ executable('osd_example',
 )
 
 # Basic Recording Example
-frontend_example_src = files('../api/examples/basic_h264_recording_to_file/basic_h264_recording_to_file.cpp')
+frontend_example_src = files('../api/examples/basic_recording_to_file/basic_recording_to_file.cpp')
 executable('basic_h264_recording_to_file',
   frontend_example_src,
   cpp_args: common_args,
@@ -126,8 +126,8 @@ executable('basic_h264_recording_to_file',
 )
 
 # JPEG Basic Recording Example
-frontend_example_src = files('../api/examples/basic_h264_recording_to_file/basic_h264_recording_to_file.cpp')
-executable('jpeg_basic_h264_recording_to_file',
+frontend_example_src = files('../api/examples/basic_recording_to_file/basic_recording_to_file.cpp')
+executable('basic_jpeg_recording_to_file',
   frontend_example_src,
   cpp_args: common_args + ['-DUSE_JPEG_JSONS'],
   dependencies: [libmedialib_dep],

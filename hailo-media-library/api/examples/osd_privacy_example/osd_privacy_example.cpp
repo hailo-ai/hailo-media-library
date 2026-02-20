@@ -188,7 +188,7 @@ int main()
         return 1;
     m_media_lib = media_lib_expected.value();
 
-    std::string medialib_config_string = read_string_from_file("/usr/bin/medialib_config.json");
+    std::string medialib_config_string = read_string_from_file(config_path);
     if (m_media_lib->initialize(medialib_config_string) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         return 1;
 
@@ -198,7 +198,8 @@ int main()
     {
         for (auto s : streams.value())
         {
-            std::string output_file_path = OUTPUT_FILE(s.id);
+            std::string output_file_path = OUTPUT_FILE_WITH_PREFIX("osd_privacy", s.id);
+            delete_output_file(output_file_path);
             m_output_files[s.id].open(output_file_path.c_str(), std::ios::out | std::ios::binary | std::ios::app);
         }
     }

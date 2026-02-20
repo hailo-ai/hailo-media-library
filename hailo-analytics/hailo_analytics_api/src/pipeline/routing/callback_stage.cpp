@@ -5,6 +5,9 @@
 namespace hailo_analytics::pipeline::routing
 {
 
+/**
+ * @brief Constructs a CallbackStage with the specified configuration.
+ */
 CallbackStage::CallbackStage(std::string name, size_t queue_size, bool leaky, std::function<void(BufferPtr)> callback,
                              bool trace_processing_operations)
     : hailo_analytics::pipeline::ThreadedStage(name, queue_size, leaky, trace_processing_operations),
@@ -12,6 +15,9 @@ CallbackStage::CallbackStage(std::string name, size_t queue_size, bool leaky, st
 {
 }
 
+/**
+ * @brief Processes a buffer by executing the callback (if set) and forwarding to subscribers.
+ */
 AppStatus CallbackStage::process(BufferPtr data)
 {
     if (m_callback)
@@ -22,6 +28,9 @@ AppStatus CallbackStage::process(BufferPtr data)
     return AppStatus::SUCCESS;
 }
 
+/**
+ * @brief Sets or updates the callback function to be executed on each buffer.
+ */
 void CallbackStage::set_callback(std::function<void(BufferPtr)> callback)
 {
     m_callback = callback;

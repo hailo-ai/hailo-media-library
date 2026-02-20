@@ -7,6 +7,7 @@
 #include <gst/rtp/rtp.h>
 #include "common_utils.hpp"
 #include <malloc.h>
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
 // Helper structure to pass data to and from the GStreamer callback.
 struct CodecDetectData
@@ -481,15 +482,15 @@ RtpPacketData::CodecType MKVStreamer::detect_codec_type(const std::string &file_
     switch (codec_result)
     {
     case CodecUtils::CodecType::H264:
-        std::cout << "Video codec: H264" << std::endl;
+        HAILO_ANALYTICS_LOG_INFO("Video codec: H264");
         codec_type = RtpPacketData::CodecType::H264;
         break;
     case CodecUtils::CodecType::H265:
-        std::cout << "Video codec: H265" << std::endl;
+        HAILO_ANALYTICS_LOG_INFO("Video codec: H265");
         codec_type = RtpPacketData::CodecType::H265;
         break;
     case CodecUtils::CodecType::UNKNOWN:
-        std::cout << "Video codec: Unknown or not H264/H265" << std::endl;
+        HAILO_ANALYTICS_LOG_INFO("Video codec: Unknown or not H264/H265");
         break;
     }
 
@@ -522,7 +523,7 @@ std::unique_ptr<MKVStreamer::FileContext> MKVStreamer::create_file_context(const
     {
         if (error)
         {
-            std::cerr << "Pipeline creation error: " << error->message << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Pipeline creation error: {}", error->message);
             g_error_free(error);
         }
         return nullptr;
@@ -534,7 +535,7 @@ std::unique_ptr<MKVStreamer::FileContext> MKVStreamer::create_file_context(const
 
     if (!context->appsink || !context->payloader)
     {
-        std::cerr << "Failed to get required pipeline elements" << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("Failed to get required pipeline elements");
         return nullptr;
     }
 
@@ -552,7 +553,7 @@ std::unique_ptr<MKVStreamer::FileContext> MKVStreamer::create_file_context(const
     GstStateChangeReturn ret = gst_element_set_state(context->pipeline, GST_STATE_PAUSED);
     if (ret == GST_STATE_CHANGE_FAILURE)
     {
-        std::cerr << "Failed to preroll pipeline for: " << video_file.file_path << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("Failed to preroll pipeline for: {}", video_file.file_path);
         return nullptr;
     }
 
@@ -564,7 +565,7 @@ std::unique_ptr<MKVStreamer::FileContext> MKVStreamer::create_file_context(const
     }
     else
     {
-        std::cerr << "Pipeline preroll timed out for: " << video_file.file_path << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("Pipeline preroll timed out for: {}", video_file.file_path);
         return nullptr;
     }
 
@@ -595,7 +596,7 @@ std::string MKVStreamer::create_pipeline_string(const std::string &file_path, Rt
              << "appsink name=appsink emit-signals=false max-buffers=10 drop=false";
 
     std::string result = pipeline.str();
-    std::cout << "Created pipeline: " << result << std::endl;
+    HAILO_ANALYTICS_LOG_INFO("Created pipeline: {}", result);
     return result;
 }
 
@@ -614,10 +615,10 @@ gboolean MKVStreamer::bus_callback([[maybe_unused]] GstBus *bus, GstMessage *msg
         gchar *debug;
         gst_message_parse_error(msg, &error, &debug);
 
-        std::cerr << "Pipeline error: " << error->message << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("Pipeline error: {}", error->message);
         if (debug)
         {
-            std::cerr << "Debug info: " << debug << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Debug info: {}", debug);
             g_free(debug);
         }
 
@@ -631,10 +632,10 @@ gboolean MKVStreamer::bus_callback([[maybe_unused]] GstBus *bus, GstMessage *msg
         gchar *debug;
         gst_message_parse_warning(msg, &warning, &debug);
 
-        std::cerr << "Pipeline warning: " << warning->message << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("Pipeline warning: {}", warning->message);
         if (debug)
         {
-            std::cerr << "Debug info: " << debug << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Debug info: {}", debug);
             g_free(debug);
         }
 

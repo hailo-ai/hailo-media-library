@@ -98,17 +98,7 @@ int main()
     }
     m_media_lib = media_lib_expected.value();
 
-    std::string medialib_config_path = "/usr/bin/medialib_config.json";
-    if (JPEG_SINK1)
-    {
-        medialib_config_path = "/usr/bin/medialib_config_jpeg.json";
-    }
-    else if (SWITCH_ENCODER_EXAMPLE)
-    {
-        medialib_config_path = "/usr/bin/medialib_config_switch_encoder.json";
-    }
-
-    std::string medialib_config_string = read_string_from_file(medialib_config_path.c_str());
+    std::string medialib_config_string = read_string_from_file(get_config_path().c_str());
 
     m_media_lib->set_override_persistent_settings(true);
 
@@ -219,8 +209,7 @@ int main()
     }
     for (auto s : streams.value())
     {
-        // create and configure output file
-        std::string output_file_path = OUTPUT_FILE(s.id);
+        std::string output_file_path = OUTPUT_FILE_WITH_PREFIX("profile_switching", s.id);
         delete_output_file(output_file_path);
         m_output_files[s.id].open(output_file_path.c_str(), std::ios::out | std::ios::binary | std::ios::app);
         if (!m_output_files[s.id].good())
@@ -238,32 +227,66 @@ int main()
         return 1;
     }
 
-    std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
-
-    std::cout << "Setting profile to HDR" << std::endl;
-
-    bool profile_ret = set_profile("High_Dynamic_Range");
-    if (!profile_ret)
-        return 1;
-
-    std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
-
-    std::cout << "Setting profile to low light" << std::endl;
-
-    if (!set_profile("Lowlight"))
+    if (!JPEG_SINK1)
     {
-        std::cout << "Failed to set profile" << std::endl;
-        return 1;
+        std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
+
+        std::cout << "Setting profile to HDR" << std::endl;
+
+        bool profile_ret = set_profile("High_Dynamic_Range_Basic");
+        if (!profile_ret)
+            return 1;
+
+        std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
+
+        std::cout << "Setting profile to low light" << std::endl;
+
+        if (!set_profile("Lowlight_Basic"))
+        {
+            std::cout << "Failed to set profile" << std::endl;
+            return 1;
+        }
+
+        std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
+
+        std::cout << "Setting profile to day light" << std::endl;
+
+        if (!set_profile("Daylight_Basic"))
+        {
+            std::cout << "Failed to set profile" << std::endl;
+            return 1;
+        }
     }
 
-    std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
-
-    std::cout << "Setting profile to day light" << std::endl;
-
-    if (!set_profile("Daylight"))
+    else
     {
-        std::cout << "Failed to set profile" << std::endl;
-        return 1;
+        std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
+
+        std::cout << "Setting profile to HDR JPEG" << std::endl;
+
+        bool profile_ret = set_profile("High_Dynamic_Range_JPEG");
+        if (!profile_ret)
+            return 1;
+
+        std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
+
+        std::cout << "Setting profile to low light JPEG" << std::endl;
+
+        if (!set_profile("Lowlight_JPEG"))
+        {
+            std::cout << "Failed to set profile" << std::endl;
+            return 1;
+        }
+
+        std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
+
+        std::cout << "Setting profile to day light JPEG" << std::endl;
+
+        if (!set_profile("Daylight_JPEG"))
+        {
+            std::cout << "Failed to set profile" << std::endl;
+            return 1;
+        }
     }
 
     if (SWITCH_ENCODER_EXAMPLE)
@@ -272,7 +295,7 @@ int main()
 
         std::cout << "Setting profile to day light_Jpeg" << std::endl;
 
-        if (!set_profile("Daylight_Jpeg"))
+        if (!set_profile("Daylight_JPEG"))
         {
             std::cout << "Failed to set profile" << std::endl;
             return 1;
@@ -280,17 +303,17 @@ int main()
 
         std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
 
-        std::cout << "Setting profile to HDR_Jpeg" << std::endl;
+        std::cout << "Setting profile to HDR_JPEG" << std::endl;
 
-        bool profile_ret_jpeg = set_profile("High_Dynamic_Range_Jpeg");
+        bool profile_ret_jpeg = set_profile("High_Dynamic_Range_JPEG");
         if (!profile_ret_jpeg)
             return 1;
 
         std::this_thread::sleep_for(std::chrono::seconds(10)); // sleep for 10 seconds
 
-        std::cout << "Setting profile to low light_Jpeg" << std::endl;
+        std::cout << "Setting profile to low light_JPEG" << std::endl;
 
-        if (!set_profile("Lowlight_Jpeg"))
+        if (!set_profile("Lowlight_JPEG"))
         {
             std::cout << "Failed to set profile" << std::endl;
             return 1;

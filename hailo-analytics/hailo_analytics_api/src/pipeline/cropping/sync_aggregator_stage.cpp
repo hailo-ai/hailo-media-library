@@ -155,7 +155,7 @@ tl::expected<std::vector<BufferPtr>, SubframeStatus> SyncAggregatorStage::get_su
             m_processed_frames++;
             if (subframes[0] == nullptr && m_end_of_stream)
             {
-                m_tracing->trace_processing_end();
+                m_tracing->trace_processing_end(main_buffer);
                 return tl::make_unexpected(SubframeStatus::END_OF_STREAM);
             }
         }

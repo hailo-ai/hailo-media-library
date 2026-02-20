@@ -188,7 +188,7 @@ bbox_crop_landmarks_config_t base_config()
     config.bbox_crop_config.sub_sub_name = std::string(LANDMARKS_SUBPIPELINE); // Name of the landmarks sub-pipeline
     config.bbox_crop_config.labels = std::vector<std::string>{"face"};
     config.bbox_crop_config.queue_size = 5;
-    config.bbox_crop_config.leaky = true;
+    config.bbox_crop_config.leaky = false;
     config.bbox_crop_config.trace = true;
     config.bbox_crop_config.pool_mode = hailo_analytics::pipeline::StagePoolMode::BLOCKING;
     config.bbox_crop_config.crop_every_x_frames = 1;

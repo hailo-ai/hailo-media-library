@@ -49,6 +49,9 @@ AppStatus BBoxCropStage::init()
 
 void BBoxCropStage::prepare_crops(BufferPtr input_buffer, std::vector<dsp_crop_api_t> &crop_resize_dims)
 {
+    HailoMediaLibraryBufferPtr buffer = input_buffer->get_buffer();
+    int input_width = buffer->buffer_data->width;
+    int input_height = buffer->buffer_data->height;
     HailoROIPtr roi = input_buffer->get_roi();
 
     for (auto detection : hailo_common::get_hailo_detections(roi))
@@ -61,7 +64,7 @@ void BBoxCropStage::prepare_crops(BufferPtr input_buffer, std::vector<dsp_crop_a
             m_detection_crops_bbox.push_back(detection_bbox);
             m_detection_rois.push_back(detection);
 
-            prepare_single_crop_dim(detection_bbox, crop_resize_dims);
+            prepare_single_crop_dim(detection_bbox, crop_resize_dims, input_width, input_height);
         }
     }
 }

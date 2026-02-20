@@ -1,6 +1,7 @@
 #include "pipeline.hpp"
 #include "common/common.hpp"
 #include "ai_pipeline_builder.hpp"
+#include "hailo_analytics/perfetto/hailo_analytics_perfetto.hpp"
 #include <fstream>
 
 // Stream definitions
@@ -171,6 +172,7 @@ void FaceLandmarksPipeline::build_pipeline()
     ai_config.input_width = bbox_crop_input_width;
     ai_config.input_height = bbox_crop_input_height;
     ai_config.tiles = TILES;
+    ai_config.crop_every_x_frames = 1;
     ai_config.yolo_hef_file = yolo_hef_file;
     ai_config.yolo_post_so = YOLO_POST_SO;
     ai_config.yolo_func_name = yolo_func_name;
@@ -187,24 +189,15 @@ void FaceLandmarksPipeline::build_pipeline()
     AIPipelineStages ai_stages = AIPipelineBuilder::create_ai_stages(ai_config);
 
     // Set callback function for the callback stage
-    AIPipelineBuilder::set_callback_function(ai_stages, [](hailo_analytics::pipeline::BufferPtr data) {
-        static int counter = 0;
-        static const int threshold = 2; // Toggle every 2 calls
-        counter = (counter + 1) % threshold;
-
-        if (counter < threshold / 2)
-        {
-            CroppingMetadataPtr cropping_meta = std::make_shared<CroppingMetadata>(1);
-            data->add_metadata(cropping_meta);
-        }
-        else
-        {
-            CroppingMetadataPtr cropping_meta = std::make_shared<CroppingMetadata>(0);
-            data->add_metadata(cropping_meta);
-        }
-    });
-
-    // Store overlay stages for later control
+    // The concurrent_stream_ids set is populated inside the Frontend with the stream IDs
+    // of all other output streams that received buffers for the same input frame
+    AIPipelineBuilder::set_callback_function(ai_stages, [this](hailo_analytics::pipeline::BufferPtr data) {
+        // Check if sink2 (AI_SINK) was acquired alongside this buffer
+        // This indicates that both the 30fps stream (sink0) and 15fps stream (sink1) got buffers together
+        bool has_matching_pair = data->get_buffer()->concurrent_stream_ids.count(AI_SINK) > 0;
+        CroppingMetadataPtr cropping_meta = std::make_shared<CroppingMetadata>(has_matching_pair);
+        data->add_metadata(cropping_meta);
+    }); // Store overlay stages for later control
     m_app_resources->overlay_stage = ai_stages.overlay_sink0;
 
     // Create valve and freeze stages

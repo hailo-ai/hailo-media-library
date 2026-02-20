@@ -420,22 +420,12 @@ void create_main_pipeline(std::shared_ptr<AppResources> app_resources)
         // Set callback function for the callback stage
         ai_example_app::AIPipelineBuilder::set_callback_function(
             ai_stages, [](hailo_analytics::pipeline::BufferPtr data) {
-                static int counter = 0;
-                static const int threshold = 2; // Toggle every 2 calls
-                counter = (counter + 1) % threshold;
-
-                if (counter < threshold / 2)
-                {
-                    hailo_analytics::pipeline::CroppingMetadataPtr cropping_meta =
-                        std::make_shared<hailo_analytics::pipeline::CroppingMetadata>(1);
-                    data->add_metadata(cropping_meta);
-                }
-                else
-                {
-                    hailo_analytics::pipeline::CroppingMetadataPtr cropping_meta =
-                        std::make_shared<hailo_analytics::pipeline::CroppingMetadata>(0);
-                    data->add_metadata(cropping_meta);
-                }
+                // Check if sink2 (AI_SINK) was acquired alongside this buffer
+                // This indicates that both the 30fps stream (sink0) and 15fps stream (sink1) got buffers together
+                bool has_matching_pair = data->get_buffer()->concurrent_stream_ids.count(AI_SINK) > 0;
+                hailo_analytics::pipeline::CroppingMetadataPtr cropping_meta =
+                    std::make_shared<hailo_analytics::pipeline::CroppingMetadata>(has_matching_pair);
+                data->add_metadata(cropping_meta);
             });
 
         /*

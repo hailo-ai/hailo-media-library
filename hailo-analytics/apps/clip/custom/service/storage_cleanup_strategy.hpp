@@ -43,10 +43,10 @@ class FaissShardFirstCleanupStrategy : public ICleanupStrategy
         // We first obtain how many different Faiss index is currently running
         auto faiss_index_names = FaissDatabaseQuickAccess::get_all_database_names();
 
-        std::cout << "Faiss indices found: " << faiss_index_names.size() << std::endl;
+        HAILO_ANALYTICS_LOG_INFO("Faiss indices found: {}", faiss_index_names.size());
         for (const auto &name : faiss_index_names)
         {
-            std::cout << " - " << name << std::endl;
+            HAILO_ANALYTICS_LOG_INFO(" - {}", name);
         }
 
         // Now for each faiss index name we retrieve the shard file that belongs to the faiss and
@@ -57,14 +57,14 @@ class FaissShardFirstCleanupStrategy : public ICleanupStrategy
             auto config_result = FaissDatabaseQuickAccess::get_database_config(network_name);
             if (!config_result)
             {
-                std::cerr << "Failed to get config for Faiss index '" << network_name
-                          << "': " << config_result.error().message << std::endl;
+                HAILO_ANALYTICS_LOG_ERROR("Failed to get config for Faiss index '{}': {}", network_name,
+                                          config_result.error().message);
                 continue;
             }
 
-            std::cout << "Processing cleanup for Faiss index: " << network_name
-                      << " with db directory: " << config_result.value()->db_directory
-                      << " and file prefix: " << config_result.value()->file_prefix << std::endl;
+            HAILO_ANALYTICS_LOG_INFO("Processing cleanup for Faiss index: {} with db directory: {} and file prefix: {}",
+                                     network_name, config_result.value()->db_directory,
+                                     config_result.value()->file_prefix);
 
             auto file_names = FileSysUtils::get_all_file_names(config_result.value()->db_directory, true,
                                                                config_result.value()->file_prefix);
@@ -90,7 +90,7 @@ class FaissShardFirstCleanupStrategy : public ICleanupStrategy
                 auto faiss_idx_result = FaissDatabaseQuickAccess::get_database(network_name);
                 if (!faiss_idx_result)
                 {
-                    std::cerr << "Failed to get Faiss database for index: " << network_name << std::endl;
+                    HAILO_ANALYTICS_LOG_ERROR("Failed to get Faiss database for index: {}", network_name);
                     continue;
                 }
 
@@ -103,9 +103,9 @@ class FaissShardFirstCleanupStrategy : public ICleanupStrategy
                     continue;
                 }
 
-                std::cout << "FaissShardFirstCleanupStrategy Processing cleanup request for network: " << network_name
-                          << " file: " << file_names[i] << " with total faiss ids: " << shard_ids_result.value().size()
-                          << std::endl;
+                HAILO_ANALYTICS_LOG_INFO("FaissShardFirstCleanupStrategy Processing cleanup request for network: {} "
+                                         "file: {} with total faiss ids: {}",
+                                         network_name, file_names[i], shard_ids_result.value().size());
 
                 // Gather all faiss id by network name to prepare for deletion
                 // also we keep the largest id to retrieve the latest timestamp
@@ -123,8 +123,8 @@ class FaissShardFirstCleanupStrategy : public ICleanupStrategy
                     cleanup_service.get_faiss_table()->query_timestamp(latest_timestamp_faiss_id, network_name);
                 if (!latest_timestamp_result.has_value())
                 {
-                    std::cerr << "Failed to get latest timestamp for faiss id: " << latest_timestamp_faiss_id
-                              << " network: " << network_name << std::endl;
+                    HAILO_ANALYTICS_LOG_ERROR("Failed to get latest timestamp for faiss id: {} network: {}",
+                                              latest_timestamp_faiss_id, network_name);
                     // TODO: We should fallback using the timestamp from the file name
                     continue;
                 }
@@ -133,7 +133,7 @@ class FaissShardFirstCleanupStrategy : public ICleanupStrategy
                 // Delete all faiss records from faiss database table
                 if (faiss_ids.size() && !cleanup_service.get_faiss_table()->delete_batch_by_faiss_ids(faiss_ids))
                 {
-                    std::cerr << "Failed to delete faiss record db table" << std::endl;
+                    HAILO_ANALYTICS_LOG_ERROR("Failed to delete faiss record db table");
                 }
 
                 /* Now lets handle thumbnails */
@@ -149,11 +149,11 @@ class FaissShardFirstCleanupStrategy : public ICleanupStrategy
                 }
 
                 // Print total file to be removed and also print the first and the last file path
-                std::cout << "Total thumbnails to delete: " << thumbnail_paths.size() << std::endl;
+                HAILO_ANALYTICS_LOG_INFO("Total thumbnails to delete: {}", thumbnail_paths.size());
                 if (!thumbnail_paths.empty())
                 {
-                    std::cout << "First thumbnail to delete: " << thumbnail_paths.front() << std::endl;
-                    std::cout << "Last thumbnail to delete: " << thumbnail_paths.back() << std::endl;
+                    HAILO_ANALYTICS_LOG_INFO("First thumbnail to delete: {}", thumbnail_paths.front());
+                    HAILO_ANALYTICS_LOG_INFO("Last thumbnail to delete: {}", thumbnail_paths.back());
                 }
 
                 // Delete thumbnails files by path
@@ -164,12 +164,12 @@ class FaissShardFirstCleanupStrategy : public ICleanupStrategy
                     cleanup_service.get_thumbnail_table()->delete_by_timestamp_range(0, latest_timestamp);
                 if (total_tumb_table_record_del < 0)
                 {
-                    std::cerr << "Failed to delete thumbnail records from database table" << std::endl;
+                    HAILO_ANALYTICS_LOG_ERROR("Failed to delete thumbnail records from database table");
                 }
                 else
                 {
-                    std::cout << "Deleted thumbnail records from database table: " << total_tumb_table_record_del
-                              << std::endl;
+                    HAILO_ANALYTICS_LOG_INFO("Deleted thumbnail records from database table: {}",
+                                             total_tumb_table_record_del);
                 }
 
                 /* Now lets handle video */
@@ -182,11 +182,11 @@ class FaissShardFirstCleanupStrategy : public ICleanupStrategy
                 }
 
                 // Print total file to be removed and also print the first and the last file path
-                std::cout << "Total videos to delete: " << video_paths.size() << std::endl;
+                HAILO_ANALYTICS_LOG_INFO("Total videos to delete: {}", video_paths.size());
                 if (!video_paths.empty())
                 {
-                    std::cout << "First video to delete: " << video_paths.front() << std::endl;
-                    std::cout << "Last video to delete: " << video_paths.back() << std::endl;
+                    HAILO_ANALYTICS_LOG_INFO("First video to delete: {}", video_paths.front());
+                    HAILO_ANALYTICS_LOG_INFO("Last video to delete: {}", video_paths.back());
                 }
 
                 // Delete video files by path
@@ -198,12 +198,12 @@ class FaissShardFirstCleanupStrategy : public ICleanupStrategy
 
                 if (total_video_table_record_del < 0)
                 {
-                    std::cerr << "Failed to delete video records from database table" << std::endl;
+                    HAILO_ANALYTICS_LOG_ERROR("Failed to delete video records from database table");
                 }
                 else
                 {
-                    std::cout << "Deleted video records from database table: " << total_video_table_record_del
-                              << std::endl;
+                    HAILO_ANALYTICS_LOG_INFO("Deleted video records from database table: {}",
+                                             total_video_table_record_del);
                 }
 
                 /* Now we handle the faiss index shard file*/
@@ -211,10 +211,10 @@ class FaissShardFirstCleanupStrategy : public ICleanupStrategy
                 // We delete the faiss shard file
                 if (!FileSysUtils::delete_files({file_names[i]}))
                 {
-                    std::cerr << "Failed to delete faiss index file (maybe already deleted): " << file_names[i]
-                              << std::endl;
+                    HAILO_ANALYTICS_LOG_ERROR("Failed to delete faiss index file (maybe already deleted): {}",
+                                              file_names[i]);
                 }
-                std::cout << "Deleted faiss index file: " << file_names[i] << std::endl;
+                HAILO_ANALYTICS_LOG_INFO("Deleted faiss index file: {}", file_names[i]);
 
                 // Update by removing the partition from the FAISS index
                 faiss_indx_db->remove_partition(file_names[i]);
@@ -222,7 +222,7 @@ class FaissShardFirstCleanupStrategy : public ICleanupStrategy
                 // AARON DEBUG Measure
                 auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::high_resolution_clock::now() - start);
-                std::cout << "Time taken STORAGE CLEANUP: " << duration.count() << " ms" << std::endl;
+                HAILO_ANALYTICS_LOG_INFO("Time taken STORAGE CLEANUP: {} ms", duration.count());
 
                 // Sleep for 100ms for each cycle
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));

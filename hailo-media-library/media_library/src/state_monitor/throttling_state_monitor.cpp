@@ -193,8 +193,7 @@ ThrottlingStateMonitor::ThrottlingStateMonitor(std::shared_ptr<ThrottlingManager
 
 ThrottlingStateMonitor::~ThrottlingStateMonitor()
 {
-    stop();                         // Ensure the timer thread is stopped
-    stop_state_ready_delay_timer(); // Ensure the state ready delay thread is stopped
+    stop_force(); // Force stop regardless of user IDs and reference count
     m_state_callbacks.clear();
     LOGGER__MODULE__INFO(MODULE_NAME, "ThrottlingStateMonitor destroyed");
 }
@@ -230,9 +229,17 @@ void ThrottlingStateMonitor::invoke_callbacks()
 {
     if (m_state_update_delay_done)
     {
-        for (std::function<void()> &callback : m_state_callbacks[m_state_id])
+        // Iterate over all users and their callbacks for the current state
+        auto state_it = m_state_callbacks.find(m_state_id);
+        if (state_it != m_state_callbacks.end())
         {
-            callback();
+            for (auto &user_entry : state_it->second)
+            {
+                for (auto &callback : user_entry.second)
+                {
+                    callback();
+                }
+            }
         }
     }
     else
@@ -408,7 +415,7 @@ void ThrottlingStateMonitor::start_state_ready_delay_timer()
         {
             LOGGER__MODULE__DEBUG(MODULE_NAME, "State ready delay timer cancelled");
         }
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "State ready delay timer thread exiting");
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "State ready delay timer thread working");
     });
 }
 
@@ -424,6 +431,8 @@ void ThrottlingStateMonitor::stop_state_ready_delay_timer()
     {
         m_state_ready_delay_thread.join(); // Wait for the thread to finish
     }
+
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "State ready delay timer stopped");
 }
 
 media_library_return ThrottlingStateMonitor::handle_cooling_in_progress()
@@ -510,14 +519,75 @@ media_library_return ThrottlingStateMonitor::determine_initial_state()
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return ThrottlingStateMonitor::stop()
+media_library_return ThrottlingStateMonitor::stop(throttling_monitor_user_id_t user_id)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Stopping throttling state monitor");
+
+    // Validate user ID
+    if (m_active_users.find(user_id) == m_active_users.end())
+    {
+        LOGGER__MODULE__WARNING(MODULE_NAME, "stop() called with invalid or already-stopped user_id: {}", user_id);
+        return media_library_return::MEDIA_LIBRARY_ERROR;
+    }
+
+    // Remove this user's callbacks from all states
+    for (auto &state_entry : m_state_callbacks)
+    {
+        state_entry.second.erase(user_id);
+    }
+
+    // Remove user from active set
+    m_active_users.erase(user_id);
+
+    // Decrement ref count
+    int ref_count = m_start_ref_count.fetch_sub(1);
+
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "User {} stopped - ref_count: {} -> {}", user_id, ref_count, ref_count - 1);
+
+    if (ref_count <= 0)
+    {
+        // Should not happen if user_id was valid, but clamp for safety
+        m_start_ref_count = 0;
+        LOGGER__MODULE__WARNING(MODULE_NAME, "stop() ref_count was already <= 0 (was {})", ref_count);
+        return media_library_return::MEDIA_LIBRARY_SUCCESS;
+    }
+
+    if (!m_active_users.empty())
+    {
+        // Other users still active
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "stop() completed but {} other user(s) still active", m_active_users.size());
+        return media_library_return::MEDIA_LIBRARY_SUCCESS;
+    }
+
+    // No active users remaining - perform actual teardown
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Last user stopped - shutting down throttling state monitor");
+
     stop_timer();                   // Stop the timer thread
     stop_state_ready_delay_timer(); // Stop the state ready delay thread
     m_manager_wrapper->stop_watch();
     m_monitoring = false;
+    m_state_update_delay_done = false;
+    return media_library_return::MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return ThrottlingStateMonitor::stop_force()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Force stopping throttling state monitor - clearing all users");
+
+    // Clear all users and callbacks
+    m_active_users.clear();
+    m_state_callbacks.clear();
+    m_start_ref_count = 0;
+
+    // Perform actual teardown
+    stop_timer();                   // Stop the timer thread
+    stop_state_ready_delay_timer(); // Stop the state ready delay thread
+    m_manager_wrapper->stop_watch();
+    m_monitoring = false;
+    m_state_update_delay_done = false;
+
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -544,17 +614,33 @@ void ThrottlingStateMonitor::on_state_change_callback(ThrottlingStateId state_id
     invoke_callbacks();
 }
 
-media_library_return ThrottlingStateMonitor::start()
+tl::expected<throttling_monitor_user_id_t, media_library_return> ThrottlingStateMonitor::start()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
 
+    // Assign a new user ID
+    throttling_monitor_user_id_t user_id = m_next_user_id.fetch_add(1);
+
+    // Increment ref count
+    int ref_count = m_start_ref_count.fetch_add(1);
+
+    // Add user to active set
+    m_active_users.insert(user_id);
+
     if (m_monitoring)
     {
-        LOGGER__MODULE__WARNING(MODULE_NAME, "Throttling state monitor already running");
-        return media_library_return::MEDIA_LIBRARY_SUCCESS;
+        // Already running - new user joined
+        LOGGER__MODULE__DEBUG(MODULE_NAME,
+                              "Throttling state monitor already running - user {} joined (ref_count: {} -> {})",
+                              user_id, ref_count, ref_count + 1);
+        return user_id;
     }
 
+    // First user starting (ref_count was 0, now 1)
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "First user {} starting throttling state monitor (ref_count: 0 -> 1)", user_id);
+
     m_monitoring = true;
+    m_state_update_delay_done = false;
 
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Initializing throttling state monitor");
 
@@ -563,13 +649,16 @@ media_library_return ThrottlingStateMonitor::start()
     if (determine_initial_state() != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to determine initial state");
-        return media_library_return::MEDIA_LIBRARY_ERROR;
+        m_start_ref_count.fetch_sub(1); // Rollback ref count on error
+        m_active_users.erase(user_id);  // Remove user from active set
+        m_monitoring = false;
+        return tl::unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
     }
 
     stop_state_ready_delay_timer();
     start_state_ready_delay_timer();
 
-    return media_library_return::MEDIA_LIBRARY_SUCCESS;
+    return user_id;
 }
 
 throttling_state_t ThrottlingStateMonitor::get_active_state() const
@@ -577,9 +666,20 @@ throttling_state_t ThrottlingStateMonitor::get_active_state() const
     return m_state_id;
 }
 
-media_library_return ThrottlingStateMonitor::subscribe(throttling_state_t state_id, std::function<void()> callback)
+media_library_return ThrottlingStateMonitor::subscribe(throttling_monitor_user_id_t user_id,
+                                                       throttling_state_t state_id, std::function<void()> callback)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_state_callbacks[state_id].emplace_back(callback);
+
+    // Validate user ID
+    if (m_active_users.find(user_id) == m_active_users.end())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "subscribe() called with invalid user_id: {} - must call start() first",
+                              user_id);
+        return media_library_return::MEDIA_LIBRARY_ERROR;
+    }
+
+    m_state_callbacks[state_id][user_id].emplace_back(callback);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "User {} subscribed to state {}", user_id, throttling_state_to_string(state_id));
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }

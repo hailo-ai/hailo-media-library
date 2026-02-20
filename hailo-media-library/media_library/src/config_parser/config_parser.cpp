@@ -72,84 +72,86 @@ class ConfigParser::Impl
      */
     Impl(ConfigSchema schema)
     {
+        // Make deep copies of schemas to avoid static destruction order issues
         switch (schema)
         {
         case ConfigSchema::CONFIG_SCHEMA_ENCODER_AND_BLENDING:
-            m_config_validator.set_root_schema(config_schemas::encoder_config_schema);
+            m_schema = nlohmann::json(config_schemas::encoder_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_ENCODER:
-            m_config_validator.set_root_schema(config_schemas::encoding_config_schema_internal);
+            m_schema = nlohmann::json(config_schemas::encoding_config_schema_internal);
             break;
         case ConfigSchema::CONFIG_SCHEMA_ENCODER_WITH_METADATA_VERSION:
-            m_config_validator.set_root_schema(config_schemas::encoding_config_schema_with_metadata_version);
+            m_schema = nlohmann::json(config_schemas::encoding_config_schema_with_metadata_version);
             break;
         case ConfigSchema::CONFIG_SCHEMA_MULTI_RESIZE:
-            m_config_validator.set_root_schema(config_schemas::multi_resize_config_schema);
+            m_schema = nlohmann::json(config_schemas::multi_resize_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_OSD:
-            m_config_validator.set_root_schema(config_schemas::osd_config_schema_internal);
+            m_schema = nlohmann::json(config_schemas::osd_config_schema_internal);
             break;
         case ConfigSchema::CONFIG_SCHEMA_OSD_WITH_METADATA_VERSION:
-            m_config_validator.set_root_schema(config_schemas::osd_config_schema);
+            m_schema = nlohmann::json(config_schemas::osd_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_PRIVACY_MASK:
-            m_config_validator.set_root_schema(config_schemas::privacy_mask_config_schema_internal);
+            m_schema = nlohmann::json(config_schemas::privacy_mask_config_schema_internal);
             break;
         case ConfigSchema::CONFIG_SCHEMA_PRIVACY_MASK_WITH_METADATA_VERSION:
-            m_config_validator.set_root_schema(config_schemas::privacy_mask_config_schema);
+            m_schema = nlohmann::json(config_schemas::privacy_mask_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_LDC:
-            m_config_validator.set_root_schema(config_schemas::ldc_config_schema);
+            m_schema = nlohmann::json(config_schemas::ldc_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_VSM:
-            m_config_validator.set_root_schema(config_schemas::vsm_config_schema);
+            m_schema = nlohmann::json(config_schemas::vsm_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_HAILORT:
-            m_config_validator.set_root_schema(config_schemas::hailort_config_schema);
+            m_schema = nlohmann::json(config_schemas::hailort_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_ISP:
-            m_config_validator.set_root_schema(config_schemas::isp_config_schema);
+            m_schema = nlohmann::json(config_schemas::isp_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_HDR:
-            m_config_validator.set_root_schema(config_schemas::hdr_config_schema);
+            m_schema = nlohmann::json(config_schemas::hdr_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_DENOISE:
-            m_config_validator.set_root_schema(config_schemas::denoise_config_schema);
+            m_schema = nlohmann::json(config_schemas::denoise_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_INPUT_VIDEO:
-            m_config_validator.set_root_schema(config_schemas::input_video_config_schema);
+            m_schema = nlohmann::json(config_schemas::input_video_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_APPLICATION_ANALYTICS:
-            m_config_validator.set_root_schema(config_schemas::application_analytics_config_schema);
+            m_schema = nlohmann::json(config_schemas::application_analytics_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_FRONTEND:
-            m_config_validator.set_root_schema(config_schemas::frontend_config_schema);
+            m_schema = nlohmann::json(config_schemas::frontend_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_MEDIALIB_CONFIG:
-            m_config_validator.set_root_schema(config_schemas::medialib_config_schema);
+            m_schema = nlohmann::json(config_schemas::medialib_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_PROFILE:
-            m_config_validator.set_root_schema(config_schemas::profile_config_schema);
+            m_schema = nlohmann::json(config_schemas::profile_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_NONE:
-            m_config_validator.set_root_schema(config_schemas::empty_config_schema);
+            m_schema = nlohmann::json(config_schemas::empty_config_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_IQ_SETTINGS:
-            m_config_validator.set_root_schema(config_schemas::iq_settings_schema);
+            m_schema = nlohmann::json(config_schemas::iq_settings_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_STABILIZER_SETTINGS:
-            m_config_validator.set_root_schema(config_schemas::stebilizer_schema);
+            m_schema = nlohmann::json(config_schemas::stebilizer_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_APPLICATION_SETTINGS:
-            m_config_validator.set_root_schema(config_schemas::application_settings_schema);
+            m_schema = nlohmann::json(config_schemas::application_settings_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_SENSOR_CONFIG:
-            m_config_validator.set_root_schema(config_schemas::sensor_config_file_schema);
+            m_schema = nlohmann::json(config_schemas::sensor_config_file_schema);
             break;
         case ConfigSchema::CONFIG_SCHEMA_AUTOMATIC_ALGORITHMS:
-            m_config_validator.set_root_schema(config_schemas::automatic_algorithms_schema);
+            m_schema = nlohmann::json(config_schemas::automatic_algorithms_schema);
             break;
         }
+        m_config_validator.set_root_schema(m_schema);
     };
 
     /**
@@ -238,6 +240,7 @@ class ConfigParser::Impl
     static bool is_config_change_allowed(const frontend_config_t &old_config, const frontend_config_t &new_config);
 
   private:
+    nlohmann::json m_schema; // just to make sure schema out lives the validator
     nlohmann::json_schema::json_validator m_config_validator;
 
     /*

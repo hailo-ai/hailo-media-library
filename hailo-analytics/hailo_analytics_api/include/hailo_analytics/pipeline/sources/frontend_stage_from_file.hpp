@@ -97,13 +97,15 @@ class FrontendStageFromFile : public FrontendStage
 
     /**
      * @brief Start processing trace if tracing is enabled
+     * @param buffer Optional buffer to extract ISP timestamp from
      */
-    void trace_processing_start();
+    void trace_processing_start(HailoMediaLibraryBufferPtr buffer = nullptr);
 
     /**
      * @brief End processing trace if tracing is enabled
+     * @param buffer Optional buffer parameter (currently unused)
      */
-    void trace_processing_end();
+    void trace_processing_end(HailoMediaLibraryBufferPtr buffer = nullptr);
 };
 
 /**

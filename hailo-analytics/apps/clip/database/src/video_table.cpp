@@ -1,6 +1,7 @@
 #include "video_table.hpp"
 #include <iostream>
 #include <cstdint>
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
 VideoTable::VideoTable(const std::string &dbFile, SqliteAccessType accesstype) : Database(dbFile, accesstype)
 {
@@ -49,7 +50,7 @@ void VideoTable::insert(int64_t start, int64_t end, const std::string &path)
     if (rc != SQLITE_DONE)
     {
         // Insert failed
-        std::cerr << "VideoTable Insert failed: " << sqlite3_errmsg(m_db) << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("VideoTable Insert failed: {}", sqlite3_errmsg(m_db));
     }
 
     sqlite3_finalize(stmt);
@@ -63,7 +64,7 @@ void VideoTable::insert_batch(const std::vector<std::tuple<int64_t, int64_t, std
     // Begin transaction for better performance
     if (!execute("BEGIN TRANSACTION;"))
     {
-        std::cerr << "VideoTable: Failed to begin transaction for batch insert" << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("VideoTable: Failed to begin transaction for batch insert");
         return;
     }
 
@@ -71,7 +72,7 @@ void VideoTable::insert_batch(const std::vector<std::tuple<int64_t, int64_t, std
     if (!stmt)
     {
         execute("ROLLBACK;");
-        std::cerr << "VideoTable: Failed to prepare statement for batch insert" << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("VideoTable: Failed to prepare statement for batch insert");
         return;
     }
 
@@ -88,8 +89,8 @@ void VideoTable::insert_batch(const std::vector<std::tuple<int64_t, int64_t, std
         int rc = sqlite3_step(stmt);
         if (rc != SQLITE_DONE)
         {
-            std::cerr << "VideoTable Batch insert failed for record (start: " << std::get<0>(record)
-                      << ", end: " << std::get<1>(record) << "): " << sqlite3_errmsg(m_db) << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("VideoTable Batch insert failed for record (start: {}, end: {}): {}",
+                                      std::get<0>(record), std::get<1>(record), sqlite3_errmsg(m_db));
             success = false;
             break;
         }

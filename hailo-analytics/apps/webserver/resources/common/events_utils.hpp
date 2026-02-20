@@ -353,6 +353,7 @@ typedef struct
     EventPriority priority;
     std::string subscriber_id;
     bool async_send;
+    uint64_t registration_id; // Unique ID for each callback registration to detect stale callbacks
 } resource_callback_t;
 
 } // namespace resources

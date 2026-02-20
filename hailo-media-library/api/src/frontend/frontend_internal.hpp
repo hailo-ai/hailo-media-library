@@ -57,8 +57,7 @@ class MediaLibraryFrontend::Impl final
     gboolean on_bus_call(GstMessage *msg);
 
   private:
-    static void fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps,
-                                frontend_output_stream_t *output_stream);
+    static void fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps, gpointer user_data);
 
     static void need_data(GstAppSrc *appsrc, guint size, gpointer user_data)
     {

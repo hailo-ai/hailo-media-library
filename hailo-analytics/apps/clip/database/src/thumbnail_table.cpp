@@ -1,6 +1,7 @@
 #include "thumbnail_table.hpp"
 #include <iostream>
 #include <algorithm>
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
 ThumbnailTable::ThumbnailTable(const std::string &dbFile, SqliteAccessType accesstype) : Database(dbFile, accesstype)
 {
@@ -47,7 +48,7 @@ void ThumbnailTable::insert(int64_t timestamp, const std::string &path)
     if (rc != SQLITE_DONE)
     {
         // Insert failed
-        std::cerr << "ThumbnailTable Insert failed: " << sqlite3_errmsg(m_db) << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("ThumbnailTable Insert failed: {}", sqlite3_errmsg(m_db));
     }
 
     sqlite3_finalize(stmt);
@@ -61,7 +62,7 @@ void ThumbnailTable::insert_batch(const std::vector<std::tuple<int64_t, std::str
     // Begin transaction for better performance
     if (!execute("BEGIN TRANSACTION;"))
     {
-        std::cerr << "ThumbnailTable: Failed to begin transaction for batch insert" << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("ThumbnailTable: Failed to begin transaction for batch insert");
         return;
     }
 
@@ -69,7 +70,7 @@ void ThumbnailTable::insert_batch(const std::vector<std::tuple<int64_t, std::str
     if (!stmt)
     {
         execute("ROLLBACK;");
-        std::cerr << "ThumbnailTable: Failed to prepare statement for batch insert" << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("ThumbnailTable: Failed to prepare statement for batch insert");
         return;
     }
 
@@ -85,8 +86,8 @@ void ThumbnailTable::insert_batch(const std::vector<std::tuple<int64_t, std::str
         int rc = sqlite3_step(stmt);
         if (rc != SQLITE_DONE)
         {
-            std::cerr << "ThumbnailTable Batch insert failed for record (timestamp: " << std::get<0>(record)
-                      << "): " << sqlite3_errmsg(m_db) << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("ThumbnailTable Batch insert failed for record (timestamp: {}): {}",
+                                      std::get<0>(record), sqlite3_errmsg(m_db));
             success = false;
             break;
         }
@@ -143,7 +144,7 @@ std::vector<ThumbnailBatchQueryResult> ThumbnailTable::query_batch_nearest(const
         prepare("SELECT timestamp, path FROM thumbnails WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp;");
     if (!stmt)
     {
-        std::cerr << "ThumbnailTable: Failed to prepare batch query statement" << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("ThumbnailTable: Failed to prepare batch query statement");
         return results;
     }
 

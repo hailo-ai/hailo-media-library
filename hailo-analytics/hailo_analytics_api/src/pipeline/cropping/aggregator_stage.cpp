@@ -150,7 +150,7 @@ int AggregatorStage::count_subframes(BufferPtr main_buffer)
 void AggregatorStage::stamp_and_send(BufferPtr buffer)
 {
     send_to_subscribers(buffer);
-    m_tracing->trace_processing_end();
+    m_tracing->trace_processing_end(buffer);
 }
 
 void AggregatorStage::migrate_metadata(BufferPtr main_buffer, std::vector<BufferPtr> &subframes)
@@ -201,7 +201,6 @@ void AggregatorStage::loop()
     {
         // the first queue is the one that is condisidered the "main stream"
         BufferPtr main_buffer = m_queues[0]->pop();
-        m_tracing->trace_processing_start();
         if (main_buffer == nullptr && m_end_of_stream)
         {
             break;
@@ -209,6 +208,9 @@ void AggregatorStage::loop()
 
         // Check if the main buffer has cropping metadata
         int num_subframes = count_subframes(main_buffer);
+
+        m_tracing->trace_processing_start(main_buffer, "num_subframes", num_subframes);
+
         // If no subframes are requested, send the main buffer as is
         if (num_subframes == 0)
         {
@@ -253,7 +255,7 @@ tl::expected<std::vector<BufferPtr>, SubframeStatus> AggregatorStage::get_subfra
         subframes.push_back(m_queues[1]->pop());
         if (subframes[i] == nullptr && m_end_of_stream)
         {
-            m_tracing->trace_processing_end();
+            m_tracing->trace_processing_end(main_buffer);
             return tl::make_unexpected(SubframeStatus::END_OF_STREAM);
         }
     }

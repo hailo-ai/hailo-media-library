@@ -50,6 +50,111 @@ std::shared_mutex Encoder::Impl::m_vc_encode_mutex;
 std::condition_variable_any Encoder::Impl::m_vc_hw_reset_cv;
 std::atomic<bool> Encoder::Impl::m_vc_hw_timeout(false);
 
+class DmabufShareGuard
+{
+  public:
+    DmabufShareGuard(HailoMediaLibraryBufferPtr buf, void *ewl, VCEncIn &enc_in, bool is_output_buffer)
+        : m_buf(buf), m_ewl(ewl), m_shared_planes(0)
+    {
+        if (m_buf == nullptr || !m_buf->is_dmabuf())
+        {
+            return;
+        }
+
+        u32 *bus_addresses[3];
+        if (is_output_buffer)
+        {
+            bus_addresses[0] = &enc_in.busOutBuf;
+        }
+        else
+        {
+            bus_addresses[0] = &enc_in.busLuma;
+            bus_addresses[1] = &enc_in.busChromaU;
+            bus_addresses[2] = &enc_in.busChromaV;
+        }
+        uint32_t num_of_planes = m_buf->get_num_of_planes();
+        assert(!is_output_buffer || num_of_planes == 1);
+
+        for (uint32_t i = 0; i < num_of_planes; i++)
+        {
+            int planeFd = m_buf->get_plane_fd(i);
+            if (planeFd <= 0)
+            {
+                LOGGER__MODULE__ERROR(MODULE_NAME, "Could not get dmabuf fd of plane {}", i);
+                release_shared_planes();
+                return;
+            }
+            if (EWLShareDmabuf(m_ewl, planeFd, bus_addresses[i]) != EWL_OK)
+            {
+                LOGGER__MODULE__ERROR(MODULE_NAME, "Could not share dmabuf of plane {} fd {}", i, planeFd);
+                release_shared_planes();
+                return;
+            }
+            m_shared_planes++;
+        }
+    }
+
+    ~DmabufShareGuard()
+    {
+        release_shared_planes();
+    }
+
+    bool is_valid() const
+    {
+        return m_buf != nullptr && (m_shared_planes == m_buf->get_num_of_planes() || !m_buf->is_dmabuf());
+    }
+
+    // Non-copyable
+    DmabufShareGuard(const DmabufShareGuard &) = delete;
+    DmabufShareGuard &operator=(const DmabufShareGuard &) = delete;
+
+    // Movable
+    DmabufShareGuard(DmabufShareGuard &&other) noexcept
+        : m_buf(std::move(other.m_buf)), m_ewl(other.m_ewl), m_shared_planes(other.m_shared_planes)
+    {
+        other.m_ewl = nullptr;
+        other.m_shared_planes = 0;
+    }
+
+    DmabufShareGuard &operator=(DmabufShareGuard &&other) noexcept
+    {
+        if (this != &other)
+        {
+            release_shared_planes();
+            m_buf = std::move(other.m_buf);
+            m_ewl = other.m_ewl;
+            m_shared_planes = other.m_shared_planes;
+            other.m_ewl = nullptr;
+            other.m_shared_planes = 0;
+        }
+        return *this;
+    }
+
+  private:
+    void release_shared_planes()
+    {
+        if (m_buf == nullptr || m_ewl == nullptr)
+        {
+            return;
+        }
+        for (uint32_t i = 0; i < m_shared_planes; i++)
+        {
+            int planeFd = m_buf->get_plane_fd(i);
+            if (planeFd > 0)
+            {
+                if (EWLUnshareDmabuf(m_ewl, planeFd) != EWL_OK)
+                {
+                    LOGGER__MODULE__ERROR(MODULE_NAME, "Could not unshare dmabuf of plane {} fd {}", i, planeFd);
+                }
+            }
+        }
+        m_shared_planes = 0;
+    }
+
+    HailoMediaLibraryBufferPtr m_buf;
+    void *m_ewl;
+    uint32_t m_shared_planes;
+};
 Encoder::Encoder()
 {
     m_impl = std::make_unique<Impl>();
@@ -65,11 +170,11 @@ Encoder::Impl::~Impl()
     encoder_names.erase(this);
 }
 
-media_library_return Encoder::Impl::acquire_output_memory(HailoMediaLibraryBufferPtr buffer_ptr)
+media_library_return Encoder::Impl::acquire_output_memory(HailoMediaLibraryBufferPtr buffer_ptr,
+                                                          std::vector<DmabufShareGuard> &dmabuf_release_guards)
 {
     std::shared_lock<std::shared_mutex> lock(m_vc_api_mutex);
 
-    i32 ret;
     if (NULL == m_ewl)
     {
         return MEDIA_LIBRARY_ERROR;
@@ -86,36 +191,29 @@ media_library_return Encoder::Impl::acquire_output_memory(HailoMediaLibraryBuffe
         LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to acquire buffer", encoder_names[this]);
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
-    int planeFd = buffer_ptr->get_plane_fd(0);
-    // Retrieve the physical address of the plane
-    ret = EWLShareDmabuf(m_ewl, planeFd, &m_enc_in.busOutBuf);
-
-    if (ret != EWL_OK)
+    const int planeFd = buffer_ptr->get_plane_fd(0);
+    const bool is_output_buffer = true;
+    DmabufShareGuard dmabuf_release_guard(buffer_ptr, m_ewl, m_enc_in, is_output_buffer);
+    if (!dmabuf_release_guard.is_valid())
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Could not get physical address of plane {} planeFd {}",
-                              encoder_names[this], 0, planeFd);
-        ret = EWLUnshareDmabuf(m_ewl, buffer_ptr->get_plane_fd(0));
-        if (ret != EWL_OK)
-        {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Could not unshare buffer plane {} planeFd {}", encoder_names[this],
-                                  0, planeFd);
-        }
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Could not create dmabuf release guard", encoder_names[this]);
         return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
     }
+    dmabuf_release_guards.emplace_back(std::move(dmabuf_release_guard));
     m_enc_in.outBufSize = (u32)buffer_ptr->get_plane_size(0);
     m_enc_in.pOutBuf = (u32 *)buffer_ptr->get_plane_ptr(0);
     m_enc_in.outBufFd = planeFd;
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::encode_executer(encoder_operation_t op)
+tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::encode_executer(
+    encoder_operation_t op, std::vector<DmabufShareGuard> &dmabuf_release_guards)
 {
     media_library_return ret = MEDIA_LIBRARY_SUCCESS;
     VCEncRet encoder_ret_code;
-    i32 unshare_ret_code;
 
     HailoMediaLibraryBufferPtr buffer_ptr = std::make_shared<hailo_media_library_buffer>();
-    if (acquire_output_memory(buffer_ptr) != MEDIA_LIBRARY_SUCCESS)
+    if (acquire_output_memory(buffer_ptr, dmabuf_release_guards) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to acquire output memory", encoder_names[this]);
         return tl::make_unexpected(MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR);
@@ -198,12 +296,6 @@ tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::encode_ex
 
     std::shared_lock<std::shared_mutex> lock(m_vc_api_mutex);
 
-    unshare_ret_code = EWLUnshareDmabuf(m_ewl, buffer_ptr->get_plane_fd(0));
-    if (unshare_ret_code != EWL_OK)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to unshare dmabuf", encoder_names[this]);
-        ret = MEDIA_LIBRARY_ERROR;
-    }
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
         return tl::make_unexpected(MEDIA_LIBRARY_ERROR);
@@ -650,7 +742,8 @@ media_library_return Encoder::Impl::encode_header()
         LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Encoder not initialized", encoder_names[this]);
         return MEDIA_LIBRARY_UNINITIALIZED;
     }
-    auto expected_encoded_header = encode_executer(encoder_operation_t::ENCODER_OPERATION_START);
+    std::vector<DmabufShareGuard> dmabuf_release_guards;
+    auto expected_encoded_header = encode_executer(encoder_operation_t::ENCODER_OPERATION_START, dmabuf_release_guards);
     if (!expected_encoded_header.has_value())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to encode header", encoder_names[this]);
@@ -824,7 +917,8 @@ tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::start()
 
     m_enc_in.gopSize = get_gop_size();
 
-    auto expected_encoded_header = encode_executer(encoder_operation_t::ENCODER_OPERATION_START);
+    std::vector<DmabufShareGuard> dmabuf_release_guards;
+    auto expected_encoded_header = encode_executer(encoder_operation_t::ENCODER_OPERATION_START, dmabuf_release_guards);
     if (!expected_encoded_header.has_value())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to start encoder", encoder_names[this]);
@@ -879,7 +973,8 @@ tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::finish()
         LOGGER__MODULE__DEBUG(MODULE_NAME, "[{}] Encoder is not started, skipping finish", encoder_names[this]);
         return EncoderOutputBuffer{};
     }
-    auto expected_encoded_eos = encode_executer(encoder_operation_t::ENCODER_OPERATION_STOP);
+    std::vector<DmabufShareGuard> dmabuf_release_guards;
+    auto expected_encoded_eos = encode_executer(encoder_operation_t::ENCODER_OPERATION_STOP, dmabuf_release_guards);
     if (!expected_encoded_eos.has_value())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to stop encoder", encoder_names[this]);
@@ -889,31 +984,14 @@ tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::finish()
     return m_header;
 }
 
-static void releaseDmabuf(HailoMediaLibraryBufferPtr buf, void *ewl)
-{
-    for (uint32_t i = 0; i < buf->get_num_of_planes(); i++)
-    {
-        int planeFd = buf->get_plane_fd(i);
-        if (planeFd <= 0)
-        {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Could not get dmabuf fd of plane {}", i);
-            continue;
-        }
-        if (EWLUnshareDmabuf(ewl, planeFd) != EWL_OK)
-        {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Could not get physical address of plane {} fd {}", i, planeFd);
-        }
-    }
-}
-
-media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferPtr buf)
+media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferPtr buf,
+                                                        std::vector<DmabufShareGuard> &dmabuf_release_guards)
 {
     int ret;
     std::shared_lock<std::shared_mutex> lock(m_vc_api_mutex);
 
     uint32_t num_of_planes = buf->get_num_of_planes();
     u32 *plane_ptr = nullptr;
-    int planeFd = -1;
     u32 plane_size = 0;
     std::array<u32 *, 3> bus_addresses = {&(m_enc_in.busLuma), &(m_enc_in.busChromaU), &(m_enc_in.busChromaV)};
 
@@ -928,26 +1006,14 @@ media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferP
 
     if (buf->is_dmabuf())
     {
-        for (uint32_t i = 0; i < num_of_planes; i++)
+        const bool is_output_buffer = false;
+        DmabufShareGuard dmabuf_release_guard(buf, m_ewl, m_enc_in, is_output_buffer);
+        if (!dmabuf_release_guard.is_valid())
         {
-            planeFd = buf->get_plane_fd(i);
-            if (planeFd <= 0)
-            {
-                LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Could not get dmabuf fd of plane {}", encoder_names[this], i);
-                return MEDIA_LIBRARY_BUFFER_NOT_FOUND;
-            }
-            ret = EWLShareDmabuf(m_ewl, planeFd, bus_addresses[i]);
-            if (ret != EWL_OK)
-            {
-                LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Could not get physical address of plane {}",
-                                      encoder_names[this], i);
-                for (uint32_t j = 0; j <= i; j++)
-                {
-                    EWLUnshareDmabuf(m_ewl, buf->get_plane_fd(j));
-                }
-                return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
-            }
+            LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Could not create dmabuf release guard", encoder_names[this]);
+            return MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS;
         }
+        dmabuf_release_guards.emplace_back(std::move(dmabuf_release_guard));
     }
     else
     {
@@ -973,7 +1039,8 @@ media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferP
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return Encoder::Impl::encode_multiple_frames(std::vector<EncoderOutputBuffer> &outputs)
+media_library_return Encoder::Impl::encode_multiple_frames(std::vector<EncoderOutputBuffer> &outputs,
+                                                           std::vector<DmabufShareGuard> &dmabuf_release_guards)
 {
     LOGGER__MODULE__TRACE(MODULE_NAME, "[{}] encode_multiple_frames", encoder_names[this]);
     media_library_return ret = MEDIA_LIBRARY_UNINITIALIZED;
@@ -994,7 +1061,7 @@ media_library_return Encoder::Impl::encode_multiple_frames(std::vector<EncoderOu
     {
         auto idx = m_enc_in.gopPicIdx + m_gop_cfg->get_gop_cfg_offset()[m_enc_in.gopSize];
         auto poc = m_gop_cfg->get_gop_pic_cfg()[idx].poc;
-        ret = encode_frame(m_inputs[poc - 1].second, outputs, m_inputs[poc - 1].first);
+        ret = encode_frame(m_inputs[poc - 1].second, outputs, m_inputs[poc - 1].first, dmabuf_release_guards);
         if (ret != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__MODULE__WARN(
@@ -1075,13 +1142,14 @@ static int64_t time_diff(const struct timespec after, const struct timespec befo
 }
 
 media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
-                                                 std::vector<EncoderOutputBuffer> &outputs, uint32_t frame_number)
+                                                 std::vector<EncoderOutputBuffer> &outputs, uint32_t frame_number,
+                                                 std::vector<DmabufShareGuard> &dmabuf_release_guards)
 {
     LOGGER__MODULE__TRACE(MODULE_NAME, "[{}] encode_frame", encoder_names[this]);
     VCEncRet enc_ret = VCENC_OK;
     media_library_return ret = MEDIA_LIBRARY_UNINITIALIZED;
     struct timespec start_encode, end_encode;
-    ret = update_input_buffer(buf);
+    ret = update_input_buffer(buf, dmabuf_release_guards);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] encode_frame - Failed to update input buffer", encoder_names[this]);
@@ -1108,7 +1176,7 @@ media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
 
     inject_sei_user_metadata(buf, is_forced_keyframe);
     clock_gettime(CLOCK_MONOTONIC, &start_encode);
-    auto expected_encoded_frame = encode_executer(encoder_operation_t::ENCODER_OPERATION_ENCODE);
+    auto expected_encoded_frame = encode_executer(encoder_operation_t::ENCODER_OPERATION_ENCODE, dmabuf_release_guards);
     if (!expected_encoded_frame.has_value())
     {
         EncoderOutputBuffer output;
@@ -1131,7 +1199,6 @@ media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
                                   encoder_names[this]);
         }
 
-        releaseDmabuf(buf, m_ewl);
         return MEDIA_LIBRARY_ENCODER_ENCODE_ERROR;
     }
 
@@ -1243,10 +1310,6 @@ media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
     }
     }
 
-    if (buf->is_dmabuf())
-    {
-        releaseDmabuf(buf, m_ewl);
-    }
     return ret;
 }
 
@@ -1470,12 +1533,13 @@ std::vector<EncoderOutputBuffer> Encoder::Impl::handle_frame(HailoMediaLibraryBu
 
     std::vector<EncoderOutputBuffer> outputs;
     outputs.clear();
+    std::vector<DmabufShareGuard> dmabuf_release_guards;
 
     switch (m_next_coding_type)
     {
     case VCENC_INTRA_FRAME: {
         LOGGER__MODULE__DEBUG(MODULE_NAME, "[{}] Encodes frame {} as I frame", encoder_names[this], frame_number);
-        ret = encode_frame(buf, outputs, frame_number);
+        ret = encode_frame(buf, outputs, frame_number, dmabuf_release_guards);
         break;
     }
     case VCENC_PREDICTED_FRAME: {
@@ -1483,7 +1547,7 @@ std::vector<EncoderOutputBuffer> Encoder::Impl::handle_frame(HailoMediaLibraryBu
         if (m_inputs.size() == (size_t)m_enc_in.gopSize - 1)
         {
             m_inputs.emplace_back(frame_number, buf);
-            ret = encode_multiple_frames(outputs);
+            ret = encode_multiple_frames(outputs, dmabuf_release_guards);
             LOGGER__MODULE__DEBUG(
                 MODULE_NAME,
                 "[{}] Encoder completed GOP of size {} for frame {} clearing inputs of size {}, got {} outputs",

@@ -286,7 +286,7 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     tiling_detection_config.detection_config.post_config.so_path = YOLO_POST_SO;
     tiling_detection_config.detection_config.post_config.function_name = YOLO_FUNC_NAME;
     tiling_detection_config.detection_config.post_config.config_path = YOLO_POST_CONF;
-    tiling_detection_config.tiling_config.crop_every_x_frames = 1;
+    tiling_detection_config.tiling_config.crop_every_x_frames = 2;
 
     // Set dynamic tiling dimensions from frontend
     tiling_detection_config.tiling_config.input_width = tiling_input_width;
@@ -473,6 +473,7 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
         .add_stage(analytic_metadata_sender_pipeline, hailo_analytics::pipeline::StageType::SINK);
 
     // Connect pipelines
+    // Frontend AI output -> tiling (crop_every_x_frames handles frame rate reduction)
     pip_builder.connect_frontend(VISION_PIPELINE, AI_SINK, TILING_PIPELINE);
 
     pip_builder.connect(TILING_PIPELINE, DETECTION_LIMITER_PIPELINE);

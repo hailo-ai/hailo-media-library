@@ -86,10 +86,10 @@ PipelineFactory::PipelineFactory(WebserverResourceRepository resources, Architec
     {
         m_supported_pipelines.push_back(pipeline_t::CLIP);
     }
-    // if (FaceLandmarksPipeline::is_supported(m_resources))
-    // {
-    //     m_supported_pipelines.push_back(pipeline_t::FaceLandmarks);
-    // }
+    if (FaceLandmarksPipeline::is_supported(m_resources))
+    {
+        m_supported_pipelines.push_back(pipeline_t::FaceLandmarks);
+    }
     for (const auto &pipeline_type : m_supported_pipelines)
     {
         nlohmann::json supported_pipeline_json;
@@ -186,6 +186,8 @@ AppStatus PipelineFactory::switch_pipeline(const pipeline_t &pipeline_type, bool
         prev_profile_type = m_current_pipeline->get_current_profile();
         WEBSERVER_LOG_DEBUG("Got previous profile type: {} and will startup new pipeline with it",
                             static_cast<int>(prev_profile_type));
+
+        m_current_pipeline->uninitialize();
         m_current_pipeline->stop();
         m_media_library->m_frontend->unsubscribe_all();
         m_current_pipeline = nullptr;
@@ -248,14 +250,26 @@ void PipelineFactory::register_endpoints()
             return ai_pipeline_json;
         }
 
+        // The CLIP pipeline manages the shared MediaLibrary through its own CameraAppConstructor,
+        // which calls stop_pipeline() + shutdown() independently. Switching directly to/from CLIP
+        // leaves the MediaLibrary in a state that other pipelines can't properly restart from.
+        // Transitioning through Basic first ensures the MediaLibrary is in a clean, consistent state.
+        // (Nitzan HACK)
         if (pipeline_name == pipeline_t::CLIP && m_current_pipeline_type != pipeline_t::Basic)
         {
-            // if switching to CLIP pipeline, switch to Basic first to avoid issues from other pipelines
-            // Nitzan HACK! should solve switching to clip from other pipelines
             WEBSERVER_LOG_INFO("Switching to Basic pipeline before switching to CLIP pipeline");
             if (switch_pipeline(pipeline_t::Basic) != AppStatus::SUCCESS)
             {
                 WEBSERVER_LOG_ERROR("Failed to switch to Basic pipeline before switching to CLIP");
+                throw std::runtime_error("Failed to switch pipeline");
+            }
+        }
+        else if (m_current_pipeline_type == pipeline_t::CLIP && pipeline_name != pipeline_t::Basic)
+        {
+            WEBSERVER_LOG_INFO("Switching to Basic pipeline before switching away from CLIP pipeline");
+            if (switch_pipeline(pipeline_t::Basic) != AppStatus::SUCCESS)
+            {
+                WEBSERVER_LOG_ERROR("Failed to switch to Basic pipeline before switching away from CLIP");
                 throw std::runtime_error("Failed to switch pipeline");
             }
         }

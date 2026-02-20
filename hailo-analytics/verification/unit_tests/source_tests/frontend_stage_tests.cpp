@@ -15,6 +15,7 @@
 #include "media_library/media_library.hpp"
 #include "media_library/frontend.hpp"
 #include "media_library/media_library_types.hpp"
+#include "media_library/examples_common.hpp"
 
 using namespace hailo_analytics::pipeline;
 using namespace hailo_analytics::pipeline::sources;
@@ -74,7 +75,6 @@ class MediaLibraryTestHelper
 
         // Try to load configuration from examples directory
         // If not available, skip the test
-        std::string config_path = "/usr/bin/medialib_config.json";
         std::ifstream config_file(config_path);
         if (!config_file.good())
         {

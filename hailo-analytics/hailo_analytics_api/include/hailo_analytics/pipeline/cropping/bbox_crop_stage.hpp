@@ -50,7 +50,7 @@ class BBoxCropStage : public DspBaseCropStage
                   bool trace_processing_operations = true, StagePoolMode pool_mode = StagePoolMode::FAIL_ON_EMPTY_POOL,
                   size_t crop_every_x_frames = 1, bool use_letterbox = false,
                   dsp_letterbox_alignment_t letterbox_alignment = DSP_LETTERBOX_MIDDLE,
-                  dsp_color_t letterbox_color = {.y = 0, .u = 128, .v = 128});
+                  dsp_color_t letterbox_color = DEFAULT_LETTERBOX_COLOR);
 
     /**
      * @brief Initializes the buffer pool.
@@ -99,9 +99,18 @@ class BBoxCropStage : public DspBaseCropStage
     AppStatus process(BufferPtr data) override;
 };
 
+/**
+ * @brief Builder pattern implementation for BBoxCropStage
+ *
+ * Provides a fluent interface for constructing BBoxCropStage instances
+ * with configurable parameters.
+ */
 class BBoxCropStageBuild : public BBoxCropStage
 {
   public:
+    /**
+     * @brief Builder class for constructing BBoxCropStage instances
+     */
     class Builder
     {
 
@@ -123,29 +132,128 @@ class BBoxCropStageBuild : public BBoxCropStage
         size_t m_crop_every_x_frames = 1;
         bool m_use_letterbox = false;
         dsp_letterbox_alignment_t m_letterbox_alignment = DSP_LETTERBOX_MIDDLE;
-        dsp_color_t m_letterbox_color = {.y = 0, .u = 128, .v = 128};
+        dsp_color_t m_letterbox_color = DEFAULT_LETTERBOX_COLOR;
 
       public:
+        /**
+         * @brief Set the stage name
+         * @param name Name for the stage
+         * @return Builder reference for chaining
+         */
         Builder &set_stage_name(std::string name);
-        Builder &set_output_pool_size(int size);
-        Builder &set_input_width(int size);
-        Builder &set_input_height(int size);
-        Builder &set_output_width(int size);
-        Builder &set_output_height(int size);
-        Builder &set_main_sub_name(std::string name);
-        Builder &set_sub_sub_name(std::string name);
-        Builder &set_labels(std::vector<std::string> labels);
-        Builder &set_queue_size(size_t size);
-        Builder &set_leaky_opt(bool activate);
-        Builder &set_trace_opt(bool activate);
-        Builder &set_pool_mode_opt(StagePoolMode mode);
-        Builder &set_crop_every_x_frames(size_t crop_every_x_frames);
-        Builder &set_letterbox_opt(dsp_letterbox_alignment_t alignment = DSP_LETTERBOX_MIDDLE,
-                                   dsp_color_t color = {.y = 0, .u = 128, .v = 128});
 
+        /**
+         * @brief Set the output pool size
+         * @param size Size of the output buffer pool
+         * @return Builder reference for chaining
+         */
+        Builder &set_output_pool_size(int size);
+
+        /**
+         * @brief Set the input width
+         * @param size Width of the input data in pixels
+         * @return Builder reference for chaining
+         */
+        Builder &set_input_width(int size);
+
+        /**
+         * @brief Set the input height
+         * @param size Height of the input data in pixels
+         * @return Builder reference for chaining
+         */
+        Builder &set_input_height(int size);
+
+        /**
+         * @brief Set the output width
+         * @param size Width of the output data in pixels
+         * @return Builder reference for chaining
+         */
+        Builder &set_output_width(int size);
+
+        /**
+         * @brief Set the output height
+         * @param size Height of the output data in pixels
+         * @return Builder reference for chaining
+         */
+        Builder &set_output_height(int size);
+
+        /**
+         * @brief Set the main subscriber name
+         * @param name Name of the main subscriber
+         * @return Builder reference for chaining
+         */
+        Builder &set_main_sub_name(std::string name);
+
+        /**
+         * @brief Set the sub-subscriber name
+         * @param name Name of the sub-subscriber
+         * @return Builder reference for chaining
+         */
+        Builder &set_sub_sub_name(std::string name);
+
+        /**
+         * @brief Set the target labels for filtering detections
+         * @param labels Vector of label strings
+         * @return Builder reference for chaining
+         */
+        Builder &set_labels(std::vector<std::string> labels);
+
+        /**
+         * @brief Set the queue size
+         * @param size Size of the processing queue
+         * @return Builder reference for chaining
+         */
+        Builder &set_queue_size(size_t size);
+
+        /**
+         * @brief Set the leaky option
+         * @param activate If true, queue drops old frames when full
+         * @return Builder reference for chaining
+         */
+        Builder &set_leaky_opt(bool activate);
+
+        /**
+         * @brief Set the trace option
+         * @param activate If true, enables tracing for processing operations
+         * @return Builder reference for chaining
+         */
+        Builder &set_trace_opt(bool activate);
+
+        /**
+         * @brief Set the pool mode
+         * @param mode Pool mode for buffer management
+         * @return Builder reference for chaining
+         */
+        Builder &set_pool_mode_opt(StagePoolMode mode);
+
+        /**
+         * @brief Set the crop frequency
+         * @param crop_every_x_frames Crop every x frames (1 = every frame)
+         * @return Builder reference for chaining
+         */
+        Builder &set_crop_every_x_frames(size_t crop_every_x_frames);
+
+        /**
+         * @brief Enable letterbox mode with alignment and color
+         * @param alignment Letterbox alignment (default: DSP_LETTERBOX_MIDDLE)
+         * @param color Letterbox padding color (default: black)
+         * @return Builder reference for chaining
+         */
+        Builder &set_letterbox_opt(dsp_letterbox_alignment_t alignment = DSP_LETTERBOX_MIDDLE,
+                                   dsp_color_t color = DEFAULT_LETTERBOX_COLOR);
+
+        /**
+         * @brief Build and return shared pointer to BBoxCropStage
+         * @return Shared pointer to constructed BBoxCropStage
+         * @throws std::runtime_error if required parameters are missing
+         */
         std::shared_ptr<BBoxCropStage> buildptr() const;
     };
 
+    /**
+     * @brief Create a new Builder instance
+     * @return Builder instance for constructing BBoxCropStage
+     */
     static Builder create();
 };
 

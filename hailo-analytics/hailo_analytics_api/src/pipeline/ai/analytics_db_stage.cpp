@@ -56,15 +56,25 @@ AppStatus AnalyticsDBStage::add_empty_semantic_segmentation_entry(BufferPtr data
     auto timestamp = get_timestamp_from_buffer(data);
     auto isp_timestamp_ns = data->get_buffer()->isp_timestamp_ns;
 
-    std::vector<hailo_semantic_segmentation_mask_t> empty_masks;
-    SemanticSegmentationAnalyticsData db_data = {
-        .ts = timestamp, .analytics_buffer = empty_masks, .medialib_buffer_ptrs = {}};
+    SemanticSegmentationAnalyticsData db_data;
+    if (m_last_semantic_segmentation_data.has_value())
+    {
+        // Repeat the previous result with the current frame's timestamp
+        db_data = m_last_semantic_segmentation_data.value();
+        db_data.ts = timestamp;
+        HAILO_ANALYTICS_LOG_TRACE("Repeating cached semantic segmentation result ({} masks) for timestamp {} ns",
+                                  db_data.analytics_buffer.size(), isp_timestamp_ns);
+    }
+    else
+    {
+        db_data = {.ts = timestamp, .analytics_buffer = {}, .medialib_buffer_ptrs = {}};
+    }
     auto ret = analytics_db.add_semantic_segmentation_entry(m_analytics_data_id, db_data);
 
     if (ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
-        HAILO_ANALYTICS_LOG_ERROR("Failed to add empty entry, analytics_id='{}', isp_timestamp={} ns",
-                                  m_analytics_data_id, isp_timestamp_ns);
+        HAILO_ANALYTICS_LOG_ERROR("Failed to add entry, analytics_id='{}', isp_timestamp={} ns", m_analytics_data_id,
+                                  isp_timestamp_ns);
         return AppStatus::MEDIA_LIBRARY_ERROR;
     }
 
@@ -399,6 +409,9 @@ AppStatus AnalyticsDBStage::process_semantic_segmentation(BufferPtr data, HailoM
         HAILO_ANALYTICS_LOG_ERROR("*** FAILED to add semantic segmentation entry to analytics DB ***");
         return AppStatus::MEDIA_LIBRARY_ERROR;
     }
+
+    // Cache the result so skipped frames can repeat it
+    m_last_semantic_segmentation_data = db_data;
 
     HAILO_ANALYTICS_LOG_TRACE("✓ Successfully added {} masks to analytics DB", masks.size());
 

@@ -101,7 +101,7 @@ class FaissVectorDBFactory
         m_instances[name] = shared_db;
         m_configs[name] = std::make_shared<FaissDatabaseConfig>(config);
 
-        std::cout << "Created PartitionedFaissDB instance: " << name << std::endl;
+        HAILO_ANALYTICS_LOG_INFO("Created PartitionedFaissDB instance: {}", name);
 
         return shared_db;
     }
@@ -303,7 +303,7 @@ class FaissDatabaseQuickAccess
     {
         if (!result)
         {
-            std::cerr << "X " << operation << " failed: " << result.error().message << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("X {} failed: {}", operation, result.error().message);
             return false;
         }
         return true;

@@ -64,6 +64,8 @@ static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, fro
 static std::optional<frontend_config_t> gst_hailofrontendbinsrc_load_config(GstHailoFrontendBinSrc *self,
                                                                             const std::string &config_string);
 static bool set_dummy_profile_in_gst_mode(GstHailoFrontendBinSrc *self, const frontend_config_t &frontend_config);
+static GstPadProbeReturn gst_hailofrontendbinsrc_v4l2src_probe(GstPad *pad, GstPadProbeInfo *info,
+                                                               gpointer frontendbinsrc);
 
 ConfigManagerInteractor *gst_mode_config_manager_interactor =
     nullptr; // global is the best way to access from encoders as well in gst mode
@@ -230,6 +232,13 @@ static void gst_hailofrontendbinsrc_init(GstHailoFrontendBinSrc *hailofrontendbi
                      hailofrontendbinsrc->params->m_frontend, NULL);
     hailofrontendbinsrc->params->m_frontend_config_parser =
         std::make_shared<ConfigParser>(ConfigSchema::CONFIG_SCHEMA_FRONTEND);
+
+    GstPadPtr v4l2src_pad = gst_element_get_static_pad(hailofrontendbinsrc->params->m_v4l2src, "src");
+    if (v4l2src_pad)
+    {
+        gst_pad_add_probe(v4l2src_pad, GST_PAD_PROBE_TYPE_BUFFER, gst_hailofrontendbinsrc_v4l2src_probe,
+                          hailofrontendbinsrc, NULL);
+    }
 }
 
 static GstElement *gst_hailofrontendbinsrc_init_queue(GstHailoFrontendBinSrc *hailofrontendbinsrc)
@@ -337,7 +346,7 @@ static std::optional<frontend_config_t> gst_hailofrontendbinsrc_load_config(GstH
     if (self->params->m_frontend_config_parser->config_string_to_struct<frontend_config_t>(config_string, out_config) !=
         MEDIA_LIBRARY_SUCCESS)
     {
-        GST_ERROR_OBJECT(self, "Failed to decode ISP config from json string: %s", config_string.c_str());
+        GST_ERROR_OBJECT(self, "Failed to decode frontend config from json string: %s", config_string.c_str());
         return std::nullopt;
     }
 
@@ -570,6 +579,7 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
         GST_DEBUG_OBJECT(self, "GST_STATE_CHANGE_READY_TO_NULL");
         self->params->m_pre_isp_denoise->deinit();
         self->params->m_hdr->deinit();
+        self->params->frame_count = 0;
         break;
     }
     default:
@@ -667,6 +677,33 @@ static void gst_hailofrontendbinsrc_dispose(GObject *object)
     }
 
     G_OBJECT_CLASS(gst_hailofrontendbinsrc_parent_class)->dispose(object);
+}
+
+static GstPadProbeReturn gst_hailofrontendbinsrc_v4l2src_probe(GstPad *, GstPadProbeInfo *,
+                                                               gpointer frontenbinsrc_uncasted)
+{
+    GstHailoFrontendBinSrc *frontendbincsrc = static_cast<GstHailoFrontendBinSrc *>(frontenbinsrc_uncasted);
+
+    // Drop frames #1-12 to allow buffer pools to alloc (using the first frame) and not cause end of pipeline stress
+    const size_t buffers_to_drop = 12;
+    const size_t first_frame_index_to_drop = 1;
+    const size_t last_frame_index_to_drop = buffers_to_drop + first_frame_index_to_drop - 1;
+
+    GstPadProbeReturn ret = GST_PAD_PROBE_OK;
+
+    if (frontendbincsrc->params->frame_count > last_frame_index_to_drop)
+    {
+        return ret;
+    }
+
+    if (frontendbincsrc->params->frame_count >= first_frame_index_to_drop)
+    {
+        GST_DEBUG("Dropping frame #%lu (to warm up buffer pools)", frontendbincsrc->params->frame_count);
+        ret = GST_PAD_PROBE_DROP;
+    }
+
+    ++frontendbincsrc->params->frame_count;
+    return ret;
 }
 
 static gboolean gst_hailofrontendbinsrc_denoise_enabled_changed(GstHailoFrontendBinSrc *self, bool enabled)

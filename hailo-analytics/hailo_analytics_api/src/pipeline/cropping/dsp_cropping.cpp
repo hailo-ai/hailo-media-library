@@ -19,15 +19,16 @@ DspBaseCropStage::DspBaseCropStage(std::string name, int output_pool_size, int i
 {
 }
 
-void DspBaseCropStage::prepare_single_crop_dim(HailoBBox bbox, std::vector<dsp_crop_api_t> &crop_resize_dims)
+void DspBaseCropStage::prepare_single_crop_dim(HailoBBox bbox, std::vector<dsp_crop_api_t> &crop_resize_dims,
+                                               int input_width, int input_height)
 {
     dsp_crop_api_t crop_resize_dim = {
-        .start_x = (size_t)std::clamp((bbox.xmin() * m_input_width), (float)0.0, ((float)m_input_width) - (float)1.0),
-        .start_y = (size_t)std::clamp((bbox.ymin() * m_input_height), (float)0.0, ((float)m_input_height) - (float)1.0),
-        .end_x = (size_t)std::clamp(((bbox.xmin() * m_input_width) + (bbox.width() * m_input_width)), (float)1.0,
-                                    (float)m_input_width),
-        .end_y = (size_t)std::clamp(((bbox.ymin() * m_input_height) + (bbox.height() * m_input_height)), (float)1.0,
-                                    (float)m_input_height),
+        .start_x = (size_t)std::clamp((bbox.xmin() * input_width), (float)0.0, ((float)input_width) - (float)1.0),
+        .start_y = (size_t)std::clamp((bbox.ymin() * input_height), (float)0.0, ((float)input_height) - (float)1.0),
+        .end_x = (size_t)std::clamp(((bbox.xmin() * input_width) + (bbox.width() * input_width)), (float)1.0,
+                                    (float)input_width),
+        .end_y = (size_t)std::clamp(((bbox.ymin() * input_height) + (bbox.height() * input_height)), (float)1.0,
+                                    (float)input_height),
     };
 
     /* DSP API can't get dimension that are not even */
@@ -73,7 +74,7 @@ AppStatus DspBaseCropStage::process(BufferPtr data)
     std::chrono::steady_clock::time_point prep_end = std::chrono::steady_clock::now();
 
     std::size_t num_crops_allowed =
-        std::min(crop_resize_dims.size(), (std::size_t)m_buffer_pool->get_available_buffers_count());
+        std::min(crop_resize_dims.size(), (std::size_t)m_buffer_pool->get_available_buffers_count() - 1);
     crops_params.reserve(num_crops_allowed);
     output_dsp_buffers.reserve(num_crops_allowed);
 

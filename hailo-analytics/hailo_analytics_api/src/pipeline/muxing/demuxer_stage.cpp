@@ -5,6 +5,9 @@
 namespace hailo_analytics::pipeline::muxing
 {
 
+/**
+ * @brief Constructs a DemuxerStage with the specified configuration.
+ */
 DemuxerStage::DemuxerStage(std::string name, std::string main_outlet_name, std::string sub_outlet_name,
                            size_t queue_size, bool leaky, bool trace_processing_operations, bool copy_roi_metadata)
     : hailo_analytics::pipeline::ThreadedStage(name, queue_size, leaky, trace_processing_operations),
@@ -12,6 +15,17 @@ DemuxerStage::DemuxerStage(std::string name, std::string main_outlet_name, std::
 {
 }
 
+/**
+ * @brief Processes the buffer by extracting sub-buffers and routing to appropriate outlets.
+ *
+ * The processing flow:
+ * 1. Searches for BufferMetadata in the incoming buffer
+ * 2. Extracts the first sub-buffer found in the metadata
+ * 3. Optionally copies HailoROI metadata to the sub-buffer
+ * 4. Sends the sub-buffer to the sub outlet
+ * 5. Removes the metadata from the main buffer
+ * 6. Sends the main buffer to the main outlet
+ */
 AppStatus DemuxerStage::process(BufferPtr buffer)
 {
     // Look for BufferMetadata in the buffer first
@@ -47,6 +61,13 @@ AppStatus DemuxerStage::process(BufferPtr buffer)
     return AppStatus::SUCCESS;
 }
 
+/**
+ * @brief Copies all HailoROI objects from the main buffer to the sub-buffer.
+ *
+ * Iterates through all objects in the main buffer's ROI and adds them to the
+ * sub-buffer's ROI. This ensures that detection results and other AI metadata
+ * are available in both output streams.
+ */
 void DemuxerStage::copy_hailo_roi_metadata(BufferPtr main_buffer, BufferPtr sub_buffer)
 {
     // Get the HailoROI from the main buffer

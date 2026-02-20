@@ -313,6 +313,7 @@ struct hailo_media_library_buffer
     HailoMediaLibraryBufferPtr motion_detection_buffer;
     bool motion_detected;
     float optical_zoom_magnification;
+    std::unordered_set<std::string> concurrent_stream_ids;
 
     std::shared_ptr<const config_profile_t> get_attached_profile() const
     {
@@ -330,7 +331,8 @@ struct hailo_media_library_buffer
           isp_ae_converged(HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE),
           isp_ae_integration_time(HAILO_ISP_AE_INTEGRATION_TIME_DEFAULT_VALUE),
           isp_ae_average_luma(HAILO_ISP_AE_LUMA_DEFUALT_VALUE), video_fd(-1), buffer_index(0), isp_timestamp_ns(0),
-          pts(0), motion_detection_buffer(nullptr), motion_detected(false), optical_zoom_magnification(1.0f)
+          pts(0), motion_detection_buffer(nullptr), motion_detected(false), optical_zoom_magnification(1.0f),
+          concurrent_stream_ids()
     {
         vsm.dx = HAILO_VSM_DEFAULT_VALUE;
         vsm.dy = HAILO_VSM_DEFAULT_VALUE;
@@ -382,6 +384,7 @@ struct hailo_media_library_buffer
         motion_detection_buffer = other.motion_detection_buffer;
         motion_detected = other.motion_detected;
         optical_zoom_magnification = other.optical_zoom_magnification;
+        concurrent_stream_ids = other.concurrent_stream_ids;
         on_free = other.on_free;
         on_free_data = other.on_free_data;
         attached_profile = other.attached_profile;

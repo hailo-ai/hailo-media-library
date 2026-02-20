@@ -4,6 +4,10 @@
 #include <nlohmann/json.hpp>
 #include <cxxopts/cxxopts.hpp>
 #include <atomic>
+#include <filesystem>
+#include <fstream>
+#include <sys/stat.h>
+#include <unistd.h>
 #include "pipeline/pipeline.hpp"
 #include "pipeline/pipeline_factory.hpp"
 #include "common/httplib/httplib_utils.hpp"
@@ -18,6 +22,41 @@
 #define DEFAULT_MEDIALIB_CONFIG_PATH APPEND_CONFIG_PATH("webserver_medialib_config.json")
 
 static std::atomic<bool> g_webserver_stopping{false};
+
+bool is_device_in_use(const std::string &device_path)
+{
+    struct stat dev_stat;
+    if (stat(device_path.c_str(), &dev_stat) != 0)
+        return false;
+
+    pid_t self = getpid();
+    std::error_code ec;
+
+    for (const auto &proc : std::filesystem::directory_iterator("/proc", ec))
+    {
+        const auto &path = proc.path();
+        const auto name = path.filename().string();
+
+        if (name.empty() || !std::isdigit(name[0]))
+            continue;
+
+        if (std::stoi(name) == self)
+            continue;
+
+        std::string comm;
+        if (std::ifstream(path / "comm") >> comm && comm.rfind("isp_med", 0) == 0)
+            continue;
+
+        for (const auto &fd : std::filesystem::directory_iterator(path / "fd", ec))
+        {
+            struct stat fd_stat;
+            if (stat(fd.path().c_str(), &fd_stat) == 0 && S_ISCHR(fd_stat.st_mode) &&
+                fd_stat.st_rdev == dev_stat.st_rdev)
+                return true;
+        }
+    }
+    return false;
+}
 void flags_init(int argc, char *argv[], std::string &medialib_config_path)
 {
     try
@@ -51,7 +90,15 @@ void flags_init(int argc, char *argv[], std::string &medialib_config_path)
 int main(int argc, char *argv[])
 {
     WEBSERVER_LOG_INFO("Starting webserver");
+
+    if (is_device_in_use("/dev/video0"))
+    {
+        WEBSERVER_LOG_ERROR("/dev/video0 is already in use by another process");
+        return 1;
+    }
+
     setenv("MEDIALIB_USE_DIV_FRAMERATE_LOGIC", "1", 1);
+    setenv("MEDIALIB_FD_DUP", "1", 1);
 
     std::string medialib_config_path = "";
     Architecture arch = get_hailo_architecture();

@@ -33,7 +33,7 @@ struct ClipBinMatrix
         std::ifstream f(path, std::ios::binary);
         if (!f)
         {
-            std::cerr << "Error: Cannot open file " << path << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Error: Cannot open file {}", path);
             return false;
         }
 
@@ -45,11 +45,11 @@ struct ClipBinMatrix
 
         if (!f)
         {
-            std::cerr << "Error: Failed to read data from " << path << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Error: Failed to read data from {}", path);
             return false;
         }
 
-        std::cout << "Loaded matrix from " << path << " (" << rows << " x " << cols << ")" << std::endl;
+        HAILO_ANALYTICS_LOG_INFO("Loaded matrix from {} ({} x {})", path, rows, cols);
         return true;
     }
 
@@ -94,11 +94,10 @@ class ClipTextEncoder : public TextEncoder
     };
 
     ClipTextEncoder(const std::vector<TextEncoderConfig> &config, int batch_size = 1)
-        : m_config(config), m_batch_size(batch_size), m_initialized(false), m_thread_running(false) {};
+        : m_config(config), m_batch_size(batch_size), m_initialized(false) {};
 
     ~ClipTextEncoder() override
     {
-        stop_worker_thread();
     }
 
     // Override virtual functions from base class
@@ -107,17 +106,16 @@ class ClipTextEncoder : public TextEncoder
         std::lock_guard<std::mutex> lock(m_mutex);
         if (m_config.empty())
         {
-            std::cerr << "ClipTextEncoder configuration is empty." << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("ClipTextEncoder configuration is empty.");
             return tl::unexpected(ErrorCode::INVALID_PARAMETER);
         }
 
-#if 1 // AARON DEBUG - REMOVE TO DEBUG ONLY, SHOULD BE ENABLED!!
         for (const auto &cfg : m_config)
         {
             // Initialize HailortService for each network_id
             if (m_hailort_services.find(cfg.network_id) != m_hailort_services.end())
             {
-                std::cerr << "Duplicate network_id found in configuration: " << cfg.network_id << std::endl;
+                HAILO_ANALYTICS_LOG_ERROR("Duplicate network_id found in configuration: {}", cfg.network_id);
                 return tl::unexpected(ErrorCode::INVALID_PARAMETER);
             }
 
@@ -126,7 +124,7 @@ class ClipTextEncoder : public TextEncoder
             auto status = hailort_service->initialize();
             if (status != HailortServiceStatus::SUCCESS)
             {
-                std::cerr << "Failed to initialize HailortService for network_id: " << cfg.network_id << std::endl;
+                HAILO_ANALYTICS_LOG_ERROR("Failed to initialize HailortService for network_id: {}", cfg.network_id);
                 return tl::unexpected(ErrorCode::SERVICE_ERROR);
             }
 
@@ -134,9 +132,7 @@ class ClipTextEncoder : public TextEncoder
             // since text_encoder is a blocking call
             hailort_service->register_output_callback(
                 [this, network_id = cfg.network_id](std::vector<float> output_embedding) {
-                    std::cout << "Received h15 text decoded embedding from network_id: " << network_id << std::endl;
-
-                    // AARON DEBUG ONLY
+                    // DEBUG - save the output before projection
                     // save_as_npy(output_embedding, 1, 77, 512, network_id +
                     // "_output_embedding_before_projection.npy");
 
@@ -161,7 +157,7 @@ class ClipTextEncoder : public TextEncoder
             auto tokenizer = Tokenizer::FromBlobJSON(json_content);
             if (!tokenizer)
             {
-                std::cerr << "Failed to create tokenizer from file: " << cfg.token_file_path << std::endl;
+                HAILO_ANALYTICS_LOG_ERROR("Failed to create tokenizer from file: {}", cfg.token_file_path);
                 return tl::unexpected(ErrorCode::INVALID_PARAMETER);
             }
 
@@ -171,8 +167,8 @@ class ClipTextEncoder : public TextEncoder
             ClipBinMatrix embedding_lookup;
             if (!embedding_lookup.load(cfg.embedding_look_up_file_path))
             {
-                std::cerr << "Failed to load embedding look up from file: " << cfg.embedding_look_up_file_path
-                          << std::endl;
+                HAILO_ANALYTICS_LOG_ERROR("Failed to load embedding look up from file: {}",
+                                          cfg.embedding_look_up_file_path);
                 return tl::unexpected(ErrorCode::INVALID_PARAMETER);
             }
             m_embedding_lookup[cfg.network_id] = std::move(embedding_lookup);
@@ -181,8 +177,8 @@ class ClipTextEncoder : public TextEncoder
             ClipBinMatrix projection_weights;
             if (!projection_weights.load(cfg.projection_weight_file_path))
             {
-                std::cerr << "Failed to load projection weights from file: " << cfg.projection_weight_file_path
-                          << std::endl;
+                HAILO_ANALYTICS_LOG_ERROR("Failed to load projection weights from file: {}",
+                                          cfg.projection_weight_file_path);
                 return tl::unexpected(ErrorCode::INVALID_PARAMETER);
             }
             m_text_projection_weights[cfg.network_id] = std::move(projection_weights);
@@ -191,14 +187,12 @@ class ClipTextEncoder : public TextEncoder
             ClipBinMatrix projection_bias;
             if (!projection_bias.load(cfg.projection_bias_file_path))
             {
-                std::cerr << "Failed to load projection bias from file: " << cfg.projection_bias_file_path << std::endl;
+                HAILO_ANALYTICS_LOG_ERROR("Failed to load projection bias from file: {}",
+                                          cfg.projection_bias_file_path);
                 return tl::unexpected(ErrorCode::INVALID_PARAMETER);
             }
             m_text_projection_bias[cfg.network_id] = std::move(projection_bias);
         }
-
-        // start_worker_thread();
-#endif
 
         m_initialized = true;
         return {};
@@ -212,7 +206,7 @@ class ClipTextEncoder : public TextEncoder
 
         if (!m_initialized)
         {
-            std::cerr << "ClipTextEncoder not initialized." << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("ClipTextEncoder not initialized.");
             return tl::unexpected(ErrorCode::UNINITIALIZED);
         }
 
@@ -223,7 +217,7 @@ class ClipTextEncoder : public TextEncoder
             m_text_projection_weights.find(network_id) == m_text_projection_weights.end() ||
             m_text_projection_bias.find(network_id) == m_text_projection_bias.end())
         {
-            std::cerr << "Invalid network_id or missing configuration: " << network_id << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Invalid network_id or missing configuration: {}", network_id);
             return tl::unexpected(ErrorCode::INVALID_PARAMETER);
         }
 
@@ -243,7 +237,7 @@ class ClipTextEncoder : public TextEncoder
         }
         else
         {
-            std::cerr << "Failed to find configuration for network_id: " << network_id << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Failed to find configuration for network_id: {}", network_id);
             return tl::unexpected(ErrorCode::INVALID_PARAMETER);
         }
 
@@ -261,7 +255,7 @@ class ClipTextEncoder : public TextEncoder
             auto infer_status = hailort_service->infer(pos_embedding);
             if (infer_status != HailortServiceStatus::SUCCESS)
             {
-                std::cerr << "HailortService inference failed for network_id: " << network_id << std::endl;
+                HAILO_ANALYTICS_LOG_ERROR("HailortService inference failed for network_id: {}", network_id);
                 return tl::unexpected(ErrorCode::SERVICE_ERROR);
             }
         }
@@ -276,7 +270,7 @@ class ClipTextEncoder : public TextEncoder
             auto infer_status = hailort_service->infer(neg_embedding);
             if (infer_status != HailortServiceStatus::SUCCESS)
             {
-                std::cerr << "HailortService inference failed for network_id: " << network_id << std::endl;
+                HAILO_ANALYTICS_LOG_ERROR("HailortService inference failed for network_id: {}", network_id);
                 return tl::unexpected(ErrorCode::SERVICE_ERROR);
             }
         }
@@ -312,7 +306,7 @@ class ClipTextEncoder : public TextEncoder
             }
             else
             {
-                std::cerr << "Mismatch in expected positive embeddings count." << std::endl;
+                HAILO_ANALYTICS_LOG_ERROR("Mismatch in expected positive embeddings count.");
                 return tl::unexpected(ErrorCode::ENCODING_ERROR);
             }
         }
@@ -337,7 +331,7 @@ class ClipTextEncoder : public TextEncoder
             }
             else
             {
-                std::cerr << "Mismatch in expected negative embeddings count." << std::endl;
+                HAILO_ANALYTICS_LOG_ERROR("Mismatch in expected negative embeddings count.");
                 return tl::unexpected(ErrorCode::ENCODING_ERROR);
             }
         }
@@ -362,29 +356,6 @@ class ClipTextEncoder : public TextEncoder
         return network_ids;
     }
 
-    // Thread management functions
-    void start_worker_thread()
-    {
-        if (!m_thread_running)
-        {
-            m_thread_running = true;
-            m_worker_thread = std::thread(&ClipTextEncoder::worker_thread_function, this);
-        }
-    }
-
-    void stop_worker_thread()
-    {
-        if (m_thread_running)
-        {
-            m_thread_running = false;
-            m_thread_cv.notify_all();
-            if (m_worker_thread.joinable())
-            {
-                m_worker_thread.join();
-            }
-        }
-    }
-
   private:
     std::mutex m_mutex;
     std::vector<TextEncoderConfig> m_config;
@@ -401,15 +372,6 @@ class ClipTextEncoder : public TextEncoder
     std::mutex m_data_mtx;
     std::atomic<bool> m_data_ready = false;
     std::atomic<uint> m_expected_data_count = 0;
-
-    // Thread-related members
-    // AARON TODO:   THIS is for TEST ONLY to workaround the possible hailort timeout issue when instantiated
-    //              hailort service is not being used for a while (eg few minutes) which cause application pipeline
-    //              FPS drop to 3 FPS (although actual root cause is unknown yet but seems related to hailort)
-    std::thread m_worker_thread;
-    std::atomic<bool> m_thread_running = false;
-    std::condition_variable m_thread_cv;
-    std::mutex m_thread_mutex;
 
     std::vector<float> build_sentence_embedding(const std::vector<int> &tokens,
                                                 const ClipBinMatrix &embedding_lookup_table, int max_len = 77)
@@ -460,7 +422,7 @@ class ClipTextEncoder : public TextEncoder
 
         if (!success)
         {
-            std::cout << "Timeout! Data was not ready in " << timeout_ms << " ms." << std::endl;
+            HAILO_ANALYTICS_LOG_INFO("Timeout! Data was not ready in {} ms.", timeout_ms);
             return tl::unexpected(ErrorCode::TIMEOUT);
         }
         return {};
@@ -543,45 +505,5 @@ class ClipTextEncoder : public TextEncoder
 
         // Write data
         file.write(reinterpret_cast<const char *>(data.data()), data.size() * sizeof(float));
-    }
-
-    // Worker thread function template - you can implement your logic here
-    void worker_thread_function()
-    {
-        std::cout << "Worker thread started" << std::endl;
-
-        sleep(5);
-
-        while (m_thread_running)
-        {
-            // Wait for work or shutdown signal
-            std::unique_lock<std::mutex> lock(m_thread_mutex);
-            m_thread_cv.wait_for(lock, std::chrono::seconds(1), [this]() { return !m_thread_running; });
-
-            if (!m_thread_running)
-            {
-                break;
-            }
-
-            perform_background_task();
-        }
-
-        std::cout << "Worker thread stopped" << std::endl;
-    }
-
-    // Template function for your custom background tasks
-    void perform_background_task()
-    {
-        // Example implementation - customize this for your needs
-        if (!m_initialized)
-        {
-            return;
-        }
-
-        for (const auto &[network_id, service] : m_hailort_services)
-        {
-            encode_text(network_id, std::vector<std::string>({"a photo of a cat"}));
-            std::cout << "Network: " << network_id << " text encode performed to keep Hailort alive" << std::endl;
-        }
     }
 };

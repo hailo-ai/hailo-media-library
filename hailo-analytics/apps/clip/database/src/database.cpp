@@ -25,10 +25,9 @@ Database::~Database()
             sqlite3_db_cacheflush(m_db); // optional: flush dirty pages from cache
             sqlite3_exec(m_db, "PRAGMA wal_checkpoint(FULL);", nullptr, nullptr, nullptr);
 
-            // AARON DEBUG Measure
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::high_resolution_clock::now() - start);
-            std::cout << "Time taken DATABASE FLUSH AND CLOSE DB: " << duration.count() << " ms" << std::endl;
+            HAILO_ANALYTICS_LOG_INFO("Time taken DATABASE FLUSH AND CLOSE DB: {} ms", duration.count());
         }
 
         sqlite3_close(m_db);
@@ -51,7 +50,7 @@ bool Database::open()
 
     if (sqlite3_open_v2(m_db_path.c_str(), &m_db, accesstype, nullptr) != SQLITE_OK)
     {
-        std::cerr << "Failed to open DB: " << sqlite3_errmsg(m_db) << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("Failed to open DB: {}", sqlite3_errmsg(m_db));
         return false;
     }
 
@@ -71,7 +70,7 @@ bool Database::open()
     char *errMsg = nullptr;
     if (sqlite3_exec(m_db, pragmas, nullptr, nullptr, &errMsg) != SQLITE_OK)
     {
-        std::cerr << "Failed to set WAL mode: " << errMsg << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("Failed to set WAL mode: {}", errMsg);
         sqlite3_free(errMsg);
     }
 
@@ -85,7 +84,7 @@ bool Database::execute(const std::string &sql)
     int rc = sqlite3_exec(m_db, sql.c_str(), nullptr, nullptr, &errMsg);
     if (rc != SQLITE_OK)
     {
-        std::cerr << "SQL error: " << errMsg << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("SQL error: {}", errMsg);
         sqlite3_free(errMsg);
         return false;
     }
@@ -100,7 +99,7 @@ bool Database::flush()
 
     if (m_db_access_type != SQLITE_ACCESS_OPEN_CREATE_READ_WRITE)
     {
-        std::cerr << "Database flush is only applicable for read-write databases." << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("Database flush is only applicable for read-write databases.");
         return false;
     }
 
@@ -117,7 +116,7 @@ sqlite3_stmt *Database::prepare(const std::string &sql)
     int rc = sqlite3_prepare_v2(m_db, sql.c_str(), -1, &stmt, nullptr);
     if (rc != SQLITE_OK)
     {
-        std::cerr << "SQL Prepare error: " << sqlite3_errmsg(m_db) << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("SQL Prepare error: {}", sqlite3_errmsg(m_db));
         return nullptr;
     }
 

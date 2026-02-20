@@ -1,11 +1,16 @@
 #include "event_bus.hpp"
 
+uint64_t EventBus::generate_registration_id()
+{
+    return m_next_registration_id.fetch_add(1, std::memory_order_relaxed);
+}
+
 void EventBus::subscribe(subscriber_id_t subscriber_id, EventType event_type, EventPriority priority,
                          const ResourceChangeCallback &callback)
 {
     WEBSERVER_LOG_INFO("Subscribing to event type {} with priority {}", nlohmann::json(event_type).dump(),
                        nlohmann::json(priority).dump());
-    resource_callback_t callback_data{callback, event_type, priority, subscriber_id, false};
+    resource_callback_t callback_data{callback, event_type, priority, subscriber_id, false, generate_registration_id()};
     m_callbacks[event_type][priority].emplace_back(callback_data);
 }
 
@@ -25,7 +30,8 @@ void EventBus::subscribe_async(subscriber_id_t subscriber_id, EventType event_ty
     };
     WEBSERVER_LOG_INFO("Subscribing to event type {} with priority {}", nlohmann::json(event_type).dump(),
                        nlohmann::json(priority).dump());
-    resource_callback_t callback_data{async_callback, event_type, priority, subscriber_id, true};
+    resource_callback_t callback_data{async_callback, event_type, priority,
+                                      subscriber_id,  true,       generate_registration_id()};
     m_callbacks[event_type][priority].emplace_back(callback_data);
 }
 
@@ -53,4 +59,32 @@ void EventBus::unsubscribe_all(subscriber_id_t subscriber_id)
                             callbacks.end());
         }
     }
+}
+
+bool EventBus::is_callback_still_registered(EventType event_type, const resource_callback_t &callback) const
+{
+    auto event_it = m_callbacks.find(event_type);
+    if (event_it == m_callbacks.end())
+    {
+        return false;
+    }
+
+    auto priority_it = event_it->second.find(callback.priority);
+    if (priority_it == event_it->second.end())
+    {
+        return false;
+    }
+
+    const auto &callbacks = priority_it->second;
+    for (const auto &registered_callback : callbacks)
+    {
+        // Match by unique registration_id - this ensures we only execute if the exact
+        // same callback registration still exists, not just a callback with the same subscriber_id
+        if (registered_callback.registration_id == callback.registration_id)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }

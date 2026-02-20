@@ -36,7 +36,11 @@ tl::expected<bool, CamAppReturnCode> CameraAppConstructor::stop()
 
     m_pipeline->stop();
     m_media_library->stop_pipeline();
-    std::cout << "App stopped." << std::endl;
+    auto status = m_media_library->shutdown();
+    if (status != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        HAILO_ANALYTICS_LOG_ERROR("media library shutdown failed at {} with return status {}", __FUNCTION__, status);
+    }
 
     return true;
 }
@@ -50,6 +54,7 @@ tl::expected<bool, CamAppReturnCode> CameraAppConstructor::release()
     m_pipeline = nullptr;
     m_components.m_frontend_stage = nullptr;
     m_components.m_encoder_stages.clear();
+    m_app_extensions.clear();
     m_media_library = nullptr;
 
     return true;

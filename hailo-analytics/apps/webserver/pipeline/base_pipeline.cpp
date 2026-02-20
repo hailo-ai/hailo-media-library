@@ -1,6 +1,7 @@
 #include "pipeline.hpp"
 #include "common/common.hpp"
 #include <fstream>
+#include <thread>
 
 #define FRONTEND_STAGE "frontend_stage"
 #define ENCODER_NAME(str) (std::string(str) + "_encoder")
@@ -183,6 +184,20 @@ void BasePipeline::init(ProfileType profile_type)
                                      std::make_shared<EncoderState>(EncoderState(DEFAULT_STREAM_4K_NAME)));
 }
 
+void BasePipeline::uninitialize()
+{
+    m_resources->m_event_bus->unsubscribe_all(EVENT_SUBSCRIBER_ID);
+
+    // Unsubscribe from media library callbacks to prevent callbacks on destroyed objects
+    if (m_app_resources && m_app_resources->media_library)
+    {
+        m_app_resources->media_library->unsubscribe_from_profile_restriction_callbacks();
+        m_app_resources->media_library->unsubscribe_from_throttling_state_change();
+    }
+
+    unregister_endpoints();
+}
+
 void BasePipeline::on_pipeline_profile_restricted(config_profile_t previous_profile, config_profile_t new_profile)
 {
     WEBSERVER_LOG_INFO("Profile restricted callback received - previous: {}, new: {}", previous_profile.name,
@@ -233,6 +248,11 @@ void BasePipeline::stop()
     WEBSERVER_LOG_INFO("BasePipeline stopped successfully");
 }
 
+static bool is_hdr_profile(ProfileType type)
+{
+    return type == ProfileType::HighDynamicRange || type == ProfileType::DenoiseHdr;
+}
+
 void BasePipeline::subscribe_callbacks()
 {
     WEBSERVER_LOG_INFO("Subscribing callbacks");
@@ -266,8 +286,30 @@ void BasePipeline::subscribe_callbacks()
             m_resources->m_event_bus->notify(EventType::CHANGE_VALVE, std::make_shared<ProfileValveState>(false));
         });
     m_resources->m_event_bus->subscribe(
+        EVENT_SUBSCRIBER_ID, EventType::SWITCH_PROFILE, EventPriority::EVENT_PRIORITY_VERY_HIGH,
+        [this](ResourceStateChangeNotification notification) {
+            auto state = notification.getDirectResourceState<ProfileTypeState>();
+            m_hdr_valve_active = (m_app_resources->platform == Architecture::Hailo15L) &&
+                                 (is_hdr_profile(m_current_profile_type) || is_hdr_profile(state->value));
+            if (!m_hdr_valve_active)
+                return;
+            WEBSERVER_LOG_INFO("handeling before reset notification");
+            m_resources->m_event_bus->notify(EventType::CHANGE_VALVE, std::make_shared<ProfileValveState>(false));
+        });
+    m_resources->m_event_bus->subscribe(
         EVENT_SUBSCRIBER_ID, {EventType::CHANGE_RESOLUTION, EventType::CHANGE_ROTATION},
         EventPriority::EVENT_PRIORITY_LOW, [this](ResourceStateChangeNotification notification) {
+            WEBSERVER_LOG_INFO("handeling after reset notification");
+            m_resources->m_event_bus->notify(EventType::RESET_ISP, std::make_shared<EmptyState>(EmptyState()));
+            m_resources->m_event_bus->notify(EventType::CHANGE_VALVE, std::make_shared<ProfileValveState>(true));
+        });
+    m_resources->m_event_bus->subscribe(
+        EVENT_SUBSCRIBER_ID, EventType::SWITCH_PROFILE, EventPriority::EVENT_PRIORITY_LOW,
+        [this](ResourceStateChangeNotification notification) {
+            if (!m_hdr_valve_active)
+                return;
+            m_hdr_valve_active = false;
+            std::this_thread::sleep_for(std::chrono::seconds(1));
             WEBSERVER_LOG_INFO("handeling after reset notification");
             m_resources->m_event_bus->notify(EventType::RESET_ISP, std::make_shared<EmptyState>(EmptyState()));
             m_resources->m_event_bus->notify(EventType::CHANGE_VALVE, std::make_shared<ProfileValveState>(true));
@@ -315,7 +357,7 @@ std::shared_ptr<EncoderStage> BasePipeline::configure_encoder_and_osd(const std:
     std::string enc_name = ENCODER_NAME(stream_name);
     m_app_resources->encoders[enc_name] = std::make_shared<EncoderStage>(enc_name, 3, true);
     AppStatus enc_config_status =
-        m_app_resources->encoders[enc_name]->configure(m_app_resources->media_library->m_encoders[m_stream_4k_name]);
+        m_app_resources->encoders[enc_name]->configure(m_app_resources->media_library->m_encoders[stream_name]);
     if (enc_config_status != AppStatus::SUCCESS)
     {
         std::cerr << "Failed to configure encoder " << enc_name << std::endl;

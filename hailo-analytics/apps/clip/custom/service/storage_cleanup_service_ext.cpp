@@ -24,7 +24,7 @@ void StorageCleanupServiceExt::on_storage_update_notification(const StorageInfo 
 
     if (info.is_low_disk_space && m_request_queue.empty() && !m_cleanup_in_progress)
     {
-        std::cout << "Low disk space detected, triggering cleanup" << std::endl;
+        HAILO_ANALYTICS_LOG_INFO("Low disk space detected, triggering cleanup");
         // Trigger cleanup
         request_cleanup(info);
     }
@@ -85,7 +85,7 @@ void StorageCleanupServiceExt::request_cleanup(StorageInfo request)
 {
     if (!m_initialized)
     {
-        std::cerr << "Service not initialized, ignoring cleanup request" << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("Service not initialized, ignoring cleanup request");
         return;
     }
 
@@ -150,7 +150,7 @@ void StorageCleanupServiceExt::process_cleanup_request([[maybe_unused]] const St
     // However, we can use it in the future if needed to enhance the strategy which might require this information
     if (!m_strategy->clean_up(*this))
     {
-        std::cerr << "Cleanup strategy failed (partially) to process request" << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("Cleanup strategy failed (partially) to process request");
         return;
     }
 }

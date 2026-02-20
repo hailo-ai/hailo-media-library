@@ -146,6 +146,7 @@ struct EncoderBitrateMonitor
     files_utils::SharedFd output_file;
 };
 
+class DmabufShareGuard;
 class Encoder::Impl final
 {
   private:
@@ -285,16 +286,20 @@ class Encoder::Impl final
     media_library_return validate_bitrate_limitations(rate_control_config_t rate_control_config);
     VCEncPictureType get_input_format(std::string format);
     VCEncPictureCodingType find_next_pic();
-    media_library_return update_input_buffer(HailoMediaLibraryBufferPtr buf);
-    media_library_return acquire_output_memory(HailoMediaLibraryBufferPtr buffer_ptr);
-    tl::expected<EncoderOutputBuffer, media_library_return> encode_executer(encoder_operation_t op);
+    media_library_return update_input_buffer(HailoMediaLibraryBufferPtr buf,
+                                             std::vector<DmabufShareGuard> &dmabuf_release_guards);
+    media_library_return acquire_output_memory(HailoMediaLibraryBufferPtr buffer_ptr,
+                                               std::vector<DmabufShareGuard> &dmabuf_release_guards);
+    tl::expected<EncoderOutputBuffer, media_library_return> encode_executer(
+        encoder_operation_t op, std::vector<DmabufShareGuard> &dmabuf_release_guards);
     media_library_return update_configurations();
     media_library_return update_gop_configurations();
     media_library_return stream_restart();
     media_library_return encode_header();
     media_library_return encode_frame(HailoMediaLibraryBufferPtr buf, std::vector<EncoderOutputBuffer> &outputs,
-                                      uint32_t frame_number);
-    media_library_return encode_multiple_frames(std::vector<EncoderOutputBuffer> &outputs);
+                                      uint32_t frame_number, std::vector<DmabufShareGuard> &dmabuf_release_guards);
+    media_library_return encode_multiple_frames(std::vector<EncoderOutputBuffer> &outputs,
+                                                std::vector<DmabufShareGuard> &dmabuf_release_guards);
     media_library_return prepare_empty_output_buffer(EncoderOutputBuffer &output, uint32_t frame_number);
     media_library_return inject_sei_user_metadata(HailoMediaLibraryBufferPtr buf, bool is_forced_keyframe);
     uint32_t get_codec();

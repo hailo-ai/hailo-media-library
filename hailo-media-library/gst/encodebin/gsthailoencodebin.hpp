@@ -63,9 +63,11 @@ struct __attribute__((visibility("hidden"))) _GstHailoEncodeBinParams
     EncoderType encoder_type = EncoderType::None;
 
     bool m_elements_linked = false;
+    bool add_config_attacher = false;
     GstElement *m_osd = nullptr;
     GstElement *m_queue_encoder = nullptr;
     GstElement *m_encoder = nullptr;
+    GstElement *m_config_attacher = nullptr;
     size_t queue_size = ENCODEBIN_DEFAULT_QUEUE_SIZE;
 };
 

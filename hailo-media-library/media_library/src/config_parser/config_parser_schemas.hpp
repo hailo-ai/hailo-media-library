@@ -231,7 +231,20 @@ static const nlohmann::json encoding_config_schema_internal = R"(
             "type": "object",
             "properties": {
               "sei_messages": {
-                "type": "boolean"
+                "type": "object",
+                "properties": {
+                  "encoder_timing_sei": {
+                    "type": "boolean"
+                  },
+                  "user_metadata_sei": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "encoder_timing_sei",
+                  "user_metadata_sei"
+                ],
+                "additionalProperties": false
               },
               "deblocking_filter": {
                 "type": "object",

@@ -183,6 +183,13 @@ static GstFlowReturn gst_hailo_multi_resize_push_output_frames(GstHailoMultiResi
             continue;
         }
 
+        if (self->params->srcpad_names_by_stream_id.find(stream_id) == self->params->srcpad_names_by_stream_id.end())
+        {
+            GST_TRACE_OBJECT(self, "Stream id %s has no connected srcpad (e.g., motion detection), skipping forward",
+                             stream_id.c_str());
+            continue;
+        }
+
         auto srcpad_name = self->params->srcpad_names_by_stream_id.at(stream_id);
         GstPad *srcpad = self->params->srcpads_by_names.at(srcpad_name);
         if (!srcpad)

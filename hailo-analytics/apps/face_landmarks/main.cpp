@@ -209,6 +209,8 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     tiling_detection_config.detection_config.post_config.so_path = YOLO_POST_SO;
     tiling_detection_config.detection_config.post_config.function_name = YOLO_FUNC_NAME;
     tiling_detection_config.detection_config.post_config.config_path = YOLO_POST_CONF;
+    tiling_detection_config.tiling_config.queue_size = 2;
+    tiling_detection_config.aggregator_config.main_queue_size = 3;
     auto tiling_pipeline_status = hailo_analytics::analytics::tiling::generate_tiling_detection_pipeline(
         TILING_PIPELINE, tiling_detection_config);
     if (!tiling_pipeline_status.has_value())
@@ -219,8 +221,14 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     hailo_analytics::pipeline::PipelinePtr tiling_pipeline = tiling_pipeline_status.value();
 
     // AI Pipeline Stages
-    auto landmarks_pipeline_status =
-        hailo_analytics::analytics::face_landmarks::generate_bbox_landmarks_pipeline(LANDMARKS_PIPELINE);
+    hailo_analytics::analytics::face_landmarks::bbox_crop_landmarks_config_t bbox_crop_landmarks_config;
+    bbox_crop_landmarks_config.bbox_crop_config.queue_size = 1;
+    bbox_crop_landmarks_config.aggregator_config.main_queue_size = 3;
+    bbox_crop_landmarks_config.aggregator_config.sub_queue_size = 20;
+    bbox_crop_landmarks_config.landmarks_config.ai_config.queue_size = 20;
+    bbox_crop_landmarks_config.landmarks_config.post_config.queue_size = 20;
+    auto landmarks_pipeline_status = hailo_analytics::analytics::face_landmarks::generate_bbox_landmarks_pipeline(
+        LANDMARKS_PIPELINE, bbox_crop_landmarks_config);
     if (!landmarks_pipeline_status.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create landmarks pipeline");
@@ -229,9 +237,12 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     hailo_analytics::pipeline::PipelinePtr landmarks_pipeline = landmarks_pipeline_status.value();
 
     // Analytic Metadata Sender Pipeline
+    hailo_analytics::analytics::analytic_metadata_sender::analytic_metadata_zmq_sender_config_t analytics_sender_config;
+    analytics_sender_config.analytic_metadata_config.queue_size = 1;
+    analytics_sender_config.zeromq_config.queue_size = 1;
     auto analytic_metadata_sender_pipeline_status =
         hailo_analytics::analytics::analytic_metadata_sender::generate_analytic_metadata_sender_pipeline(
-            ANALYTIC_META_SENDER_PIPELINE);
+            ANALYTIC_META_SENDER_PIPELINE, analytics_sender_config);
     if (!analytic_metadata_sender_pipeline_status.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create analytic metadata sender pipeline");

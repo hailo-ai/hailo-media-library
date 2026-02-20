@@ -166,7 +166,8 @@ media_library_return MediaLibraryDewarp::handle_frame(HailoMediaLibraryBufferPtr
 {
     media_library_return status;
     HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("MediaLibraryDewarp::handle_frame", DSP_THREADED_TRACK,
-                                          MEDIA_LIBRARY_DETAILED_CATEGORY);
+                                          MEDIA_LIBRARY_DETAILED_CATEGORY, "isp_timestamp_ms",
+                                          input_frame->isp_timestamp_ns / 1000000);
     status = m_impl->handle_frame(input_frame, output_frame);
     HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
     return status;
@@ -446,7 +447,8 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBuf
     m_last_vsm.dx = input_frame->vsm.dx;
     m_last_vsm.dy = input_frame->vsm.dy;
 
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("perform_dewarp", DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("perform_dewarp", DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY,
+                                          "isp_timestamp_ms", input_frame->isp_timestamp_ns / 1000000);
     media_lib_ret = perform_dewarp(input_frame, output_frame);
     HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
     output_frame->copy_metadata_from(input_frame);

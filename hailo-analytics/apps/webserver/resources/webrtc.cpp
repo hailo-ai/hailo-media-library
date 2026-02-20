@@ -266,7 +266,9 @@ void WebRtcResource::http_register(std::shared_ptr<HTTPServer> srv)
                       std::shared_ptr<WebRtcResource::WebrtcSession> session = this->create_media_sender(session_id);
                       std::unique_lock lock(m_session_mutex);
 
-                      while (session->gathering_state != rtc::PeerConnection::GatheringState::Complete)
+                      // Wait for both gathering to complete AND ICE_offer to be populated
+                      while (session->gathering_state != rtc::PeerConnection::GatheringState::Complete ||
+                             session->ICE_offer.is_null())
                       {
                           std::this_thread::sleep_for(std::chrono::milliseconds(1));
                       }

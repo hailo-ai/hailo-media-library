@@ -49,7 +49,7 @@ bool VideoStreamingServiceExt::initialize()
     }
     catch (const std::exception &e)
     {
-        std::cerr << "Failed to initialize VideoStreamingServiceExt: " << e.what() << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("Failed to initialize VideoStreamingServiceExt: {}", e.what());
         return false;
     }
 }
@@ -72,7 +72,7 @@ bool VideoStreamingServiceExt::start_streaming(const std::vector<VideoFile> &vid
 {
     if (video_files.empty())
     {
-        std::cerr << "No video files provided" << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("No video files provided");
         return false;
     }
 
@@ -84,14 +84,14 @@ bool VideoStreamingServiceExt::start_streaming(const std::vector<VideoFile> &vid
     // Start MKV streaming
     if (!m_mkv_streamer->start_streaming(video_files))
     {
-        std::cerr << "Failed to start MKV streaming" << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("Failed to start MKV streaming");
         return false;
     }
 
     // Can start streaming
     m_is_streaming = true;
 
-    std::cout << "Video streaming started with " << video_files.size() << " files" << std::endl;
+    HAILO_ANALYTICS_LOG_INFO("Video streaming started with {} files", video_files.size());
     return true;
 }
 
@@ -104,7 +104,7 @@ void VideoStreamingServiceExt::stop_streaming()
         return;
     }
 
-    std::cout << "Stopping video streaming..." << std::endl;
+    HAILO_ANALYTICS_LOG_INFO("Stopping video streaming...");
 
     // Stop MKV streaming
     if (m_mkv_streamer)
@@ -114,7 +114,7 @@ void VideoStreamingServiceExt::stop_streaming()
 
     m_is_streaming = false;
 
-    std::cout << "Video streaming stopped" << std::endl;
+    HAILO_ANALYTICS_LOG_INFO("Video streaming stopped");
 }
 
 bool VideoStreamingServiceExt::is_streaming() const
@@ -144,7 +144,7 @@ void VideoStreamingServiceExt::on_frame(const RtpPacketData &frame)
 
 void VideoStreamingServiceExt::on_end_of_stream()
 {
-    std::cout << "End of stream reached" << std::endl;
+    HAILO_ANALYTICS_LOG_INFO("End of stream reached");
 
     // Auto-stop streaming when all files are processed
     stop_streaming();
@@ -152,7 +152,7 @@ void VideoStreamingServiceExt::on_end_of_stream()
 
 void VideoStreamingServiceExt::on_error(const ErrorInfo &error)
 {
-    std::cerr << "MKVStreamer error: " << error.message << std::endl;
+    HAILO_ANALYTICS_LOG_ERROR("MKVStreamer error: {}", error.message);
 
     // Stop streaming on error
     stop_streaming();

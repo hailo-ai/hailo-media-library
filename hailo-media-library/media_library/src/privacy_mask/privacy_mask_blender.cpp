@@ -342,10 +342,8 @@ media_library_return PrivacyMask::update_dynamic_mask(
     std::chrono::nanoseconds isp_timestamp(isp_timestamp_ns);
     std::chrono::time_point<std::chrono::steady_clock> isp_timestamp_tp(isp_timestamp);
 
-    AnalyticsQueryOptions opts{.m_type = AnalyticsQueryType::WithinDelta,
-                               .m_ts = isp_timestamp_tp,
-                               .m_delta = std::chrono::milliseconds(34),
-                               .m_timeout = std::chrono::milliseconds(10000)};
+    AnalyticsQueryOptions opts{
+        .m_type = AnalyticsQueryType::Exact, .m_ts = isp_timestamp_tp, .m_timeout = std::chrono::milliseconds(10000)};
 
     auto analytics_config = db.get_application_analytics_config();
     const size_t dilation_size = dynamic_mask_config->dilation_size;

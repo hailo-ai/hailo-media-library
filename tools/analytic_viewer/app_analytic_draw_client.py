@@ -70,8 +70,11 @@ class DrawTimer:
                     max_time = max(times)
                     avg_time = sum(times) / len(times)
                     print(f"[PERF] {self.name}: min={min_time:.2f}ms, max={max_time:.2f}ms, avg={avg_time:.2f}ms (over {len(times)} samples)")
-# ============================================================================
 
+
+# ============================================================================
+# Constants & Configuration
+# ============================================================================
 # Note that the import order is important here, do not reorder it
 gi.require_version('Gst', '1.0')
 gi.require_version('GstRtp', '1.0')
@@ -82,26 +85,17 @@ import multiprocessing
 # Calculate threads with limitation (minimum 1)
 num_threads = max(1, int(multiprocessing.cpu_count() / 4))
 
-# Face Landmark Indices for Minimal Drawing
-# Face Silhouette (Outer edge) - 36 points
+# Face Landmark Indices
 FACIAL_OUTLINE = [
     10,  338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 
     400, 377, 152, 148, 176, 149, 150, 136, 172, 58,  132, 93,  234, 127, 162, 21, 
     54,  103, 67, 109
 ]
-
-# Lips (Outer) - 20 points
 LIPS_OUTER = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 185, 40, 39, 37, 0, 267, 269, 270, 409]
-
-# Left Eye & Eyebrow - 11 points
 LEFT_EYE = [33, 160, 158, 133, 153, 144]
-LEFT_EYEBROW = [70, 63, 105, 66, 107]
-
-# Right Eye & Eyebrow - 11 points
 RIGHT_EYE = [362, 385, 387, 263, 373, 380]
+LEFT_EYEBROW = [70, 63, 105, 66, 107]
 RIGHT_EYEBROW = [336, 296, 334, 293, 300]
-
-# Nose - 9 points
 NOSE_BRIDGE = [168, 6, 197, 195, 5]
 NOSE_TIP = [1, 2, 98, 327]
 
@@ -124,14 +118,17 @@ SEI_HAILO_KEY_NODE = "Hailo"                    # Key name for Hailo data in SEI
 TIMESTAMP_KEY = "isp_timestamp_ns"              # Key name for timestamp synchronization
 UUID_SIZE = 16                                  # Size of UUID prefix in SEI payload
 
-# LATENCY & SYNC CONFIG
-JITTER_BUFFER_LATENCY_MS = 300                  # "Time cushion" for ZMQ to arrive (ms)
-REGISTRY_CLEANUP_THRESHOLD_NS = 2 * 10**9       # Remove entries older than 2 seconds (in ns)
-PREVIOUS_METADATA_MAX_AGE_MS = 200              # Max age for using previous metadata (ms)
+# SYNC CONFIGURATION FOR DEMOS
+# Increased latency to 800ms to ensure ZMQ metadata arrives before the video frame is drawn
+JITTER_BUFFER_LATENCY_MS = 800
+MAX_METADATA_AGE_NS = 300 * 10**6 # 300ms threshold for "stale" data
+METADATA_BUFFER_SIZE = 150 # Large enough to hold several seconds of 15fps data
 
 Gst.init(None)
 
+# ============================================================================
 # Pydantic Models
+# ============================================================================
 class BBox(BaseModel):
     xmin: float = 0.0
     ymin: float = 0.0
@@ -163,46 +160,47 @@ class FrameMetadata(BaseModel):
 
 Detection.model_rebuild()
 
+# ============================================================================
+# Video Player Logic
+# ============================================================================
 class VideoPlayer:
-    def __init__(self, udp_port=5000, face_landmark_filter=2, enable_perf_timing=False, perf_print_frequency=30, analytic_data_ip=DEFAULT_ANALYTIC_DATA_IP, analytic_data_port=DEFAULT_ANALYTIC_DATA_PORT):
+    def __init__(self, udp_port=5000, face_landmark_filter=2, enable_perf_timing=False, 
+                 perf_print_frequency=30, analytic_data_ip=DEFAULT_ANALYTIC_DATA_IP, 
+                 analytic_data_port=DEFAULT_ANALYTIC_DATA_PORT):
         self.loop = GLib.MainLoop()
         self.udp_port = udp_port
-        self.face_landmark_filter = face_landmark_filter  # 0=maximum (all), 1=standard, 2=minimum
+        self.face_landmark_filter = face_landmark_filter # 0=maximum (all), 1=standard, 2=minimum
         self.enable_perf_timing = enable_perf_timing
         self.zmq_address = f"tcp://{analytic_data_ip}:{analytic_data_port}"
         
-        # Configure performance timing
         if enable_perf_timing:
             DrawTimer.set_print_frequency(perf_print_frequency)
         
-        # Maps ZMQ isp_timestamp -> AI Metadata
-        self.zmq_registry = {}
+        # Metadata Stream (Temporal Queue)
+        self.zmq_buffer = deque(maxlen=METADATA_BUFFER_SIZE)
         self.zmq_lock = threading.Lock()
         
-        # Maps GStreamer PTS -> isp_timestamp (from SEI)
+        # Frame Mapping (PTS -> ISP Timestamp from SEI)
         self.pts_to_sei_ts = {}
         self.registry_lock = threading.Lock()
         
-        # Previous metadata for fallback
-        self.last_metadata = None
-        self.last_metadata_ts = None
-        
+        # State tracking for smoothing
+        self.current_active_metadata = None
+
         # Start ZMQ listener
         self.zmq_thread = threading.Thread(target=self.zmq_listener, daemon=True)
         self.zmq_thread.start()
 
-        # PIPELINE
-        # Added jitterbuffer latency to allow ZMQ packets to "catch up" to the video frames
         pipeline_str = f"""
             udpsrc port={self.udp_port} buffer-size=2097152 caps="application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96" ! 
             rtpjitterbuffer name=jitterbuffer latency={JITTER_BUFFER_LATENCY_MS} ! 
             rtph264depay ! 
             h264parse name=parser ! 
             video/x-h264,stream-format=byte-stream !
-            queue leaky=downstream max-size-buffers=10 ! 
+            queue leaky=downstream max-size-buffers=30 !
             avdec_h264 ! 
-            queue max-size-buffers=5 !
             videoconvert n-threads={num_threads} ! 
+            queue max-size-buffers=5 !
             cairooverlay name=overlay ! 
             videoconvert n-threads={num_threads} ! 
             autovideosink sync=true
@@ -218,10 +216,8 @@ class VideoPlayer:
         self.overlay = self.pipeline.get_by_name("overlay")
         self.overlay.connect("draw", self.on_draw)
 
-        # SEI Probe setup
         parser = self.pipeline.get_by_name("parser")
-        parser_src = parser.get_static_pad("src")
-        parser_src.add_probe(Gst.PadProbeType.BUFFER, self.sei_probe_callback)
+        parser.get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, self.sei_probe_callback)
 
         bus = self.pipeline.get_bus()
         bus.add_signal_watch()
@@ -240,153 +236,113 @@ class VideoPlayer:
                 try:
                     message = socket.recv()
                     metadata = msgpack.unpackb(message, raw=False)
-                    
                     ts = metadata.get(TIMESTAMP_KEY)
                     if ts:
                         with self.zmq_lock:
-                            self.zmq_registry[ts] = metadata
-                            # Periodic cleanup of ZMQ registry
-                            if len(self.zmq_registry) > 300:
-                                current_ts = ts
-                                keys_to_del = [k for k in self.zmq_registry.keys() if k < current_ts - REGISTRY_CLEANUP_THRESHOLD_NS]
-                                for k in keys_to_del: del self.zmq_registry[k]
-                except zmq.Again:
-                    continue
-                except Exception as e:
-                    print(f"ZMQ Unpack Error: {e}")
-        except Exception as e:
-            print(f"ZMQ Error: {e}")
+                            # Add to the temporal stream
+                            self.zmq_buffer.append((ts, metadata))
+                except zmq.Again: continue
+                except Exception as e: print(f"ZMQ Unpack Error: {e}")
+        except Exception as e: print(f"ZMQ Error: {e}")
 
     def sei_probe_callback(self, pad, info):
         gst_buffer = info.get_buffer()
         if not gst_buffer: return Gst.PadProbeReturn.OK
-
         pts = gst_buffer.pts
         success, map_info = gst_buffer.map(Gst.MapFlags.READ)
-        if not success: return Gst.PadProbeReturn.OK
-
-        try:
-            data = map_info.data
-            # Fast check for SEI NAL (0x06)
-            nals = data.split(b'\x00\x00\x01')
-            for nal in nals:
-                if len(nal) > 0 and (nal[0] & 0x1F) == 6:
-                    self.parse_sei_nal(nal[1:], pts)
-        finally:
-            gst_buffer.unmap(map_info)
-
+        if success:
+            try:
+                nals = map_info.data.split(b'\x00\x00\x01')
+                for nal in nals:
+                    if len(nal) > 0 and (nal[0] & 0x1F) == 6:
+                        self.parse_sei_nal(nal[1:], pts)
+            finally: gst_buffer.unmap(map_info)
         return Gst.PadProbeReturn.OK
 
     def parse_sei_nal(self, payload, pts):
         rbsp = payload.replace(b'\x00\x00\x03', b'\x00\x00')
-        i = 0
-        size = len(rbsp)
+        i, size = 0, len(rbsp)
         while i < size:
-            payload_type = 0
-            while i < size and rbsp[i] == 0xFF:
-                payload_type += 255
-                i += 1
+            p_type = 0
+            while i < size and rbsp[i] == 0xFF: p_type += 255; i += 1
             if i >= size: break
-            payload_type += rbsp[i]
-            i += 1
-            
-            payload_size = 0
-            while i < size and rbsp[i] == 0xFF:
-                payload_size += 255
-                i += 1
+            p_type += rbsp[i]; i += 1
+            p_size = 0
+            while i < size and rbsp[i] == 0xFF: p_size += 255; i += 1
             if i >= size: break
-            payload_size += rbsp[i]
-            i += 1
+            p_size += rbsp[i]; i += 1
             
-            if payload_type == 5: # User Data Unregistered
-                user_data = rbsp[i : i + payload_size]
+            if p_type == 5:
+                user_data = rbsp[i : i + p_size]
                 if len(user_data) > UUID_SIZE:
                     try:
                         json_str = user_data[UUID_SIZE:].decode('utf-8', errors='ignore').rstrip('\x00')
-                        sei_meta = json.loads(json_str)
-                        sei_ts = sei_meta.get(SEI_HAILO_KEY_NODE, {}).get(TIMESTAMP_KEY)
-                        
+                        sei_ts = json.loads(json_str).get(SEI_HAILO_KEY_NODE, {}).get(TIMESTAMP_KEY)
                         if sei_ts:
                             with self.registry_lock:
                                 self.pts_to_sei_ts[pts] = sei_ts
-                                # Cleanup old PTS mappings
                                 if len(self.pts_to_sei_ts) > 100:
-                                    keys_to_del = [k for k in self.pts_to_sei_ts.keys() if k < pts - REGISTRY_CLEANUP_THRESHOLD_NS]
-                                    for k in keys_to_del: del self.pts_to_sei_ts[k]
+                                    self.pts_to_sei_ts = {k: v for k, v in self.pts_to_sei_ts.items() if k > pts - 2*10**9}
                     except: pass
-            
-            i += payload_size
-            if i < size and rbsp[i] == 0x80: break
+            i += p_size
 
     def on_draw(self, overlay, context, timestamp, duration):
-        # 1. Find the SEI Timestamp for this frame's PTS
         sei_ts = None
         with self.registry_lock:
             sei_ts = self.pts_to_sei_ts.get(timestamp)
         
-        if not sei_ts:
-            return # Frame has no metadata info
+        if not sei_ts: return
 
-        # 2. Find the AI Metadata for that SEI Timestamp
-        metadata_dict = None
-        using_fallback = False
-        with self.zmq_lock:
-            metadata_dict = self.zmq_registry.get(sei_ts)
+        # SYNC LOGIC: Find best metadata in the stream
+        # Because video and AI FPS typically mismatch, we use a "Zero-Order Hold" approach.
+        # We find the latest metadata entry that is NOT newer than the current frame's TS.
+        best_metadata = None
         
-        if not metadata_dict:
-            # Metadata hasn't arrived via ZMQ yet.
-            # Check if we can use previous metadata
-            if self.last_metadata and self.last_metadata_ts:
-                time_diff_ns = sei_ts - self.last_metadata_ts
-                time_diff_ms = time_diff_ns / 1_000_000  # Convert to milliseconds
-                if time_diff_ms <= PREVIOUS_METADATA_MAX_AGE_MS:
-                    metadata_dict = self.last_metadata
-                    using_fallback = True
-                else:
-                    return  # Previous metadata too old
-            else:
-                return  # No previous metadata available
+        with self.zmq_lock:
+            # Pop all metadata that is older than our current frame, keeping the last popped as the 'best fit'
+            while self.zmq_buffer and self.zmq_buffer[0][0] <= sei_ts:
+                ts, meta = self.zmq_buffer.popleft()
+                # Ensure the data isn't stale (e.g. from a lag spike)
+                if abs(sei_ts - ts) < MAX_METADATA_AGE_NS:
+                    best_metadata = meta
+            
+            # If we didn't pop anything (meaning the newest buffer is already ahead of us),
+            # check if our previously held metadata is still valid to keep the boxes "on"
+            if not best_metadata:
+                if self.current_active_metadata:
+                    prev_ts = self.current_active_metadata.get(TIMESTAMP_KEY, 0)
+                    if abs(sei_ts - prev_ts) < MAX_METADATA_AGE_NS:
+                        best_metadata = self.current_active_metadata
 
-        # Only update last metadata when we get fresh data from ZMQ (not fallback)
-        # this prevents the last metadata from being constantly updated with itself
-        # even if there is no object in the frame.
-        if metadata_dict and not using_fallback:
-            self.last_metadata = metadata_dict
-            self.last_metadata_ts = sei_ts
+        if not best_metadata: return
+        self.current_active_metadata = best_metadata
 
-        # 3. Draw the metadata
+        # Drawing Process
         sink_pad = overlay.get_static_pad("sink")
         caps = sink_pad.get_current_caps()
-        actual_w, actual_h = 1920, 1080
-        if caps:
-            structure = caps.get_structure(0)
-            structure.get_int("width")[1]
-            actual_w = structure.get_int("width")[1]
-            actual_h = structure.get_int("height")[1]
+        if not caps: return
+        
+        struct = caps.get_structure(0)
+        actual_w = struct.get_int("width")[1]
+        actual_h = struct.get_int("height")[1]
 
         try:
-            metadata = FrameMetadata.model_validate(metadata_dict)            
+            metadata = FrameMetadata.model_validate(best_metadata)            
             scale_x = actual_w / (metadata.frame_width or 1)
             scale_y = actual_h / (metadata.frame_height or 1)
 
             with DrawTimer("Frame Draw", self.enable_perf_timing):
                 for detection in metadata.detections:
                     self.draw_detection(detection, context, scale_x, scale_y)
-                
                 if metadata.landmarks:
-                    self.draw_landmarks_list(metadata.landmarks, context, scale_x, scale_y, bbox=None)
-        except Exception as e:
-            print(f"Draw Error: {e}")
+                    self.draw_landmarks_list(metadata.landmarks, context, scale_x, scale_y)
+        except Exception as e: print(f"Draw Error: {e}")
 
     def draw_landmarks_list(self, landmarks_list, context, scale_x, scale_y, bbox=None):
-        # Calculate adaptive point radius based on face size
+        point_radius = LANDMARK_POINT_MAX_RADIUS
         if bbox:
             face_width = (bbox.xmax - bbox.xmin) * scale_x
             point_radius = max(LANDMARK_POINT_MIN_RADIUS, min(LANDMARK_POINT_MAX_RADIUS, face_width * LANDMARK_POINT_SCALE_FACTOR))
-            line_width = max(1, point_radius * 0.5)
-        else:
-            point_radius = LANDMARK_POINT_MAX_RADIUS
-            line_width = point_radius * 0.5
         
         for landmark in landmarks_list:
             if not landmark.points: continue

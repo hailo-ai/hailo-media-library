@@ -20,6 +20,7 @@
 
 namespace hailo_analytics::pipeline::sinks
 {
+constexpr int UDP_SRC_QUEUE_MAX_BUFFERS = 5;
 
 tl::expected<UdpModulePtr, AppStatus> UdpModule::create(std::string name, std::string host, std::string port,
                                                         EncodingType type, bool print_fps)
@@ -92,7 +93,7 @@ std::string UdpModule::create_pipeline_string()
                " ! "
                "queue name=" +
                std::string(UDP_MODULE_SRC_QUEUE_NAME) +
-               " leaky=no max-size-buffers=1 max-size-bytes=0 max-size-time=0 ! " + caps2.str() + " ! " +
+               " leaky=downstream max-size-buffers=" + std::to_string(UDP_SRC_QUEUE_MAX_BUFFERS) + " max-size-bytes=0 max-size-time=0 ! " + caps2.str() + " ! " +
                "tee name=udp_tee "
                "udp_tee. ! "
                "queue leaky=no max-size-buffers=2 max-size-bytes=0 max-size-time=0 ! " +

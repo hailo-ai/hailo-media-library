@@ -321,33 +321,42 @@ IspManager::FastToggleMode IspManager::get_fast_toggle_mode(Mode switch_to_mode)
     return mode_it->second;
 }
 
+static bool is_hdr_config(const frontend_config_t &frontend_config)
+{
+    return frontend_config.hdr_config.enabled;
+}
+
+static bool is_pre_isp_denoise_config(const frontend_config_t &frontend_config)
+{
+    return frontend_config.denoise_config.enabled && frontend_config.denoise_config.bayer;
+}
+
 bool IspManager::set_config(const frontend_config_t &frontend_config)
 {
     isp_utils::set_isp_config_files_path(frontend_config.isp_config.isp_config_files_path);
     m_input_resolution = frontend_config.input_config.resolution;
 
     LOGGER__MODULE__DEBUG(MODULE_NAME, "current mode: {}", to_string(m_current_mode));
-    if ((m_current_mode != Mode::HDR_DENOISE || !m_is_started) && frontend_config.denoise_config.enabled &&
-        frontend_config.denoise_config.bayer && frontend_config.hdr_config.enabled)
+    if ((m_current_mode != Mode::HDR_DENOISE || !m_is_started) && is_pre_isp_denoise_config(frontend_config) &&
+        is_hdr_config(frontend_config))
     {
         LOGGER__MODULE__DEBUG(MODULE_NAME, "switching to hdr denoise");
         return switch_to_hdr_denoise(frontend_config);
     }
     else if (((m_current_mode != Mode::HDR_NNCORE_STITCH && m_current_mode != Mode::HDR_ISP_STITCH) || !m_is_started) &&
-             frontend_config.hdr_config.enabled)
+             is_hdr_config(frontend_config) && !is_pre_isp_denoise_config(frontend_config))
     {
         LOGGER__MODULE__DEBUG(MODULE_NAME, "switching to hdr");
         return switch_to_hdr(frontend_config);
     }
-    else if ((m_current_mode != Mode::PRE_ISP_DENOISE || !m_is_started) &&
-             (frontend_config.denoise_config.enabled && frontend_config.denoise_config.bayer))
+    else if ((m_current_mode != Mode::PRE_ISP_DENOISE || !m_is_started) && is_pre_isp_denoise_config(frontend_config) &&
+             !is_hdr_config(frontend_config))
     {
         LOGGER__MODULE__DEBUG(MODULE_NAME, "switching to pre isp denoise");
         return switch_to_pre_isp_denoise(frontend_config);
     }
-    else if ((m_current_mode != Mode::SDR || !m_is_started) &&
-             !(frontend_config.denoise_config.enabled && frontend_config.denoise_config.bayer) &&
-             !frontend_config.hdr_config.enabled)
+    else if ((m_current_mode != Mode::SDR || !m_is_started) && !is_pre_isp_denoise_config(frontend_config) &&
+             !is_hdr_config(frontend_config))
     {
         LOGGER__MODULE__DEBUG(MODULE_NAME, "switching to sdr");
         return switch_to_sdr();

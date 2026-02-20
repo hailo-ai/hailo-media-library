@@ -68,6 +68,7 @@ typedef enum
     PROP_CONFIG_MANAGER_INTERACTOR,
     PROP_USER_CONFIG,
     PROP_ENCODER_MONITORS,
+    PROP_ADD_CONFIG_ATTACHER,
 } hailoencodebin_prop_t;
 
 // Pad Templates
@@ -159,6 +160,13 @@ static void gst_hailoencodebin_class_init(GstHailoEncodeBinClass *klass)
         gobject_class, PROP_ENCODER_MONITORS,
         g_param_spec_pointer("encoder-monitors", "Encoder Monitors", "Struct that holds the encoder monitors",
                              (GParamFlags)(G_PARAM_READABLE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+
+    g_object_class_install_property(
+        gobject_class, PROP_ADD_CONFIG_ATTACHER,
+        g_param_spec_boolean("add-config-attacher", "Add config attacher", "Add hailoconfigattacher element to the bin",
+                             FALSE,
+                             (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+                                           GST_PARAM_MUTABLE_READY)));
 }
 
 static void gst_hailoencodebin_init(GstHailoEncodeBin *hailoencodebin)
@@ -185,7 +193,7 @@ static void gst_hailoencodebin_init(GstHailoEncodeBin *hailoencodebin)
     g_object_set(hailoencodebin->params->m_queue_encoder, "max-size-buffers", (guint)hailoencodebin->params->queue_size,
                  NULL);
 
-    // Add elements and pads in the bin
+    // Add elements to the bin
     gst_bin_add_many(GST_BIN(hailoencodebin), hailoencodebin->params->m_osd, hailoencodebin->params->m_queue_encoder,
                      NULL);
     gst_hailoencodebin_init_ghost_sink(hailoencodebin);
@@ -237,6 +245,11 @@ static bool set_encoder_config_in_dummy_profile(GstHailoEncodeBin *hailoencodebi
 
     gst_mode_config_manager_interactor->set_profile(profile);
     g_object_set(hailoencodebin->params->m_osd, "config-manager-interactor", gst_mode_config_manager_interactor, NULL);
+    if (hailoencodebin->params->m_config_attacher != nullptr)
+    {
+        g_object_set(hailoencodebin->params->m_config_attacher, "config-manager-interactor",
+                     gst_mode_config_manager_interactor, NULL);
+    }
     return true;
 }
 
@@ -262,8 +275,8 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id, const G
                               ("Failed to set encoder config in ConfigManager (GST mode)"), (NULL));
             return;
         }
-        LOGGER__MODULE__INFO(MODULE_NAME, "Encoder config to be applied in {}: {}",
-                             gst_element_get_name(hailoencodebin), config_json_str);
+        LOGGER__MODULE__INFO(MODULE_NAME, "Encoder config to be applied in {}: {}", glib_cpp::get_name(hailoencodebin),
+                             config_json_str);
         // set params for sub elements here
         g_object_set(hailoencodebin->params->m_osd, "config-string", config_json_str.c_str(), NULL);
 
@@ -342,6 +355,57 @@ void gst_hailoencodebin_set_property(GObject *object, guint property_id, const G
     }
     case PROP_CONFIG_MANAGER_INTERACTOR: {
         g_object_set(hailoencodebin->params->m_osd, "config-manager-interactor", g_value_get_pointer(value), NULL);
+        break;
+    }
+    case PROP_ADD_CONFIG_ATTACHER: {
+        gboolean add_config_attacher = g_value_get_boolean(value);
+        hailoencodebin->params->add_config_attacher = add_config_attacher;
+        if (hailoencodebin->params->add_config_attacher)
+        {
+            hailoencodebin->params->m_config_attacher = gst_element_factory_make("hailoconfigattacher", NULL);
+            if (hailoencodebin->params->m_config_attacher == nullptr)
+            {
+                GST_ELEMENT_ERROR(hailoencodebin, RESOURCE, FAILED,
+                                  ("Failed creating hailoconfigattacher element in bin!"), (NULL));
+                return;
+            }
+            gst_bin_add(GST_BIN(hailoencodebin), hailoencodebin->params->m_config_attacher);
+
+            // If elements are already linked, unlink them before relinking with config attacher
+            if (hailoencodebin->params->m_elements_linked)
+            {
+                gst_element_unlink_many(hailoencodebin->params->m_osd, hailoencodebin->params->m_queue_encoder,
+                                        hailoencodebin->params->m_encoder, NULL);
+            }
+
+            // Recreate ghost sink to point to config attacher
+            if (hailoencodebin->params->sinkpad != nullptr)
+            {
+                gst_element_remove_pad(GST_ELEMENT(hailoencodebin), hailoencodebin->params->sinkpad);
+            }
+
+            if (gst_mode_config_manager_interactor != nullptr)
+            {
+                g_object_set(hailoencodebin->params->m_config_attacher, "config-manager-interactor",
+                             gst_mode_config_manager_interactor, NULL);
+            }
+            else
+            {
+                g_object_set(hailoencodebin->params->m_config_attacher, "config-manager-owner", TRUE, NULL);
+            }
+            gst_hailoencodebin_init_ghost_sink(hailoencodebin);
+
+            // Relink elements with config attacher in the chain
+            if (hailoencodebin->params->m_elements_linked)
+            {
+                if (!gst_hailoencodebin_link_elements(GST_ELEMENT(hailoencodebin)))
+                {
+                    GST_ELEMENT_ERROR(hailoencodebin, RESOURCE, FAILED,
+                                      ("Failed to relink elements with config attacher!"), (NULL));
+                    return;
+                }
+            }
+        }
         break;
     }
     default:
@@ -433,6 +497,10 @@ void gst_hailoencodebin_get_property(GObject *object, guint property_id, GValue 
         g_value_set_pointer(value, encoder_monitors);
         break;
     }
+    case PROP_ADD_CONFIG_ATTACHER: {
+        g_value_set_boolean(value, hailoencodebin->params->add_config_attacher);
+        break;
+    }
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
@@ -441,9 +509,11 @@ void gst_hailoencodebin_get_property(GObject *object, guint property_id, GValue 
 
 void gst_hailoencodebin_init_ghost_sink(GstHailoEncodeBin *hailoencodebin)
 {
-    // Get the connecting pad
+    // Get the connecting pad - use config attacher if it exists, otherwise osd
     const gchar *pad_name = "sink";
-    GstPadPtr pad = gst_element_get_static_pad(hailoencodebin->params->m_osd, pad_name);
+    GstElement *sink_element = hailoencodebin->params->m_config_attacher ? hailoencodebin->params->m_config_attacher
+                                                                         : hailoencodebin->params->m_osd;
+    GstPadPtr pad = gst_element_get_static_pad(sink_element, pad_name);
 
     // Create a ghostpad and connect it to the bin
     GstPadTemplatePtr pad_tmpl = gst_static_pad_template_get(&sink_template);
@@ -551,8 +621,18 @@ static gboolean gst_hailoencodebin_link_elements(GstElement *element)
     GstHailoEncodeBin *self = GST_HAILO_ENCODE_BIN(element);
 
     // Link the elements
-    gboolean link_status =
-        gst_element_link_many(self->params->m_osd, self->params->m_queue_encoder, self->params->m_encoder, NULL);
+    gboolean link_status;
+    if (self->params->m_config_attacher != nullptr)
+    {
+        link_status = gst_element_link_many(self->params->m_config_attacher, self->params->m_osd,
+                                            self->params->m_queue_encoder, self->params->m_encoder, NULL);
+    }
+    else
+    {
+        link_status =
+            gst_element_link_many(self->params->m_osd, self->params->m_queue_encoder, self->params->m_encoder, NULL);
+    }
+
     if (!link_status)
     {
         GST_ERROR_OBJECT(self, "Failed to link elements in bin!");

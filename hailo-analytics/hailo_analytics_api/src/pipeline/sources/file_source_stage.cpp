@@ -115,19 +115,19 @@ void FileSourceStage::loop()
     HAILO_ANALYTICS_LOG_INFO("FileSourceStage loop ended");
 }
 
-void FileSourceStage::trace_processing_start()
+void FileSourceStage::trace_processing_start(BufferPtr buffer)
 {
     if (m_trace_processing_operations)
     {
-        m_tracing->trace_processing_start();
+        m_tracing->trace_processing_start(buffer);
     }
 }
 
-void FileSourceStage::trace_processing_end()
+void FileSourceStage::trace_processing_end(BufferPtr buffer)
 {
     if (m_trace_processing_operations)
     {
-        m_tracing->trace_processing_end();
+        m_tracing->trace_processing_end(buffer);
     }
 }
 

@@ -60,6 +60,8 @@ class IspManager
             return "HDR_ISP_STITCH";
         case Mode::PRE_ISP_DENOISE:
             return "PRE_ISP_DENOISE";
+        case Mode::HDR_DENOISE:
+            return "HDR_DENOISE";
         default:
             return "INVALID_MODE";
         }

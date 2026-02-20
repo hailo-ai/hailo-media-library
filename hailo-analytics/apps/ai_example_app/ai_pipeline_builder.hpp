@@ -46,6 +46,7 @@ struct AIPipelineConfig
     int tiling_output_width = 640;
     int tiling_output_height = 384;
     std::vector<HailoBBox> tiles;
+    int crop_every_x_frames = 1;
 
     // Detection AI params
     std::string yolo_hef_file;

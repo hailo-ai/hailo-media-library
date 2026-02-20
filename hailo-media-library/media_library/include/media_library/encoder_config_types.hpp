@@ -150,9 +150,20 @@ struct coding_roi_area_t
     }
 };
 
+struct sei_messages_config_t
+{
+    bool encoder_timing_sei;
+    bool user_metadata_sei;
+
+    bool operator==(const sei_messages_config_t &other) const
+    {
+        return encoder_timing_sei == other.encoder_timing_sei && user_metadata_sei == other.user_metadata_sei;
+    }
+};
+
 struct coding_control_config_t
 {
-    bool sei_messages;
+    sei_messages_config_t sei_messages;
     deblocking_filter_t deblocking_filter;
     coding_roi_t intra_area;
     coding_roi_t ipcm_area1;

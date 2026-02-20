@@ -35,14 +35,14 @@ class AppControlServiceExt : public hailo_analytics::analytics::app_constructor:
     {
         if (refresh_rate == 0)
         {
-            std::cerr << "Invalid refresh rate: " << refresh_rate << ". It must be greater than 0." << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Invalid refresh rate: {}. It must be greater than 0.", refresh_rate);
             return tl::unexpected(Error::INVALID_PARAMETER);
         }
 
         auto app_pipeline = m_app->get_pipeline();
         if (!app_pipeline)
         {
-            std::cerr << "Failed to get app pipeline." << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Failed to get app pipeline.");
             return tl::unexpected(Error::INVALID_ACCESS);
         }
 
@@ -52,7 +52,7 @@ class AppControlServiceExt : public hailo_analytics::analytics::app_constructor:
                 pipeline->get_stage_by_name(app::stage::tracker_traffic_ctrl));
         if (!traffic_control_stage)
         {
-            std::cerr << "Failed to get tracker traffic control stage to set embedding refresh rate." << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Failed to get tracker traffic control stage to set embedding refresh rate.");
             return tl::unexpected(Error::INVALID_ACCESS);
         }
 
@@ -66,7 +66,7 @@ class AppControlServiceExt : public hailo_analytics::analytics::app_constructor:
         auto app_pipeline = m_app->get_pipeline();
         if (!app_pipeline)
         {
-            std::cerr << "Failed to get app pipeline." << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Failed to get app pipeline.");
             return tl::unexpected(Error::INVALID_ACCESS);
         }
 
@@ -76,7 +76,7 @@ class AppControlServiceExt : public hailo_analytics::analytics::app_constructor:
                 pipeline->get_stage_by_name(app::stage::tracker_traffic_ctrl));
         if (!traffic_control_stage)
         {
-            std::cerr << "Failed to get tracker traffic control stage to get embedding refresh rate." << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Failed to get tracker traffic control stage to get embedding refresh rate.");
             return tl::unexpected(Error::INVALID_ACCESS);
         }
 

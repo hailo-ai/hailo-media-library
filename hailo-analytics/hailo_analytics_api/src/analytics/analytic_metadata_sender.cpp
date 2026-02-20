@@ -156,7 +156,7 @@ analytic_metadata_config_t base_analytic_metadata_packager_config()
     analytic_metadata_config_t config;
 
     config.stage_name = "analytic_metadata_stage";
-    config.queue_size = 20;
+    config.queue_size = 1;
     config.leaky = false;
     config.trace = true;
 
@@ -168,7 +168,7 @@ zeromq_config_t base_zeromq_sender_config()
     zeromq_config_t config;
 
     config.stage_name = "zmq_sender_stage";
-    config.queue_size = 20;
+    config.queue_size = 1;
     config.leaky = false;
     config.trace = true;
     config.print_fps = false;

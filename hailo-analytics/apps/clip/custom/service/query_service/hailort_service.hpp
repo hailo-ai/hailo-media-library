@@ -58,7 +58,7 @@ class HailortService
             auto status = m_last_infer_job->wait(std::chrono::milliseconds(10000));
             if (HAILO_SUCCESS != status)
             {
-                std::cerr << "Failed to wait for infer to finish, status = " << status << std::endl;
+                HAILO_ANALYTICS_LOG_ERROR("Failed to wait for infer to finish, status = {}", status);
             }
         }
     }
@@ -78,21 +78,21 @@ class HailortService
     {
         if (m_initialized)
         {
-            std::cout << "HailortService is already initialized." << std::endl;
+            HAILO_ANALYTICS_LOG_INFO("HailortService is already initialized.");
             return HailortServiceStatus::SUCCESS;
         }
 
         // Initialize HailoRT to use the same device group id.
-        hailo_vdevice_params_t vdevice_params;
+        hailo_vdevice_params_t vdevice_params = {0};
         hailo_init_vdevice_params(&vdevice_params);
         vdevice_params.group_id = m_hailort_device_id.c_str();
 
         // Create a vdevice
-        auto vdevice_exp = hailort::VDevice::create_shared(vdevice_params);
+        auto vdevice_exp = hailort::VDevice::create(vdevice_params);
 
         if (!vdevice_exp)
         {
-            std::cerr << "Failed create vdevice, Hailort status = " << vdevice_exp.status() << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Failed create vdevice, Hailort status = {}", vdevice_exp.status());
             return HailortServiceStatus::HAILORT_ERROR;
         }
         m_vdevice = vdevice_exp.release();
@@ -101,14 +101,14 @@ class HailortService
         auto infer_model_exp = m_vdevice->create_infer_model(m_model_path.c_str());
         if (!infer_model_exp)
         {
-            std::cerr << "Failed to create infer model, Hailort status = " << infer_model_exp.status() << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Failed to create infer model, Hailort status = {}", infer_model_exp.status());
             return HailortServiceStatus::HAILORT_ERROR;
         }
         m_infer_model = infer_model_exp.release();
 
         if (m_infer_model->get_input_names().size() != 1 || m_infer_model->get_output_names().size() != 1)
         {
-            std::cerr << "Currently Model support must have exactly one input and one output tensor" << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Currently Model support must have exactly one input and one output tensor");
             return HailortServiceStatus::CONFIGURATION_ERROR;
         }
 
@@ -120,8 +120,8 @@ class HailortService
         auto configured_infer_model_exp = m_infer_model->configure();
         if (!configured_infer_model_exp)
         {
-            std::cerr << "Failed to create configured infer model, Hailort status = "
-                      << configured_infer_model_exp.status() << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Failed to create configured infer model, Hailort status = {}",
+                                      configured_infer_model_exp.status());
             return HailortServiceStatus::HAILORT_ERROR;
         }
         m_configured_infer_model = configured_infer_model_exp.release();
@@ -130,7 +130,7 @@ class HailortService
         auto bindings = m_configured_infer_model.create_bindings();
         if (!bindings)
         {
-            std::cerr << "Failed to create infer bindings, Hailort status = " << bindings.status() << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Failed to create infer bindings, Hailort status = {}", bindings.status());
             return HailortServiceStatus::HAILORT_ERROR;
         }
         m_bindings = bindings.release();
@@ -139,12 +139,12 @@ class HailortService
         for (const auto &input_name : m_infer_model->get_input_names())
         {
             size_t input_frame_size = m_infer_model->input(input_name)->get_frame_size();
-            std::cout << "Input tensor " << input_name << " frame size: " << input_frame_size << " bytes\n";
+            HAILO_ANALYTICS_LOG_INFO("Input tensor {} frame size: {} bytes", input_name, input_frame_size);
             m_input_buffer_mgr = std::make_unique<HailortBufferManager>(m_vdevice, input_frame_size, 10,
                                                                         HailortBufferManager::BufferType::INPUT);
             if (!m_input_buffer_mgr)
             {
-                std::cerr << "Failed to create input buffer manager" << std::endl;
+                HAILO_ANALYTICS_LOG_ERROR("Failed to create input buffer manager");
                 return HailortServiceStatus::BUFFER_ALLOCATION_ERROR;
             }
             // We only support one input tensor for now
@@ -155,12 +155,12 @@ class HailortService
         for (const auto &output_name : m_infer_model->get_output_names())
         {
             size_t output_frame_size = m_infer_model->output(output_name)->get_frame_size();
-            std::cout << "Output tensor " << output_name << " frame size: " << output_frame_size << " bytes\n";
+            HAILO_ANALYTICS_LOG_INFO("Output tensor {} frame size: {} bytes", output_name, output_frame_size);
             m_output_buffer_mgr = std::make_unique<HailortBufferManager>(m_vdevice, output_frame_size, 10,
                                                                          HailortBufferManager::BufferType::OUTPUT);
             if (!m_output_buffer_mgr)
             {
-                std::cerr << "Failed to create output buffer manager" << std::endl;
+                HAILO_ANALYTICS_LOG_ERROR("Failed to create output buffer manager");
                 return HailortServiceStatus::BUFFER_ALLOCATION_ERROR;
             }
             // We only support one output tensor for now
@@ -176,20 +176,20 @@ class HailortService
     {
         if (!m_initialized)
         {
-            std::cerr << "HailortService is not initialized." << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("HailortService is not initialized.");
             return HailortServiceStatus::UNINITIALIZED;
         }
 
         auto infer_status = m_configured_infer_model.wait_for_async_ready(std::chrono::milliseconds(1000));
         if (HAILO_SUCCESS != infer_status)
         {
-            std::cerr << "Failed to wait for async ready, Hailort status = " << infer_status << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Failed to wait for async ready, Hailort status = {}", infer_status);
             return HailortServiceStatus::HAILORT_ERROR;
         }
 
         if (input_data.size() * sizeof(float) != m_infer_model->input(m_input_name)->get_frame_size())
         {
-            std::cerr << "Input data size does not match model input size." << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Input data size does not match model input size.");
             return HailortServiceStatus::INVALID_ARGUMENT;
         }
 
@@ -197,7 +197,7 @@ class HailortService
         auto input_buffer = m_input_buffer_mgr->get_buffer();
         if (!input_buffer)
         {
-            std::cerr << "Failed to acquire input buffer" << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Failed to acquire input buffer");
             return HailortServiceStatus::BUFFER_ALLOCATION_ERROR;
         }
 
@@ -209,7 +209,7 @@ class HailortService
                           ->set_buffer(hailort::MemoryView(input_buffer.get(), input_data.size() * sizeof(float)));
         if (HAILO_SUCCESS != status)
         {
-            std::cerr << "Failed to set infer input buffer, Hailort status = " << status << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Failed to set infer input buffer, Hailort status = {}", status);
             return HailortServiceStatus::HAILORT_ERROR;
         }
 
@@ -217,7 +217,7 @@ class HailortService
         auto output_buffer = m_output_buffer_mgr->get_buffer();
         if (!output_buffer)
         {
-            std::cerr << "Failed to acquire output buffer" << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Failed to acquire output buffer");
             return HailortServiceStatus::BUFFER_ALLOCATION_ERROR;
         }
 
@@ -227,7 +227,7 @@ class HailortService
                                                       m_infer_model->output(m_output_name)->get_frame_size()));
         if (HAILO_SUCCESS != status)
         {
-            std::cerr << "Failed to set infer output buffer, Hailort status = " << status << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Failed to set infer output buffer, Hailort status = {}", status);
             return HailortServiceStatus::HAILORT_ERROR;
         }
 
@@ -236,7 +236,7 @@ class HailortService
                 // check infer status
                 if (completion_info.status != HAILO_SUCCESS)
                 {
-                    std::cerr << "Failed to run async infer, Hailort status = " << completion_info.status << std::endl;
+                    HAILO_ANALYTICS_LOG_ERROR("Failed to run async infer, Hailort status = {}", completion_info.status);
                     return;
                 }
 
@@ -250,7 +250,7 @@ class HailortService
 
         if (!job)
         {
-            std::cerr << "Failed to start async infer job, status = " << job.status() << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("Failed to start async infer job, status = {}", job.status());
             return HailortServiceStatus::HAILORT_ERROR;
         }
 

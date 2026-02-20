@@ -43,9 +43,11 @@ HAILO_PERFETTO_DEFINE_CATEGORIES(hailo_analytics_perfetto,
 #define HAILO_ANALYTICS_PROCESSING_TRACK (perfetto::NamedTrack("Processing", 0, HAILO_ANALYTICS_TRACK))
 #define HAILO_ANALYTICS_PROCESSING_THREADED_TRACK (perfetto::ThreadSubTrack::Current(HAILO_ANALYTICS_PROCESSING_TRACK))
 
-#define HAILO_ANALYTICS_TRACE_EVENT_BEGIN(event_name, track, category)                                                 \
-    TRACE_EVENT_BEGIN((category), (event_name), (track))
+#define HAILO_ANALYTICS_TRACE_EVENT_BEGIN(event_name, track, category, ...)                                            \
+    TRACE_EVENT_BEGIN((category), (event_name), (track), ##__VA_ARGS__)
 #define HAILO_ANALYTICS_TRACE_EVENT_END(track, category) TRACE_EVENT_END((category), (track))
+#define HAILO_ANALYTICS_TRACE_EVENT(event_name, track, category, ...)                                                  \
+    TRACE_EVENT((category), (event_name), (track), ##__VA_ARGS__)
 
 /* async event API - will create a dedicated track for this async event. event_name has to match between _BEGIN and _END
  */
@@ -78,8 +80,9 @@ assert either HAVE_PERFETTO or PERFETTO_NOT_FOUND is defined to avoid meson bugs
 #endif // no PERFETTO_NOT_FOUND
 
 /* no perfetto - empty macros */
-#define HAILO_ANALYTICS_TRACE_EVENT_BEGIN(event_name, track, category)
+#define HAILO_ANALYTICS_TRACE_EVENT_BEGIN(event_name, track, category, ...)
 #define HAILO_ANALYTICS_TRACE_EVENT_END(track, category)
+#define HAILO_ANALYTICS_TRACE_EVENT(event_name, track, category, ...)
 #define HAILO_ANALYTICS_TRACE_ASYNC_EVENT_BEGIN(event_name, id, parent_track, category)
 #define HAILO_ANALYTICS_TRACE_ASYNC_EVENT_END(event_name, id, parent_track, category)
 #define HAILO_ANALYTICS_TRACE_ASYNC_EVENT_BEGIN_WITH_TRACK(event_name, id, track_name, parent_track, category)

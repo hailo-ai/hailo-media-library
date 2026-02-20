@@ -52,7 +52,10 @@
                     "right": 0,
                     "top": 0
                 },
-                "sei_messages": true
+                "sei_messages": {
+                    "encoder_timing_sei": true,
+                    "user_metadata_sei": true
+                }
             },
             "config": {
                 "output_stream": {

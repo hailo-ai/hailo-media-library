@@ -37,7 +37,6 @@ class HailoBucket
 #ifdef HAVE_PERFETTO
     perfetto::CounterTrack m_counter_track;
 #endif
-
     // Keep track of used and free buffers
     std::unordered_set<intptr_t> m_used_buffers;
     std::deque<intptr_t> m_available_buffers;
@@ -276,6 +275,19 @@ MediaLibraryBufferPool::MediaLibraryBufferPool(uint width, uint height, HailoFor
 MediaLibraryBufferPool::~MediaLibraryBufferPool()
 {
     LOGGER__MODULE__INFO(MODULE_NAME, "Destroying buffer pool with name {}", m_name);
+    // Each acquired buffer holds a shared_ptr to this pool, so the destructor should only run after all buffers have
+    // been released.
+    for (const auto &bucket : m_buckets)
+    {
+        auto used_count = bucket->used_buffers_count();
+        if (used_count > 0)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME,
+                                  "{}: {} buffers still marked as used at destruction time - "
+                                  "this indicates a buffer lifecycle bug",
+                                  m_name, used_count);
+        }
+    }
     free();
 }
 

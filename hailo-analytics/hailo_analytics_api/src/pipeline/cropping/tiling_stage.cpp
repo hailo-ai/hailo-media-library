@@ -40,11 +40,13 @@ AppStatus TilingCropStage::init()
 
 void TilingCropStage::prepare_crops(BufferPtr input_buffer, std::vector<dsp_crop_api_t> &crop_resize_dims)
 {
-    (void)input_buffer;
+    HailoMediaLibraryBufferPtr buffer = input_buffer->get_buffer();
+    int input_width = buffer->buffer_data->width;
+    int input_height = buffer->buffer_data->height;
     for (auto &tile : m_fhd_tiles)
     {
         HailoBBox bbox = tile->get_bbox();
-        prepare_single_crop_dim(bbox, crop_resize_dims);
+        prepare_single_crop_dim(bbox, crop_resize_dims, input_width, input_height);
     }
 }
 

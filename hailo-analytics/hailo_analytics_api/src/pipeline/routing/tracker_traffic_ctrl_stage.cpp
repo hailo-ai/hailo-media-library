@@ -6,6 +6,10 @@ namespace hailo_analytics::pipeline::routing
 {
 
 // ObjectRateLimiter Implementation
+
+/**
+ * @brief Removes timestamps older than 1 second from the sliding window.
+ */
 void ObjectRateLimiter::clean_old_timestamps(const std::chrono::steady_clock::time_point &now)
 {
     while (!timestamps.empty())
@@ -22,11 +26,17 @@ void ObjectRateLimiter::clean_old_timestamps(const std::chrono::steady_clock::ti
     }
 }
 
+/**
+ * @brief Constructs an ObjectRateLimiter with the specified maximum objects per second.
+ */
 ObjectRateLimiter::ObjectRateLimiter(uint64_t max_objects_per_second)
     : max_objects_per_second(max_objects_per_second), started(false)
 {
 }
 
+/**
+ * @brief Attempts to add an object, returning wait time if rate limit exceeded.
+ */
 uint64_t ObjectRateLimiter::add_object()
 {
     std::lock_guard<std::mutex> lock(mtx);
@@ -58,6 +68,9 @@ uint64_t ObjectRateLimiter::add_object()
     return 0;
 }
 
+/**
+ * @brief Gets the current count of objects in the sliding window.
+ */
 uint64_t ObjectRateLimiter::get_current_count()
 {
     std::lock_guard<std::mutex> lock(mtx);
@@ -69,6 +82,9 @@ uint64_t ObjectRateLimiter::get_current_count()
     return timestamps.size();
 }
 
+/**
+ * @brief Resets the limiter by clearing all timestamps.
+ */
 void ObjectRateLimiter::reset()
 {
     std::lock_guard<std::mutex> lock(mtx);

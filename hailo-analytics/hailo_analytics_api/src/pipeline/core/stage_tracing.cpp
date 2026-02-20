@@ -1,8 +1,28 @@
 #include "hailo_analytics/pipeline/core/stage_tracing.hpp"
 #include "hailo_analytics/perfetto/hailo_analytics_perfetto.hpp"
+#include <string>
+#include <unordered_set>
 
 namespace hailo_analytics::pipeline
 {
+
+// Helper function to convert concurrent_stream_ids set to comma-separated string
+std::string concurrent_streams_to_string(const std::unordered_set<std::string> &stream_ids)
+{
+    if (stream_ids.empty())
+        return "none";
+
+    std::string flattened_streams;
+    bool first = true;
+    for (const auto &id : stream_ids)
+    {
+        if (!first)
+            flattened_streams += ",";
+        flattened_streams += id;
+        first = false;
+    }
+    return flattened_streams;
+}
 
 StageTracing::StageTracing(const std::string &name)
     : m_stage_name(name), m_counter(0), m_first_fps_measured(false), m_trace_processing_string("processing_" + name),
@@ -45,12 +65,7 @@ void StageTracing::increment_counter()
     }
 }
 
-void StageTracing::trace_processing_start()
-{
-    HAILO_ANALYTICS_TRACE_EVENT_BEGIN(m_trace_processing_name, m_stage_track, HAILO_ANALYTICS_DETAILED_CATEGORY);
-}
-
-void StageTracing::trace_processing_end()
+void StageTracing::trace_processing_end([[maybe_unused]] BufferPtr data)
 {
     HAILO_ANALYTICS_TRACE_EVENT_END(m_stage_track, HAILO_ANALYTICS_DETAILED_CATEGORY);
 }

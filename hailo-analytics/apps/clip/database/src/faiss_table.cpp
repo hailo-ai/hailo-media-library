@@ -1,5 +1,6 @@
 #include "faiss_table.hpp"
 #include <iostream>
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
 FaissTable::FaissTable(const std::string &dbFile, SqliteAccessType accesstype) : Database(dbFile, accesstype)
 {
@@ -54,7 +55,7 @@ void FaissTable::insert(int64_t faissId, int32_t trackId, int64_t timestamp, con
     if (rc != SQLITE_DONE)
     {
         // Insert failed
-        std::cerr << "FaissTable Insert failed: " << sqlite3_errmsg(m_db) << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("FaissTable Insert failed: {}", sqlite3_errmsg(m_db));
     }
 
     sqlite3_finalize(stmt);
@@ -68,7 +69,7 @@ void FaissTable::insert_batch(const std::vector<std::tuple<int64_t, int32_t, int
     // Begin transaction for better performance
     if (!execute("BEGIN TRANSACTION;"))
     {
-        std::cerr << "FaissTable: Failed to begin transaction for batch insert" << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("FaissTable: Failed to begin transaction for batch insert");
         return;
     }
 
@@ -77,7 +78,7 @@ void FaissTable::insert_batch(const std::vector<std::tuple<int64_t, int32_t, int
     if (!stmt)
     {
         execute("ROLLBACK;");
-        std::cerr << "FaissTable: Failed to prepare statement for batch insert" << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("FaissTable: Failed to prepare statement for batch insert");
         return;
     }
 
@@ -95,8 +96,8 @@ void FaissTable::insert_batch(const std::vector<std::tuple<int64_t, int32_t, int
         int rc = sqlite3_step(stmt);
         if (rc != SQLITE_DONE)
         {
-            std::cerr << "FaissTable Batch insert failed for record (faiss_id: " << std::get<0>(record)
-                      << ", track_id: " << std::get<1>(record) << "): " << sqlite3_errmsg(m_db) << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("FaissTable Batch insert failed for record (faiss_id: {}, track_id: {}): {}",
+                                      std::get<0>(record), std::get<1>(record), sqlite3_errmsg(m_db));
             success = false;
             break;
         }
@@ -168,7 +169,7 @@ std::vector<FaissTableBatchQueryResult> FaissTable::query_batch_timestamp(
         auto stmt = prepare(sql.c_str());
         if (!stmt)
         {
-            std::cerr << "FaissTable: Failed to prepare batch query statement" << std::endl;
+            HAILO_ANALYTICS_LOG_ERROR("FaissTable: Failed to prepare batch query statement");
             return results;
         }
 

@@ -15,16 +15,6 @@ AnalyticMetadataPackagerStage::AnalyticMetadataPackagerStage(std::string name, s
 {
 }
 
-AppStatus AnalyticMetadataPackagerStage::init()
-{
-    return AppStatus::SUCCESS;
-}
-
-AppStatus AnalyticMetadataPackagerStage::deinit()
-{
-    return AppStatus::SUCCESS;
-}
-
 nlohmann::json &AnalyticMetadataPackagerStage::process_detection(HailoDetectionPtr detection, const HailoBBox &roi_bbox,
                                                                  uint32_t native_width, uint32_t native_height,
                                                                  nlohmann::json &metadata_json)
@@ -167,57 +157,44 @@ void AnalyticMetadataPackagerStage::process_objects_recursive(HailoROIPtr roi, c
     }
 }
 
-void AnalyticMetadataPackagerStage::loop()
+AppStatus AnalyticMetadataPackagerStage::process(BufferPtr data)
 {
-    init();
-
-    while (!m_end_of_stream)
+    auto roi = data->get_roi();
+    if (!roi)
     {
-        // the first queue is the video frame with analytic metadata
-        BufferPtr main_buffer = m_queues[0]->pop();
-        if (main_buffer == nullptr && m_end_of_stream)
-        {
-            break;
-        }
-
-        auto roi = main_buffer->get_roi();
-        if (!roi)
-        {
-            HAILO_ANALYTICS_LOG_INFO("No ROI found in main buffer at stage {}", m_stage_name);
-            continue;
-        }
-
-        auto native_width = main_buffer->get_buffer()->buffer_data->width;
-        auto native_height = main_buffer->get_buffer()->buffer_data->height;
-
-        nlohmann::json metadata_json;
-
-        // Process all objects recursively
-        process_objects_recursive(roi, roi->get_bbox(), native_width, native_height, metadata_json);
-
-        if (metadata_json.empty())
-        {
-            continue;
-        }
-
-        metadata_json[analytic_metadata_fields::ISP_TIMESTAMP] = main_buffer->get_buffer()->isp_timestamp_ns;
-        metadata_json[analytic_metadata_fields::FRAME_WIDTH] = native_width;
-        metadata_json[analytic_metadata_fields::FRAME_HEIGHT] = native_height;
-
-        BufferPtr MetadataBufferPtr = std::make_shared<Buffer>(nullptr);
-        auto zmq_msg = std::make_shared<HailoZMQMessage>();
-
-        // For best performance send the message as MessagePack binary instead of string since
-        // metadata_json can contain very large data (especially with face landmarks)
-        std::vector<uint8_t> binary_msg = nlohmann::json::to_msgpack(metadata_json);
-        zmq_msg->set_output_msg(std::string(binary_msg.begin(), binary_msg.end()));
-
-        MetadataBufferPtr->get_roi()->add_object(zmq_msg);
-
-        send_to_subscribers(MetadataBufferPtr);
+        HAILO_ANALYTICS_LOG_INFO("No ROI found in main buffer at stage {}", m_stage_name);
+        return AppStatus::INVALID_ARGUMENT;
     }
 
-    deinit();
+    auto native_width = data->get_buffer()->buffer_data->width;
+    auto native_height = data->get_buffer()->buffer_data->height;
+
+    nlohmann::json metadata_json;
+
+    // Process all objects recursively
+    process_objects_recursive(roi, roi->get_bbox(), native_width, native_height, metadata_json);
+
+    if (metadata_json.empty())
+    {
+        return AppStatus::SUCCESS; // No metadata to send, but still a successful processing
+    }
+
+    metadata_json[analytic_metadata_fields::ISP_TIMESTAMP] = data->get_buffer()->isp_timestamp_ns;
+    metadata_json[analytic_metadata_fields::FRAME_WIDTH] = native_width;
+    metadata_json[analytic_metadata_fields::FRAME_HEIGHT] = native_height;
+
+    auto zmq_msg = std::make_shared<HailoZMQMessage>();
+
+    // For best performance send the message as MessagePack binary instead of string since
+    // metadata_json can contain very large data (especially with face landmarks)
+    std::vector<uint8_t> binary_msg = nlohmann::json::to_msgpack(metadata_json);
+    zmq_msg->set_output_msg(std::string(binary_msg.begin(), binary_msg.end()));
+
+    data->get_roi()->add_object(zmq_msg);
+
+    send_to_subscribers(data);
+
+    return AppStatus::SUCCESS;
 }
 
 AnalyticMetadataPackagerStageBuild::Builder &AnalyticMetadataPackagerStageBuild::Builder::set_stage_name(

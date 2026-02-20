@@ -68,7 +68,8 @@ class ConfigManager
                                              const std::string &medialib_json_config_str, bool force = false);
     media_library_return set_medialib_config_in_gst_mode(ConfigManagerInteractor *interactor,
                                                          const MediaLibraryConfig &medialib_config);
-    const MediaLibraryConfig &get_medialib_config(const ConfigManagerInteractor *interactor);
+    tl::expected<MediaLibraryConfig, media_library_return> get_medialib_config(
+        const ConfigManagerInteractor *interactor);
 
     media_library_return switch_to_profile_by_name(const ConfigManagerInteractor *interactor,
                                                    const std::string &profile_name);
@@ -144,7 +145,7 @@ class ConfigManagerInteractor
     std::optional<std::shared_ptr<const config_profile_t>> get_current_profile() const;
     std::optional<std::shared_ptr<const config_profile_t>> get_current_profile_without_overriden_params() const;
     std::optional<std::shared_ptr<const config_profile_t>> get_fallback_profile() const;
-    MediaLibraryConfig get_medialib_config() const;
+    tl::expected<MediaLibraryConfig, media_library_return> get_medialib_config() const;
     std::optional<std::string> get_isp_sensor_symlink_path() const;
     std::optional<std::string> get_isp_3a_config_symlink_path() const;
     void update_encoder_streams_for_rotation() const;

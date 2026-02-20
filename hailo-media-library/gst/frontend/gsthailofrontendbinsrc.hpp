@@ -72,11 +72,13 @@ struct _GstHailoFrontendBinSrcParams
         m_config_manager_interactor; // should be used when using directly  gstreamer api only!
     std::shared_ptr<ConfigParser> m_frontend_config_parser;
     frontend_config_t m_frontend_config;
+    std::unique_ptr<IspManager>
+        m_isp_manager; // order matters! should be before hdr and pre_isp_denoise for proper destruction
     std::unique_ptr<HdrManager> m_hdr;
     MediaLibraryPreIspDenoisePtr m_pre_isp_denoise;
-    std::unique_ptr<IspManager> m_isp_manager;
     std::mutex m_config_mutex;
     std::shared_ptr<v4l2::v4l2ControlManager> m_v4l2_ctrl_manager;
+    guint64 frame_count = 0;
 };
 
 struct _GstHailoFrontendBinSrc

@@ -215,7 +215,8 @@ bool HailortAsyncDenoise::infer(NetworkInferenceBindingsPtr bindings)
 
     auto output_buffer = get_output_buffer(bindings, get_denoised_output_index());
     HAILO_MEDIA_LIBRARY_TRACE_ASYNC_EVENT_BEGIN("Inference", output_buffer->isp_timestamp_ns, DENOISE_TRACK,
-                                                MEDIA_LIBRARY_CATEGORY);
+                                                MEDIA_LIBRARY_CATEGORY, "isp_timestamp_ms",
+                                                output_buffer->isp_timestamp_ns / 1000000);
 
     auto job = m_configured_devices[m_current_vdevice_name]->configured_infer_model.run_async(
         m_configured_devices[m_current_vdevice_name]->bindings,

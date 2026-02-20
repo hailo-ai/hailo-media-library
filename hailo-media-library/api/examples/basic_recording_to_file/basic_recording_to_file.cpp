@@ -21,10 +21,10 @@ int main()
     }
     m_media_lib = media_lib_expected.value();
 
-    std::string medialib_config_path = "/usr/bin/medialib_config.json";
+    std::string medialib_config_path = config_path;
     if (JPEG_SINK1)
     {
-        medialib_config_path = "/usr/bin/medialib_config_jpeg.json";
+        medialib_config_path = jpeg_config_path;
     }
 
     std::string medialib_config_string = read_string_from_file(medialib_config_path.c_str());

@@ -6,63 +6,27 @@ struct StreamResolution
     uint32_t height;
 };
 
-void reset_osd(MediaLibraryPtr media_lib)
+void remove_all_osd(MediaLibraryPtr media_lib)
 {
-    osd::rgba_color_t white = {255, 255, 255, 255};
-    osd::rgba_color_t dark_red = {102, 0, 51, 255};
-    osd::rgba_color_t black = {0, 0, 0, 255};
-
-    std::string font_path = "/usr/share/fonts/ttf/LiberationMono-Bold.ttf";
-    std::string image_path = "/home/root/apps/webserver/resources/configs/osd_hailo_static_image.png";
-
-    osd::TextOverlay text1_changed("example_text1_changed", // new overlay id
-                                   0.05f,                   // x (normalized)
-                                   0.05f,                   // y (normalized)
-                                   "HailoAI",
-                                   white, // text color
-                                   black, // background / outline color
-                                   40.0f, 1, 1, font_path, 0, osd::rotation_alignment_policy_t::CENTER);
-
-    osd::TextOverlay text2_changed("example_text2_changed", 0.05f, 0.05f, "camera name", dark_red, black, 40.0f, 1, 1,
-                                   font_path, 0, osd::rotation_alignment_policy_t::CENTER);
-
-    osd::ImageOverlay image_changed("example_image_changed", 0.05f, 0.05f, 0.1, 0.1, image_path, 1, 0,
-                                    osd::rotation_alignment_policy_t::CENTER);
-
-    osd::DateTimeOverlay datetime_changed("example_datetime_changed", 0.05f, 0.05f, black, 60.0f, 1, 1, 0,
-                                          osd::rotation_alignment_policy_t::CENTER);
-
     for (auto &entry : media_lib->m_encoders)
     {
         auto encoder = entry.second;
         if (!encoder)
-        {
             continue;
-        }
 
         auto blender = encoder->get_osd_blender();
         if (!blender)
-        {
             continue;
-        }
 
-        // Disable original JSON-based text overlays (they were computed
-        // for the non-rotated resolution and can now go out-of-bounds).
-        blender->set_overlay_enabled("example_text1", false);
-        blender->set_overlay_enabled("example_text2", false);
-        blender->set_overlay_enabled("example_image", false);
-        blender->set_overlay_enabled("example_datetime", false);
-
-        // Add and enable rotated text overlays
-        blender->add_overlay(text1_changed);
-        blender->add_overlay(text2_changed);
-        blender->add_overlay(image_changed);
-        blender->add_overlay(datetime_changed);
-
-        blender->set_overlay_enabled("example_text1_changed", true);
-        blender->set_overlay_enabled("example_text2_changed", true);
-        blender->set_overlay_enabled("example_image_changed", true);
-        blender->set_overlay_enabled("example_datetime_changed", true);
+        // Remove all overlays completely (not just disable)
+        blender->remove_overlay("example_text1");
+        blender->remove_overlay("example_text2");
+        blender->remove_overlay("example_image");
+        blender->remove_overlay("example_datetime");
+        blender->remove_overlay("example_text1_changed");
+        blender->remove_overlay("example_text2_changed");
+        blender->remove_overlay("example_image_changed");
+        blender->remove_overlay("example_datetime_changed");
     }
 }
 
@@ -76,6 +40,14 @@ media_library_return change_resolution(MediaLibraryPtr media_lib, const std::vec
 
     std::cout << "\n=== Resolution change (Dynamic Vector Input) ===" << std::endl;
 
+    // IMPORTANT: Remove all OSD overlays BEFORE stopping pipeline
+    // This prevents "overlay not ready to blend" errors during resolution change
+    std::cout << "Removing OSD overlays before resolution change..." << std::endl;
+    remove_all_osd(media_lib);
+
+    // Wait for pending frames to be processed without OSD
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
     // Get the current profile
     auto profile_exp = media_lib->get_current_profile();
     if (!profile_exp.has_value())
@@ -86,10 +58,9 @@ media_library_return change_resolution(MediaLibraryPtr media_lib, const std::vec
 
     config_profile_t profile = profile_exp.value();
 
-    auto &encoded_streams = profile.encoded_output_streams;                                // std::map
-    auto &app_inputs = profile.application_settings.application_input_streams.resolutions; // std::vector
+    auto &encoded_streams = profile.encoded_output_streams;
+    auto &app_inputs = profile.application_settings.application_input_streams.resolutions;
 
-    // Determine how many items to update based on the smallest size
     size_t num_to_update = std::min({encoded_streams.size(), app_inputs.size(), new_resolutions.size()});
 
     if (num_to_update == 0)
@@ -100,18 +71,15 @@ media_library_return change_resolution(MediaLibraryPtr media_lib, const std::vec
 
     std::cout << "Updating " << num_to_update << " encoder(s)." << std::endl;
 
-    // Use an iterator to traverse the map
     auto encoded_it = encoded_streams.begin();
     for (size_t i = 0; i < num_to_update; ++i, ++encoded_it)
     {
-
         std::string stream_id = encoded_it->first;
         auto &encoded_stream = encoded_it->second;
 
         uint32_t new_w = new_resolutions[i].width;
         uint32_t new_h = new_resolutions[i].height;
 
-        // "0" means skip
         if (new_w == 0 || new_h == 0)
         {
             std::cout << "[" << stream_id << "] Skipping (0x0 requested)." << std::endl;
@@ -123,7 +91,6 @@ media_library_return change_resolution(MediaLibraryPtr media_lib, const std::vec
         uint32_t *current_w_ptr = nullptr;
         uint32_t *current_h_ptr = nullptr;
 
-        // Check Encoder Type
         if (std::holds_alternative<hailo_encoder_config_t>(encoded_stream.encoding))
         {
             auto &hailo_cfg = std::get<hailo_encoder_config_t>(encoded_stream.encoding);
@@ -142,7 +109,6 @@ media_library_return change_resolution(MediaLibraryPtr media_lib, const std::vec
             continue;
         }
 
-        // Perform the update using the pointers we set above
         if (current_w_ptr && current_h_ptr)
         {
             std::cout << "[" << stream_id << " Encoder] " << *current_w_ptr << "x" << *current_h_ptr << " -> " << new_w
@@ -168,16 +134,22 @@ media_library_return change_resolution(MediaLibraryPtr media_lib, const std::vec
         }
     }
 
-    // Apply the updated profile
+    std::cout << "Stopping pipeline for resolution change..." << std::endl;
+    media_lib->stop_pipeline();
+
+    std::cout << "Applying new resolution settings..." << std::endl;
     media_library_return ret = media_lib->set_override_parameters(profile);
+
     if (ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         std::cout << "Failed to apply resolution override: " << static_cast<int>(ret) << std::endl;
         return ret;
     }
 
-    reset_osd(media_lib);
+    std::cout << "Restarting pipeline..." << std::endl;
 
+    // Wait for pipeline to stabilize
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
     std::cout << "Resolution override applied successfully." << std::endl;
     return ret;
 }
@@ -201,11 +173,7 @@ int main()
     }
     m_media_lib = media_lib_expected.value();
 
-    std::string medialib_config_path = "/usr/bin/medialib_config.json";
-    if (JPEG_SINK1)
-        medialib_config_path = "/usr/bin/medialib_config_jpeg.json";
-
-    std::string medialib_config_string = read_string_from_file(medialib_config_path.c_str());
+    std::string medialib_config_string = read_string_from_file(get_config_path().c_str());
 
     if (m_media_lib->initialize(medialib_config_string) != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
@@ -218,7 +186,7 @@ int main()
     {
         for (auto s : streams.value())
         {
-            std::string output_file_path = OUTPUT_FILE(s.id);
+            std::string output_file_path = OUTPUT_FILE_WITH_PREFIX("resolution_change", s.id);
             delete_output_file(output_file_path);
             m_output_files[s.id].open(output_file_path.c_str(), std::ios::out | std::ios::binary | std::ios::app);
         }
@@ -238,8 +206,8 @@ int main()
     // TEST 1
     std::cout << "\n>>> TEST 1: Changing Resolution to 1920x1080 (Stream 0) and 1280x720 (Stream 1) <<<" << std::endl;
     std::vector<StreamResolution> low_res_settings;
-    low_res_settings.push_back({1920, 1080}); // Target for Stream 0 (sink0)
-    low_res_settings.push_back({1280, 720});  // Target for Stream 1 (sink1, if exists)
+    low_res_settings.push_back({1920, 1080});
+    low_res_settings.push_back({1280, 720});
 
     change_resolution(m_media_lib, low_res_settings);
 
@@ -249,8 +217,8 @@ int main()
     // TEST 2
     std::cout << "\n>>> TEST 2: Restoring Resolution to 3840x2160 (Both Streams) <<<" << std::endl;
     std::vector<StreamResolution> high_res_settings;
-    high_res_settings.push_back({3840, 2160}); // Target for Stream 0
-    high_res_settings.push_back({0, 0});       // Skip
+    high_res_settings.push_back({3840, 2160});
+    high_res_settings.push_back({3840, 2160});
 
     change_resolution(m_media_lib, high_res_settings);
 

@@ -110,7 +110,7 @@ class WebRTCStreamerExt : public hailo_analytics::analytics::app_constructor::Ca
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         initialize_peer_connection();
 
-        std::cout << "WebRTC connection reset" << std::endl;
+        HAILO_ANALYTICS_LOG_INFO("WebRTC connection reset");
     }
 
     // Check if we have an active client connection
@@ -126,7 +126,7 @@ class WebRTCStreamerExt : public hailo_analytics::analytics::app_constructor::Ca
         // If we already have an active client, reset the connection first
         if (has_active_client())
         {
-            std::cout << "Existing client detected, resetting connection..." << std::endl;
+            HAILO_ANALYTICS_LOG_INFO("Existing client detected, resetting connection...");
             reset_connection();
         }
         else if (is_connection_closed())
@@ -263,7 +263,7 @@ class WebRTCStreamerExt : public hailo_analytics::analytics::app_constructor::Ca
             }
             else
             {
-                std::cout << "packet less than rtp header size!!" << std::endl;
+                HAILO_ANALYTICS_LOG_INFO("packet less than rtp header size!!");
             }
             gst_buffer_unmap(buffer, &mapInfo);
             gst_sample_unref(sample);
@@ -287,7 +287,7 @@ class WebRTCStreamerExt : public hailo_analytics::analytics::app_constructor::Ca
         });
 
         m_peer_connection->onGatheringStateChange([](rtc::PeerConnection::GatheringState state) {
-            std::cout << "Gathering State: " << static_cast<int>(state) << std::endl;
+            HAILO_ANALYTICS_LOG_INFO("Gathering State: {}", static_cast<int>(state));
         });
 
         m_connection_closed = false;

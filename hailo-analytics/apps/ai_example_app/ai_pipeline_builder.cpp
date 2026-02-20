@@ -57,7 +57,7 @@ AIPipelineStages AIPipelineBuilder::create_ai_stages(const AIPipelineConfig &con
                             .set_leaky_opt(true)
                             .set_trace_opt(true)
                             .set_pool_mode_opt(StagePoolMode::BLOCKING)
-                            .set_crop_every_x_frames(1)
+                            .set_crop_every_x_frames(config.crop_every_x_frames)
                             .buildptr();
 
         // Detection AI stage: runs YOLO model

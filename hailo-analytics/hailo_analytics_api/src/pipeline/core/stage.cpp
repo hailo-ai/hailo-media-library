@@ -117,7 +117,7 @@ void ThreadedStage::loop()
 
         if (m_trace_processing_operations)
         {
-            m_tracing->trace_processing_start();
+            m_tracing->trace_processing_start(data);
         }
 
         auto status = process(data);
@@ -128,7 +128,7 @@ void ThreadedStage::loop()
 
         if (m_trace_processing_operations)
         {
-            m_tracing->trace_processing_end();
+            m_tracing->trace_processing_end(data);
         }
 
         trace_fps();

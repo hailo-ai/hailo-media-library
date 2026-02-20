@@ -62,15 +62,15 @@ HAILO_PERFETTO_DEFINE_CATEGORIES(
 #define DSP_THREADED_TRACK (perfetto::ThreadSubTrack::Current(DSP_OPS_TRACK))
 #define FPS_TRACK (perfetto::NamedTrack("Framerate", 0, MEDIA_LIBRARY_TRACK))
 
-#define HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN(event_name, track, category)                                             \
-    TRACE_EVENT_BEGIN((category), (event_name), (track))
+#define HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN(event_name, track, category, ...)                                        \
+    TRACE_EVENT_BEGIN((category), (event_name), (track), ##__VA_ARGS__)
 #define HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(track, category) TRACE_EVENT_END((category), (track))
 
 /* async event API - will create a dedicated track for this async event. event_name has to match between _BEGIN and _END
  */
-#define HAILO_MEDIA_LIBRARY_TRACE_ASYNC_EVENT_BEGIN(event_name, id, parent_track, category)                            \
+#define HAILO_MEDIA_LIBRARY_TRACE_ASYNC_EVENT_BEGIN(event_name, id, parent_track, category, ...)                       \
     HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN((event_name), perfetto::NamedTrack((event_name), (id), (parent_track)),      \
-                                          (category))
+                                          (category), ##__VA_ARGS__)
 #define HAILO_MEDIA_LIBRARY_TRACE_ASYNC_EVENT_END(event_name, id, parent_track, category)                              \
     HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(perfetto::NamedTrack((event_name), (id), (parent_track)), (category))
 
@@ -88,9 +88,9 @@ HAILO_PERFETTO_DEFINE_CATEGORIES(
 #endif // no PERFETTO_NOT_FOUND
 
 /* no perfetto - empty macros */
-#define HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN(event_name, track, category)
+#define HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN(event_name, track, category, ...)
 #define HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(track, category)
-#define HAILO_MEDIA_LIBRARY_TRACE_ASYNC_EVENT_BEGIN(event_name, id, parent_track, category)
+#define HAILO_MEDIA_LIBRARY_TRACE_ASYNC_EVENT_BEGIN(event_name, id, parent_track, category, ...)
 #define HAILO_MEDIA_LIBRARY_TRACE_ASYNC_EVENT_END(event_name, id, parent_track, category)
 #define HAILO_MEDIA_LIBRARY_TRACE_CUSTOM_COUNTER(value, track, category)
 #define HAILO_MEDIA_LIBRARY_TRACE_COUNTER(counter_name, value, parent_track, category)

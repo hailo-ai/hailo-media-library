@@ -159,15 +159,22 @@ void FrontendStageFromFile::feeding_thread_func()
     HAILO_ANALYTICS_LOG_INFO("Frontend feeding thread ended");
 }
 
-void FrontendStageFromFile::trace_processing_start()
+void FrontendStageFromFile::trace_processing_start(HailoMediaLibraryBufferPtr buffer)
 {
     if (m_trace_processing_operations)
     {
-        m_tracing->trace_processing_start();
+        if (buffer)
+        {
+            m_tracing->trace_processing_start(nullptr, "isp_timestamp_ms", buffer->isp_timestamp_ns / 1000000);
+        }
+        else
+        {
+            m_tracing->trace_processing_start();
+        }
     }
 }
 
-void FrontendStageFromFile::trace_processing_end()
+void FrontendStageFromFile::trace_processing_end([[maybe_unused]] HailoMediaLibraryBufferPtr buffer)
 {
     if (m_trace_processing_operations)
     {

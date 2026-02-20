@@ -30,23 +30,48 @@ OutputModule::OutputModule(std::string name, EncodingType type, bool print_fps)
 
 OutputModule::~OutputModule()
 {
+    // Remove bus watch first
     if (m_bus_watch_id)
     {
         g_source_remove(m_bus_watch_id);
         m_bus_watch_id = 0;
     }
+
+    // Stop and cleanup pipeline before unreferencing
+    if (m_pipeline != nullptr && GST_MINI_OBJECT_REFCOUNT_VALUE(m_pipeline) > 0)
+    {
+        // Stop the main loop if running
+        if (m_main_loop != nullptr && g_main_loop_is_running(m_main_loop))
+        {
+            g_main_loop_quit(m_main_loop);
+        }
+
+        // Wait for main loop thread to finish
+        if (m_main_loop_thread && m_main_loop_thread->joinable())
+        {
+            m_main_loop_thread->join();
+        }
+
+        // Set pipeline to NULL state before cleanup
+        gst_element_set_state(m_pipeline, GST_STATE_NULL);
+
+        // Unref pipeline (this will also release its bus reference)
+        gst_object_unref(m_pipeline);
+        m_pipeline = nullptr;
+    }
+
+    // Now it's safe to unref our bus reference
     if (m_bus)
     {
         gst_object_unref(m_bus);
         m_bus = nullptr;
     }
-    if (m_pipeline != nullptr && GST_MINI_OBJECT_REFCOUNT_VALUE(m_pipeline) > 0)
-    {
-        gst_object_unref(m_pipeline);
-    }
+
+    // Finally cleanup the main loop
     if (m_main_loop != nullptr)
     {
         g_main_loop_unref(m_main_loop);
+        m_main_loop = nullptr;
     }
 }
 
@@ -81,6 +106,22 @@ AppStatus OutputModule::start()
 
 AppStatus OutputModule::stop()
 {
+    // Check if the pipeline is in a running state before sending EOS
+    GstState state, pending;
+    GstStateChangeReturn state_ret = gst_element_get_state(m_pipeline, &state, &pending, 0);
+    if (state_ret == GST_STATE_CHANGE_FAILURE || state < GST_STATE_PAUSED)
+    {
+        // Pipeline is not running, just set to NULL and return
+        gst_element_set_state(m_pipeline, GST_STATE_NULL);
+        if (m_main_loop && g_main_loop_is_running(m_main_loop))
+        {
+            g_main_loop_quit(m_main_loop);
+        }
+        if (m_main_loop_thread && m_main_loop_thread->joinable())
+            m_main_loop_thread->join();
+        return AppStatus::SUCCESS;
+    }
+
     gboolean ret = gst_element_send_event(m_pipeline, gst_event_new_eos());
     if (!ret)
     {

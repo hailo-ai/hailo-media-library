@@ -305,7 +305,7 @@ class ClipQueryServiceExt : public hailo_analytics::analytics::app_constructor::
             if (!FaissDatabaseQuickAccess::handle_faiss_result(faiss_search_result, "Search with top k"))
                 return tl::unexpected(ClipQueryErrCode::SEARCH_FAILED);
 
-            std::cout << "Faiss search returned " << faiss_search_result.value().size() << " results." << std::endl;
+            HAILO_ANALYTICS_LOG_INFO("Faiss search returned {} results.", faiss_search_result.value().size());
 
             auto positive_query_results = process_for_positive_query_results(faiss_search_result.value(), query_data);
 
@@ -332,9 +332,9 @@ class ClipQueryServiceExt : public hailo_analytics::analytics::app_constructor::
                     auto embedding_result = faiss_db->get_vector_by_id(record.m_faiss_id);
                     if (!embedding_result)
                     {
-                        std::cerr << "Error getting embedding for faiss ID: " << record.m_faiss_id
-                                  << ", this record will be skipped"
-                                  << ", Error: " << embedding_result.error().message << std::endl;
+                        HAILO_ANALYTICS_LOG_ERROR(
+                            "Error getting embedding for faiss ID: {}, this record will be skipped, Error: {}",
+                            record.m_faiss_id, embedding_result.error().message);
                         continue; // Skip this record if embedding retrieval fails
                     }
                     record.set_embedding(embedding_result.value().vector);

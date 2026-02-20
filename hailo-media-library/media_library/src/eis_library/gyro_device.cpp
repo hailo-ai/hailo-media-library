@@ -227,28 +227,18 @@ tl::expected<std::vector<gyro_sample_t>, gyro_status_t> GyroDevice::get_gyro_sam
         LOGGER__MODULE__WARNING(MODULE_NAME, "No gyro samples found before threshold: {}, frame will not be stabilized",
                                 threshold_timestamp);
     }
+    else if (m_vector_samples->empty() && samples.back().timestamp_ns < threshold_timestamp)
+    {
+        LOGGER__MODULE__WARNING(
+            MODULE_NAME,
+            "Gyro samples buffer is empty, and last queried sample timestamp ({}) is before threshold "
+            "({}), samples may be missing",
+            samples.back().timestamp_ns, threshold_timestamp);
+    }
     else
     {
         LOGGER__MODULE__DEBUG(MODULE_NAME, "Last gyro sample ts: {}, threshold ts: {}", samples.back().timestamp_ns,
                               threshold_timestamp);
-    }
-    if (m_vector_samples->empty())
-    {
-        // no more samples in the queue
-        LOGGER__MODULE__WARNING(
-            MODULE_NAME,
-            "Gyro samples buffer is empty, samples may be missing (last sample timestamp: {}, threshold: {})",
-            samples.empty() ? 0 : samples.back().timestamp_ns, threshold_timestamp);
-    }
-    else if (!samples.empty() && samples.back().timestamp_ns < threshold_timestamp)
-    {
-        auto last_in_buffer = m_vector_samples->peek_last();
-        LOGGER__MODULE__WARNING(
-            MODULE_NAME,
-            "Gyro samples buffer is not empty, but last queried sample timestamp ({}) is before threshold "
-            "({}), while buffer last timestamp is ({}), samples may be missing",
-            samples.back().timestamp_ns, threshold_timestamp,
-            last_in_buffer.has_value() ? last_in_buffer.value().timestamp_ns : -1);
     }
 
     using sample_type = decltype(gyro_sample_t::vx);

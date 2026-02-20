@@ -151,7 +151,8 @@ media_library_return MediaLibraryMultiResize::handle_frame(HailoMediaLibraryBuff
 {
     media_library_return status;
     HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("MediaLibraryMultiResize::handle_frame", DSP_THREADED_TRACK,
-                                          MEDIA_LIBRARY_DETAILED_CATEGORY);
+                                          MEDIA_LIBRARY_DETAILED_CATEGORY, "isp_timestamp_ms",
+                                          input_frame->isp_timestamp_ns / 1000000);
     status = m_impl->handle_frame(input_frame, output_frames);
     HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
     return status;
@@ -303,6 +304,14 @@ media_library_return MediaLibraryMultiResize::Impl::adjust_buffer_pools(HailoMed
             "Creating buffer pool named {} for output resolution: width {} height {} in buffers size of {} "
             "and bytes per line {}",
             name, width, height, output_res.pool_max_buffers, bytes_per_line);
+
+        if (m_buffer_pools.size() > i && m_buffer_pools[i] != nullptr)
+        {
+            LOGGER__MODULE__DEBUG(MODULE_NAME,
+                                  "Replacing buffer pool {}, old pool kept alive until its buffers are released",
+                                  m_buffer_pools[i]->get_name());
+        }
+
         MediaLibraryBufferPoolPtr buffer_pool = std::make_shared<MediaLibraryBufferPool>(
             width, height, input_buffer_attached_app_config.application_input_streams.format,
             output_res.pool_max_buffers, HAILO_MEMORY_TYPE_DMABUF, bytes_per_line, name);
@@ -508,6 +517,11 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(Hailo
 {
     auto input_buffer_attached_config = input_buffer->get_attached_profile();
     uint8_t num_of_outputs = get_outputs_count(input_buffer);
+
+    // Track acquired buffers and their stream IDs to set metadata after the loop
+    std::vector<HailoMediaLibraryBufferPtr> acquired_buffers;
+    std::vector<std::string> acquired_stream_ids;
+
     for (uint8_t i = 0; i < num_of_outputs; i++)
     {
         HailoMediaLibraryBufferPtr buffer = std::make_shared<hailo_media_library_buffer>();
@@ -518,6 +532,7 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(Hailo
         }
         output_resolution_t &output_res = output_res_expected.value();
         std::string stream_id = output_res.stream_id;
+
         bool should_acquire_buffer =
             should_push_frame_logic(input_buffer_attached_config->sensor_config.input_video.resolution.framerate,
                                     output_res.framerate, i, input_buffer->isp_timestamp_ns);
@@ -541,7 +556,18 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(Hailo
 
         buffer->copy_metadata_from(input_buffer);
         buffers[stream_id] = buffer;
+        acquired_buffers.push_back(buffer);
+        acquired_stream_ids.push_back(stream_id);
         LOGGER__MODULE__TRACE(MODULE_NAME, "buffer acquired successfully");
+    }
+
+    // Populate concurrent_stream_ids for all acquired buffers
+    // Each buffer gets a set of ALL stream_ids that were acquired together (excluding itself)
+    std::unordered_set<std::string> all_ids(acquired_stream_ids.begin(), acquired_stream_ids.end());
+    for (size_t i = 0; i < acquired_buffers.size(); ++i)
+    {
+        acquired_buffers[i]->concurrent_stream_ids = all_ids;
+        acquired_buffers[i]->concurrent_stream_ids.erase(acquired_stream_ids[i]);
     }
 
     return MEDIA_LIBRARY_SUCCESS;
@@ -916,6 +942,7 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(HailoMe
         .image_enhancement_params = dsp_image_enhancement_params ? &dsp_image_enhancement_params.value() : nullptr,
         .flip_rotate_params = dsp_flip_rotate_params ? &dsp_flip_rotate_params.value() : nullptr,
     };
+
     dsp_status ret = dsp_utils::perform_dsp_frontend_process(dsp_frontend_params);
 
     clock_gettime(CLOCK_MONOTONIC, &end_resize);
@@ -1034,7 +1061,8 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(HailoMediaLibra
     }
 
     // Perform multi resize
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("perform_multi_resize", DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("perform_multi_resize", DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY,
+                                          "isp_timestamp_ms", input_frame->isp_timestamp_ns / 1000000);
     media_lib_ret = perform_multi_resize(input_frame, output_frames);
     HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
 

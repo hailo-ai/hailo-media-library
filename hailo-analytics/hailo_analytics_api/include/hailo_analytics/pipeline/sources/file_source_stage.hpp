@@ -67,13 +67,15 @@ class FileSourceStage : public hailo_analytics::pipeline::ThreadedStage
   private:
     /**
      * @brief Start processing trace if tracing is enabled
+     * @param buffer Optional buffer to extract ISP timestamp from
      */
-    void trace_processing_start();
+    void trace_processing_start(BufferPtr buffer = nullptr);
 
     /**
      * @brief End processing trace if tracing is enabled
+     * @param buffer Optional buffer parameter (currently unused)
      */
-    void trace_processing_end();
+    void trace_processing_end(BufferPtr buffer = nullptr);
 };
 
 class FileSourceStageBuild : public FileSourceStage

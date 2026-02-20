@@ -17,7 +17,10 @@
                 "b_frame_qp_delta": 0
             },
             "coding_control": {
-                "sei_messages": true,
+                "sei_messages": {
+                    "encoder_timing_sei": true,
+                    "user_metadata_sei": true
+                },
                 "deblocking_filter": {
                     "type": "disabled",
                     "tc_offset": 12,

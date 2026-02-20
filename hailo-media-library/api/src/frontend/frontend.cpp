@@ -1126,14 +1126,43 @@ GstElementPtr MediaLibraryFrontend::Impl::create_pipeline(const frontend_config_
 //  * @note Prints the FPS to the stdout.
 //  */
 void MediaLibraryFrontend::Impl::fps_measurement(GstElement *fpsdisplaysink, gdouble fps, gdouble droprate,
-                                                 gdouble avgfps, frontend_output_stream_t *output_stream)
+                                                 gdouble avgfps, gpointer user_data)
 {
+    auto *impl = dynamic_cast<MediaLibraryFrontend::Impl *>(static_cast<MediaLibraryFrontend::Impl *>(user_data));
+    if (impl == nullptr)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Invalid user_data in fps_measurement callback");
+        return;
+    }
+
+    // Extract stream ID from fpsdisplaysink name (format: "fpsdisplay<stream_id>")
+    auto name = glib_cpp::get_name(fpsdisplaysink);
+
     if (PRINT_FPS)
     {
-        auto name = glib_cpp::get_name(fpsdisplaysink);
         std::cout << name << ", DROP RATE: " << droprate << " FPS: " << fps << " AVG_FPS: " << avgfps << std::endl;
     }
-    output_stream->current_fps = static_cast<float>(fps);
+
+    // Parse stream ID from name (e.g., "fpsdisplay0" -> "0")
+    const std::string prefix = "fpsdisplay";
+    if (name.find(prefix) == 0)
+    {
+        output_stream_id_t stream_id = name.substr(prefix.length());
+
+        // Find the stream in m_output_streams
+        for (auto &output_stream : impl->m_output_streams)
+        {
+            if (output_stream.id == stream_id)
+            {
+                output_stream.current_fps = static_cast<float>(fps);
+                break;
+            }
+        }
+    }
+    else
+    {
+        LOGGER__MODULE__WARNING(MODULE_NAME, "Unexpected fpsdisplaysink name format: '{}'", name);
+    }
 }
 
 bool MediaLibraryFrontend::Impl::set_gst_callbacks(GstElementPtr &pipeline, frontend_src_element_t source_type,
@@ -1180,7 +1209,7 @@ bool MediaLibraryFrontend::Impl::set_gst_callbacks(GstElementPtr &pipeline, fron
 
         LOGGER__MODULE__INFO(MODULE_NAME, "Setting callback for sink {}", output_stream.id);
 
-        g_signal_connect(fpssink, "fps-measurements", G_CALLBACK(fps_measurement), &output_stream);
+        g_signal_connect(fpssink, "fps-measurements", G_CALLBACK(fps_measurement), this);
 
         GstElementPtr appsink = glib_cpp::ptrs::get_bin_by_name(pipeline, output_stream.srcpad_name);
         gst_app_sink_set_callbacks(GST_APP_SINK(appsink.get()), &appsink_callbacks, (void *)this, NULL);

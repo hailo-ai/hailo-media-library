@@ -279,11 +279,31 @@ void ClipPipeline::stop()
 {
     WEBSERVER_LOG_INFO("Stopping CLIP Pipeline");
 
-    if (!m_app)
-        return;
+    if (m_app)
+    {
+        // Stop storage services BEFORE stopping the pipeline to avoid deadlock.
+        // The cleanup worker thread may hold an exclusive lock on the Faiss database
+        // (m_rw_mutex via remove_partition/rebuild_search_index), which blocks pipeline
+        // stage threads that need a shared lock for search/insert. If we call
+        // Pipeline::stop() first (via m_app->stop()), it tries to join those blocked
+        // stage threads and deadlocks because the cleanup worker is never told to stop.
+        auto storage_monitor = m_app->get_extension<StorageMonitorServiceExt>();
+        if (storage_monitor)
+        {
+            WEBSERVER_LOG_INFO("Stopping StorageMonitorServiceExt before pipeline shutdown");
+            storage_monitor->stop();
+        }
+        auto storage_cleanup = m_app->get_extension<StorageCleanupServiceExt>();
+        if (storage_cleanup)
+        {
+            WEBSERVER_LOG_INFO("Stopping StorageCleanupServiceExt before pipeline shutdown");
+            storage_cleanup->stop();
+        }
 
-    m_app->stop();
-    WEBSERVER_LOG_INFO("Clip app stopped successfully");
+        m_app->stop();
+        m_app->release();
+        WEBSERVER_LOG_INFO("Clip app stopped and released successfully");
+    }
 }
 
 void ClipPipeline::register_endpoints()
@@ -492,7 +512,14 @@ void ClipPipeline::register_endpoints()
             if (!video_query_result.has_value())
             {
                 WEBSERVER_LOG_INFO("No video found for timestamp: {}", timestamp);
-                return;
+                throw std::runtime_error("No video found for query timestamp");
+            }
+
+            if (video_query_result.value().empty())
+            {
+                WEBSERVER_LOG_INFO("The video file is no longer available for timestamp: {}", timestamp);
+                throw std::runtime_error("The video file is no longer available. It may have been automatically "
+                                         "removed from storage to make room for new recordings");
             }
 
             // Convert VideoQueryResult to VideoFile vector

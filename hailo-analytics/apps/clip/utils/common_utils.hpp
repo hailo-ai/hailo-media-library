@@ -23,6 +23,8 @@
 #include <sys/sysinfo.h>
 #include <fcntl.h>
 
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+
 constexpr const char *VOLATILE_PATH = "/var/volatile";
 
 namespace fs = std::filesystem;

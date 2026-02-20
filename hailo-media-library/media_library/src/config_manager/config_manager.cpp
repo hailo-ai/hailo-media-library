@@ -133,10 +133,14 @@ media_library_return ConfigManager::switch_to_profile_by_name(const ConfigManage
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-const MediaLibraryConfig &ConfigManager::get_medialib_config(const ConfigManagerInteractor *interactor)
+tl::expected<MediaLibraryConfig, media_library_return> ConfigManager::get_medialib_config(
+    const ConfigManagerInteractor *interactor)
 {
-    // should not fail, the creation process of interactor prevents it to exists without registration
-    assert(m_interactor_to_hml_config.find(interactor) != m_interactor_to_hml_config.end());
+    if (m_interactor_to_hml_config.find(interactor) == m_interactor_to_hml_config.end())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Interactor not registered in ConfigManager", (void *)interactor);
+        return tl::unexpected(MEDIA_LIBRARY_UNINITIALIZED);
+    }
 
     return m_interactor_to_hml_config[interactor];
 }
@@ -174,7 +178,13 @@ std::optional<std::shared_ptr<const config_profile_t>> ConfigManagerInteractor::
     const std::string &profile_name) const
 {
     std::lock_guard<std::mutex> lock(interaction_mtx);
-    auto &hml_config = ConfigManager::get_instance().get_medialib_config(this);
+    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
+        return std::nullopt;
+    }
+    auto &hml_config = hml_config_exp.value();
     auto it = hml_config.profile_by_name.find(profile_name);
     if (it != hml_config.profile_by_name.end())
     {
@@ -251,7 +261,13 @@ media_library_return ConfigManagerInteractor::reset_profiles()
 
 std::optional<std::string> ConfigManagerInteractor::get_connected_sensor_name() const
 {
-    auto &hml_config = ConfigManager::get_instance().get_medialib_config(this);
+    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
+        return std::nullopt;
+    }
+    auto &hml_config = hml_config_exp.value();
     size_t sensor_index = hml_config.get_profile_in_use()->sensor_config.input_video.sensor_id;
 
     auto &registry = SensorRegistry::get_instance();
@@ -424,7 +440,13 @@ media_library_return ConfigManagerInteractor::validate_profile_rules(const std::
 config_profile_t ConfigManagerInteractor::set_frontend_config(const frontend_config_t &frontend_config)
 {
     std::lock_guard<std::mutex> lock(interaction_mtx);
-    auto current_profile = ConfigManager::get_instance().get_medialib_config(this).get_profile_in_use();
+    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
+        return config_profile_t{};
+    }
+    auto current_profile = hml_config_exp.value().get_profile_in_use();
     auto new_profile = *current_profile;
 
     new_profile.from_frontend_config(frontend_config);
@@ -436,7 +458,13 @@ config_profile_t ConfigManagerInteractor::set_frontend_config(const frontend_con
 std::shared_ptr<config_profile_t> ConfigManagerInteractor::get_default_profile() const
 {
     std::lock_guard<std::mutex> lock(interaction_mtx);
-    const MediaLibraryConfig &hml_config = ConfigManager::get_instance().get_medialib_config(this);
+    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
+        return nullptr;
+    }
+    const MediaLibraryConfig &hml_config = hml_config_exp.value();
     auto default_profile_name = hml_config.default_profile_name;
     return hml_config.profile_by_name.at(default_profile_name);
 }
@@ -444,7 +472,13 @@ std::shared_ptr<config_profile_t> ConfigManagerInteractor::get_default_profile()
 frontend_config_t ConfigManagerInteractor::get_frontend_config() const
 {
     std::lock_guard<std::mutex> lock(interaction_mtx);
-    const MediaLibraryConfig &hml_config = ConfigManager::get_instance().get_medialib_config(this);
+    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
+        return frontend_config_t{};
+    }
+    const MediaLibraryConfig &hml_config = hml_config_exp.value();
     return hml_config.get_profile_in_use()->to_frontend_config();
 }
 
@@ -452,7 +486,13 @@ std::string ConfigManagerInteractor::get_frontend_config_as_string() const
 {
     std::lock_guard<std::mutex> lock(interaction_mtx);
     ConfigParser frontend_config_manager = ConfigParser(ConfigSchema::CONFIG_SCHEMA_FRONTEND);
-    const MediaLibraryConfig &hml_config = ConfigManager::get_instance().get_medialib_config(this);
+    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
+        return "";
+    }
+    const MediaLibraryConfig &hml_config = hml_config_exp.value();
     auto frontend_config = hml_config.get_profile_in_use()->to_frontend_config();
     std::string frontend_config_string =
         frontend_config_manager.config_struct_to_string<frontend_config_t>(frontend_config);
@@ -462,14 +502,26 @@ std::string ConfigManagerInteractor::get_frontend_config_as_string() const
 std::map<output_stream_id_t, encoder_config_t> ConfigManagerInteractor::get_encoder_configs() const
 {
     std::lock_guard<std::mutex> lock(interaction_mtx);
-    const MediaLibraryConfig &hml_config = ConfigManager::get_instance().get_medialib_config(this);
+    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
+        return {};
+    }
+    const MediaLibraryConfig &hml_config = hml_config_exp.value();
     return hml_config.get_profile_in_use()->to_encoder_config_map();
 }
 
 std::map<output_stream_id_t, config_encoded_output_stream_t> ConfigManagerInteractor::get_encoded_output_streams() const
 {
     std::optional<std::pair<int, std::string>> get_i2c_bus_and_address(const MediaLibraryConfig &hml_config);
-    const MediaLibraryConfig &hml_config = ConfigManager::get_instance().get_medialib_config(this);
+    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
+        return {};
+    }
+    const MediaLibraryConfig &hml_config = hml_config_exp.value();
     return hml_config.get_profile_in_use()->encoded_output_streams;
 }
 
@@ -485,7 +537,13 @@ std::optional<std::pair<int, std::string>> ConfigManagerInteractor::get_i2c_bus_
 std::optional<SensorType> ConfigManagerInteractor::get_sensor_type() const
 {
     std::optional<std::pair<int, std::string>> get_i2c_bus_and_address(const MediaLibraryConfig &hml_config);
-    const MediaLibraryConfig &hml_config = ConfigManager::get_instance().get_medialib_config(this);
+    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
+        return std::nullopt;
+    }
+    const MediaLibraryConfig &hml_config = hml_config_exp.value();
     size_t sensor_index = hml_config.get_profile_in_use()->sensor_config.input_video.sensor_id;
 
     auto &registry = SensorRegistry::get_instance();
@@ -497,7 +555,13 @@ std::optional<std::string> ConfigManagerInteractor::get_sensor_entry_config() co
     LOGGER__MODULE__TRACE(MODULE_NAME, "[{}] Entering get_sensor_entry_config", (void *)this);
     std::lock_guard<std::mutex> lock(interaction_mtx);
 
-    const MediaLibraryConfig &hml_config = ConfigManager::get_instance().get_medialib_config(this);
+    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
+        return std::nullopt;
+    }
+    const MediaLibraryConfig &hml_config = hml_config_exp.value();
     auto ret = is_sensor_connected_by_name(hml_config.get_profile_in_use()->sensor_config.sensor_configuration.name);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
@@ -539,7 +603,13 @@ std::string ConfigManagerInteractor::get_3a_config() const
 {
     LOGGER__MODULE__DEBUG(MODULE_NAME, "[{}] creating Isp 3a config from current 3a config struct", (void *)this);
     std::optional<std::pair<int, std::string>> get_i2c_bus_and_address(const MediaLibraryConfig &hml_config);
-    const MediaLibraryConfig &hml_config = ConfigManager::get_instance().get_medialib_config(this);
+    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
+        return "";
+    }
+    const MediaLibraryConfig &hml_config = hml_config_exp.value();
     auto isp_format_aaa_config =
         isp_format_aaa_config_t::initialize(hml_config.get_profile_in_use()->iq_settings.automatic_algorithms_config);
     ConfigParser isp_format_aaa_config_manager = ConfigParser(ConfigSchema::CONFIG_SCHEMA_NONE);
@@ -552,7 +622,13 @@ std::string ConfigManagerInteractor::get_3a_config() const
 restricted_profile_type_t ConfigManagerInteractor::get_restricted_profile_type() const
 {
     std::lock_guard<std::mutex> lock(interaction_mtx);
-    const MediaLibraryConfig &hml_config = ConfigManager::get_instance().get_medialib_config(this);
+    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
+        return restricted_profile_type_t::RESTICTED_PROFILE_NONE;
+    }
+    const MediaLibraryConfig &hml_config = hml_config_exp.value();
     return hml_config.current_restriction;
 }
 
@@ -565,7 +641,13 @@ void ConfigManagerInteractor::set_restricted_profile_type(restricted_profile_typ
 std::optional<std::shared_ptr<const config_profile_t>> ConfigManagerInteractor::get_current_profile() const
 {
     std::lock_guard<std::mutex> lock(interaction_mtx);
-    const MediaLibraryConfig &hml_config = ConfigManager::get_instance().get_medialib_config(this);
+    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to get medialib config", (void *)this);
+        return std::nullopt;
+    }
+    const MediaLibraryConfig &hml_config = hml_config_exp.value();
     if (!hml_config.get_profile_in_use())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] No profile is currently in use", (void *)this);
@@ -578,8 +660,14 @@ std::optional<std::shared_ptr<const config_profile_t>> ConfigManagerInteractor::
     get_current_profile_without_overriden_params() const
 {
     std::lock_guard<std::mutex> lock(interaction_mtx);
+    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to get medialib config", (void *)this);
+        return std::nullopt;
+    }
     auto profile_in_use_without_overriden_params_exp =
-        ConfigManager::get_instance().get_medialib_config(this).get_profile_in_use_without_overriden_params();
+        hml_config_exp.value().get_profile_in_use_without_overriden_params();
     if (!profile_in_use_without_overriden_params_exp.has_value())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] No profile is currently in use", (void *)this);
@@ -591,7 +679,13 @@ std::optional<std::shared_ptr<const config_profile_t>> ConfigManagerInteractor::
 std::optional<std::shared_ptr<const config_profile_t>> ConfigManagerInteractor::get_fallback_profile() const
 {
     std::lock_guard<std::mutex> lock(interaction_mtx);
-    const MediaLibraryConfig &hml_config = ConfigManager::get_instance().get_medialib_config(this);
+    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to get medialib config", (void *)this);
+        return std::nullopt;
+    }
+    const MediaLibraryConfig &hml_config = hml_config_exp.value();
     auto fallback_profile_opt = hml_config.get_fallback_profile();
     if (!fallback_profile_opt.has_value())
     {
@@ -604,14 +698,20 @@ std::optional<std::shared_ptr<const config_profile_t>> ConfigManagerInteractor::
 void ConfigManagerInteractor::update_encoder_streams_for_rotation() const
 {
     std::lock_guard<std::mutex> lock(interaction_mtx);
-    auto current_profile = ConfigManager::get_instance().get_medialib_config(this).get_profile_in_use();
+    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
+        return;
+    }
+    auto current_profile = hml_config_exp.value().get_profile_in_use();
     auto new_profile = *current_profile;
 
     new_profile.update_encoded_output_streams_rotation();
     ConfigManager::get_instance().set_profile(this, new_profile);
 }
 
-MediaLibraryConfig ConfigManagerInteractor::get_medialib_config() const
+tl::expected<MediaLibraryConfig, media_library_return> ConfigManagerInteractor::get_medialib_config() const
 {
     std::lock_guard<std::mutex> lock(interaction_mtx);
     return ConfigManager::get_instance().get_medialib_config(this);
@@ -816,6 +916,7 @@ media_library_return MediaLibraryConfig::set_dummy_profile(const frontend_config
     std::map<std::string, std::shared_ptr<config_profile_t>> name_to_profile_tmp;
     std::shared_ptr<config_profile_t> profile_config = std::make_shared<config_profile_t>();
     profile_config->from_frontend_config(frontend_config);
+    profile_config->name = DUMMY_GST_PROFILE_NAME;
     name_to_profile_tmp[DUMMY_GST_PROFILE_NAME] = profile_config;
 
     profile_by_name = std::move(name_to_profile_tmp);
@@ -830,8 +931,13 @@ media_library_return ConfigManagerInteractor::backup_profiles(const std::string 
     LOGGER__MODULE__INFO(MODULE_NAME, "Backing up profiles to: {}", backup_folder_path);
     std::lock_guard<std::mutex> lock(interaction_mtx);
 
-    auto hml_config = ConfigManager::get_instance().get_medialib_config(this);
-    return ConfigBackup::backup_profiles(hml_config, backup_folder_path);
+    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
+        return hml_config_exp.error();
+    }
+    return ConfigBackup::backup_profiles(hml_config_exp.value(), backup_folder_path);
 }
 
 media_library_return MediaLibraryConfig::set_profile_in_use(const std::string &profile_to_set_name)

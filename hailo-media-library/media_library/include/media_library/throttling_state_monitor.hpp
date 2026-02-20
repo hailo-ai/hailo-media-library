@@ -2,13 +2,15 @@
 
 #include <string>
 #include <map>
+#include <set>
 #include <mutex>
 #include <thread>
 #include <chrono>
 #include <condition_variable>
 #include <atomic>
 #include <future>
-#include <memory> // For shared_ptr
+#include <memory>
+#include <tl/expected.hpp>
 
 #include "media_library_types.hpp"
 #include "throttling_manager.h"
@@ -17,6 +19,10 @@
 
 // Default state ready delay time for callback coalescing at startup
 static constexpr std::chrono::milliseconds DEFAULT_STATE_READY_DELAY_TIME{200};
+
+// User ID type for throttling monitor subscribers
+using throttling_monitor_user_id_t = uint32_t;
+static constexpr throttling_monitor_user_id_t INVALID_THROTTLING_MONITOR_USER_ID = 0;
 
 class ThrottlingStateMonitor;
 
@@ -76,13 +82,17 @@ class ThrottlingStateMonitor
 {
   private:
     std::shared_ptr<ThrottlingManagerWrapper> m_manager_wrapper; // Dependency injection for ThrottlingManagerWrapper
-    std::map<throttling_state_t, std::vector<std::function<void()>>> m_state_callbacks;
+    std::map<throttling_state_t, std::map<throttling_monitor_user_id_t, std::vector<std::function<void()>>>>
+        m_state_callbacks;
     std::mutex m_mutex;
     std::atomic<throttling_state_t> m_state_id;
     bool m_monitoring;
-    std::thread m_timer_thread;                          // Managed timer thread
-    std::atomic<bool> m_stop_timer_flag;                 // Flag to signal the timer thread to stop
-    std::shared_ptr<std::promise<void>> m_timer_promise; // Promise to signal the timer thread
+    std::atomic<int> m_start_ref_count{0};                 // Reference counter for start/stop calls
+    std::atomic<uint32_t> m_next_user_id{1};               // Next user ID to assign
+    std::set<throttling_monitor_user_id_t> m_active_users; // Set of active user IDs
+    std::thread m_timer_thread;                            // Managed timer thread
+    std::atomic<bool> m_stop_timer_flag;                   // Flag to signal the timer thread to stop
+    std::shared_ptr<std::promise<void>> m_timer_promise;   // Promise to signal the timer thread
 
     // State ready delay mechanism for callback coalescing
     std::atomic<bool>
@@ -117,17 +127,39 @@ class ThrottlingStateMonitor
     static std::shared_ptr<ThrottlingStateMonitor> create(
         std::shared_ptr<ThrottlingManagerWrapper> manager_wrapper = nullptr);
     ThrottlingStateMonitor &operator=(const ThrottlingStateMonitor &) = delete;
-    media_library_return start();
-    media_library_return stop();
+
+    /**
+     * @brief Start monitoring and register a new user.
+     *
+     * @return tl::expected containing the assigned user_id on success, or error code on failure.
+     */
+    tl::expected<throttling_monitor_user_id_t, media_library_return> start();
+
+    /**
+     * @brief Stop monitoring for a specific user.
+     *
+     * @param user_id The user ID returned from start().
+     * @return media_library_return The result of the stop operation.
+     */
+    media_library_return stop(throttling_monitor_user_id_t user_id);
+
+    /**
+     * @brief Force stop all monitoring, ignoring user IDs and ref count.
+     *
+     * @return media_library_return The result of the stop operation.
+     */
+    media_library_return stop_force();
 
     /**
      * @brief Subscribe to a thermal state change.
      *
+     * @param user_id The user ID returned from start().
      * @param state_id The thermal state to subscribe to.
      * @param callback The callback function to be called when the state changes.
      * @return media_library_return The result of the subscription.
      */
-    media_library_return subscribe(throttling_state_t state_id, std::function<void()> callback);
+    media_library_return subscribe(throttling_monitor_user_id_t user_id, throttling_state_t state_id,
+                                   std::function<void()> callback);
 
     /**
      * @brief  Get the current active thermal state.

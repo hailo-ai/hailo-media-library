@@ -734,7 +734,7 @@ media_library_return Encoder::Impl::init_coding_control_config()
     m_vc_coding_cfg.enableCabac = 1;
     m_vc_coding_cfg.cabacInitFlag = 0;
     m_vc_coding_cfg.vuiVideoFullRange = 1;
-    m_vc_coding_cfg.seiMessages = coding_control.sei_messages ? 1 : 0;
+    m_vc_coding_cfg.seiMessages = coding_control.sei_messages.encoder_timing_sei ? 1 : 0;
 
     /* Disabled */
     m_vc_coding_cfg.gdrDuration = 0;

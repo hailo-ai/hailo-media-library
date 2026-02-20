@@ -128,7 +128,7 @@ class DBFactory
         instances_[name] = db_table;
         configs_[name] = std::make_shared<DatabaseConfig>(config);
 
-        std::cout << "Created Database instance: " << name << std::endl;
+        HAILO_ANALYTICS_LOG_INFO("Created Database instance: {}", name);
 
         return db_table;
     }

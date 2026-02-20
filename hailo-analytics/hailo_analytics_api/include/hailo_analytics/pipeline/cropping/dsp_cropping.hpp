@@ -22,6 +22,24 @@
 namespace hailo_analytics::pipeline::cropping
 {
 
+/// @brief Default letterbox color (black in YUV)
+constexpr dsp_color_t DEFAULT_LETTERBOX_COLOR = {.y = 0, .u = 128, .v = 128};
+
+/**
+ * @brief Base class for DSP-accelerated cropping stages
+ *
+ * This abstract base class provides the core functionality for cropping video frames
+ * using DSP acceleration. It manages buffer pools, coordinates, scaling modes, and
+ * the cropping pipeline. Derived classes implement the specific cropping logic
+ * (e.g., bounding box crops, tiling).
+ *
+ * Features:
+ * - DSP-accelerated cropping and resizing
+ * - Configurable scaling modes (letterbox or stretch)
+ * - Frame skip support (crop every N frames)
+ * - Buffer pool management
+ * - Subscriber pattern for main and sub-outputs
+ */
 class DspBaseCropStage : public hailo_analytics::pipeline::ThreadedStage
 {
   protected:
@@ -64,14 +82,17 @@ class DspBaseCropStage : public hailo_analytics::pipeline::ThreadedStage
                      bool leaky = false, bool trace_processing_operations = true,
                      StagePoolMode pool_mode = StagePoolMode::FAIL_ON_EMPTY_POOL, size_t crop_every_x_frames = 1,
                      dsp_scaling_mode_t scaling_mode = DSP_SCALING_MODE_STRETCH,
-                     dsp_color_t letterbox_color = {.y = 0, .u = 128, .v = 128});
+                     dsp_color_t letterbox_color = DEFAULT_LETTERBOX_COLOR);
 
     /**
      * @brief Prepares cropping dimensions for a single bounding box.
      * @param bbox Bounding box for cropping.
      * @param crop_resize_dims Vector to store crop resize dimensions.
+     * @param input_width Input buffer width.
+     * @param input_height Input buffer height.
      */
-    virtual void prepare_single_crop_dim(HailoBBox bbox, std::vector<dsp_crop_api_t> &crop_resize_dims);
+    virtual void prepare_single_crop_dim(HailoBBox bbox, std::vector<dsp_crop_api_t> &crop_resize_dims, int input_width,
+                                         int input_height);
 
     /**
      * @brief Prepares crop dimensions for the input buffer.

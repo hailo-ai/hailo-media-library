@@ -413,11 +413,12 @@ class MediaLibrary
     media_library_throttling_state_t m_current_throttling_state; ///< Current throttling state.
     media_library_pipeline_state_t m_pipeline_state;             ///< State of the media pipeline (STARTED or STOPPED).
     std::shared_ptr<ThrottlingStateMonitor> m_throttling_monitor;
-    std::shared_ptr<v4l2::v4l2ControlManager> m_v4l2_ctrl_manager;
-    std::function<void(media_library_pipeline_state_t)> m_pipeline_state_change_callback;
-    std::function<void(const config_profile_t &, const config_profile_t &)> m_profile_restricted_callback;
-    std::function<void()> m_profile_restriction_done_callback;
-    std::function<void(media_library_throttling_state_t)> m_throttling_state_change_callback;
+    throttling_monitor_user_id_t m_throttling_monitor_user_id{
+        INVALID_THROTTLING_MONITOR_USER_ID}; ///< User ID for throttling monitor
+    std::function<void(media_library_pipeline_state_t)> m_pipeline_state_change_callback = nullptr;
+    std::function<void(const config_profile_t &, const config_profile_t &)> m_profile_restricted_callback = nullptr;
+    std::function<void()> m_profile_restriction_done_callback = nullptr;
+    std::function<void(media_library_throttling_state_t)> m_throttling_state_change_callback = nullptr;
     std::optional<std::string> m_restriction_fallback_profile; ///< Fallback profile name for restriction scenarios.
     std::unique_ptr<ConfigManagerInteractor>
         m_config_manager_interactor; ///< Manager for media library configuration settings.

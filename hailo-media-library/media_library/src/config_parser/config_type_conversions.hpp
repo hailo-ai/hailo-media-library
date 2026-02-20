@@ -428,6 +428,20 @@ void from_json(const nlohmann::json &j, coding_roi_t &intra_conf)
     LOGGER__MODULE__TRACE(MODULE_NAME, "Successfully loaded coding ROI configuration");
 }
 
+void to_json(nlohmann::json &j, const sei_messages_config_t &sei_conf)
+{
+    j = nlohmann::json{
+        {"encoder_timing_sei", sei_conf.encoder_timing_sei},
+        {"user_metadata_sei", sei_conf.user_metadata_sei},
+    };
+}
+
+void from_json(const nlohmann::json &j, sei_messages_config_t &sei_conf)
+{
+    j.at("encoder_timing_sei").get_to(sei_conf.encoder_timing_sei);
+    j.at("user_metadata_sei").get_to(sei_conf.user_metadata_sei);
+}
+
 void to_json(nlohmann::json &j, const coding_control_config_t &cc_conf)
 {
     j = nlohmann::json{

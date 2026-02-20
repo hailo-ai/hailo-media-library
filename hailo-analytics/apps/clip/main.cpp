@@ -28,7 +28,7 @@ int main()
     ClipAppConfigParser config_parser;
     if (!config_parser.parse_from_file(app::paths::clip_app_config))
     {
-        std::cerr << "Unable to load " << app::paths::clip_app_config << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("Unable to load {}", app::paths::clip_app_config);
         return -1;
     }
 
@@ -36,7 +36,7 @@ int main()
 
     if (!ClipVideoPipeline::is_supported(config.storage_config))
     {
-        std::cerr << "System does not meet ClipVideoPipeline requirements" << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("System does not meet ClipVideoPipeline requirements");
         return -1;
     }
 
@@ -48,21 +48,21 @@ int main()
     auto server_result = IntegratedWebServer::create(config);
     if (!server_result)
     {
-        std::cerr << "Failed to instantiate IntegratedWebServer, " << server_result.error() << std::endl;
+        HAILO_ANALYTICS_LOG_ERROR("Failed to instantiate IntegratedWebServer, {}", server_result.error());
         return -1;
     }
 
     std::shared_ptr<IntegratedWebServer> server = server_result.value();
 
     g_signal_callback = [&server]([[maybe_unused]] int sig) {
-        std::cout << "Stopping Pipeline..." << std::endl;
+        HAILO_ANALYTICS_LOG_INFO("Stopping Pipeline...");
         // Stop Application
         server->stop();
         // terminate program
         exit(0);
     };
 
-    std::cout << "Application starting..." << std::endl;
+    HAILO_ANALYTICS_LOG_INFO("Application starting...");
 
     std::thread server_thread(
         [&server, &config]() { server->start(config.server_info.host, config.server_info.port); });
@@ -70,7 +70,7 @@ int main()
     std::string command;
     while (true)
     {
-        std::cout << "Enter command (quit): ";
+        HAILO_ANALYTICS_LOG_INFO("Enter command (quit): ");
         std::cin >> command;
 
         if (command == "quit")
@@ -79,7 +79,7 @@ int main()
         }
     }
 
-    std::cout << "Stopping Application..." << std::endl;
+    HAILO_ANALYTICS_LOG_INFO("Stopping Application...");
     server->stop();
 
     if (server_thread.joinable())

@@ -2,11 +2,15 @@
 
 #include <functional>
 #include <unordered_map>
+#include <map>
+#include <set>
 #include <vector>
 #include <memory>
 #include <string>
 #include <type_traits>
 #include <thread>
+#include <atomic>
+#include <cstdint>
 #include "common/logger_macros.hpp"
 #include "events_utils.hpp"
 
@@ -37,18 +41,64 @@ class EventBus
         auto it = m_callbacks.find(event_type);
         if (it != m_callbacks.end())
         {
+            // Create a copy of the callbacks to avoid iterator invalidation
+            // if callbacks modify subscriptions during execution (e.g., unsubscribe_all + resubscribe)
+            std::map<EventPriority, std::vector<resource_callback_t>> priority_callbacks_copy = it->second;
+
+            // Track which registration IDs we've already executed to avoid duplicates
+            std::set<uint64_t> executed_registration_ids;
+
             // Call the callbacks in order of priority
-            std::map<EventPriority, std::vector<resource_callback_t>> &priority_callbacks = it->second;
-            for (auto &[priority, callbacks] : priority_callbacks)
+            for (auto &[priority, callbacks_snapshot] : priority_callbacks_copy)
             {
                 WEBSERVER_LOG_DEBUG("Calling callbacks for event type {} with priority {}",
                                     static_cast<nlohmann::json>(event_type).dump(), priority);
-                for (auto &callback : callbacks)
+
+                // First, execute callbacks from the snapshot that still exist
+                for (auto &callback : callbacks_snapshot)
                 {
-                    WEBSERVER_LOG_DEBUG("Calling callback event type {} with priority {}",
-                                        static_cast<nlohmann::json>(event_type).dump(), priority);
-                    callback.callback({event_type, data});
+                    // Verify callback still exists in the original map before executing
+                    // This prevents the case where same event & priority is being unregistered
+                    // (eg, from previous callback of higher priority) during notification
+                    if (is_callback_still_registered(event_type, callback))
+                    {
+                        WEBSERVER_LOG_DEBUG("Calling callback event type {} with priority {} (from snapshot)",
+                                            static_cast<nlohmann::json>(event_type).dump(), priority);
+                        callback.callback({event_type, data});
+                        executed_registration_ids.insert(callback.registration_id);
+                    }
+                    else
+                    {
+                        WEBSERVER_LOG_DEBUG("Skipping callback for event type {} - subscriber {} was unregistered",
+                                            static_cast<nlohmann::json>(event_type).dump(), callback.subscriber_id);
+                    }
                 }
+
+                // Second, check for newly registered callbacks at this priority level and execute them
+                // This handles the case where a previous higher priority callback registered another
+                // callback of the same event & priority
+                auto current_it = m_callbacks.find(event_type);
+                if (current_it != m_callbacks.end())
+                {
+                    auto current_priority_it = current_it->second.find(priority);
+                    if (current_priority_it != current_it->second.end())
+                    {
+                        for (auto &callback : current_priority_it->second)
+                        {
+                            // Only execute if we haven't already executed this registration_id
+                            if (executed_registration_ids.find(callback.registration_id) ==
+                                executed_registration_ids.end())
+                            {
+                                WEBSERVER_LOG_DEBUG(
+                                    "Calling callback event type {} with priority {} (newly registered)",
+                                    static_cast<nlohmann::json>(event_type).dump(), priority);
+                                callback.callback({event_type, data});
+                                executed_registration_ids.insert(callback.registration_id);
+                            }
+                        }
+                    }
+                }
+
                 WEBSERVER_LOG_DEBUG("finished calling callback with priority {}", priority);
             }
             WEBSERVER_LOG_DEBUG("finished call all the callbacks");
@@ -56,5 +106,9 @@ class EventBus
     }
 
   private:
+    bool is_callback_still_registered(EventType event_type, const resource_callback_t &callback) const;
+    uint64_t generate_registration_id();
+
     std::unordered_map<EventType, std::map<EventPriority, std::vector<resource_callback_t>>> m_callbacks;
+    std::atomic<uint64_t> m_next_registration_id{1};
 };

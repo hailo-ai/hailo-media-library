@@ -12,7 +12,6 @@
 #include "media_library/isp_utils.hpp"
 #include "files_utils.hpp"
 #include "snapshot.hpp"
-#include "v4l2_ctrl.hpp"
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <string>
@@ -45,7 +44,6 @@ MediaLibrary::MediaLibrary()
     m_override_persistent_settings = false;
     m_restriction_fallback_profile = std::nullopt;
     m_default_backup_folder_path = "";
-    m_v4l2_ctrl_manager = std::make_shared<v4l2::v4l2ControlManager>();
 
     // Order is important, dma mem allocator must be first
     DmaMemoryAllocator::get_instance();
@@ -244,56 +242,61 @@ media_library_return MediaLibrary::initialize_thermal_throttling_monitor()
     // Use the factory to create a ThrottlingStateMonitor instance
     m_throttling_monitor = ThrottlingStateMonitor::create();
 
-    auto subscribe_result = m_throttling_monitor->subscribe(throttling_state_t::FULL_PERFORMANCE, [this]() {
-        on_throttling_state_change(throttling_state_t::FULL_PERFORMANCE);
-    });
+    // Start monitoring first and get user ID
+    auto start_result = m_throttling_monitor->start();
+    if (!start_result.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to start throttling monitor");
+        return start_result.error();
+    }
+
+    m_throttling_monitor_user_id = start_result.value();
+    LOGGER__MODULE__INFO(MODULE_NAME, "Throttling monitor started with user_id: {}", m_throttling_monitor_user_id);
+
+    // Now subscribe with the user ID
+    auto subscribe_result =
+        m_throttling_monitor->subscribe(m_throttling_monitor_user_id, throttling_state_t::FULL_PERFORMANCE,
+                                        [this]() { on_throttling_state_change(throttling_state_t::FULL_PERFORMANCE); });
     if (subscribe_result != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to subscribe to FULL_PERFORMANCE state");
         return subscribe_result;
     }
 
-    subscribe_result = m_throttling_monitor->subscribe(throttling_state_t::FULL_PERFORMANCE_COOLING, [this]() {
-        on_throttling_state_change(throttling_state_t::FULL_PERFORMANCE_COOLING);
-    });
+    subscribe_result = m_throttling_monitor->subscribe(
+        m_throttling_monitor_user_id, throttling_state_t::FULL_PERFORMANCE_COOLING,
+        [this]() { on_throttling_state_change(throttling_state_t::FULL_PERFORMANCE_COOLING); });
     if (subscribe_result != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to subscribe to FULL_PERFORMANCE_COOLING state");
         return subscribe_result;
     }
 
-    subscribe_result = m_throttling_monitor->subscribe(throttling_state_t::THROTTLING_S0_HEATING, [this]() {
-        on_throttling_state_change(throttling_state_t::THROTTLING_S0_HEATING);
-    });
+    subscribe_result = m_throttling_monitor->subscribe(
+        m_throttling_monitor_user_id, throttling_state_t::THROTTLING_S0_HEATING,
+        [this]() { on_throttling_state_change(throttling_state_t::THROTTLING_S0_HEATING); });
     if (subscribe_result != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to subscribe to THROTTLING_S0_HEATING state");
         return subscribe_result;
     }
 
-    subscribe_result = m_throttling_monitor->subscribe(throttling_state_t::THROTTLING_S3_COOLING, [this]() {
-        on_throttling_state_change(throttling_state_t::THROTTLING_S3_COOLING);
-    });
+    subscribe_result = m_throttling_monitor->subscribe(
+        m_throttling_monitor_user_id, throttling_state_t::THROTTLING_S3_COOLING,
+        [this]() { on_throttling_state_change(throttling_state_t::THROTTLING_S3_COOLING); });
     if (subscribe_result != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to subscribe to THROTTLING_S3_COOLING state");
         return subscribe_result;
     }
 
-    subscribe_result = m_throttling_monitor->subscribe(throttling_state_t::THROTTLING_S4_HEATING, [this]() {
-        on_throttling_state_change(throttling_state_t::THROTTLING_S4_HEATING);
-    });
+    subscribe_result = m_throttling_monitor->subscribe(
+        m_throttling_monitor_user_id, throttling_state_t::THROTTLING_S4_HEATING,
+        [this]() { on_throttling_state_change(throttling_state_t::THROTTLING_S4_HEATING); });
     if (subscribe_result != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to subscribe to THROTTLING_S4_HEATING state");
         return subscribe_result;
-    }
-
-    auto start_result = m_throttling_monitor->start();
-    if (start_result != MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to start throttling monitor");
-        return start_result;
     }
 
     auto state_change_result = on_throttling_state_change(m_throttling_monitor->get_active_state());
@@ -303,7 +306,7 @@ media_library_return MediaLibrary::initialize_thermal_throttling_monitor()
         return state_change_result;
     }
 
-    LOGGER__MODULE__INFO(MODULE_NAME, "Throttling monitor started successfully");
+    LOGGER__MODULE__INFO(MODULE_NAME, "Throttling monitor initialized successfully");
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -1213,7 +1216,13 @@ media_library_return MediaLibrary::set_profile(const std::string &profile_name)
     std::lock_guard<std::recursive_mutex> lock(m_profile_change_mutex);
     LOGGER__MODULE__INFO(MODULE_NAME, "Setting profile to {}", profile_name);
     // verify that profile_name exists in medialib_config
-    auto profiles = m_config_manager_interactor->get_medialib_config().profile_by_name;
+    auto medialib_config_exp = m_config_manager_interactor->get_medialib_config();
+    if (!medialib_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
+        return medialib_config_exp.error();
+    }
+    auto profiles = medialib_config_exp.value().profile_by_name;
     if (profiles.find(profile_name) == profiles.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Profile name '{}' does not exist in medialib_config", profile_name);
@@ -1267,7 +1276,13 @@ media_library_return MediaLibrary::reset_profiles()
 
 tl::expected<config_profile_t, media_library_return> MediaLibrary::get_profile(const std::string &profile_name)
 {
-    auto profiles = m_config_manager_interactor->get_medialib_config().profile_by_name;
+    auto medialib_config_exp = m_config_manager_interactor->get_medialib_config();
+    if (!medialib_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
+        return tl::unexpected(medialib_config_exp.error());
+    }
+    auto profiles = medialib_config_exp.value().profile_by_name;
     auto it = profiles.find(profile_name);
     if (it != profiles.end())
     {
@@ -1347,13 +1362,19 @@ media_library_return MediaLibrary::start_pipeline_internal()
 
     std::unique_lock<std::recursive_mutex> lock(m_mutex);
 
-    if (m_throttling_monitor)
+    if (m_throttling_monitor && m_throttling_monitor_user_id != INVALID_THROTTLING_MONITOR_USER_ID)
     {
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "Starting throttling monitor");
-        if (m_throttling_monitor->start() != MEDIA_LIBRARY_SUCCESS)
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Throttling monitor already started with user_id: {}",
+                              m_throttling_monitor_user_id);
+    }
+    else if (m_throttling_monitor)
+    {
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Re-initializing throttling monitor after restart");
+        auto thermal_result = initialize_thermal_throttling_monitor();
+        if (thermal_result != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to start throttling monitor");
-            return MEDIA_LIBRARY_ERROR;
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to re-initialize throttling monitor");
+            return thermal_result;
         }
     }
     else
@@ -1444,9 +1465,10 @@ AnalyticsDB &MediaLibrary::get_analytics_db()
 
 MediaLibrary::~MediaLibrary()
 {
-    if (m_throttling_monitor)
+    if (m_throttling_monitor && m_throttling_monitor_user_id != INVALID_THROTTLING_MONITOR_USER_ID)
     {
-        m_throttling_monitor->stop();
+        m_throttling_monitor->stop(m_throttling_monitor_user_id);
+        m_throttling_monitor_user_id = INVALID_THROTTLING_MONITOR_USER_ID;
         m_throttling_monitor = nullptr;
     }
 
@@ -1471,10 +1493,16 @@ media_library_return MediaLibrary::shutdown()
 {
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Shutting down MediaLibrary");
 
-    if (m_throttling_monitor)
+    if (m_throttling_monitor && m_throttling_monitor_user_id != INVALID_THROTTLING_MONITOR_USER_ID)
     {
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "Stopping throttling monitor");
-        m_throttling_monitor->stop();
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Stopping throttling monitor for user_id: {}", m_throttling_monitor_user_id);
+        auto status = m_throttling_monitor->stop(m_throttling_monitor_user_id);
+        if (status != MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to stop throttling monitor");
+            return status;
+        }
+        m_throttling_monitor_user_id = INVALID_THROTTLING_MONITOR_USER_ID;
     }
 
     LOGGER__MODULE__DEBUG(MODULE_NAME, "MediaLibrary shutdown complete");

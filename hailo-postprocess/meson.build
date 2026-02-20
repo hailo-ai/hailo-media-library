@@ -1,6 +1,6 @@
 # Project Declaration
 project('hailo-postprocess', 'c', 'cpp',
-    version : '1.10.0',
+    version : '1.10.1',
     default_options : [ 'buildtype=' + get_option('buildtype'),
                         'c_std=c11', 'cpp_std=c++17']
 )

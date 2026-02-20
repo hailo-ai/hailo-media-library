@@ -59,10 +59,28 @@
 
 #define ENCODER_OSD_CONFIG_FILE(id) get_encoder_osd_config_file(FILE_ID(id))
 #define OUTPUT_FILE(id) get_output_file(FILE_ID(id), IS_JPEG(id))
+#define OUTPUT_FILE_WITH_PREFIX(prefix, id) get_output_file_with_prefix(prefix, FILE_ID(id), IS_JPEG(id))
 
 inline MediaLibraryPtr m_media_lib;
 inline std::map<output_stream_id_t, std::ofstream> m_output_files;
 inline std::optional<config_profile_t> m_user_profile;
+inline const std::string config_path = "/etc/imaging/cfg/medialib_configs/frontend_api_example_config.json";
+inline const std::string jpeg_config_path = "/etc/imaging/cfg/medialib_configs/frontend_api_example_jpeg_config.json";
+inline const std::string switch_encoder_config_path =
+    "/etc/imaging/cfg/medialib_configs/frontend_api_example_switch_encoder_config.json";
+
+inline const std::string &get_config_path()
+{
+    if (SWITCH_ENCODER_EXAMPLE)
+    {
+        return switch_encoder_config_path;
+    }
+    else if (JPEG_SINK1)
+    {
+        return jpeg_config_path;
+    }
+    return config_path;
+}
 
 inline std::string get_encoder_osd_config_file(const std::string &id)
 {
@@ -73,6 +91,12 @@ inline std::string get_output_file(const std::string &id, bool is_jpeg)
 {
     std::string suffix = (is_jpeg ? ".jpegenc" : ".h264");
     return "/var/volatile/tmp/frontend_example_" + id + suffix;
+}
+
+inline std::string get_output_file_with_prefix(const std::string &prefix, const std::string &id, bool is_jpeg)
+{
+    std::string suffix = (is_jpeg ? ".jpegenc" : ".h264");
+    return "/home/root/" + prefix + "_" + id + suffix;
 }
 
 inline void write_encoded_data(HailoMediaLibraryBufferPtr buffer, uint32_t size, std::ofstream &output_file)
