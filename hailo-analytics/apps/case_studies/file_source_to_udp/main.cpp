@@ -6,7 +6,6 @@
 // general includes
 #include <iostream>
 #include <fstream>
-#include <thread>
 #include <condition_variable>
 #include <mutex>
 #include <string>
@@ -15,14 +14,13 @@
 #include <cxxopts/cxxopts.hpp>
 
 // medialibrary includes
+#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
 #include "media_library/signal_utils.hpp"
-#include "media_library/media_library.hpp"
 #include "media_library/encoder.hpp"
 
 // infra includes
 #include "hailo_analytics/analytics/vision.hpp"
 #include "hailo_analytics/pipeline/sources/file_source_stage.hpp"
-#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
 // define
 #define APP_NAME "file_source_app"
@@ -139,6 +137,7 @@ std::shared_ptr<MediaLibraryEncoder> create_media_library_encoder(const std::str
     }
 
     auto media_encoder = encoder_expected.value();
+    media_encoder->add_config_attacher(true);
     if (media_encoder->set_config(encoder_config_string) != MEDIA_LIBRARY_SUCCESS)
     {
         std::cerr << "Failed to configure MediaLibraryEncoder" << std::endl;

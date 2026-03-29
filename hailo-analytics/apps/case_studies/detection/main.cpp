@@ -13,7 +13,7 @@
 // infra includes
 #include "hailo_analytics/analytics/tiling.hpp"
 #include "hailo_analytics/analytics/vision.hpp"
-#include "hailo_analytics/analytics/analytic_metadata_sender.hpp"
+#include "hailo_analytics/analytics/analytic_metadata_zmq_sender.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
 // defines
@@ -35,6 +35,8 @@ enum class ArgumentType
     Config,
     Profile,
     HostIP,
+    UdpPort,
+    ZmqPort,
     Error
 };
 
@@ -57,8 +59,12 @@ cxxopts::Options build_arg_parser()
         cxxopts::value<std::string>()->default_value(MEDIALIB_CONFIG_PATH))
     ("a,profile", "Profile name", 
         cxxopts::value<std::string>()->default_value(NO_PROFILE_SELECTED))
-    ("o,host-ip", "Host IP address for UDP output", 
-        cxxopts::value<std::string>()->default_value(HOST_IP));
+    ("o,host-ip", "Host IP address for UDP output",
+        cxxopts::value<std::string>()->default_value(HOST_IP))
+    ("u,udp-port", "UDP output port (default: 5000)",
+        cxxopts::value<std::string>()->default_value(""))
+    ("z,zmq-port", "ZMQ publisher port (default: 7000)",
+        cxxopts::value<std::string>()->default_value(""));
     // clang-format on
 
     return options;
@@ -99,6 +105,16 @@ std::vector<ArgumentType> handle_arguments(const cxxopts::ParseResult &result, c
         arguments.push_back(ArgumentType::HostIP);
     }
 
+    if (result.count("udp-port") && !result["udp-port"].as<std::string>().empty())
+    {
+        arguments.push_back(ArgumentType::UdpPort);
+    }
+
+    if (result.count("zmq-port") && !result["zmq-port"].as<std::string>().empty())
+    {
+        arguments.push_back(ArgumentType::ZmqPort);
+    }
+
     // Handle unrecognized options
     for (const auto &unrecognized : result.unmatched())
     {
@@ -117,6 +133,8 @@ struct AppResources
     std::string medialib_config_path;
     std::string profile_name;
     std::string host_ip = HOST_IP;
+    std::string udp_port;
+    std::string zmq_port;
 };
 
 std::string read_string_from_file(const char *file_path)
@@ -180,13 +198,14 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
         throw std::runtime_error("Failed to get stream ids");
     }
 
-    auto vision_config = hailo_analytics::analytics::vision::base_vision_config(output_streams.value());
+    int base_port = app_resources->udp_port.empty() ? 5000 : std::stoi(app_resources->udp_port);
+    auto vision_config = hailo_analytics::analytics::vision::base_vision_config(output_streams.value(), base_port);
     vision_config.outputs.erase(AI_SINK);
     vision_config.outputs[VISION_SINK].udp_config.host = app_resources->host_ip;
     // we generate a filled in vision_config, and erase the AI_SINK, to override the vision pipeline
     // from automatically generating and connecting frontend outputs to encoders
     auto vision_pipeline_status = hailo_analytics::analytics::vision::generate_vision_pipeline(
-        app_resources->media_library, VISION_PIPELINE, vision_config);
+        *app_resources->media_library, VISION_PIPELINE, vision_config);
     if (!vision_pipeline_status.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create vision pipeline");
@@ -205,9 +224,17 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     hailo_analytics::pipeline::PipelinePtr tiling_pipeline = tiling_pipeline_status.value();
 
     // Analytic Metadata Sender Pipeline
+    hailo_analytics::analytics::analytic_metadata_zmq_sender::analytic_metadata_zmq_sender_config_t
+        analytics_sender_config;
+    analytics_sender_config.analytic_metadata_config.queue_size = 1;
+    analytics_sender_config.zeromq_config.queue_size = 1;
+    if (!app_resources->zmq_port.empty())
+    {
+        analytics_sender_config.zeromq_config.pub_address = "tcp://*:" + app_resources->zmq_port;
+    }
     auto analytic_metadata_sender_pipeline_status =
-        hailo_analytics::analytics::analytic_metadata_sender::generate_analytic_metadata_sender_pipeline(
-            ANALYTIC_META_SENDER_PIPELINE);
+        hailo_analytics::analytics::analytic_metadata_zmq_sender::generate_analytic_metadata_zmq_sender_pipeline(
+            ANALYTIC_META_SENDER_PIPELINE, analytics_sender_config);
     if (!analytic_metadata_sender_pipeline_status.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create analytic metadata sender pipeline");
@@ -281,6 +308,12 @@ int main(int argc, char *argv[])
             break;
         case ArgumentType::HostIP:
             app_resources->host_ip = result["host-ip"].as<std::string>();
+            break;
+        case ArgumentType::UdpPort:
+            app_resources->udp_port = result["udp-port"].as<std::string>();
+            break;
+        case ArgumentType::ZmqPort:
+            app_resources->zmq_port = result["zmq-port"].as<std::string>();
             break;
         case ArgumentType::Error:
             return 1;

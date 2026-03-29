@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <math.h>
 #include <climits>
+#include <cstdint>
 
 /**
  * @enum camera_type_t

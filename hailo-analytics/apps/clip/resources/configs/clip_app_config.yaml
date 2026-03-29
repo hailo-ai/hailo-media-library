@@ -77,6 +77,10 @@ pipeline_config:
         # Maximum video duration in second to store per file
         # Highly suggest to keep this value between 5 to 10 seconds
         video_segment_duration_seconds: 6 # Minimum 5 seconds.
+    full_frame_indexing_stage:
+        enabled: true # Set to true to enable full frame indexing for out-of-class scene search
+        # How often to capture and index a full frame (in seconds), minimum recommended: 1
+        interval_seconds: 5
 
 # Frontend Configuration
 # This section defines the frontend configuration for the CLIP application.
@@ -92,8 +96,6 @@ frontend_source_from_file:
     file_path: /data/sample_videos/sample_video_1080p_30fps.nv12
 
 query_defaults:
-    score_threshold: 0.4
+    score_threshold: 0.8
     max_query: 100
     remove_duplicate_within_sec: 60
-    negative_prompts:
-        - "an image of a person"

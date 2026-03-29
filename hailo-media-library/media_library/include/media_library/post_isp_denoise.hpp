@@ -45,9 +45,10 @@ class MediaLibraryPostIspDenoise final : public MediaLibraryDenoise
     std::shared_ptr<MediaLibraryBufferPool> m_output_buffer_pool;
 
     // virtual functions to override
-    media_library_return create_and_initialize_buffer_pools(const input_video_config_t &input_video_configs) override;
+    media_library_return create_and_initialize_buffer_pools(const denoise_config_t &denoise_configs,
+                                                            const input_video_config_t &input_video_configs) override;
     media_library_return free_buffer_pools() override;
-    media_library_return acquire_output_buffer(NetworkInferenceBindingsPtr bindings) override;
+    media_library_return acquire_output_buffers(NetworkInferenceBindingsPtr bindings) override;
     bool process_inference(NetworkInferenceBindingsPtr bindings) override;
     void copy_meta(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr output_buffer) override;
 

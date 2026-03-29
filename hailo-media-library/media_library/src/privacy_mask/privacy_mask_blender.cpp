@@ -302,8 +302,8 @@ media_library_return PrivacyMask::update_static_mask(
                  std::get_if<jpeg_encoder_config_t>(&encoded_output_streams_config.encoding);
              jpeg_encoder_config != nullptr)
     {
-        input_width = encoder_config->input_stream.width;
-        input_height = encoder_config->input_stream.height;
+        input_width = jpeg_encoder_config->input_stream.width;
+        input_height = jpeg_encoder_config->input_stream.height;
     }
     else
     {
@@ -329,21 +329,24 @@ media_library_return PrivacyMask::update_dynamic_mask(
     const config_encoded_output_stream_t &encoded_output_streams_config, uint64_t isp_timestamp_ns)
 {
     auto &dynamic_mask_config = encoded_output_streams_config.masking.dynamic_privacy_mask_config;
+
+    m_latest_privacy_masks->dynamic_data = {};
+    m_dynamic_masks_rois.clear();
+
     if (!dynamic_mask_config.has_value() || !dynamic_mask_config->enabled)
     {
         return media_library_return::MEDIA_LIBRARY_SUCCESS;
     }
     LOGGER__MODULE__TRACE(MODULE_NAME, "Updating dynamic mask");
 
-    m_latest_privacy_masks->dynamic_data = {};
-    m_dynamic_masks_rois.clear();
-
     auto &db = AnalyticsDB::instance();
     std::chrono::nanoseconds isp_timestamp(isp_timestamp_ns);
     std::chrono::time_point<std::chrono::steady_clock> isp_timestamp_tp(isp_timestamp);
 
-    AnalyticsQueryOptions opts{
-        .m_type = AnalyticsQueryType::Exact, .m_ts = isp_timestamp_tp, .m_timeout = std::chrono::milliseconds(10000)};
+    AnalyticsQueryOptions opts{.m_type = dynamic_mask_config->query_type,
+                               .m_ts = isp_timestamp_tp,
+                               .m_delta = std::chrono::milliseconds(dynamic_mask_config->delta_ms),
+                               .m_timeout = std::chrono::milliseconds(dynamic_mask_config->timeout_ms)};
 
     auto analytics_config = db.get_application_analytics_config();
     const size_t dilation_size = dynamic_mask_config->dilation_size;
@@ -754,6 +757,13 @@ media_library_return PrivacyMask::process_detection_masks(const AnalyticsQueryOp
     // Process each detection bbox
     for (const auto &detection : detections)
     {
+        if (m_dynamic_masks_rois.size() >= MAX_NUM_OF_DYNAMIC_PRIVACY_MASKS)
+        {
+            LOGGER__MODULE__WARNING(MODULE_NAME,
+                                    "Reached MAX_NUM_OF_DYNAMIC_PRIVACY_MASKS ({}), skipping remaining detection ROIs.",
+                                    MAX_NUM_OF_DYNAMIC_PRIVACY_MASKS);
+            break;
+        }
 
         LOGGER__MODULE__TRACE(MODULE_NAME,
                               "[process_detection_masks] Creating constant mask for detection: "
