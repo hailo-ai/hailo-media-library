@@ -83,11 +83,13 @@ AppStatus PostprocessStage::deinit()
         auto delete_func = (void (*)(void *))dlsym(m_loaded_lib, std::string(FREE_FUNC_NAME).c_str());
         if (delete_func != nullptr)
             delete_func(m_params);
+        m_params = nullptr;
     }
     // close the loaded library
     if (m_loaded_lib != nullptr)
     {
         dlclose(m_loaded_lib);
+        m_loaded_lib = nullptr;
     }
     for (auto &queue : m_queues)
     {

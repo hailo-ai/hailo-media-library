@@ -695,20 +695,20 @@ std::optional<std::shared_ptr<const config_profile_t>> ConfigManagerInteractor::
     return hml_config.get_fallback_profile();
 }
 
-void ConfigManagerInteractor::update_encoder_streams_for_rotation() const
+media_library_return ConfigManagerInteractor::update_encoder_streams_for_rotation() const
 {
     std::lock_guard<std::mutex> lock(interaction_mtx);
     auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
     if (!hml_config_exp.has_value())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
-        return;
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     auto current_profile = hml_config_exp.value().get_profile_in_use();
     auto new_profile = *current_profile;
 
     new_profile.update_encoded_output_streams_rotation();
-    ConfigManager::get_instance().set_profile(this, new_profile);
+    return ConfigManager::get_instance().set_profile(this, new_profile);
 }
 
 tl::expected<MediaLibraryConfig, media_library_return> ConfigManagerInteractor::get_medialib_config() const

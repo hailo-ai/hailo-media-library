@@ -44,6 +44,7 @@ class LdcMeshContext
     std::shared_mutex m_mutex;
     bool eis_prev_enabled = false;
     size_t m_eis_stabilize_warmup_count = 0;
+    cv::Vec3d m_max_rotation_angles = {RADIANS(180), RADIANS(180), RADIANS(180)}; // default to unlimited angles
 
     media_library_return initialize_dewarp_mesh();
     media_library_return initialize_dis_context();
@@ -55,6 +56,7 @@ class LdcMeshContext
     media_library_return read_vsm_config();
     FlipMirrorRot get_flip_value(flip_direction_t flip_dir, rotation_angle_t rotation_angle);
     tl::expected<dis_calibration_t, media_library_return> read_calibration_file(const char *name);
+    cv::Vec3d get_max_rotation_angles();
 
   public:
     LdcMeshContext();

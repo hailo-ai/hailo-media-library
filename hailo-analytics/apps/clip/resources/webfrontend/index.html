@@ -1,31 +1,35 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Integrated CLIP + Thumbnail + WebRTC Interface</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body, html {
+        body,
+        html {
             margin: 0;
             padding: 0;
             height: 100vh;
             overflow: hidden;
         }
-        
+
         /* <!-- CONFIG PANEL STYLES --> */
         .config-panel {
             position: fixed;
             top: 0;
             left: 0;
             height: 100vh;
-            width: 33.33vw; /* 1/3 of the view width */
+            width: 33.33vw;
+            /* 1/3 of the view width */
             background-color: #ffffff;
             border-right: 1px solid #dee2e6;
-            box-shadow: 4px 0 10px rgba(0,0,0,0.1);
+            box-shadow: 4px 0 10px rgba(0, 0, 0, 0.1);
             transform: translateX(-100%);
             transition: transform 0.4s ease-in-out;
-            z-index: 2000; /* High z-index to be on top */
+            z-index: 2000;
+            /* High z-index to be on top */
             display: flex;
             flex-direction: column;
         }
@@ -57,6 +61,7 @@
             padding: 0;
             color: #6c757d;
         }
+
         .config-close-btn:hover {
             color: #212529;
         }
@@ -77,27 +82,29 @@
             padding: 12px 8px;
             border-radius: 0 8px 8px 0;
             cursor: pointer;
-            z-index: 1999; /* Just below the panel itself */
+            z-index: 1999;
+            /* Just below the panel itself */
             transition: left 0.4s ease-in-out, background-color 0.2s;
-            box-shadow: 2px 0 5px rgba(0,0,0,0.2);
+            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.2);
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 1.5rem;
         }
-        
+
         .config-toggle:hover {
             background-color: #0056b3;
         }
+
         /* <!-- END: NEW CONFIG PANEL STYLES --> */
-        
-        
+
+
         .main-container {
             display: flex;
             height: 100vh;
         }
-        
-        /* Left Panel */        
+
+        /* Left Panel */
         .left-panel {
             width: 50%;
             height: 100vh;
@@ -118,7 +125,7 @@
             align-content: flex-start;
             justify-content: center;
         }
-        
+
         /* Storage Panel - Bottom 30% of left side */
         .storage-panel {
             width: 100%;
@@ -133,7 +140,7 @@
             width: 100%;
             background: white;
             border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -178,13 +185,17 @@
             display: flex;
             flex-direction: column;
             gap: 5px;
-            overflow-y: auto; /* Add vertical scrolling */
-            max-height: 100%; /* Ensure it doesn't exceed container */
-            padding-right: 5px; /* Add some padding for scrollbar */            
+            overflow-y: auto;
+            /* Add vertical scrolling */
+            max-height: 100%;
+            /* Ensure it doesn't exceed container */
+            padding-right: 5px;
+            /* Add some padding for scrollbar */
         }
 
         .storage-info h6 {
-            display: none; /* Hide the old title */
+            display: none;
+            /* Hide the old title */
         }
 
         .storage-item {
@@ -213,7 +224,7 @@
             border-top: 1px solid #f1f3f4;
         }
 
-        /* Right Panel */        
+        /* Right Panel */
         .right-panel {
             width: 50%;
             height: 100vh;
@@ -221,7 +232,7 @@
             flex-direction: column;
         }
 
-        
+
         /* Top Half of Right Panel - Video Streaming */
         .video-section {
             height: 50%;
@@ -231,7 +242,7 @@
             background-color: #000;
             position: relative;
         }
-        
+
         .video-container {
             flex: 1;
             position: relative;
@@ -361,7 +372,7 @@
             margin-bottom: 2px;
             color: #333;
         }
-        
+
         /* Bottom Half of Right Panel - CLIP Text Encode */
         .clip-section {
             height: 50%;
@@ -369,7 +380,7 @@
             padding: 15px;
             background-color: white;
         }
-        
+
         /* Thumbnail Gallery Styles */
         .image-card {
             flex: 0 0 auto;
@@ -377,22 +388,22 @@
             min-width: 240px;
             background: white;
             border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
             cursor: pointer;
             transition: transform 0.2s;
         }
-        
+
         .image-card:hover {
             transform: scale(1.02);
         }
-        
+
         .image-card img {
             width: 100%;
             height: 200px;
             object-fit: cover;
             border-radius: 8px 8px 0 0;
         }
-        
+
         .image-info {
             padding: 8px;
         }
@@ -419,29 +430,29 @@
             font-size: 10px;
             color: #666;
         }
-        
+
         /* CLIP Section Styles */
         .clip-form {
             font-size: 14px;
         }
-        
+
         .clip-form .form-label {
             font-size: 13px;
             font-weight: 600;
             margin-bottom: 3px;
         }
-        
+
         .clip-form .form-control,
         .clip-form .form-select {
             font-size: 13px;
             padding: 5px 8px;
         }
-        
+
         .clip-form textarea {
             resize: vertical;
             min-height: 60px;
         }
-        
+
         /* Status indicator styles */
         .status-indicator {
             display: inline-block;
@@ -450,18 +461,26 @@
             border-radius: 50%;
             margin-right: 8px;
         }
-        
-        .status-connected { background-color: #28a745; }
-        .status-disconnected { background-color: #dc3545; }
-        .status-processing { background-color: #ffc107; }
-        
+
+        .status-connected {
+            background-color: #28a745;
+        }
+
+        .status-disconnected {
+            background-color: #dc3545;
+        }
+
+        .status-processing {
+            background-color: #ffc107;
+        }
+
         /* Header with status */
         .clip-header {
             display: flex;
             align-items: center;
             margin-bottom: 15px;
         }
-        
+
         .model-info {
             background-color: #e9ecef;
             padding: 5px 8px;
@@ -469,38 +488,38 @@
             margin-top: 5px;
             font-size: 11px;
         }
-        
+
         /* Prompt sections */
         .prompt-section {
             margin-bottom: 15px;
         }
-        
+
         .prompt-label {
             font-size: 13px;
             font-weight: 600;
             margin-bottom: 5px;
             color: #333;
         }
-        
+
         .positive-label {
             color: #28a745;
         }
-        
+
         .negative-label {
             color: #dc3545;
         }
-        
+
         .negative-prompt-group {
             display: flex;
             align-items: center;
             margin-bottom: 5px;
         }
-        
+
         .negative-prompt-input {
             flex: 1;
             margin-right: 5px;
         }
-        
+
         .btn-add-negative {
             width: 24px;
             height: 24px;
@@ -511,7 +530,7 @@
             font-size: 14px;
             line-height: 1;
         }
-        
+
         .btn-remove-negative {
             width: 24px;
             height: 24px;
@@ -523,14 +542,14 @@
             line-height: 1;
             margin-left: 5px;
         }
-        
+
         .results-section {
             margin-top: 10px;
             border: 1px solid #dee2e6;
             border-radius: 5px;
             overflow: hidden;
         }
-        
+
         .results-header {
             background-color: #f8f9fa;
             padding: 8px 12px;
@@ -540,14 +559,14 @@
             cursor: pointer;
             user-select: none;
         }
-        
+
         .results-content {
             padding: 10px;
             font-size: 12px;
             max-height: 150px;
             overflow-y: auto;
         }
-        
+
         .embedding-output {
             font-family: monospace;
             font-size: 10px;
@@ -557,16 +576,16 @@
             border-radius: 3px;
             margin-top: 3px;
         }
-        
+
         .btn-sm {
             font-size: 11px;
             padding: 3px 8px;
         }
-        
+
         .loading-spinner {
             display: none;
         }
-        
+
         .gallery-header {
             width: 100%;
             margin-bottom: 15px;
@@ -574,24 +593,25 @@
             padding: 10px;
             background: white;
             border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
-        
-        .initial-message, .query-message {
+
+        .initial-message,
+        .query-message {
             width: 100%;
             text-align: center;
             padding: 50px 20px;
             color: #666;
             font-size: 16px;
         }
-        
+
         .loading {
             width: 100%;
             text-align: center;
             padding: 50px 20px;
             color: #666;
         }
-        
+
         .spinner {
             border: 3px solid #f3f3f3;
             border-top: 3px solid #3498db;
@@ -601,12 +621,17 @@
             animation: spin 1s linear infinite;
             margin: 0 auto 15px;
         }
-        
+
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
-             
+
         /* Video Playback Modal Styles */
         .video-modal .modal-dialog {
             max-width: 90vw;
@@ -747,48 +772,52 @@
 
         /* Applies to all sliders */
         input[type=range] {
-        -webkit-appearance: none;
-        appearance: none;
-        background: transparent; /* remove default styling */
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+            /* remove default styling */
         }
 
         /* Track - Chrome, Edge, Safari */
         input[type=range]::-webkit-slider-runnable-track {
-        height: 6px;
-        background: linear-gradient(to right, #4a90e2, #00c6ff); /* track color */
-        border-radius: 3px;
+            height: 6px;
+            background: linear-gradient(to right, #4a90e2, #00c6ff);
+            /* track color */
+            border-radius: 3px;
         }
 
         /* Thumb - Chrome, Edge, Safari */
         input[type=range]::-webkit-slider-thumb {
-        -webkit-appearance: none;
-        appearance: none;
-        height: 15px;
-        width: 15px;
-        background: #808080; /* thumb color */
-        border-radius: 50%;
-        cursor: pointer;
-        margin-top: -5px; /* align thumb with track */
+            -webkit-appearance: none;
+            appearance: none;
+            height: 15px;
+            width: 15px;
+            background: #808080;
+            /* thumb color */
+            border-radius: 50%;
+            cursor: pointer;
+            margin-top: -5px;
+            /* align thumb with track */
         }
 
         /* Track - Firefox */
         input[type=range]::-moz-range-track {
-        height: 6px;
-        background: linear-gradient(to right, #4a90e2, #00c6ff);
-        border-radius: 3px;
+            height: 6px;
+            background: linear-gradient(to right, #4a90e2, #00c6ff);
+            border-radius: 3px;
         }
 
         /* Thumb - Firefox */
         input[type=range]::-moz-range-thumb {
-        height: 15px;
-        width: 15px;
-        background: #808080;
-        border-radius: 50%;
-        cursor: pointer;
+            height: 15px;
+            width: 15px;
+            background: #808080;
+            border-radius: 50%;
+            cursor: pointer;
         }
-
     </style>
 </head>
+
 <body>
     <!-- Configuration Panel -->
     <div id="configPanel" class="config-panel">
@@ -796,26 +825,27 @@
             <h3>Config</h3>
             <button id="configCloseBtn" class="config-close-btn">&times;</button>
         </div>
-        <div class="config-panel-body">            
+        <div class="config-panel-body">
             <div class="d-flex flex-column" style="margin-bottom: 20px;">
                 <label for="refreshRateSlider" class="form-label mb-1" style="font-size: 13px; font-weight: 600;">
                     Tracked Image Embedding Frame Refresh Rate
                 </label>
                 <div class="d-flex align-items-center gap-3">
-                    <input type="range" class="form-range" id="refreshRateSlider" 
-                           min="1" max="60" step="1" value="30">
-                    <span id="refreshRateValue" style="font-size: 13px; font-weight: 500; min-width: 25px; text-align: right;">30</span>
+                    <input type="range" class="form-range" id="refreshRateSlider" min="1" max="60" step="1" value="30">
+                    <span id="refreshRateValue"
+                        style="font-size: 13px; font-weight: 500; min-width: 25px; text-align: right;">30</span>
                 </div>
-            </div>  
-            
+            </div>
+
             <div class="d-flex flex-column" style="margin-bottom: 20px;">
                 <label for="VideoTotalLengthSlider" class="form-label mb-1" style="font-size: 13px; font-weight: 600;">
                     Query Video Playback Total Length (Seconds)
                 </label>
                 <div class="d-flex align-items-center gap-3">
-                    <input type="range" class="form-range" id="VideoTotalLengthSlider" 
-                        min="10" max="60" step="1" value="15">
-                    <span id="VideoTotalLengthValue" style="font-size: 13px; font-weight: 500; min-width: 25px; text-align: right;">15</span>
+                    <input type="range" class="form-range" id="VideoTotalLengthSlider" min="10" max="60" step="1"
+                        value="15">
+                    <span id="VideoTotalLengthValue"
+                        style="font-size: 13px; font-weight: 500; min-width: 25px; text-align: right;">15</span>
                 </div>
             </div>
 
@@ -838,7 +868,7 @@
                 </div>
                 <div class="query-message">Enter a text query on the right to see matching thumbnail images</div>
             </div>
-            
+
             <!-- Bottom 30% - Storage Information -->
             <div class="storage-panel">
                 <div class="storage-card">
@@ -876,14 +906,15 @@
                     </div>
                 </div>
             </div>
-        </div>        
+        </div>
 
         <!-- Right Panel -->
         <div class="right-panel">
             <!-- Top Half - Video Streaming -->
             <div class="video-section">
                 <div class="video-container">
-                    <video id="videoStream" class="video-stream" autoplay playsinline muted style="display: none;"></video>
+                    <video id="videoStream" class="video-stream" autoplay playsinline muted
+                        style="display: none;"></video>
                     <div id="videoControls" class="video-controls">
                         <div class="play-button" id="playButton">
                             <div class="play-triangle"></div>
@@ -891,7 +922,7 @@
                     </div>
                     <div id="videoStatus" class="video-status status-disconnected">Disconnected</div>
                 </div>
-                
+
                 <div class="video-log-header" id="videoLogHeader">
                     <span>WebRTC Connection Log</span>
                     <span id="videoLogToggle">▼</span>
@@ -900,7 +931,7 @@
                     <div class="video-log-content" id="videoLogContent"></div>
                 </div>
             </div>
-            
+
             <!-- Bottom Half - CLIP Text Encode -->
             <div class="clip-section">
                 <!-- Header with status indicator -->
@@ -923,8 +954,8 @@
                     <!-- Positive Prompt -->
                     <div class="prompt-section">
                         <div class="prompt-label positive-label">Positive</div>
-                        <input type="text" class="form-control form-control-sm" id="positivePrompt" 
-                               placeholder="Enter positive prompt...">
+                        <input type="text" class="form-control form-control-sm" id="positivePrompt"
+                            placeholder="Enter positive prompt...">
                     </div>
 
                     <!-- Negative Prompts -->
@@ -932,9 +963,10 @@
                         <div class="prompt-label negative-label">Negative</div>
                         <div id="negativePromptsContainer">
                             <div class="negative-prompt-group">
-                                <input type="text" class="form-control form-control-sm negative-prompt-input" 
-                                       placeholder="Enter negative prompt..." data-index="0" value="a photo of a person">
-                                <button type="button" class="btn btn-outline-success btn-add-negative" onclick="addNegativePrompt()" title="Add negative prompt">
+                                <input type="text" class="form-control form-control-sm negative-prompt-input"
+                                    placeholder="Enter negative prompt..." data-index="0" value="">
+                                <button type="button" class="btn btn-outline-success btn-add-negative"
+                                    onclick="addNegativePrompt()" title="Add negative prompt" style="display: none;">
                                     +
                                 </button>
                             </div>
@@ -949,37 +981,38 @@
                         </button>
 
                         <!-- Text Decode On Device Checkbox -->
-                        <div class="d-flex flex-column align-items-center" id="textDecodeOnDeviceContainer" style="min-width: 120px;">
-                            <label for="textDecodeOnDevice" class="form-label mb-0" style="font-size: 11px;">Text Decode On Device</label>
+                        <div class="d-flex flex-column align-items-center" id="textDecodeOnDeviceContainer"
+                            style="min-width: 120px;">
+                            <label for="textDecodeOnDevice" class="form-label mb-0" style="font-size: 11px;">Text Decode
+                                On Device</label>
                             <div class="form-check mt-1">
                                 <input class="form-check-input" type="checkbox" id="textDecodeOnDevice" checked>
                             </div>
-                        </div>                        
-                        
+                        </div>
+
                         <!-- Score Threshold Slider -->
                         <div class="d-flex flex-column align-items-center" style="min-width: 180px;">
-                            <label for="scoreThreshold" class="form-label mb-0" style="font-size: 11px;">Score Threshold</label>
-                            <input type="range" class="form-range" id="scoreThreshold" 
-                                   min="0.5" max="1.0" step="0.01" value="0.9" 
-                                   style="width: 160px; height: 15px;">
+                            <label for="scoreThreshold" class="form-label mb-0" style="font-size: 11px;">Score
+                                Threshold</label>
+                            <input type="range" class="form-range" id="scoreThreshold" min="0.5" max="1.0" step="0.01"
+                                value="0.9" style="width: 160px; height: 15px;">
                             <span id="scoreThresholdValue" style="font-size: 10px; color: #666;">0.9</span>
                         </div>
-                        
+
                         <!-- Max Query Slider -->
                         <div class="d-flex flex-column align-items-center" style="min-width: 180px;">
                             <label for="maxQuery" class="form-label mb-0" style="font-size: 11px;">Max Query</label>
-                            <input type="range" class="form-range" id="maxQuery" 
-                                   min="10" max="100" step="5" value="20" 
-                                   style="width: 160px; height: 15px;">
+                            <input type="range" class="form-range" id="maxQuery" min="10" max="100" step="5" value="20"
+                                style="width: 160px; height: 15px;">
                             <span id="maxQueryValue" style="font-size: 10px; color: #666;">20</span>
                         </div>
 
                         <!-- Remove Duplicate Within Sec Slider -->
                         <div class="d-flex flex-column align-items-center" style="min-width: 180px;">
-                            <label for="removeDuplicateWithin" class="form-label mb-0" style="font-size: 11px;">Remove Duplicate Within Sec</label>
-                            <input type="range" class="form-range" id="removeDuplicateWithin" 
-                                   min="10" max="300" step="10" value="60" 
-                                   style="width: 160px; height: 15px;">
+                            <label for="removeDuplicateWithin" class="form-label mb-0" style="font-size: 11px;">Remove
+                                Duplicate Within Sec</label>
+                            <input type="range" class="form-range" id="removeDuplicateWithin" min="10" max="300"
+                                step="10" value="60" style="width: 160px; height: 15px;">
                             <span id="removeDuplicateWithinValue" style="font-size: 10px; color: #666;">60</span>
                         </div>
                     </div>
@@ -1017,7 +1050,8 @@
                             <div id="embeddingOutput" class="embedding-output"></div>
                         </div>
                         <div class="d-flex gap-1">
-                            <button class="btn btn-outline-secondary btn-sm" onclick="copyEmbedding()">Copy Embedding</button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="copyEmbedding()">Copy
+                                Embedding</button>
                         </div>
                     </div>
                 </div>
@@ -1026,7 +1060,8 @@
     </div>
 
     <!-- Modal for video playback -->
-    <div class="modal fade video-modal" id="videoModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal fade video-modal" id="videoModal" tabindex="-1" data-bs-backdrop="static"
+        data-bs-keyboard="false">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-body">
@@ -1051,19 +1086,19 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.16.3/ort.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-    
+
     <!-- Transformers.js for CLIP tokenization -->
     <script type="module">
         import { AutoTokenizer, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
-        
+
         env.allowRemoteModels = true;
         env.allowLocalModels = false;
         window.AutoTokenizer = AutoTokenizer;
     </script>
-    
+
     <script>
         // ==================== WEBRTC VIDEO STREAMING FUNCTIONALITY ====================
-        
+
         class WebRTCClient {
             constructor() {
                 this.peerConnection = null;
@@ -1078,11 +1113,11 @@
                 this.logExpanded = false;
                 this.isPlaying = false;
                 this.sessionId = null;
-                
+
                 this.reconnectInterval = null;
                 this.shouldReconnect = false;
                 this.reconnectAttempts = 0;
-                this.maxReconnectAttempts = 15; 
+                this.maxReconnectAttempts = 15;
 
                 this.setupEventListeners();
                 this.startStatusPolling();
@@ -1110,7 +1145,7 @@
                     const sessionData = await response.json();
                     this.sessionId = sessionData.session_id;
                     this.log(`Received session ID: ${this.sessionId}`);
-                    
+
                     return this.sessionId;
                 } catch (error) {
                     this.log(`Error requesting session: ${error.message}`);
@@ -1152,7 +1187,7 @@
 
             toggleLog() {
                 this.logExpanded = !this.logExpanded;
-                
+
                 if (this.logExpanded) {
                     this.logSection.classList.add('expanded');
                     this.logToggle.textContent = '▲';
@@ -1204,7 +1239,7 @@
 
                 this.shouldReconnect = true;
                 this.reconnectAttempts = 0;
-                
+
                 this.reconnectInterval = setInterval(() => {
                     if (!this.shouldReconnect) {
                         this.stopReconnectionAttempts();
@@ -1213,7 +1248,7 @@
 
                     this.reconnectAttempts++;
                     this.log(`Reconnection attempt ${this.reconnectAttempts}${this.maxReconnectAttempts ? `/${this.maxReconnectAttempts}` : ''}...`);
-                    
+
                     // Optional: Stop after max attempts
                     if (this.maxReconnectAttempts && this.reconnectAttempts >= this.maxReconnectAttempts) {
                         this.log('Max reconnection attempts reached. Stopping auto-reconnect.');
@@ -1296,7 +1331,7 @@
                         });
                         this.updateStatus('connected');
                         // Stop reconnection attempts on successful connection
-                        this.stopReconnectionAttempts();                        
+                        this.stopReconnectionAttempts();
                     };
 
                     this.peerConnection.onconnectionstatechange = () => {
@@ -1304,7 +1339,7 @@
                         if (this.peerConnection.connectionState === 'connected') {
                             this.updateStatus('connected');
                         } else if (this.peerConnection.connectionState === 'disconnected' ||
-                                   this.peerConnection.connectionState === 'failed') {
+                            this.peerConnection.connectionState === 'failed') {
                             this.updateStatus('disconnected');
                             this.sessionId = null;
                             this.handleConnectionLost();
@@ -1316,7 +1351,7 @@
                     };
 
                     const response = await fetch('/api/webrtc/offer', {
-                        method: 'POST', 
+                        method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ session_id: this.sessionId })
                     });
@@ -1333,10 +1368,10 @@
                     await fetch('/api/webrtc/answer', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
+                        body: JSON.stringify({
                             session_id: this.sessionId,
-                            type: 'answer', 
-                            sdp: answer.sdp 
+                            type: 'answer',
+                            sdp: answer.sdp
                         })
                     });
 
@@ -1384,7 +1419,7 @@
                     this.sessionId = null;
                     this.log('Stream stopped by user');
                 }
-                fetch('/api/webrtc/video-thumbnail-stop', { 
+                fetch('/api/webrtc/video-thumbnail-stop', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ session_id: this.sessionId })
@@ -1408,7 +1443,7 @@
                 this.currentVideoInfo = null;
                 this.frameTimeoutId = null;
                 this.frameTimeoutMs = 3000;
-                
+
                 this.setupEventListeners();
             }
 
@@ -1442,7 +1477,7 @@
                 if (this.frameTimeoutId) {
                     clearTimeout(this.frameTimeoutId);
                 }
-                
+
                 if (this.isPlaying) {
                     this.frameTimeoutId = setTimeout(() => {
                         this.handleVideoEnd();
@@ -1456,7 +1491,7 @@
                 this.videoElement.style.display = 'none';
                 this.videoControls.classList.remove('hidden');
                 this.isPlaying = false;
-                
+
                 if (this.frameTimeoutId) {
                     clearTimeout(this.frameTimeoutId);
                     this.frameTimeoutId = null;
@@ -1501,18 +1536,18 @@
 
             async showVideoModal(videoInfo) {
                 this.currentVideoInfo = videoInfo;
-                
+
                 document.getElementById('videoDescription').textContent = videoInfo.description;
                 document.getElementById('videoTimestamp').textContent = epochToDate(videoInfo.timestamp);
-                
+
                 this.modal = new bootstrap.Modal(document.getElementById('videoModal'));
                 this.modal.show();
-                
+
                 this.videoElement.style.display = 'none';
                 this.videoControls.classList.remove('hidden');
                 this.updateStatus('connecting');
                 this.isPlaying = false;
-                
+
                 try {
                     await this.requestVideoSession();
                     this.updateStatus('connected');
@@ -1564,7 +1599,7 @@
                         if (this.peerConnection.connectionState === 'connected') {
                             this.updateStatus('connected');
                         } else if (this.peerConnection.connectionState === 'disconnected' ||
-                                this.peerConnection.connectionState === 'failed') {
+                            this.peerConnection.connectionState === 'failed') {
                             this.updateStatus('disconnected');
                             this.videoElement.style.display = 'none';
                             this.videoControls.classList.remove('hidden');
@@ -1573,7 +1608,7 @@
                     };
 
                     const response = await fetch('/api/webrtc/offer', {
-                        method: 'POST', 
+                        method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ session_id: this.sessionId })
                     });
@@ -1589,10 +1624,10 @@
                     await fetch('/api/webrtc/answer', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
+                        body: JSON.stringify({
                             session_id: this.sessionId,
-                            type: 'answer', 
-                            sdp: answer.sdp 
+                            type: 'answer',
+                            sdp: answer.sdp
                         })
                     });
 
@@ -1628,7 +1663,7 @@
                     this.peerConnection.close();
                     this.peerConnection = null;
                 }
-                
+
                 this.videoElement.srcObject = null;
                 this.videoElement.style.display = 'none';
                 this.videoControls.classList.remove('hidden');
@@ -1638,44 +1673,44 @@
 
             closeModal() {
                 this.stopVideoPlayback();
-                
+
                 if (this.sessionId) {
-                    fetch('/api/webrtc/video-thumbnail-stop', { 
+                    fetch('/api/webrtc/video-thumbnail-stop', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ session_id: this.sessionId })
                     });
                 }
-                
+
                 this.sessionId = null;
                 this.currentVideoInfo = null;
-                
+
                 if (this.modal) {
                     this.modal.hide();
                     this.modal = null;
                 }
             }
-        }        
+        }
 
         // ==================== THUMBNAIL GALLERY FUNCTIONALITY ====================
-        
+
         function epochToDate(epochMs) {
             const date = new Date(epochMs);
-            return date.toISOString().slice(0, 19).replace('T', ' ');
+            return date.toLocaleString();
         }
 
         function displayQueryResults(images) {
             const container = document.getElementById('thumbnailGallery');
             const countElement = document.getElementById('imageCount');
-            
+
             // Keep header, replace content
             const header = container.querySelector('.gallery-header');
             container.innerHTML = '';
             container.appendChild(header);
-            
+
             if (images && images.length > 0) {
                 countElement.textContent = `Query results: ${images.length} matching images`;
-                
+
                 images.forEach(image => {
                     const card = document.createElement('div');
                     card.className = 'image-card';
@@ -1690,11 +1725,11 @@
                             </div>
                         </div>
                     `;
-                    
+
                     card.addEventListener('click', () => {
                         showLargeImage(image);
                     });
-                    
+
                     container.appendChild(card);
                 });
             } else {
@@ -1709,12 +1744,12 @@
         function showQueryLoading() {
             const container = document.getElementById('thumbnailGallery');
             const countElement = document.getElementById('imageCount');
-            
+
             // Keep header, replace content
             const header = container.querySelector('.gallery-header');
             container.innerHTML = '';
             container.appendChild(header);
-            
+
             const loadingDiv = document.createElement('div');
             loadingDiv.className = 'loading';
             loadingDiv.innerHTML = `
@@ -1722,32 +1757,32 @@
                 <div>Searching for matching images...</div>
             `;
             container.appendChild(loadingDiv);
-            
+
             countElement.textContent = 'Searching...';
         }
 
         function showQueryError(errorMessage) {
             const container = document.getElementById('thumbnailGallery');
             const countElement = document.getElementById('imageCount');
-            
+
             // Keep header, replace content
             const header = container.querySelector('.gallery-header');
             container.innerHTML = '';
             container.appendChild(header);
-            
+
             const errorDiv = document.createElement('div');
             errorDiv.className = 'query-message';
             errorDiv.style.color = '#dc3545';
             errorDiv.textContent = errorMessage || 'Error occurred while searching for images';
             container.appendChild(errorDiv);
-            
+
             countElement.textContent = 'Search failed';
         }
 
         async function showLargeImage(image) {
             if (videoPlaybackClient) {
                 videoPlaybackClient.showVideoModal(image);
-            }            
+            }
         }
 
         // ==================== STORAGE MONITORING FUNCTIONALITY ====================
@@ -1766,7 +1801,7 @@
 
             initializeChart() {
                 const ctx = document.getElementById('storageChart').getContext('2d');
-                
+
                 this.chart = new Chart(ctx, {
                     type: 'doughnut',
                     data: {
@@ -1796,7 +1831,7 @@
                                         return `${label} (${percentage}%)`;
                                     }
                                 }
-                            }                            
+                            }
                         },
                         cutout: '60%'
                     }
@@ -1805,11 +1840,11 @@
 
             formatBytes(bytes) {
                 if (bytes === 0) return '0 B';
-                
+
                 const k = 1024;
                 const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
                 const i = Math.floor(Math.log(bytes) / Math.log(k));
-                
+
                 return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
             }
 
@@ -1818,18 +1853,18 @@
                 if (typeof value === 'number') {
                     return value;
                 }
-                
+
                 // If it's a string, try to parse it
                 if (typeof value === 'string') {
                     const match = value.match(/^([\d.]+)\s*(B|KB|MB|GB|TB)$/i);
                     if (match) {
                         const num = parseFloat(match[1]);
                         const unit = match[2].toUpperCase();
-                        const multipliers = { 'B': 1, 'KB': 1024, 'MB': 1024*1024, 'GB': 1024*1024*1024, 'TB': 1024*1024*1024*1024 };
+                        const multipliers = { 'B': 1, 'KB': 1024, 'MB': 1024 * 1024, 'GB': 1024 * 1024 * 1024, 'TB': 1024 * 1024 * 1024 * 1024 };
                         return num * (multipliers[unit] || 1);
                     }
                 }
-                
+
                 return 0;
             }
 
@@ -1839,7 +1874,7 @@
                     const totalBytes = this.parseStorageValue(data.total_space);
                     const usedBytes = this.parseStorageValue(data.used_space);
                     const availableBytes = this.parseStorageValue(data.available_space);
-                    
+
                     // Update chart
                     if (this.chart && totalBytes > 0) {
                         this.chart.data.datasets[0].data = [availableBytes, usedBytes];
@@ -1852,34 +1887,34 @@
 
                         this.chart.update('none');
                     }
-                    
+
                     // Update text displays - use original values if they're strings, otherwise format
-                    document.getElementById('storageTotal').textContent = 
+                    document.getElementById('storageTotal').textContent =
                         typeof data.used_space === 'string' ? data.used_space : this.formatBytes(usedBytes);
-                    
+
                     // Update breakdown items
                     const breakdown = data.breakdown || {};
-                    document.getElementById('storageDatabase').textContent = 
-                        typeof breakdown.database === 'string' ? breakdown.database : 
-                        (typeof breakdown.database === 'number' ? this.formatBytes(breakdown.database) : 'N/A');
-                        
-                    document.getElementById('storageFaissdb').textContent = 
-                        typeof breakdown.faissdb === 'string' ? breakdown.faissdb : 
-                        (typeof breakdown.faissdb === 'number' ? this.formatBytes(breakdown.faissdb) : 'N/A');
-                        
-                    document.getElementById('storageThumbnail').textContent = 
-                        typeof breakdown.thumbnail === 'string' ? breakdown.thumbnail : 
-                        (typeof breakdown.thumbnail === 'number' ? this.formatBytes(breakdown.thumbnail) : 'N/A');
-                        
-                    document.getElementById('storageVideo').textContent = 
-                        typeof breakdown.video === 'string' ? breakdown.video : 
-                        (typeof breakdown.video === 'number' ? this.formatBytes(breakdown.video) : 'N/A');
-                    
+                    document.getElementById('storageDatabase').textContent =
+                        typeof breakdown.database === 'string' ? breakdown.database :
+                            (typeof breakdown.database === 'number' ? this.formatBytes(breakdown.database) : 'N/A');
+
+                    document.getElementById('storageFaissdb').textContent =
+                        typeof breakdown.faissdb === 'string' ? breakdown.faissdb :
+                            (typeof breakdown.faissdb === 'number' ? this.formatBytes(breakdown.faissdb) : 'N/A');
+
+                    document.getElementById('storageThumbnail').textContent =
+                        typeof breakdown.thumbnail === 'string' ? breakdown.thumbnail :
+                            (typeof breakdown.thumbnail === 'number' ? this.formatBytes(breakdown.thumbnail) : 'N/A');
+
+                    document.getElementById('storageVideo').textContent =
+                        typeof breakdown.video === 'string' ? breakdown.video :
+                            (typeof breakdown.video === 'number' ? this.formatBytes(breakdown.video) : 'N/A');
+
                     // Update status
                     const percentage = totalBytes > 0 ? ((usedBytes / totalBytes) * 100).toFixed(1) : 0;
-                    document.getElementById('storageStatus').textContent = 
+                    document.getElementById('storageStatus').textContent =
                         `Last updated: ${new Date().toLocaleTimeString()} (${percentage}% used)`;
-                        
+
                 } catch (error) {
                     console.error('Error updating storage display:', error);
                     this.showError();
@@ -1913,7 +1948,7 @@
             startPolling() {
                 // Initial fetch
                 this.fetchStorageData();
-                
+
                 // Poll every 2 seconds
                 this.pollingInterval = setInterval(() => {
                     this.fetchStorageData();
@@ -1929,11 +1964,11 @@
         }
 
         // ==================== CLIP TEXT ENCODING FUNCTIONALITY ====================
-        
+
         // Global flag to enable/disable CLIP functionality
         // Set to true to enable normal CLIP processing, false to use dummy embeddings
         const ENABLE_ONNX_CLIP_PROCESSING = false;
-        
+
         let currentEmbedding = null;
         let onnxSession = null;
         let currentModelName = null;
@@ -1944,11 +1979,11 @@
         let lastPositiveTokens = null;
         let lastNegativeTokens = null;
         let negativePromptCount = 1;
-        const maxNegativePrompts = 5;
-        
+        const maxNegativePrompts = 1;
+
         let modelConfig = {};
 
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
 
             // ================= CONFIG PANEL LOGIC =======================
             const configPanel = document.getElementById('configPanel');
@@ -1973,13 +2008,13 @@
                     openPanel();
                 }
             });
-            
+
             configCloseBtn.addEventListener('click', closePanel);
             // ==================== END: CONFIG PANEL LOGIC ===================
-            
-            
+
+
             // ==================== REFRESH RATE SLIDER LOGIC ====================
-            
+
             // --- Elements for the new slider ---
             const refreshRateSlider = document.getElementById('refreshRateSlider');
             const refreshRateValue = document.getElementById('refreshRateValue');
@@ -1989,10 +2024,10 @@
                 try {
                     const response = await fetch('/api/config/embedded_refresh');
                     if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
-                    
+
                     const data = await response.json();
                     const initialRate = data.rate || 30; // Use 30 as a fallback
-                    
+
                     refreshRateSlider.value = initialRate;
                     refreshRateValue.textContent = initialRate;
 
@@ -2010,7 +2045,7 @@
             // --- Event listener to send the new value to the backend on release ---
             refreshRateSlider.addEventListener('change', async () => {
                 const newRate = parseInt(refreshRateSlider.value, 10);
-                
+
                 try {
                     const response = await fetch('/api/config/embedded_refresh', {
                         method: 'POST',
@@ -2019,7 +2054,7 @@
                     });
 
                     if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
-                    
+
                     console.log('Refresh rate updated successfully on the backend.');
                     refreshRateValue.style.color = '#28a745'; // Green for success
                     setTimeout(() => { refreshRateValue.style.color = ''; }, 1000);
@@ -2033,12 +2068,12 @@
 
             // --- Call the function to set up the slider ---
             initializeRefreshRateSlider();
-            
+
             // ==================== END: REFRESH RATE SLIDER LOGIC ====================
 
 
             // ============= QUERY VIDEO PLAYBACK TOLERANCE LENGTH SLIDER LOGIC ==============
-            
+
             // --- Elements for the new slider ---
             const VideoTotalLengthSlider = document.getElementById('VideoTotalLengthSlider');
             const VideoTotalLengthValue = document.getElementById('VideoTotalLengthValue');
@@ -2048,7 +2083,7 @@
                 try {
                     const response = await fetch('/api/config/video_playback_total_length');
                     if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
-                    
+
                     const data = await response.json();
                     const totalLength = data.total_length || 15; // Use 8 as a fallback
 
@@ -2092,17 +2127,17 @@
 
             // --- Call the function to set up the slider ---
             initializeVideoPlaybackTotalLengthSlider();
-            
+
             // ============= END: QUERY VIDEO PLAYBACK TOLERANCE LENGTH SLIDER LOGIC ==============
-            
-            
+
+
             // ============= CLIP PROCESSING UI CONTROL ==============
             // Hide/show Text Decode On Device checkbox based on ENABLE_ONNX_CLIP_PROCESSING flag        
             const textDecodeContainer = document.getElementById('textDecodeOnDeviceContainer');
-            
+
             console.log('ENABLE_ONNX_CLIP_PROCESSING:', ENABLE_ONNX_CLIP_PROCESSING);
             console.log('textDecodeContainer found:', !!textDecodeContainer);
-            
+
             if (textDecodeContainer) {
                 if (!ENABLE_ONNX_CLIP_PROCESSING) {
                     // The .d-flex class from Bootstrap uses "display: flex !important;",
@@ -2121,8 +2156,8 @@
             }
 
             // ============= END: CLIP PROCESSING UI CONTROL ==============
-            
-            
+
+
             // Initialize WebRTC client
             webrtcClient = new WebRTCClient();
             videoPlaybackClient = new VideoPlaybackClient();
@@ -2166,11 +2201,11 @@
         async function initializeTokenizer() {
             try {
                 updateStatus('processing');
-                
+
                 if (!window.AutoTokenizer) {
                     throw new Error('Transformers.js not loaded yet');
                 }
-                
+
                 clipTokenizer = await window.AutoTokenizer.from_pretrained('Xenova/clip-vit-base-patch32');
 
                 const testText = "a photo of a cat";
@@ -2180,7 +2215,7 @@
                     max_length: 77,
                     return_tensors: 'pt'
                 });
-                
+
                 updateStatus('connected');
             } catch (error) {
                 console.error('Error loading tokenizer:', error);
@@ -2191,32 +2226,32 @@
         function setupEventListeners() {
             document.getElementById('clipForm').addEventListener('submit', handleFormSubmit);
             document.getElementById('networkSelect').addEventListener('change', handleNetworkChange);
-            
+
             // Score Threshold slider event listener
-            document.getElementById('scoreThreshold').addEventListener('input', function(e) {
+            document.getElementById('scoreThreshold').addEventListener('input', function (e) {
                 document.getElementById('scoreThresholdValue').textContent = e.target.value;
             });
-            
+
             // Max Query slider event listener
-            document.getElementById('maxQuery').addEventListener('input', function(e) {
+            document.getElementById('maxQuery').addEventListener('input', function (e) {
                 document.getElementById('maxQueryValue').textContent = e.target.value;
             });
 
             // Remove Duplicate Within Sec slider event listener
-            document.getElementById('removeDuplicateWithin').addEventListener('input', function(e) {
+            document.getElementById('removeDuplicateWithin').addEventListener('input', function (e) {
                 document.getElementById('removeDuplicateWithinValue').textContent = e.target.value;
             });
 
             // Text Decode On Device checkbox event listener
-            document.getElementById('textDecodeOnDevice').addEventListener('change', function(e) {
+            document.getElementById('textDecodeOnDevice').addEventListener('change', function (e) {
                 console.log('Text Decode On Device changed:', e.target.checked);
-            });            
+            });
         }
 
         // Negative prompt management functions
         function addNegativePrompt() {
             if (negativePromptCount >= maxNegativePrompts) return;
-            
+
             const container = document.getElementById('negativePromptsContainer');
             const newGroup = document.createElement('div');
             newGroup.className = 'negative-prompt-group';
@@ -2228,15 +2263,15 @@
                     ×
                 </button>
             `;
-            
+
             container.appendChild(newGroup);
             negativePromptCount++;
-            
+
             // Hide add button on first prompt when we add another
             if (negativePromptCount === 2) {
                 container.querySelector('.btn-add-negative').style.display = 'none';
             }
-            
+
             // Show add button on last prompt if not at max
             if (negativePromptCount < maxNegativePrompts) {
                 newGroup.innerHTML += `
@@ -2251,13 +2286,13 @@
         function removeNegativePrompt(button) {
             const group = button.parentElement;
             const container = group.parentElement;
-            
+
             // Don't remove if it's the only one
             if (container.children.length <= 1) return;
-            
+
             group.remove();
             negativePromptCount--;
-            
+
             // Show add button on the last remaining prompt if none exists
             const lastGroup = container.lastElementChild;
             const existingAddBtn = lastGroup.querySelector('.btn-add-negative');
@@ -2278,10 +2313,10 @@
         async function handleNetworkChange() {
             const select = document.getElementById('networkSelect');
             const selectedNetworkId = select.value;
-            
+
             if (selectedNetworkId && selectedNetworkId !== currentModelName) {
                 updateStatus('processing');
-                
+
                 // Check if CLIP processing is disabled
                 if (!ENABLE_ONNX_CLIP_PROCESSING) {
                     // Skip ONNX loading and set status to green
@@ -2303,14 +2338,14 @@
                 if (!config) {
                     throw new Error(`Unknown network: ${networkNameId}`);
                 }
-                
+
                 updateStatus('processing');
-                
+
                 if (onnxSession) {
                     onnxSession.release();
                     onnxSession = null;
                 }
-                
+
                 const modelResponse = await fetch("/api/models/" + networkNameId);
                 if (!modelResponse.ok) {
                     throw new Error(`Failed to load model: ${modelResponse.status}`);
@@ -2323,11 +2358,11 @@
                     executionProviders: ['wasm'],
                     graphOptimizationLevel: 'all'
                 });
-                
+
                 currentModelName = networkNameId;
                 updateStatus('connected');
                 document.getElementById('submitBtn').disabled = false;
-                
+
             } catch (error) {
                 console.error('Error loading ONNX model:', error);
                 updateStatus('disconnected');
@@ -2340,7 +2375,7 @@
         function showModelInfo(networkNameId) {
             const config = modelConfig[networkNameId];
             const modelInfo = document.getElementById('modelInfo');
-            
+
             if (config && onnxSession) {
                 modelInfo.innerHTML = `Context: ${config.contextLength}, Dim: ${config.embeddingDim}`;
                 modelInfo.style.display = 'block';
@@ -2382,7 +2417,7 @@
                 updateStatus('disconnected');
                 alert(errorMsg);
             }
-        }        
+        }
 
         function populateEmptyNetworkDropdown() {
             const select = document.getElementById('networkSelect');
@@ -2393,7 +2428,7 @@
         function populateNetworkDropdown(networks) {
             const select = document.getElementById('networkSelect');
             select.innerHTML = '<option value="">Select a network...</option>';
-            
+
             networks.forEach(network => {
                 const option = document.createElement('option');
                 option.value = network.id;  // Store network ID as value
@@ -2407,9 +2442,9 @@
                     onnxPath: network.onnx_file_path,
                     contextLength: network.context_length,
                     embeddingDim: network.embedding_size
-                });                    
+                });
             });
-            
+
             document.getElementById('submitBtn').disabled = true;
         }
 
@@ -2419,27 +2454,27 @@
 
         async function handleFormSubmit(event) {
             event.preventDefault();
-            
+
             const networkId = document.getElementById('networkSelect').value;
             const network = document.getElementById('networkSelect').selectedOptions[0]?.dataset.networkName;
             const positivePrompt = document.getElementById('positivePrompt').value.trim();
-            
+
             // Collect negative prompts
             const negativeInputs = document.querySelectorAll('.negative-prompt-input');
             const negativePrompts = Array.from(negativeInputs)
                 .map(input => input.value.trim())
                 .filter(text => text.length > 0);
-            
+
             if (!networkId || !positivePrompt) {
                 alert('Please select a network and enter a positive prompt');
                 return;
             }
-            
+
             if (ENABLE_ONNX_CLIP_PROCESSING && (!onnxSession || !clipTokenizer || currentModelName !== networkId)) {
                 alert('Please wait for the model to load completely');
                 return;
             }
-            
+
             if (!ENABLE_ONNX_CLIP_PROCESSING && currentModelName !== networkId) {
                 alert('Please select a network first');
                 return;
@@ -2449,7 +2484,7 @@
             setQueryingState(true);
             showQueryLoading();
             updateStatus('processing');
-            
+
             try {
                 const startTime = Date.now();
 
@@ -2469,21 +2504,21 @@
                         negativeResults.push({
                             text: negPrompt,
                             embedding: negEmbedding.embedding
-                        });                        
+                        });
                     }
                 }
 
                 const processingTime = Date.now() - startTime;
-                
+
                 // Store results for debug view
                 displayResults(network, positiveEmbedding, negativeEmbeddings, processingTime);
-                
+
                 // Send to backend API
                 const scoreThreshold = parseFloat(document.getElementById('scoreThreshold').value);
                 const maxQuery = parseInt(document.getElementById('maxQuery').value);
                 const removeDuplicateWithin = parseInt(document.getElementById('removeDuplicateWithin').value);
                 const textDecodeOnDevice = document.getElementById('textDecodeOnDevice').checked;
-                
+
                 const queryResponse = await fetch('/api/embedding', {
                     method: 'POST',
                     headers: {
@@ -2503,7 +2538,7 @@
                 if (queryResponse.ok) {
                     const result = await queryResponse.json();
                     console.log('Server response:', result);
-                    
+
                     // Assuming the server returns matching images in the response
                     if (result.images) {
                         displayQueryResults(result.images);
@@ -2515,7 +2550,7 @@
                 } else {
                     throw new Error(`Server responded with status: ${queryResponse.status}`);
                 }
-                
+
             } catch (error) {
                 console.error('Error during query:', error);
                 showQueryError('Failed to complete query: ' + error.message);
@@ -2534,24 +2569,24 @@
                 const embeddingSize = config ? config.embeddingDim : 512; // Default to 512 if config not available
                 const zeroEmbedding = new Array(embeddingSize).fill(0);
                 const dummyTokens = new Array(77).fill(0); // Standard CLIP context length
-                
+
                 console.log('Onnx CLIP processing disabled - returning zero embeddings');
                 console.log('Embedding size:', embeddingSize);
-                
+
                 return { embedding: zeroEmbedding, tokens: dummyTokens };
             }
-            
+
             if (!onnxSession || !clipTokenizer) {
                 throw new Error('Model or tokenizer not loaded');
             }
-            
+
             try {
                 const config = modelConfig[networkId];
-                
+
                 console.log('Tokenizing:', text);
-                
+
                 let tokens;
-                
+
                 if (clipTokenizer && clipTokenizer._call) {
                     const tokenized = await clipTokenizer._call(text, {
                         padding: true,
@@ -2565,22 +2600,22 @@
                 } else {
                     throw new Error('Tokenizer not properly initialized');
                 }
-                
+
                 console.log('Token IDs (first 10):', tokens.slice(0, 10));
-                
+
                 const tokenIds = tokens.map(x => Number(x));
                 const tokenArray = new Int32Array(tokenIds);
                 const inputTensor = new ort.Tensor('int32', tokenArray, [1, config.contextLength]);
-                
+
                 const inputName = onnxSession.inputNames[0];
                 const feeds = { [inputName]: inputTensor };
                 const results = await onnxSession.run(feeds);
-                
+
                 const outputName = Object.keys(results)[0];
                 const outputTensor = results[outputName];
-                
+
                 const embedding = Array.from(outputTensor.data);
-                
+
                 // L2 normalize the embedding
                 const norm = Math.sqrt(embedding.reduce((acc, val) => acc + val * val, 0));
                 const normalizedEmbedding = embedding.map(val => val / norm);
@@ -2592,7 +2627,7 @@
                 console.log('Embedding Normalized (first 10):', normalizedEmbedding.slice(0, 10));
 
                 return { embedding: normalizedEmbedding, tokens: tokens };
-                
+
             } catch (error) {
                 console.error('Error in ONNX inference:', error);
                 throw new Error(`Failed to generate embedding: ${error.message}`);
@@ -2603,25 +2638,25 @@
             currentEmbedding = positiveResult.embedding;
             lastPositiveTokens = positiveResult.tokens;
             lastNegativeTokens = negativeResults.map(result => result.tokens);
-            
+
             document.getElementById('resultNetwork').textContent = network;
             document.getElementById('embeddingSize').textContent = positiveResult.embedding.length;
             document.getElementById('processingTime').textContent = `${processingTime}ms`;
-            
+
             if (lastPositiveTokens) {
                 if (!ENABLE_ONNX_CLIP_PROCESSING) {
                     document.getElementById('positiveTokenOutput').textContent = '[Debug: Zero tokens]';
                 } else {
-                    document.getElementById('positiveTokenOutput').textContent = 
+                    document.getElementById('positiveTokenOutput').textContent =
                         `[${lastPositiveTokens.slice(0, 10).join(', ')}${lastPositiveTokens.length > 10 ? ', ...' : ''}]`;
                 }
             }
-            
+
             if (lastNegativeTokens && lastNegativeTokens.length > 0) {
                 if (!ENABLE_ONNX_CLIP_PROCESSING) {
                     document.getElementById('negativeTokenOutput').textContent = '[Debug: Zero tokens]';
                 } else {
-                    const negativeTokensDisplay = lastNegativeTokens.map(tokens => 
+                    const negativeTokensDisplay = lastNegativeTokens.map(tokens =>
                         `[${tokens.slice(0, 10).join(', ')}${tokens.length > 10 ? ', ...' : ''}]`
                     ).join('\n');
                     document.getElementById('negativeTokenOutput').textContent = negativeTokensDisplay;
@@ -2629,14 +2664,14 @@
             } else {
                 document.getElementById('negativeTokenOutput').textContent = 'None';
             }
-            
+
             if (!ENABLE_ONNX_CLIP_PROCESSING) {
                 document.getElementById('embeddingOutput').textContent = '[Debug: Zero embedding array]';
             } else {
                 const embeddingStr = `[${positiveResult.embedding.slice(0, 10).map(x => x.toFixed(6)).join(', ')}${positiveResult.embedding.length > 10 ? ', ...' : ''}]`;
                 document.getElementById('embeddingOutput').textContent = embeddingStr;
             }
-            
+
             // Show debug section
             document.getElementById('resultsSection').style.display = 'block';
         }
@@ -2649,7 +2684,7 @@
             const scoreThreshold = document.getElementById('scoreThreshold');
             const maxQuery = document.getElementById('maxQuery');
             const removeDuplicateWithin = document.getElementById('removeDuplicateWithin');
-            
+
             if (isQuerying) {
                 submitBtn.disabled = true;
                 submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Querying...';
@@ -2674,9 +2709,9 @@
         function toggleResults() {
             const content = document.getElementById('resultsContent');
             const toggle = document.getElementById('resultsToggle');
-            
+
             resultsExpanded = !resultsExpanded;
-            
+
             if (resultsExpanded) {
                 content.style.display = 'block';
                 toggle.textContent = '▲';
@@ -2701,4 +2736,5 @@
         }
     </script>
 </body>
+
 </html>

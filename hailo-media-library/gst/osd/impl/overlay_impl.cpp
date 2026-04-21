@@ -335,8 +335,10 @@ void OverlayImpl::set_priority_iterator(std::set<OverlayImplPtr>::iterator prior
 tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> OverlayImpl::create_dsp_overlays(
     int frame_width, int frame_height)
 {
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Creating dsp overlays for OSD id={}", m_id);
     if (frame_width == 0 || frame_height == 0)
     {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Invalid frame dimensions (width={} height={})", frame_width, frame_height);
         return tl::make_unexpected(MEDIA_LIBRARY_UNINITIALIZED);
     }
 
@@ -359,18 +361,19 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
     {
         mat = ThreadPool::GetInstance()->invoke(
             [this, &center_drift]() { return rotate_mat(m_image_mat, m_angle, m_rotation_policy, &center_drift); });
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "Rotated OSD by {} degrees, center drifted by {} pixels, around {}", m_angle,
-                              center_drift, m_rotation_policy);
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Rotated OSD {} by {} degrees, center drifted by {} pixels, around {}", m_id,
+                              m_angle, center_drift, m_rotation_policy);
     }
 
     GstVideoFrame gst_bgra_image = gst_video_frame_from_mat_bgra(mat);
     status = convert_2_dma_video_frame(&gst_bgra_image, &dest_frame, GST_VIDEO_FORMAT_A420);
     gst_video_frame_unmap(&gst_bgra_image);
-
     if (status != MEDIA_LIBRARY_SUCCESS)
     {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to convert OSD {} to DMA A420 format", m_id);
         return tl::make_unexpected(status);
     }
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Converted OSD {} to DMA A420 format", m_id);
 
     dsp_image_properties_t dsp_image;
     create_dsp_buffer_from_video_frame(&dest_frame, dsp_image);
@@ -380,8 +383,12 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
                         center_drift.y, m_horizontal_alignment, m_vertical_alignment);
     if (!offsets_expected.has_value())
     {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to calculate OSD {} offsets", m_id);
         return tl::make_unexpected(offsets_expected.error());
     }
+
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Calculated OSD {} offsets: x={}, y={}", m_id,
+                          std::get<0>(offsets_expected.value()), std::get<1>(offsets_expected.value()));
 
     auto [x_offset, y_offset] = offsets_expected.value();
     dsp_overlay_properties_t dsp_overlay = {
@@ -389,7 +396,8 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Overla
         .x_offset = x_offset,
         .y_offset = y_offset,
     };
-
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Created dsp overlay for OSD id={} (x_offset={}, y_offset={})", m_id, x_offset,
+                          y_offset);
     m_dsp_overlays.push_back(dsp_overlay);
 
     set_enabled(true);

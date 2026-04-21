@@ -100,6 +100,19 @@ class MediaLibrary
     media_library_return subscribe_to_frontend_output(FrontendCallbacksMap fe_callbacks);
 
     /**
+     * @brief Subscribe to frontend output receiving the original GstBuffer.
+     *
+     * Unlike subscribe_to_frontend_output(), the callback receives the
+     * original GstBuffer produced by the internal frontend pipeline,
+     * avoiding a teardown/rebuild cycle. The GstBuffer is reffed before
+     * the callback; the callee owns that ref.
+     *
+     * @param fe_callbacks Map of GstBuffer callbacks keyed by stream id.
+     * @return Status of the subscription.
+     */
+    media_library_return subscribe_to_frontend_gst_output(FrontendGstBufferCallbacksMap fe_callbacks);
+
+    /**
      * @brief Subscribe to encoder output.
      * @param streamId ID of the output stream.
      * @param callback Application wrapper callback.
@@ -246,6 +259,26 @@ class MediaLibrary
 
     MediaLibraryFrontendPtr m_frontend;                              ///< Pointer to the frontend object.
     std::map<output_stream_id_t, MediaLibraryEncoderPtr> m_encoders; ///< Map of output stream IDs to encoder pointers.
+
+    /**
+     * @brief Get the output streams from the frontend.
+     * @return tl::expected containing a vector of frontend_output_stream_t or an error code.
+     */
+    tl::expected<std::vector<frontend_output_stream_t>, media_library_return> get_frontend_output_streams();
+
+    /**
+     * @brief Unsubscribe all callbacks from the frontend output streams.
+     * @return Status of the operation.
+     */
+    media_library_return unsubscribe_all_from_frontend();
+
+    /**
+     * @brief Add a buffer to a specific encoder for encoding.
+     * @param stream_id ID of the output stream / encoder.
+     * @param buffer Shared pointer to the buffer to be encoded.
+     * @return Status of the operation.
+     */
+    media_library_return add_buffer_to_encoder(output_stream_id_t stream_id, HailoMediaLibraryBufferPtr buffer);
 
     /**
      *  @brief Set the On profile restricted user callback.
