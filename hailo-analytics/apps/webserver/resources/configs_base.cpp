@@ -1,5 +1,19 @@
 #include "configs.hpp"
 
+webserver::resources::ConfigResourceBase::ConfigResourceBase(std::shared_ptr<EventBus> event_bus) : Resource(event_bus)
+{
+}
+
+std::string webserver::resources::ConfigResourceBase::name()
+{
+    return "config";
+}
+
+webserver::resources::ResourceType webserver::resources::ConfigResourceBase::get_type()
+{
+    return ResourceType::RESOURCE_CONFIG_MANAGER;
+}
+
 nlohmann::json webserver::resources::ConfigResourceBase::get_frontend_default_config()
 {
     if (m_frontend_default_config.empty())

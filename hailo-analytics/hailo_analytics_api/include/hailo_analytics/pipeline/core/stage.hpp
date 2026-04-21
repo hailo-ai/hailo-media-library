@@ -51,6 +51,7 @@ enum class StagePoolMode
     FAIL_ON_EMPTY_POOL = 0, ///< Return an error when pool is empty
     LEAKY,                  ///< Drop the current frame when pool is empty
     BLOCKING,               ///< Wait until a buffer becomes available
+    USE_AVAILABLE_BUFFERS,  ///< Use whatever buffers are available, even if less than requested
     STAGE_POOL_MODE_MAX     ///< Maximum enum value
 };
 

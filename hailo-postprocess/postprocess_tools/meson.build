@@ -9,6 +9,7 @@ hailo_postprocess_tools_components = []
 # SUBDIRS
 ################################################
 subdir('src/image_utils')
+subdir('src/objects')
 subdir('src/tracking')
 
 ################################################

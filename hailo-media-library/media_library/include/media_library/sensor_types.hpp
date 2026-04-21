@@ -38,7 +38,9 @@ enum class SensorType
     IMX664,
     IMX675,
     IMX678,
-    IMX715
+    IMX715,
+    IMX307,
+    IMX662,
 };
 
 enum class Resolution

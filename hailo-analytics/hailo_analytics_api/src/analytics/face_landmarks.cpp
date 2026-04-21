@@ -1,5 +1,5 @@
 #include "hailo_analytics/analytics/face_landmarks.hpp"
-#include <stdexcept>
+#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
 
 namespace hailo_analytics::analytics::face_landmarks
 {
