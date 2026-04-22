@@ -1,13 +1,11 @@
 // general includes
-#include <queue>
 #include <fstream>
 #include <iostream>
-#include <sstream>
-#include <thread>
 #include <tl/expected.hpp>
 #include <cxxopts/cxxopts.hpp>
 
 // medialibrary includes
+#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
 #include "media_library/signal_utils.hpp"
 
 // infra includes
@@ -24,7 +22,9 @@
     "/etc/imaging/cfg/medialib_configs/case_studies/dual_sensor_single_stream_medialib_config_sensor_1.json"
 
 #undef PORT_FROM_ID
-#define PORT_FROM_ID(sensor_idx, sink_id) std::to_string(5000 + (sensor_idx) * 100 + std::stoi((sink_id).substr(4)) * 2)
+// Use rfind to handle prefixed stream IDs like "dpm_sink1"
+#define PORT_FROM_ID(sensor_idx, sink_id)                                                                              \
+    std::to_string(5000 + (sensor_idx) * 100 + std::stoi((sink_id).substr((sink_id).rfind("sink") + 4)) * 2)
 
 enum class ArgumentType
 {
@@ -232,7 +232,7 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
         }
 
         auto sensor_pipeline = hailo_analytics::analytics::vision::generate_vision_pipeline(
-            app_resources->instances[i].media_library, "sensor_" + std::to_string(i) + "_pipeline", custom_config);
+            *app_resources->instances[i].media_library, "sensor_" + std::to_string(i) + "_pipeline", custom_config);
         if (!sensor_pipeline.has_value())
         {
             HAILO_ANALYTICS_LOG_ERROR("Failed to create vision pipeline for sensor {}", i);

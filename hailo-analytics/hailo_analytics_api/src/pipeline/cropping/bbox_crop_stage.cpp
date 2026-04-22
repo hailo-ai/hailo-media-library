@@ -44,6 +44,7 @@ AppStatus BBoxCropStage::init()
         return AppStatus::DSP_OPERATION_ERROR;
     }
 
+    setup_pool_notification();
     return AppStatus::SUCCESS;
 }
 

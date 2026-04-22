@@ -193,19 +193,6 @@ void ClipAppConfigParser::parse_query_defaults_config(const ryml::ConstNodeRef &
     m_config.query_defaults.max_query = get_int_value(query_defaults_node, "max_query", 100);
     m_config.query_defaults.remove_duplicate_within_sec =
         get_int_value(query_defaults_node, "remove_duplicate_within_sec", 60);
-    m_config.query_defaults.default_negative_prompts.clear();
-    m_config.query_defaults.default_negative_prompts = {"a photo of a person"};
-    // if (query_defaults_node.has_child("negative_prompts") && query_defaults_node["negative_prompts"].is_seq())
-    // {
-    //     for (const auto &prompt_node : query_defaults_node["negative_prompts"])
-    //     {
-    //         std::string prompt = get_string_value(prompt_node, "", "");
-    //         if (!prompt.empty())
-    //         {
-    //             m_config.query_defaults.default_negative_prompts.push_back(prompt);
-    //         }
-    //     }
-    // }
 }
 
 void ClipAppConfigParser::parse_frontend_source_from_file_config(const ryml::ConstNodeRef &root)
@@ -321,6 +308,14 @@ void ClipAppConfigParser::parse_pipeline_config(const ryml::ConstNodeRef &root)
     else
     {
         std::cout << "No 'video_storage_stage' section found in 'pipeline_config', using defaults" << std::endl;
+    }
+
+    if (pipeline_node.has_child("full_frame_indexing_stage"))
+    {
+        m_config.pipeline_config.full_frame_indexing_stage.enabled =
+            get_bool_value(pipeline_node["full_frame_indexing_stage"], "enabled", false);
+        m_config.pipeline_config.full_frame_indexing_stage.interval_seconds =
+            get_float_value(pipeline_node["full_frame_indexing_stage"], "interval_seconds", 5.0f);
     }
 }
 

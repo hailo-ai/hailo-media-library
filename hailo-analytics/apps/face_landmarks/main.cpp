@@ -1,9 +1,6 @@
 // general includes
-#include <queue>
 #include <fstream>
 #include <iostream>
-#include <sstream>
-#include <thread>
 #include <tl/expected.hpp>
 #include <cxxopts/cxxopts.hpp>
 
@@ -11,10 +8,9 @@
 #include "media_library/signal_utils.hpp"
 
 // infra includes
-#include "hailo_analytics/analytics/tiling.hpp"
-#include "hailo_analytics/analytics/face_landmarks.hpp"
+#include "face_landmarks_pipeline_builder.hpp"
 #include "hailo_analytics/analytics/vision.hpp"
-#include "hailo_analytics/analytics/analytic_metadata_sender.hpp"
+#include "hailo_analytics/analytics/analytic_metadata_zmq_sender.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
 // defines
@@ -29,13 +25,6 @@
 #define NO_PROFILE_SELECTED ""
 #define MEDIALIB_CONFIG_PATH "/etc/imaging/cfg/medialib_configs/ai_example_medialib_config.json"
 
-// Detection AI Params
-#define YOLO_HEF_FILE "/home/root/apps/ai_example_app/resources/hailo_yolov8n_384_640.hef"
-// Detection Postprocess Params
-#define YOLO_POST_SO "/usr/lib/hailo-post-processes/libyolo_hailortpp_post.so"
-#define YOLO_FUNC_NAME "hailo_yolov8n"
-#define YOLO_POST_CONF "/home/root/apps/webserver/resources/configs/yolov5_personface.json"
-
 enum class ArgumentType
 {
     Help,
@@ -44,6 +33,8 @@ enum class ArgumentType
     Config,
     Profile,
     HostIP,
+    UdpPort,
+    ZmqPort,
     Error
 };
 
@@ -66,8 +57,12 @@ cxxopts::Options build_arg_parser()
         cxxopts::value<std::string>()->default_value(MEDIALIB_CONFIG_PATH))
     ("a,profile", "Profile name", 
         cxxopts::value<std::string>()->default_value(NO_PROFILE_SELECTED))
-    ("o,host-ip", "Host IP address for UDP output", 
-        cxxopts::value<std::string>()->default_value(HOST_IP));
+    ("o,host-ip", "Host IP address for UDP output",
+        cxxopts::value<std::string>()->default_value(HOST_IP))
+    ("u,udp-port", "UDP output port (default: 5000)",
+        cxxopts::value<std::string>()->default_value(""))
+    ("z,zmq-port", "ZMQ publisher port (default: 7000)",
+        cxxopts::value<std::string>()->default_value(""));
     // clang-format on
 
     return options;
@@ -108,6 +103,16 @@ std::vector<ArgumentType> handle_arguments(const cxxopts::ParseResult &result, c
         arguments.push_back(ArgumentType::HostIP);
     }
 
+    if (result.count("udp-port") && !result["udp-port"].as<std::string>().empty())
+    {
+        arguments.push_back(ArgumentType::UdpPort);
+    }
+
+    if (result.count("zmq-port") && !result["zmq-port"].as<std::string>().empty())
+    {
+        arguments.push_back(ArgumentType::ZmqPort);
+    }
+
     // Handle unrecognized options
     for (const auto &unrecognized : result.unmatched())
     {
@@ -126,6 +131,8 @@ struct AppResources
     std::string medialib_config_path;
     std::string profile_name;
     std::string host_ip = HOST_IP;
+    std::string udp_port;
+    std::string zmq_port;
 };
 
 std::string read_string_from_file(const char *file_path)
@@ -189,13 +196,14 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
         throw std::runtime_error("Failed to get stream ids");
     }
 
-    auto vision_config = hailo_analytics::analytics::vision::base_vision_config(output_streams.value());
+    int base_port = app_resources->udp_port.empty() ? 5000 : std::stoi(app_resources->udp_port);
+    auto vision_config = hailo_analytics::analytics::vision::base_vision_config(output_streams.value(), base_port);
     vision_config.outputs.erase(AI_SINK);
     vision_config.outputs[VISION_SINK].udp_config.host = app_resources->host_ip;
     // we generate a filled in vision_config, and erase the AI_SINK, to override the vision pipeline
     // from automatically generating and connecting frontend outputs to encoders
     auto vision_pipeline_status = hailo_analytics::analytics::vision::generate_vision_pipeline(
-        app_resources->media_library, VISION_PIPELINE, vision_config);
+        *app_resources->media_library, VISION_PIPELINE, vision_config);
     if (!vision_pipeline_status.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create vision pipeline");
@@ -204,15 +212,7 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     hailo_analytics::pipeline::PipelinePtr vision_pipeline = vision_pipeline_status.value();
 
     // AI Pipeline Stages
-    hailo_analytics::analytics::tiling::tiling_detection_config_t tiling_detection_config;
-    tiling_detection_config.detection_config.ai_config.hef_path = YOLO_HEF_FILE;
-    tiling_detection_config.detection_config.post_config.so_path = YOLO_POST_SO;
-    tiling_detection_config.detection_config.post_config.function_name = YOLO_FUNC_NAME;
-    tiling_detection_config.detection_config.post_config.config_path = YOLO_POST_CONF;
-    tiling_detection_config.tiling_config.queue_size = 2;
-    tiling_detection_config.aggregator_config.main_queue_size = 3;
-    auto tiling_pipeline_status = hailo_analytics::analytics::tiling::generate_tiling_detection_pipeline(
-        TILING_PIPELINE, tiling_detection_config);
+    auto tiling_pipeline_status = face_landmarks_app::build_tiling_pipeline(TILING_PIPELINE);
     if (!tiling_pipeline_status.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create tiling pipeline");
@@ -220,15 +220,7 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     }
     hailo_analytics::pipeline::PipelinePtr tiling_pipeline = tiling_pipeline_status.value();
 
-    // AI Pipeline Stages
-    hailo_analytics::analytics::face_landmarks::bbox_crop_landmarks_config_t bbox_crop_landmarks_config;
-    bbox_crop_landmarks_config.bbox_crop_config.queue_size = 1;
-    bbox_crop_landmarks_config.aggregator_config.main_queue_size = 3;
-    bbox_crop_landmarks_config.aggregator_config.sub_queue_size = 20;
-    bbox_crop_landmarks_config.landmarks_config.ai_config.queue_size = 20;
-    bbox_crop_landmarks_config.landmarks_config.post_config.queue_size = 20;
-    auto landmarks_pipeline_status = hailo_analytics::analytics::face_landmarks::generate_bbox_landmarks_pipeline(
-        LANDMARKS_PIPELINE, bbox_crop_landmarks_config);
+    auto landmarks_pipeline_status = face_landmarks_app::build_landmarks_pipeline(LANDMARKS_PIPELINE);
     if (!landmarks_pipeline_status.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create landmarks pipeline");
@@ -237,11 +229,16 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     hailo_analytics::pipeline::PipelinePtr landmarks_pipeline = landmarks_pipeline_status.value();
 
     // Analytic Metadata Sender Pipeline
-    hailo_analytics::analytics::analytic_metadata_sender::analytic_metadata_zmq_sender_config_t analytics_sender_config;
+    hailo_analytics::analytics::analytic_metadata_zmq_sender::analytic_metadata_zmq_sender_config_t
+        analytics_sender_config;
     analytics_sender_config.analytic_metadata_config.queue_size = 1;
     analytics_sender_config.zeromq_config.queue_size = 1;
+    if (!app_resources->zmq_port.empty())
+    {
+        analytics_sender_config.zeromq_config.pub_address = "tcp://*:" + app_resources->zmq_port;
+    }
     auto analytic_metadata_sender_pipeline_status =
-        hailo_analytics::analytics::analytic_metadata_sender::generate_analytic_metadata_sender_pipeline(
+        hailo_analytics::analytics::analytic_metadata_zmq_sender::generate_analytic_metadata_zmq_sender_pipeline(
             ANALYTIC_META_SENDER_PIPELINE, analytics_sender_config);
     if (!analytic_metadata_sender_pipeline_status.has_value())
     {
@@ -318,6 +315,12 @@ int main(int argc, char *argv[])
             break;
         case ArgumentType::HostIP:
             app_resources->host_ip = result["host-ip"].as<std::string>();
+            break;
+        case ArgumentType::UdpPort:
+            app_resources->udp_port = result["udp-port"].as<std::string>();
+            break;
+        case ArgumentType::ZmqPort:
+            app_resources->zmq_port = result["zmq-port"].as<std::string>();
             break;
         case ArgumentType::Error:
             return 1;

@@ -62,19 +62,11 @@ class OutputModule
     AppStatus add_buffer(HailoMediaLibraryBufferPtr ptr, size_t size);
     void on_fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps);
     gboolean on_bus_call(GstBus *bus, GstMessage *msg);
-    static gboolean bus_call(GstBus *bus, GstMessage *msg, gpointer user_data)
-    {
-        OutputModule *output_module = static_cast<OutputModule *>(user_data);
-        return output_module->on_bus_call(bus, msg);
-    }
+    static gboolean bus_call(GstBus *bus, GstMessage *msg, gpointer user_data);
     void set_gst_callbacks(std::string source);
 
   private:
-    static void fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps, gpointer user_data)
-    {
-        OutputModule *output_module = static_cast<OutputModule *>(user_data);
-        output_module->on_fps_measurement(fpssink, fps, droprate, avgfps);
-    }
+    static void fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps, gpointer user_data);
     GstFlowReturn add_buffer_internal(GstBuffer *buffer);
 };
 
@@ -83,9 +75,6 @@ struct OutputPtrWrapper
     HailoMediaLibraryBufferPtr ptr;
 };
 
-static inline void hailo_media_library_output_release(OutputPtrWrapper *wrapper)
-{
-    delete wrapper;
-}
+void hailo_media_library_output_release(OutputPtrWrapper *wrapper);
 
 } // namespace hailo_analytics::pipeline::sinks

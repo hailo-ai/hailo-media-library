@@ -55,6 +55,12 @@ class DspBaseCropStage : public hailo_analytics::pipeline::ThreadedStage
     std::condition_variable m_available_buffers_cv;
     std::mutex m_buff_pool_mutex;
 
+    /**
+     * @brief Registers a release callback on the buffer pool to notify m_available_buffers_cv.
+     * Call after m_buffer_pool->init() when m_pool_mode == BLOCKING.
+     */
+    void setup_pool_notification();
+
     StagePoolMode m_pool_mode;         //< Pool mode for the buffer pool used in this stage
     int m_crop_every_x_frames;         // Crop every n frames (default 1)
     int m_frame_counter;               // Internal frame counter
@@ -83,6 +89,16 @@ class DspBaseCropStage : public hailo_analytics::pipeline::ThreadedStage
                      StagePoolMode pool_mode = StagePoolMode::FAIL_ON_EMPTY_POOL, size_t crop_every_x_frames = 1,
                      dsp_scaling_mode_t scaling_mode = DSP_SCALING_MODE_STRETCH,
                      dsp_color_t letterbox_color = DEFAULT_LETTERBOX_COLOR);
+
+    /**
+     * @brief Sets the crop frequency (how often frames are cropped).
+     *
+     * This can be called at runtime to adjust the inference rate without
+     * recreating the pipeline.
+     *
+     * @param crop_every_x_frames Crop every N frames (1 = every frame).
+     */
+    void set_crop_every_x_frames(int crop_every_x_frames);
 
     /**
      * @brief Prepares cropping dimensions for a single bounding box.

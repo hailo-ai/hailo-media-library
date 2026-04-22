@@ -16,7 +16,8 @@ class HTTPServer
         std::function<void(const httplib::Request &req, httplib::Response &res, std::exception_ptr ep)>;
 
     HTTPServer();
-    static std::shared_ptr<HTTPServer> create();
+    ~HTTPServer();
+    static std::unique_ptr<HTTPServer> create();
     void listen(const std::string &host, int port);
     void set_mount_point(const std::string &mount_point, const std::string &path);
     void Get(const std::string &pattern, std::function<void()> callback);
