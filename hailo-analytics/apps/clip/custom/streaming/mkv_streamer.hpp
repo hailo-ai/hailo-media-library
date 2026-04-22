@@ -20,10 +20,7 @@ struct VideoFile
     int64_t start_timestamp_ms; // Epoch timestamp in milliseconds
     int64_t duration_ms;        // Video duration in milliseconds
 
-    VideoFile(const std::string &path, int64_t start_ts, int64_t duration)
-        : file_path(path), start_timestamp_ms(start_ts), duration_ms(duration)
-    {
-    }
+    VideoFile(const std::string &path, int64_t start_ts, int64_t duration);
 };
 
 // RTP packet data structure
@@ -48,11 +45,7 @@ struct RtpPacketData
     CodecType codec_type;          // Codec type
     bool is_keyframe;              // Whether this packet contains keyframe data
 
-    RtpPacketData()
-        : data(nullptr), size(0), timestamp(0), sequence_number(0), ssrc(0), marker_bit(false), payload_type(0),
-          original_timestamp_ms(0), codec_type(CodecType::UNKNOWN), is_keyframe(false)
-    {
-    }
+    RtpPacketData();
 };
 
 // Error information structure
@@ -72,9 +65,7 @@ struct ErrorInfo
     std::string message;
     std::string file_path; // File that caused the error (if applicable)
 
-    ErrorInfo(Type t, const std::string &msg, const std::string &path = "") : type(t), message(msg), file_path(path)
-    {
-    }
+    ErrorInfo(Type t, const std::string &msg, const std::string &path = "");
 };
 
 // Callback function types
@@ -126,17 +117,8 @@ class MKVStreamer
         uint32_t base_rtp_timestamp; // Base timestamp for this file
         guint bus_watch_id;
 
-        FileContext(const VideoFile &vf)
-            : video_file(vf), pipeline(nullptr), appsink(nullptr), payloader(nullptr), is_prepared(false),
-              is_eos(false), current_position_ms(0), detected_codec(RtpPacketData::CodecType::UNKNOWN),
-              base_rtp_timestamp(0), bus_watch_id(0)
-        {
-        }
-
-        ~FileContext()
-        {
-            cleanup();
-        }
+        FileContext(const VideoFile &vf);
+        ~FileContext();
 
         void cleanup();
     };

@@ -1,4 +1,4 @@
-#include "media_library/examples_common.hpp"
+#include "common/common.hpp"
 #include "media_library/privacy_mask.hpp"
 #include "media_library/privacy_mask_types.hpp"
 

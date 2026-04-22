@@ -26,6 +26,7 @@ class HailortAsyncStitching
     std::function<void(std::shared_ptr<void> stitch_context)> m_on_infer_finish;
     std::string m_hef_path;
     std::string m_group_id;
+    bool m_use_hailort_service = false;
     int m_scheduler_threshold;
     int m_scheduler_timeout_in_ms;
     int m_num_exp;
@@ -43,7 +44,7 @@ class HailortAsyncStitching
     void set_on_infer_finish(std::function<void(std::shared_ptr<void> stitch_context)> on_infer_finish);
 
     int init(const std::string &hef_path, const std::string &group_id, int scheduler_threshold,
-             int scheduler_timeout_in_ms, int num_exp);
+             int scheduler_timeout_in_ms, int num_exp, bool use_hailort_service = false);
 
     int process(HailoMediaLibraryBufferPtr input_buffer, int awb_buffer, HailoMediaLibraryBufferPtr output_buffer,
                 std::shared_ptr<void> stitch_context);

@@ -35,267 +35,52 @@ class WebRTCStreamerExt : public hailo_analytics::analytics::app_constructor::Ca
 
     // Simple connection tracking
     std::atomic<bool> m_client_connected = false;
+    std::string m_stream_name; // Store the stream name for stop() comparison
 
   public:
-    WebRTCStreamerExt() : m_ssrc(generate_unique_ssrc()), m_session_id(generate_session_id())
-    {
-        initialize_peer_connection();
-    }
+    WebRTCStreamerExt();
 
-    ~WebRTCStreamerExt()
-    {
-        close_connection();
-    }
+    ~WebRTCStreamerExt();
 
     // Add your H264 sample to the streaming queue
-    void on_rtp_packet(GstSample *sample, hailo_analytics::pipeline::sinks::rtp_session_id_t session_id) override
-    {
-        (void)session_id; // Unused parameter
-        std::lock_guard<std::mutex> lock(m_queue_mutex);
-        if (m_is_streaming)
-        {
-            // Increment ref count since we're storing the sample and caller will unref
-            gst_sample_ref(sample);
-            m_sample_queue.push(sample);
-        }
-        // Note: Don't unref here - the caller owns the sample and will unref it
-    }
+    void on_rtp_packet(GstSample *sample, hailo_analytics::pipeline::sinks::rtp_session_id_t session_id) override;
 
     // Convenience overload for backward compatibility
-    void send_rtp_packet(GstSample *sample)
-    {
-        on_rtp_packet(sample, m_session_id);
-    }
+    void send_rtp_packet(GstSample *sample);
 
-    void close_connection()
-    {
-        std::lock_guard<std::mutex> lock(m_connection_mutex);
+    void close_connection();
 
-        if (m_is_streaming)
-        {
-            m_is_streaming = false;
-            if (m_streaming_thread.joinable())
-                m_streaming_thread.join();
-        }
+    bool is_connection_closed() const;
 
-        if (m_video_track)
-        {
-            m_video_track->close();
-            m_video_track.reset();
-        }
-
-        if (m_peer_connection && m_peer_connection->state() == rtc::PeerConnection::State::Connected)
-            m_peer_connection->close();
-
-        // Clear sample queue
-        std::lock_guard<std::mutex> queueLock(m_queue_mutex);
-        while (!m_sample_queue.empty())
-        {
-            gst_sample_unref(m_sample_queue.front());
-            m_sample_queue.pop();
-        }
-
-        m_connection_closed = true;
-        m_client_connected = false;
-    }
-
-    bool is_connection_closed() const
-    {
-        return m_connection_closed;
-    }
-
-    void reset_connection()
-    {
-        close_connection();
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        initialize_peer_connection();
-
-        HAILO_ANALYTICS_LOG_INFO("WebRTC connection reset");
-    }
+    void reset_connection();
 
     // Check if we have an active client connection
-    bool has_active_client() const
-    {
-        return m_client_connected && m_peer_connection &&
-               m_peer_connection->state() == rtc::PeerConnection::State::Connected;
-    }
+    bool has_active_client() const;
 
-    std::string create_offer()
-    {
+    std::string create_offer();
 
-        // If we already have an active client, reset the connection first
-        if (has_active_client())
-        {
-            HAILO_ANALYTICS_LOG_INFO("Existing client detected, resetting connection...");
-            reset_connection();
-        }
-        else if (is_connection_closed())
-        {
-            reset_connection();
-        }
-
-        // Aaron TODO: Do we need to support H265 and H264 base on the stream configuration
-        rtc::Description::Video videoDesc("video", rtc::Description::Direction::SendOnly);
-        videoDesc.addH264Codec(96);
-        videoDesc.addSSRC(m_ssrc, "video-send");
-        m_video_track = m_peer_connection->addTrack(videoDesc);
-        m_peer_connection->setLocalDescription();
-
-        if (!m_is_streaming)
-        {
-            m_is_streaming = true;
-            m_streaming_thread = std::thread(&WebRTCStreamerExt::streaming_loop, this);
-        }
-
-        auto localDesc = m_peer_connection->localDescription();
-        json offerJson = {{"type", "offer"}, {"sdp", localDesc->generateSdp()}};
-        return offerJson.dump();
-    }
-
-    void handle_answer(const std::string &answerSdp)
-    {
-        rtc::Description answer(answerSdp, "answer");
-        m_peer_connection->setRemoteDescription(answer);
-        m_client_connected = true; // Mark client as connected when we receive answer
-    }
+    void handle_answer(const std::string &answerSdp);
 
     void handle_ice_candidate(const std::string &candidate, const std::string &sdpMid,
-                              [[maybe_unused]] int sdpMLineIndex)
-    {
-        rtc::Candidate rtcCandidate(candidate, sdpMid);
-        m_peer_connection->addRemoteCandidate(rtcCandidate);
-    }
+                              [[maybe_unused]] int sdpMLineIndex);
 
     // Get connection info for debugging if needed
-    std::string get_connection_info() const
-    {
-        std::lock_guard<std::mutex> lock(m_connection_mutex);
-        json info = {{"hasActiveClient", has_active_client()},
-                     {"isStreaming", m_is_streaming},
-                     {"connectionClosed", m_connection_closed.load()},
-                     {"clientConnected", m_client_connected.load()},
-                     {"peerConnectionState", m_peer_connection ? static_cast<int>(m_peer_connection->state()) : -1}};
-        return info.dump();
-    }
+    std::string get_connection_info() const;
 
     // Start the WebRTC streaming session
-    hailo_analytics::pipeline::sinks::rtp_session_id_t start(std::string session_name)
-    {
-        (void)session_name; // Unused parameter
-        return m_session_id;
-    }
+    hailo_analytics::pipeline::sinks::rtp_session_id_t start(std::string session_name);
 
-    void stop(hailo_analytics::pipeline::sinks::rtp_session_id_t session_id)
-    {
-        if (session_id == m_session_id)
-        {
-            close_connection();
-        }
-    }
+    void stop(hailo_analytics::pipeline::sinks::rtp_session_id_t session_id);
 
     // Helper function to generate session id
-    static std::string generate_session_id()
-    {
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_int_distribution<> dis(0, 15);
+    static std::string generate_session_id();
 
-        std::string session_id;
-        for (int i = 0; i < 16; ++i)
-        {
-            session_id += "0123456789abcdef"[dis(gen)];
-        }
-        return session_id;
-    }
-
-    std::string get_session_id() const
-    {
-        return m_session_id;
-    }
+    std::string get_session_id() const;
 
   private:
-    void streaming_loop()
-    {
-        while (m_is_streaming)
-        {
+    void streaming_loop();
 
-            GstSample *sample = NULL;
-            {
-                std::lock_guard<std::mutex> lock(m_queue_mutex);
-                if (!m_sample_queue.empty())
-                {
-                    sample = m_sample_queue.front();
-                    m_sample_queue.pop();
-                }
-            }
+    void initialize_peer_connection();
 
-            if (!sample)
-            {
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                continue;
-            }
-
-            GstBuffer *buffer = gst_sample_get_buffer(sample);
-            GstMapInfo mapInfo;
-            if (!gst_buffer_map(buffer, &mapInfo, GST_MAP_READ))
-            {
-                gst_sample_unref(sample);
-                std::cerr << "WebRtc Streamer Failed to Map Buffer" << std::endl;
-                HAILO_ANALYTICS_LOG_ERROR("WebRtc Streamer Failed to Map Buffer");
-                continue;
-            }
-
-            if (m_peer_connection->state() != rtc::PeerConnection::State::Connected || !m_video_track ||
-                !m_video_track->isOpen())
-            {
-                gst_buffer_unmap(buffer, &mapInfo);
-                gst_sample_unref(sample);
-                continue;
-            }
-
-            if (mapInfo.size >= sizeof(rtc::RtpHeader))
-            {
-
-                auto *rtpHeader = reinterpret_cast<rtc::RtpHeader *>(mapInfo.data);
-                rtpHeader->setSsrc(m_ssrc);
-
-                m_video_track->send(reinterpret_cast<const std::byte *>(mapInfo.data), mapInfo.size);
-            }
-            else
-            {
-                HAILO_ANALYTICS_LOG_INFO("packet less than rtp header size!!");
-            }
-            gst_buffer_unmap(buffer, &mapInfo);
-            gst_sample_unref(sample);
-        }
-    }
-
-    void initialize_peer_connection()
-    {
-        rtc::Configuration config;
-        config.bindAddress = "10.0.0.1";
-        config.iceServers.clear();
-
-        m_peer_connection = std::make_shared<rtc::PeerConnection>(config);
-
-        m_peer_connection->onStateChange([this](rtc::PeerConnection::State state) {
-            if (state == rtc::PeerConnection::State::Closed || state == rtc::PeerConnection::State::Failed)
-            {
-                m_connection_closed = true;
-                m_client_connected = false;
-            }
-        });
-
-        m_peer_connection->onGatheringStateChange([](rtc::PeerConnection::GatheringState state) {
-            HAILO_ANALYTICS_LOG_INFO("Gathering State: {}", static_cast<int>(state));
-        });
-
-        m_connection_closed = false;
-    }
-
-    static uint32_t generate_unique_ssrc()
-    {
-        static std::atomic<uint32_t> ssrc_counter{1};
-        return ssrc_counter.fetch_add(1);
-    }
+    static uint32_t generate_unique_ssrc();
 };

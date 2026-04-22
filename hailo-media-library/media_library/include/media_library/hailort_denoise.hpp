@@ -49,9 +49,9 @@ void bind_skip_input_buffer(NetworkInferenceBindingsPtr bindings, int index, Hai
 
 enum class HailortAsyncDenoiseType
 {
-    PostISP,
-    PreISPVd,
-    PreISPHdm
+    PostISP,  // AI-ISP Gen1
+    PreISPVd, // AI-ISP Gen2 (VDM)
+    PreISPHdm // AI-ISP Gen3 (HDM)
 };
 
 class HailortAsyncDenoise
@@ -63,7 +63,8 @@ class HailortAsyncDenoise
     virtual ~HailortAsyncDenoise();
 
     bool set_config(const denoise_config_t &denoise_config, const std::string &group_id, int scheduler_threshold,
-                    const std::chrono::milliseconds &scheduler_timeout, int batch_size);
+                    const std::chrono::milliseconds &scheduler_timeout, int batch_size,
+                    bool use_hailort_service = false);
     void wait_for_all_jobs_to_finish();
     bool has_pending_jobs() const;
     bool process(NetworkInferenceBindingsPtr bindings);
@@ -77,9 +78,15 @@ class HailortAsyncDenoise
     virtual HailortAsyncDenoiseType type() const = 0;
     virtual std::string get_network_path(const denoise_config_t &denoise_config) const = 0;
 
+    size_t get_input_frame_size(const std::string &tensor_name) const;
+    size_t get_output_frame_size(const std::string &tensor_name) const;
+    hailo_3d_image_shape_t get_input_frame_shape(const std::string &tensor_name) const;
+    hailo_3d_image_shape_t get_output_frame_shape(const std::string &tensor_name) const;
+
   protected:
     OnInferCb m_on_infer_finish;
     std::string m_group_id;
+    bool m_use_hailort_service = false;
     int m_scheduler_threshold;
     std::chrono::milliseconds m_scheduler_timeout;
     denoise_config_t m_denoise_config;

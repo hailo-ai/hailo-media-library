@@ -24,11 +24,16 @@ git_metadata_lib = static_library(
 
 dsp_dep = meson.get_compiler('c').find_library('libhailodsp', required: false, dirs: '/usr/lib/')
 expected_dep = meson.get_compiler('cpp').find_library('tl', required: false, dirs: '/usr/include/')
-perfetto_dep = meson.get_compiler('cpp').find_library('perfetto', required: false, dirs: '/usr/lib/')
-
-if perfetto_dep.found()
-    common_args += ['-DHAVE_PERFETTO']
+if get_option('perfetto')
+    perfetto_dep = meson.get_compiler('cpp').find_library('perfetto', required: false, dirs: '/usr/lib/')
+    if perfetto_dep.found()
+        common_args += ['-DHAVE_PERFETTO']
+    else
+        perfetto_dep = dependency('', required: false)
+        common_args += ['-DPERFETTO_NOT_FOUND']
+    endif
 else
+    perfetto_dep = dependency('', required: false)
     common_args += ['-DPERFETTO_NOT_FOUND']
 endif
 

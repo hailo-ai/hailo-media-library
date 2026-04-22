@@ -1,6 +1,3 @@
-#include <chrono>
-#include <thread>
-#include <signal.h>
 #include <nlohmann/json.hpp>
 #include <cxxopts/cxxopts.hpp>
 #include <atomic>
@@ -8,14 +5,13 @@
 #include <fstream>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "pipeline/pipeline.hpp"
 #include "pipeline/pipeline_factory.hpp"
 #include "common/httplib/httplib_utils.hpp"
 #include "common/logger_macros.hpp"
 #include "common/common.hpp"
 #include "resources/common/repository.hpp"
-#include "resources/common/events_utils.hpp"
 #include "media_library/signal_utils.hpp"
+#include "media_library/media_library_types.hpp"
 
 #define DEFAULT_CONFIGS_PATH "/etc/imaging/cfg/medialib_configs/"
 #define APPEND_CONFIG_PATH(path) DEFAULT_CONFIGS_PATH path
@@ -100,11 +96,14 @@ int main(int argc, char *argv[])
     setenv("MEDIALIB_USE_DIV_FRAMERATE_LOGIC", "1", 1);
     setenv("MEDIALIB_FD_DUP", "1", 1);
 
+    // Disable persistence so analytics config gets updated when switching pipelines
+    application_analytics_config_t::is_persistent = false;
+
     std::string medialib_config_path = "";
     Architecture arch = get_hailo_architecture();
     flags_init(argc, argv, medialib_config_path);
 
-    std::shared_ptr<HTTPServer> svr = HTTPServer::create();
+    std::unique_ptr<HTTPServer> svr = HTTPServer::create();
     // register error handler
     svr->set_exception_handler([](const auto &req, auto &res, std::exception_ptr ep) {
         auto fmt = "Error 500: %s";
@@ -128,12 +127,13 @@ int main(int argc, char *argv[])
     });
 
     // Create pipeline factory instead of direct pipeline creation
-    WebserverResourceRepository resources = webserver::resources::ResourceRepository::create(svr, medialib_config_path);
+    WebserverResourceRepository resources =
+        webserver::resources::ResourceRepository::create(*svr.get(), medialib_config_path);
 
-    auto pipeline_factory = std::make_shared<webserver::pipeline::PipelineFactory>(resources, arch, pipeline_t::Basic);
+    auto pipeline_factory = std::make_unique<webserver::pipeline::PipelineFactory>(*resources, arch, pipeline_t::Basic);
 
     signal_utils::SignalHandler signal_handler;
-    signal_handler.register_signal_handler([pipeline_factory](int signal) {
+    signal_handler.register_signal_handler([&pipeline_factory, &resources, &svr](int signal) {
         // Use an atomic flag to make sure the shutdown sequence is executed only once,
         // even if multiple signals are delivered or multiple threads enter this handler.
         bool expected = false;
@@ -150,11 +150,10 @@ int main(int argc, char *argv[])
         }
         std::cout << "Received signal " << signal << ", stopping pipeline..." << std::endl;
 
-        auto pipeline = pipeline_factory->get_current_pipeline();
-        if (pipeline)
-        {
-            pipeline->stop();
-        }
+        pipeline_factory = nullptr;
+        resources = nullptr;
+        svr = nullptr;
+
         std::cout << "Pipeline stopped, exiting now" << std::endl;
         // Use _Exit(0) to terminate the process immediately without running static
         // destructors, flushing stdio buffers, or calling any atexit/quick_exit handlers.

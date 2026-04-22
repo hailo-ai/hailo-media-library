@@ -1,4 +1,5 @@
 #pragma once
+#include "common/httplib/httplib_utils.hpp"
 #include "resources.hpp"
 #include "resources/webrtc.hpp"
 #include "resources/osd.hpp"
@@ -20,26 +21,16 @@ class ResourceRepository
 
   public:
     std::shared_ptr<EventBus> m_event_bus;
-    std::shared_ptr<HTTPServer> m_srv;
+    HTTPServer &m_srv;
 
-    static std::shared_ptr<webserver::resources::ResourceRepository> create(std::shared_ptr<HTTPServer> srv,
-                                                                            std::string config_path);
-    static std::shared_ptr<webserver::resources::ResourceRepository> create(std::shared_ptr<HTTPServer> srv);
-    ResourceRepository(std::vector<WebserverResource> resources, std::shared_ptr<EventBus> event_bus,
-                       std::shared_ptr<HTTPServer> srv);
-    void register_resources(std::shared_ptr<HTTPServer> srv);
-    WebserverResource get(ResourceType t)
-    {
-        auto it = std::find_if(m_resources.begin(), m_resources.end(),
-                               [t](const WebserverResource &resource) { return resource->get_type() == t; });
-        if (it != m_resources.end())
-        {
-            return *it;
-        }
-        throw std::runtime_error("Resource not found");
-    }
+    static std::unique_ptr<webserver::resources::ResourceRepository> create(HTTPServer &srv, std::string config_path);
+    static std::unique_ptr<webserver::resources::ResourceRepository> create(HTTPServer &srv);
+    ResourceRepository(std::vector<WebserverResource> resources, std::shared_ptr<EventBus> event_bus, HTTPServer &srv);
+    ~ResourceRepository();
+    void register_resources(HTTPServer &srv);
+    WebserverResource get(ResourceType t);
 };
 } // namespace resources
 } // namespace webserver
 
-typedef std::shared_ptr<webserver::resources::ResourceRepository> WebserverResourceRepository;
+typedef std::unique_ptr<webserver::resources::ResourceRepository> WebserverResourceRepository;

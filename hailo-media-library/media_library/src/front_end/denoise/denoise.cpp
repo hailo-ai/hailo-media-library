@@ -70,7 +70,8 @@ MediaLibraryDenoise::~MediaLibraryDenoise()
 }
 
 media_library_return MediaLibraryDenoise::init(const denoise_config_t &denoise_configs,
-                                               const input_video_config_t &input_video_configs)
+                                               const input_video_config_t &input_video_configs,
+                                               const hailort_t &hailort_configs)
 {
     if (m_initialized)
     {
@@ -79,8 +80,14 @@ media_library_return MediaLibraryDenoise::init(const denoise_config_t &denoise_c
     LOGGER__MODULE__INFO(MODULE_NAME, "Initializing denoise buffer pools and threads");
     m_should_queue_dummy_loopback_buffer = true;
     prepare_hailort_instance(denoise_configs);
-    // NOTE: buffer pools are allocated based on the hailort instance type
-    media_library_return ret = create_and_initialize_buffer_pools(input_video_configs);
+    if (!m_hailort_denoise->set_config(denoise_configs, hailort_configs.device_id, HAILORT_SCHEDULER_THRESHOLD,
+                                       HAILORT_SCHEDULER_TIMEOUT, HAILORT_SCHEDULER_BATCH_SIZE))
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init hailort with device_id: {}", hailort_configs.device_id);
+        return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    // NOTE: buffer pools are allocated based on the hailort instance
+    media_library_return ret = create_and_initialize_buffer_pools(denoise_configs, input_video_configs);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to allocate denoise buffer pool");
@@ -144,15 +151,9 @@ media_library_return MediaLibraryDenoise::configure(HailoMediaLibraryBufferPtr i
         {
             deinit();
         }
-        if (init(denoise_configs, input_video_configs) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        if (init(denoise_configs, input_video_configs, hailort_configs) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to initialize denoise");
-            return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
-        }
-        if (!m_hailort_denoise->set_config(denoise_configs, hailort_configs.device_id, HAILORT_SCHEDULER_THRESHOLD,
-                                           HAILORT_SCHEDULER_TIMEOUT, HAILORT_SCHEDULER_BATCH_SIZE))
-        {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init hailort with device_id: {}", hailort_configs.device_id);
             return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
     }
@@ -230,7 +231,7 @@ media_library_return MediaLibraryDenoise::acquire_loopback_buffer(NetworkInferen
 media_library_return MediaLibraryDenoise::perform_denoise(NetworkInferenceBindingsPtr bindings)
 {
     media_library_return result;
-    if (acquire_output_buffer(bindings) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    if (acquire_output_buffers(bindings) != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "failed to acquire buffer for denoise output");
         return media_library_return::MEDIA_LIBRARY_ERROR;
