@@ -1,8 +1,22 @@
 # APPS
 option('apps_install_dir', type : 'string', value : '')
 
+# App Groups - Control which app categories to build
+option('build_case_studies', type : 'boolean', value : true)
+option('build_face_landmarks', type : 'boolean', value : true)
+option('build_lpr', type : 'boolean', value : true)
+option('build_clip', type : 'boolean', value : true)
+option('build_webserver', type : 'boolean', value : true)
+option('build_native', type : 'boolean', value : true)
+
+# Verification/Testing - Build unit tests for library validation
+option('build_verification', type : 'boolean', value : true)
+
 # Platform
 option('platform', type : 'combo', choices : ['15l', '15h'], value : '15h')
 
 # Docs
 option('build_docs', type : 'boolean', value : false)
+
+# Perfetto tracing support
+option('perfetto', type : 'boolean', value : true)

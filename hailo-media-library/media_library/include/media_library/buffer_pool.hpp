@@ -99,6 +99,7 @@ class MediaLibraryBufferPool : public std::enable_shared_from_this<MediaLibraryB
     size_t m_max_buffers;
     uint32_t m_buffer_index;
     std::condition_variable m_pool_cv;
+    std::function<void(void *)> m_on_release_callback;
 
   public:
     /**
@@ -133,6 +134,17 @@ class MediaLibraryBufferPool : public std::enable_shared_from_this<MediaLibraryB
     MediaLibraryBufferPool &operator=(const MediaLibraryBufferPool &) = delete;
 
     int get_available_buffers_count();
+
+    /**
+     * @brief Sets a callback to be invoked when a buffer is released back to the pool.
+     *
+     * The callback is passed through to each acquired buffer's on_free handler,
+     * so it fires when the buffer's shared_ptr reference count reaches zero and
+     * the destructor runs (after all planes are released back to the pool).
+     *
+     * @param[in] callback - function to call on buffer release, receives on_free_data (nullptr by default)
+     */
+    void set_on_release_callback(std::function<void(void *)> callback);
 
     /**
      * @brief Initialization of MediaLibraryBufferPool
@@ -310,6 +322,8 @@ struct hailo_media_library_buffer
     uint32_t buffer_index;
     uint64_t isp_timestamp_ns;
     uint64_t pts;
+    uint64_t dts;
+    uint64_t duration;
     HailoMediaLibraryBufferPtr motion_detection_buffer;
     bool motion_detected;
     float optical_zoom_magnification;
@@ -331,8 +345,8 @@ struct hailo_media_library_buffer
           isp_ae_converged(HAILO_ISP_AE_CONVERGED_DEFAULT_VALUE),
           isp_ae_integration_time(HAILO_ISP_AE_INTEGRATION_TIME_DEFAULT_VALUE),
           isp_ae_average_luma(HAILO_ISP_AE_LUMA_DEFUALT_VALUE), video_fd(-1), buffer_index(0), isp_timestamp_ns(0),
-          pts(0), motion_detection_buffer(nullptr), motion_detected(false), optical_zoom_magnification(1.0f),
-          concurrent_stream_ids()
+          pts(UINT64_MAX), dts(UINT64_MAX), duration(UINT64_MAX), motion_detection_buffer(nullptr),
+          motion_detected(false), optical_zoom_magnification(1.0f), concurrent_stream_ids()
     {
         vsm.dx = HAILO_VSM_DEFAULT_VALUE;
         vsm.dy = HAILO_VSM_DEFAULT_VALUE;

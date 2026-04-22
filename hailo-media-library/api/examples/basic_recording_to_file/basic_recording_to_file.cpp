@@ -1,4 +1,4 @@
-#include "media_library/examples_common.hpp"
+#include "common/common.hpp"
 
 int main()
 {

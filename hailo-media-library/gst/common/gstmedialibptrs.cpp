@@ -100,4 +100,9 @@ void appsrc_unreffer(GstAppSrc *appsrc)
     gst_object_unref(appsrc);
 }
 
+void object_unreffer(GstObject *object)
+{
+    gst_object_unref(object);
+}
+
 } // namespace glib_cpp::ptrs

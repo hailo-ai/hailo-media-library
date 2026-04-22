@@ -1,6 +1,6 @@
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
 #include "hailo_analytics/analytics/vision.hpp"
-#include <stdexcept>
 
 namespace hailo_analytics::analytics::vision
 {
@@ -178,7 +178,7 @@ void vision_config_t::apply_to(sinks::UdpStageBuild::Builder &b, const output_st
 // Pipeline generation functions
 // ============================================================================
 
-vision_output_config_t base_vision_output_config(std::string output_stream_id)
+vision_output_config_t base_vision_output_config(std::string output_stream_id, int base_port)
 {
     vision_output_config_t config;
 
@@ -194,13 +194,13 @@ vision_output_config_t base_vision_output_config(std::string output_stream_id)
     config.udp_config.trace = true;
 
     config.udp_config.host = "10.0.0.2";
-    config.udp_config.port = PORT_FROM_ID(output_stream_id);
+    config.udp_config.port = PORT_FROM_ID(output_stream_id, base_port);
     config.udp_config.encoding_type = hailo_analytics::pipeline::sinks::EncodingType::H264;
 
     return config;
 }
 
-vision_config_t base_vision_config(std::vector<frontend_output_stream_t> frontend_streams)
+vision_config_t base_vision_config(std::vector<frontend_output_stream_t> frontend_streams, int base_port)
 {
     vision_config_t config;
 
@@ -212,7 +212,7 @@ vision_config_t base_vision_config(std::vector<frontend_output_stream_t> fronten
     // Add one default output for each frontend stream
     for (const auto &stream : frontend_streams)
     {
-        config.outputs[stream.id] = base_vision_output_config(stream.id);
+        config.outputs[stream.id] = base_vision_output_config(stream.id, base_port);
     }
 
     return config;
@@ -237,7 +237,7 @@ generate_vision_output_pipeline(MediaLibraryEncoderPtr encoder, const std::strin
     std::shared_ptr<codecs::EncoderStage> encoder_stage = encoder_builder.buildptr();
 
     // Configure the encoder stage
-    hailo_analytics::pipeline::AppStatus status = encoder_stage->configure(encoder);
+    hailo_analytics::pipeline::AppStatus status = encoder_stage->configure(*encoder);
     if (status != hailo_analytics::pipeline::AppStatus::SUCCESS)
     {
         return tl::unexpected(status);
@@ -272,12 +272,11 @@ generate_vision_output_pipeline(MediaLibraryEncoderPtr encoder, const std::strin
 }
 
 tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus> generate_vision_pipeline(
-    std::shared_ptr<MediaLibrary> media_library, const std::string &pipeline_name,
-    std::optional<vision_config_t> user_configs)
+    MediaLibrary &media_library, const std::string &pipeline_name, std::optional<vision_config_t> user_configs)
 {
     // Get output streams from frontend
-    MediaLibraryFrontendPtr frontend = media_library->m_frontend;
-    auto output_streams = frontend->get_outputs_streams();
+    MediaLibraryFrontend &frontend = *media_library.m_frontend;
+    auto output_streams = frontend.get_outputs_streams();
     if (!output_streams.has_value())
     {
         return tl::unexpected(hailo_analytics::pipeline::AppStatus::CONFIGURATION_ERROR);
@@ -298,7 +297,7 @@ tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::
     std::shared_ptr<sources::FrontendStage> frontend_stage = frontend_builder.buildptr();
 
     // Configure the frontend stage
-    hailo_analytics::pipeline::AppStatus status = frontend_stage->configure(media_library->m_frontend);
+    hailo_analytics::pipeline::AppStatus status = frontend_stage->configure(*media_library.m_frontend);
     if (status != hailo_analytics::pipeline::AppStatus::SUCCESS)
     {
         return tl::unexpected(status);
@@ -311,7 +310,7 @@ tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::
     for (const auto &[stream_id, output_config] : cfg.outputs)
     {
         // Get encoder from MediaLibrary for this stream
-        MediaLibraryEncoderPtr encoder = media_library->m_encoders[stream_id];
+        MediaLibraryEncoderPtr encoder = media_library.m_encoders[stream_id];
 
         // Generate output pipeline (encoder -> UDP)
         std::string output_pipeline_name = pipeline_name + "_output_" + stream_id;

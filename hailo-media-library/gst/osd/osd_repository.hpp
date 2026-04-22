@@ -172,6 +172,7 @@ class OverlayRepository
     mutable std::shared_mutex m_mutex;
     int m_frame_width;
     int m_frame_height;
+    bool m_frame_size_set;
 
     OverlayMap m_overlays;
 

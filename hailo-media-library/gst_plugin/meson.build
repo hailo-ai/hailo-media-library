@@ -12,9 +12,6 @@ gst_plugin_minor_version_define = '-DGST_MEDIALIB_MINOR_VERSION=@0@'.format(LIB_
 plugin_sources = files(
   '../gst/gstmedialib.cpp',
   '../gst/osd/gsthailoosd.cpp',
-  '../gst/encoder/gsthailoenc.cpp',
-  '../gst/encoder/gsthailoh265enc.cpp',
-  '../gst/encoder/gsthailoh264enc.cpp',
   '../gst/hailo_encoder/gsthailoencoder.cpp',
   '../gst/muxers/gsthailoroundrobin.cpp',
   '../gst/jpeg/gsthailojpeg.cpp',
