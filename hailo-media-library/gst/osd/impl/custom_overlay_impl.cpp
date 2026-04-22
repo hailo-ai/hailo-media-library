@@ -97,7 +97,12 @@ tl::expected<std::vector<dsp_overlay_properties_t>, media_library_return> Custom
         return tl::make_unexpected(MEDIA_LIBRARY_INVALID_ARGUMENT);
     }
 
-    status = create_dma_video_frame(m_width * frame_width, m_height * frame_height, format, &dest_frame);
+    // Round up to even numbers to support YUV420
+    int overlay_width = static_cast<int>(m_width * frame_width);
+    int overlay_height = static_cast<int>(m_height * frame_height);
+    overlay_width += overlay_width % 2;
+    overlay_height += overlay_height % 2;
+    status = create_dma_video_frame(overlay_width, overlay_height, format, &dest_frame);
 
     if (status != MEDIA_LIBRARY_SUCCESS)
     {

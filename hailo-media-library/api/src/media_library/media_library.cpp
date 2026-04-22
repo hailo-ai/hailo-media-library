@@ -41,7 +41,7 @@ MediaLibrary::MediaLibrary()
     m_pipeline_state = media_library_pipeline_state_t::PIPELINE_STATE_UNINITIALIZED;
     m_current_throttling_state = media_library_throttling_state_t::THROTTLING_STATE_UNINITIALIZED;
     m_enable_profile_restriction = true;
-    m_override_persistent_settings = false;
+    m_override_persistent_settings = true;
     m_restriction_fallback_profile = std::nullopt;
     m_default_backup_folder_path = "";
 
@@ -371,6 +371,9 @@ media_library_return MediaLibrary::initialize(std::string medialib_config_string
 
     if (m_default_backup_folder_path.empty() || !should_restore_backup)
     {
+        LOGGER__MODULE__DEBUG(
+            MODULE_NAME,
+            "No backup folder path configured or restore backup not requested, initializing with original config");
         // Fall back to original config
         return initialize_internal(medialib_config_string);
     }
@@ -378,6 +381,8 @@ media_library_return MediaLibrary::initialize(std::string medialib_config_string
     std::string backup_medialib_path = m_default_backup_folder_path + "/medialib_config.json";
     if (!std::filesystem::exists(backup_medialib_path))
     {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Backup config file does not exist at: {}, initializing with original config",
+                             backup_medialib_path);
         // Fall back to original config
         return initialize_internal(medialib_config_string);
     }
@@ -386,6 +391,8 @@ media_library_return MediaLibrary::initialize(std::string medialib_config_string
     auto backup_string_opt = files_utils::read_string_from_file(backup_medialib_path);
     if (!backup_string_opt.has_value() || backup_string_opt.value().empty())
     {
+        LOGGER__MODULE__WARNING(
+            MODULE_NAME, "Failed to read backup config or backup config is empty, initializing with original config");
         // Fall back to original config
         return initialize_internal(medialib_config_string);
     }
@@ -891,10 +898,19 @@ media_library_return MediaLibrary::set_override_parameters(const config_profile_
 
     // Verify that denoise / hdr / didn't change
     // Schema profile codec_configs entire encoder_config_t
-    m_config_manager_interactor->set_profile(profile);
-
+    auto status = m_config_manager_interactor->set_profile(profile);
+    if (status != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set new profile in config manager interactor");
+        return status;
+    }
     // Update encoder stream dimensions based on rotation config
-    m_config_manager_interactor->update_encoder_streams_for_rotation();
+    status = m_config_manager_interactor->update_encoder_streams_for_rotation();
+    if (status != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to update encoder stream dimensions for rotation");
+        return status;
+    }
 
     if (validate_profile_rules() != MEDIA_LIBRARY_SUCCESS)
     {
@@ -1243,6 +1259,9 @@ media_library_return MediaLibrary::set_profile(const std::string &profile_name)
         return status;
     }
 
+    auto &analytics_db = get_analytics_db();
+    analytics_db.add_configuration(profiles[profile_name]->application_settings.application_analytics);
+
     LOGGER__MODULE__INFO(MODULE_NAME, "Profile set to {}", profile_name);
     return MEDIA_LIBRARY_SUCCESS;
 }
@@ -1317,8 +1336,12 @@ tl::expected<std::string, media_library_return> MediaLibrary::get_current_profil
 
 media_library_return MediaLibrary::subscribe_to_frontend_output(FrontendCallbacksMap fe_callbacks)
 {
-    m_frontend->subscribe(fe_callbacks);
-    return MEDIA_LIBRARY_SUCCESS;
+    return m_frontend->subscribe(fe_callbacks);
+}
+
+media_library_return MediaLibrary::subscribe_to_frontend_gst_output(FrontendGstBufferCallbacksMap fe_callbacks)
+{
+    return m_frontend->subscribe_gst(fe_callbacks);
 }
 
 media_library_return MediaLibrary::subscribe_to_encoder_output(output_stream_id_t streamId, AppWrapperCallback callback)
@@ -1330,8 +1353,39 @@ media_library_return MediaLibrary::subscribe_to_encoder_output(output_stream_id_
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
 
-    m_encoders[streamId]->subscribe(callback);
-    return MEDIA_LIBRARY_SUCCESS;
+    return m_encoders[streamId]->subscribe(callback);
+}
+
+tl::expected<std::vector<frontend_output_stream_t>, media_library_return> MediaLibrary::get_frontend_output_streams()
+{
+    if (!m_frontend)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Frontend is not initialized");
+        return tl::make_unexpected(MEDIA_LIBRARY_UNINITIALIZED);
+    }
+    return m_frontend->get_outputs_streams();
+}
+
+media_library_return MediaLibrary::unsubscribe_all_from_frontend()
+{
+    if (!m_frontend)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Frontend is not initialized");
+        return MEDIA_LIBRARY_UNINITIALIZED;
+    }
+    return m_frontend->unsubscribe_all();
+}
+
+media_library_return MediaLibrary::add_buffer_to_encoder(output_stream_id_t stream_id,
+                                                         HailoMediaLibraryBufferPtr buffer)
+{
+    auto it = m_encoders.find(stream_id);
+    if (it == m_encoders.end())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder for stream '{}' does not exist", stream_id);
+        return MEDIA_LIBRARY_INVALID_ARGUMENT;
+    }
+    return it->second->add_buffer(buffer);
 }
 
 media_library_return MediaLibrary::start_pipeline()

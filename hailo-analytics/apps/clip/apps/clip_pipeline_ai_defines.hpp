@@ -63,7 +63,7 @@ inline const std::string clip_app_config = "/home/root/apps/clip/resources/confi
 inline const std::string clip_storage_mount_point = "/var/volatile";
 
 // YOLOv8 model paths and names
-inline const std::string yolo_hef = "/home/root/apps/ai_example_app/resources/hailo_yolov8n_384_640.hef";
+inline const std::string yolo_hef = "/home/root/apps/face_landmarks/resources/hailo_yolov8n_384_640.hef";
 inline const std::string yolo_post_so = "/usr/lib/hailo-post-processes/libyolo_hailortpp_post.so";
 inline const std::string yolo_func_name = "hailo_yolov8n";
 inline const std::string yolo_config = "/home/root/apps/clip/resources/configs/yolov8n_personface.json";
@@ -123,9 +123,17 @@ namespace classes
 {
 enum class detection_id : int
 {
-    person = 1
+    person = 1,
+    vehicle = 2,
+    face = 3,
+    license_plate = 4
 };
-inline const std::string clip_crop_target_label = "person";
+inline const std::string clip_crop_target_label_person = "person";
+inline const std::string clip_crop_target_label_vehicle = "vehicle";
+inline const std::string clip_crop_target_label_face = "face";
+inline const std::string clip_crop_target_label_license_plate = "license_plate";
+inline const std::string clip_crop_target_label_scene = "scene";
+
 } // namespace classes
 
 /**
@@ -189,9 +197,10 @@ inline const std::string tracker_light = "det_tracker_light_stage";
 // Clip generation stages
 inline const std::string tracker_traffic_ctrl = "tracker_traffic_control_stage";
 inline const std::string clip_crop = "clip_crop_stage";
-inline const std::string clip_quality_check = "clip_quality_check_stage";
+inline const std::string clip_image_preprocess_check = "clip_image_preprocess_check_stage";
 inline const std::string clip_tee = "clip_tee_stage";
 inline const std::string faiss_storage = "faiss_storage_stage";
+inline const std::string full_frame_bbox_injector = "full_frame_bbox_injector_stage";
 } // namespace stage
 
 } // namespace app

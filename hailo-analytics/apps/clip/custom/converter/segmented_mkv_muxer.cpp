@@ -1,6 +1,20 @@
 #include "segmented_mkv_muxer.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
+FrameData::FrameData(const uint8_t *nal_data, size_t size, uint64_t timestamp)
+    : data(nal_data, nal_data + size), pts(timestamp), dts(0), is_keyframe(false)
+{
+}
+
+SegmentInfo::SegmentInfo() : start_pts(0), end_pts(0), start_time_epoch_ms(0), index(0), completed(false)
+{
+}
+
+EpochNamingData::EpochNamingData(const std::string &path, const std::string &prefix)
+    : output_path(path), file_prefix(prefix), segment_counter(0), is_valid(true)
+{
+}
+
 GStreamerMkvSegmenter::GStreamerMkvSegmenter(CodecType codec, const std::string &output_path,
                                              const std::string &file_prefix, uint32_t segment_duration_sec)
     : m_codec_type(codec), m_output_path(output_path), m_file_prefix(file_prefix),
