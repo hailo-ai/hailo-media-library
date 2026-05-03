@@ -3,7 +3,8 @@ sources_sources = [
     'frontend_stage.cpp',
     'file_reader_module.cpp',
     'file_source_stage.cpp',
-    'frontend_stage_from_file.cpp'
+    'frontend_stage_from_file.cpp',
+    'gst_source_stage.cpp',
 ]
 
 # Compile lib

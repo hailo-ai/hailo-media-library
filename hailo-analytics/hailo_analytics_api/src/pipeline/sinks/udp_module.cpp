@@ -93,7 +93,8 @@ std::string UdpModule::create_pipeline_string()
                " ! "
                "queue name=" +
                std::string(UDP_MODULE_SRC_QUEUE_NAME) +
-               " leaky=downstream max-size-buffers=" + std::to_string(UDP_SRC_QUEUE_MAX_BUFFERS) + " max-size-bytes=0 max-size-time=0 ! " + caps2.str() + " ! " +
+               " leaky=downstream max-size-buffers=" + std::to_string(UDP_SRC_QUEUE_MAX_BUFFERS) +
+               " max-size-bytes=0 max-size-time=0 ! " + caps2.str() + " ! " +
                "tee name=udp_tee "
                "udp_tee. ! "
                "queue leaky=no max-size-buffers=2 max-size-bytes=0 max-size-time=0 ! " +

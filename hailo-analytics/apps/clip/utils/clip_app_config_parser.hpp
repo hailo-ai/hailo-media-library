@@ -12,7 +12,6 @@ struct ClipAppConfig
         float score_threshold;
         int max_query;
         int remove_duplicate_within_sec;
-        std::vector<std::string> default_negative_prompts;
     } query_defaults;
 
     struct FrontEndSourceFromFile
@@ -122,6 +121,12 @@ struct ClipAppConfig
             bool enabled = true;                    // Enable or disable video storage stage
             int video_segment_duration_seconds = 6; // Maximum video duration in seconds to store per file
         } video_storage_stage;
+
+        struct FullFrameIndexingStage
+        {
+            bool enabled = false;          // Disabled by default
+            float interval_seconds = 5.0f; // How often to index a full frame
+        } full_frame_indexing_stage;
 
     } pipeline_config;
 

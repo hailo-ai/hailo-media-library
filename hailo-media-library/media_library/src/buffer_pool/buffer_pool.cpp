@@ -291,6 +291,12 @@ MediaLibraryBufferPool::~MediaLibraryBufferPool()
     free();
 }
 
+void MediaLibraryBufferPool::set_on_release_callback(std::function<void(void *)> callback)
+{
+    std::unique_lock<std::mutex> lock(*m_buffer_pool_mutex);
+    m_on_release_callback = std::move(callback);
+}
+
 media_library_return MediaLibraryBufferPool::wait_for_used_buffers(const std::chrono::milliseconds &timeout_ms)
 {
     std::unique_lock<std::mutex> lock(*m_buffer_pool_mutex);
@@ -486,7 +492,7 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
             (size_t)m_width, (size_t)m_height, (size_t)2, HAILO_FORMAT_NV12, memory_type,
             std::vector<hailo_data_plane_t>{y_plane_data, uv_plane_data});
 
-        ret = buffer->create(shared_from_this(), buffer_data);
+        ret = buffer->create(shared_from_this(), buffer_data, m_on_release_callback, nullptr);
         if (ret != MEDIA_LIBRARY_SUCCESS)
             return ret;
         buffer->set_buffer_index(m_buffer_index);
@@ -531,7 +537,7 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
             std::make_shared<hailo_buffer_data_t>((size_t)m_width, (size_t)m_height, (size_t)1, HAILO_FORMAT_RGB,
                                                   memory_type, std::vector<hailo_data_plane_t>{plane_data});
 
-        ret = buffer->create(shared_from_this(), buffer_data);
+        ret = buffer->create(shared_from_this(), buffer_data, m_on_release_callback, nullptr);
         if (ret != MEDIA_LIBRARY_SUCCESS)
             return ret;
         buffer->set_buffer_index(m_buffer_index);
@@ -607,7 +613,7 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
                                                       memory_type, std::vector<hailo_data_plane_t>{plane_data});
         }
 
-        ret = buffer->create(shared_from_this(), buffer_data);
+        ret = buffer->create(shared_from_this(), buffer_data, m_on_release_callback, nullptr);
         if (ret != MEDIA_LIBRARY_SUCCESS)
             return ret;
 

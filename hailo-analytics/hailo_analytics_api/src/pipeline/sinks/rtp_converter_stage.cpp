@@ -67,7 +67,7 @@ AppStatus RTPConverterStage::deinit()
     {
         m_rtp_converter->stop();
     }
-    m_receiver->stop(m_session_id);
+    m_receiver->stop(m_session_name);
     return AppStatus::SUCCESS;
 }
 
@@ -112,7 +112,7 @@ void RTPConverterStage::callback_worker()
             continue;
         }
 
-        m_receiver->on_rtp_packet(sample, m_session_id);
+        m_receiver->on_rtp_packet(sample, m_session_name); // Use stream_name for broadcasting
         gst_sample_unref(sample);
     }
 }
@@ -156,13 +156,13 @@ RTPConverterStageBuild::Builder &RTPConverterStageBuild::Builder::set_trace_opt(
     return *this;
 }
 
-std::shared_ptr<RTPConverterStage> RTPConverterStageBuild::Builder::buildptr() const
+std::unique_ptr<RTPConverterStage> RTPConverterStageBuild::Builder::buildptr() const
 {
     THROW_IF_MISSING(m_stage_name.has_value(), "set_stage_name");
     THROW_IF_MISSING(m_receiver != nullptr, "set_rtp_receiver");
     THROW_IF_MISSING(m_session_name.has_value(), "set_session_name");
 
-    auto stage = std::make_shared<RTPConverterStage>(m_stage_name.value(), m_receiver, m_queue_size, m_leaky, m_trace,
+    auto stage = std::make_unique<RTPConverterStage>(m_stage_name.value(), m_receiver, m_queue_size, m_leaky, m_trace,
                                                      m_session_name.value());
     stage->configure(m_encoding_type);
     return stage;

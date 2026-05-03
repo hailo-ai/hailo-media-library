@@ -208,7 +208,7 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     // we apply a fresh vision_config_t, which by default has no outputs set, to override the vision pipeline
     // automatically connecting frontend outputs to encoders
     auto vision_pipeline_status = hailo_analytics::analytics::vision::generate_vision_pipeline(
-        app_resources->media_library, VISION_PIPELINE, vision_config);
+        *app_resources->media_library, VISION_PIPELINE, vision_config);
     if (!vision_pipeline_status.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create vision pipeline");

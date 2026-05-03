@@ -86,6 +86,11 @@ media_library_return MediaLibraryFrontend::subscribe(FrontendCallbacksMap callba
     return m_impl->subscribe(callbacks);
 }
 
+media_library_return MediaLibraryFrontend::subscribe_gst(FrontendGstBufferCallbacksMap callbacks)
+{
+    return m_impl->subscribe_gst(callbacks);
+}
+
 media_library_return MediaLibraryFrontend::unsubscribe_all()
 {
     return m_impl->unsubscribe_all();
@@ -262,6 +267,13 @@ tl::expected<frontend_config_t, media_library_return> MediaLibraryFrontend::Impl
 
 media_library_return MediaLibraryFrontend::Impl::subscribe(FrontendCallbacksMap callback_map)
 {
+    if (m_active_callback_type == ActiveCallbackType::GST)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Cannot register regular callbacks while GStreamer callbacks are active. "
+                                           "Call unsubscribe_all() first.");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
     for (const auto &stream : m_output_streams)
     {
         auto callback = callback_map.find(stream.id);
@@ -271,6 +283,9 @@ media_library_return MediaLibraryFrontend::Impl::subscribe(FrontendCallbacksMap 
         std::unique_lock<std::shared_mutex> lock(m_callbacks_mutex);
         m_callbacks[stream.id] = callback->second;
     }
+
+    if (!m_callbacks.empty())
+        m_active_callback_type = ActiveCallbackType::CPP;
 
     // print warning if there are output streams with no subscribers
     std::shared_lock<std::shared_mutex> lock(m_callbacks_mutex);
@@ -285,12 +300,54 @@ media_library_return MediaLibraryFrontend::Impl::subscribe(FrontendCallbacksMap 
     return MEDIA_LIBRARY_SUCCESS;
 }
 
+media_library_return MediaLibraryFrontend::Impl::subscribe_gst(FrontendGstBufferCallbacksMap callback_map)
+{
+    if (m_active_callback_type == ActiveCallbackType::CPP)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Cannot register GStreamer callbacks while regular callbacks are active. "
+                                           "Call unsubscribe_all() first.");
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    for (const auto &stream : m_output_streams)
+    {
+        auto callback = callback_map.find(stream.id);
+        if (callback == callback_map.end())
+            continue;
+
+        std::unique_lock<std::shared_mutex> lock(m_callbacks_mutex);
+        m_gst_callbacks[stream.id] = callback->second;
+    }
+
+    if (!m_gst_callbacks.empty())
+        m_active_callback_type = ActiveCallbackType::GST;
+
+    // print warning if there are output streams with no subscribers
+    std::shared_lock<std::shared_mutex> lock(m_callbacks_mutex);
+    for (const auto &stream : m_output_streams)
+    {
+        if (m_gst_callbacks.find(stream.id) == m_gst_callbacks.end() &&
+            m_callbacks.find(stream.id) == m_callbacks.end())
+        {
+            LOGGER__MODULE__WARN(MODULE_NAME, "No subscribers for output stream id '{}'", stream.id);
+        }
+    }
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
 tl::expected<std::vector<std::string>, media_library_return> MediaLibraryFrontend::Impl::get_all_subscribers_ids()
 {
     std::shared_lock<std::shared_mutex> lock(m_callbacks_mutex);
     std::vector<std::string> ids;
-    ids.reserve(m_callbacks.size());
+    ids.reserve(m_callbacks.size() + m_gst_callbacks.size());
     for (const auto &cb : m_callbacks)
+    {
+        if (!cb.second)
+            continue;
+        ids.push_back(cb.first);
+    }
+    for (const auto &cb : m_gst_callbacks)
     {
         if (!cb.second)
             continue;
@@ -303,17 +360,18 @@ media_library_return MediaLibraryFrontend::Impl::unsubscribe_all()
 {
     std::unique_lock<std::shared_mutex> lock(m_callbacks_mutex);
     m_callbacks.clear();
+    m_gst_callbacks.clear();
+    m_active_callback_type = ActiveCallbackType::NONE;
     return MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return MediaLibraryFrontend::Impl::unsubscribe(const std::string &id)
 {
     std::unique_lock<std::shared_mutex> lock(m_callbacks_mutex);
-    auto it = m_callbacks.find(id);
-    if (it != m_callbacks.end())
-    {
-        m_callbacks.erase(it);
-    }
+    m_callbacks.erase(id);
+    m_gst_callbacks.erase(id);
+    if (m_callbacks.empty() && m_gst_callbacks.empty())
+        m_active_callback_type = ActiveCallbackType::NONE;
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -1220,14 +1278,59 @@ bool MediaLibraryFrontend::Impl::set_gst_callbacks(GstElementPtr &pipeline, fron
 
 GstFlowReturn MediaLibraryFrontend::Impl::on_new_sample(const std::string &srcpad_name, GstAppSink *appsink)
 {
-    if (m_callbacks.empty())
+    GST_TRACE("on_new_sample: entry, srcpad='%s'", srcpad_name.c_str());
+    if (m_callbacks.empty() && m_gst_callbacks.empty())
     {
+        GST_DEBUG("on_new_sample: no callbacks registered, draining sample");
+        GstSamplePtr sample = gst_app_sink_pull_sample(appsink);
         return GST_FLOW_OK;
     }
-    GstSamplePtr sample;
-    GstBufferPtr buffer;
-    sample = gst_app_sink_pull_sample(appsink);
-    buffer = glib_cpp::ptrs::get_buffer_from_sample(sample);
+
+    auto srcpad_name_to_stream_id = m_output_stream_by_srcpad_name.find(srcpad_name);
+    if (srcpad_name_to_stream_id == m_output_stream_by_srcpad_name.end())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to find output stream id for appsink '{}'",
+                              glib_cpp::get_name(appsink));
+        return GST_FLOW_ERROR;
+    }
+
+    const auto &stream_id = srcpad_name_to_stream_id->second;
+
+    auto gst_callbacks_it = m_gst_callbacks.find(stream_id);
+    if (gst_callbacks_it != m_gst_callbacks.end())
+    {
+        GST_TRACE("on_new_sample: gst callback path for stream_id='%s'", stream_id.c_str());
+        GstSamplePtr sample = gst_app_sink_pull_sample(appsink);
+        GstBufferPtr buffer = glib_cpp::ptrs::get_buffer_from_sample(sample);
+        if (!buffer)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get buffer from sample");
+            return GST_FLOW_ERROR;
+        }
+        GST_TRACE("on_new_sample: got buffer %p, refcount=%d", (void *)buffer.get(),
+                  GST_MINI_OBJECT_REFCOUNT_VALUE(buffer.get()));
+        // Create an owned ref for the callback
+        gst_buffer_ref(buffer.get());
+        GstBufferPtr owned_buffer(buffer.get());
+        GST_TRACE("on_new_sample: before callback, buffer refcount=%d",
+                  GST_MINI_OBJECT_REFCOUNT_VALUE(owned_buffer.get()));
+        gst_callbacks_it->second(owned_buffer.get());
+        GST_TRACE("on_new_sample: after callback, buffer refcount=%d",
+                  GST_MINI_OBJECT_REFCOUNT_VALUE(owned_buffer.get()));
+        owned_buffer.set_auto_unref(false); // ownership transferred to callback
+        return GST_FLOW_OK;
+    }
+
+    // Legacy path — extract HailoMediaLibraryBufferPtr from meta
+    if (m_callbacks.find(stream_id) == m_callbacks.end())
+    {
+        GST_DEBUG("on_new_sample: no callback for stream_id='%s', draining sample", stream_id.c_str());
+        GstSamplePtr sample = gst_app_sink_pull_sample(appsink);
+        return GST_FLOW_OK;
+    }
+
+    GstSamplePtr sample = gst_app_sink_pull_sample(appsink);
+    GstBufferPtr buffer = glib_cpp::ptrs::get_buffer_from_sample(sample);
     GstHailoBufferMeta *buffer_meta = gst_buffer_get_hailo_buffer_meta(buffer);
     if (!buffer_meta)
     {
@@ -1245,22 +1348,9 @@ GstFlowReturn MediaLibraryFrontend::Impl::on_new_sample(const std::string &srcpa
         return GST_FLOW_ERROR;
     }
 
-    auto srcpad_name_to_stream_id = m_output_stream_by_srcpad_name.find(srcpad_name);
-    if (srcpad_name_to_stream_id == m_output_stream_by_srcpad_name.end())
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to find output stream id for appsink '{}'",
-                              glib_cpp::get_name(appsink));
-        return GST_FLOW_ERROR;
-    }
-
-    if (m_callbacks.find(srcpad_name_to_stream_id->second) == m_callbacks.end())
-    {
-        return GST_FLOW_OK;
-    }
-
-    LOGGER__MODULE__TRACE(MODULE_NAME, "Calling callback for output stream id '{}' from appsink '{}'",
-                          srcpad_name_to_stream_id->second, srcpad_name_to_stream_id->first);
-    m_callbacks.at(srcpad_name_to_stream_id->second)(buffer_ptr, used_size);
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Calling callback for output stream id '{}' from appsink '{}'", stream_id,
+                          srcpad_name_to_stream_id->first);
+    m_callbacks.at(stream_id)(buffer_ptr, used_size);
     return GST_FLOW_OK;
 }
 

@@ -74,13 +74,13 @@ bool MediaLibraryPostIspDenoise::is_enabled(const denoise_config_t &denoise_conf
 }
 
 media_library_return MediaLibraryPostIspDenoise::create_and_initialize_buffer_pools(
-    const input_video_config_t &input_video_configs)
+    const denoise_config_t &denoise_configs, const input_video_config_t &input_video_configs)
 {
     // Create output buffer pool
     LOGGER__MODULE__DEBUG(
         MODULE_NAME, "Initalizing buffer pool named {} for output resolution: width {} height {} in buffers size of {}",
         BUFFER_POOL_NAME, input_video_configs.resolution.dimensions.destination_width,
-        input_video_configs.resolution.dimensions.destination_height, BUFFER_POOL_MAX_BUFFERS);
+        input_video_configs.resolution.dimensions.destination_height, denoise_configs.pool_max_buffers);
     auto adjusted_width = round_up_to_multiple(input_video_configs.resolution.dimensions.destination_width,
                                                RESOULTION_MULTIPLE_REQUIRED_BY_DENOISE_NETWORK);
     auto adjusted_height = round_up_to_multiple(input_video_configs.resolution.dimensions.destination_height,
@@ -88,9 +88,9 @@ media_library_return MediaLibraryPostIspDenoise::create_and_initialize_buffer_po
 
     if (m_output_buffer_pool == nullptr)
     {
-        m_output_buffer_pool = std::make_shared<MediaLibraryBufferPool>(adjusted_width, adjusted_height,
-                                                                        HAILO_FORMAT_NV12, BUFFER_POOL_MAX_BUFFERS,
-                                                                        HAILO_MEMORY_TYPE_DMABUF, BUFFER_POOL_NAME);
+        m_output_buffer_pool = std::make_shared<MediaLibraryBufferPool>(
+            adjusted_width, adjusted_height, HAILO_FORMAT_NV12, denoise_configs.pool_max_buffers,
+            HAILO_MEMORY_TYPE_DMABUF, BUFFER_POOL_NAME);
     }
     if (m_output_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
@@ -136,7 +136,7 @@ bool MediaLibraryPostIspDenoise::process_inference(NetworkInferenceBindingsPtr b
     return m_hailort_denoise->process(std::move(bindings));
 }
 
-media_library_return MediaLibraryPostIspDenoise::acquire_output_buffer(NetworkInferenceBindingsPtr bindings)
+media_library_return MediaLibraryPostIspDenoise::acquire_output_buffers(NetworkInferenceBindingsPtr bindings)
 {
     return m_output_buffer_pool->acquire_buffer(get_output_buffer(bindings, get_denoised_output_index()));
 }

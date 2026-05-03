@@ -68,7 +68,7 @@ bool HailortAsyncDenoise::has_pending_jobs() const
 
 bool HailortAsyncDenoise::set_config(const denoise_config_t &denoise_config, const std::string &group_id,
                                      int scheduler_threshold, const std::chrono::milliseconds &scheduler_timeout,
-                                     int batch_size)
+                                     int batch_size, bool use_hailort_service)
 {
     // Get network path from config
     std::string network_path = get_network_path(denoise_config);
@@ -85,6 +85,9 @@ bool HailortAsyncDenoise::set_config(const denoise_config_t &denoise_config, con
     hailo_vdevice_params_t vdevice_params = {};
     hailo_init_vdevice_params(&vdevice_params);
     vdevice_params.group_id = group_id.c_str();
+    vdevice_params.multi_process_service = use_hailort_service;
+    LOGGER__MODULE__INFO(MODULE_NAME, "Creating vdevice with group_id={}, use_hailort_service={}", group_id,
+                         use_hailort_service);
     auto vdevice_exp = hailort::VDevice::create(vdevice_params);
     if (!vdevice_exp)
     {
@@ -122,6 +125,7 @@ bool HailortAsyncDenoise::set_config(const denoise_config_t &denoise_config, con
     }
 
     m_group_id = group_id;
+    m_use_hailort_service = use_hailort_service;
     m_scheduler_threshold = scheduler_threshold;
     m_scheduler_timeout = scheduler_timeout;
     m_denoise_config = denoise_config;
@@ -245,6 +249,26 @@ bool HailortAsyncDenoise::infer(NetworkInferenceBindingsPtr bindings)
     m_last_inserted_infer_output_buffer_timestamp = output_buffer->isp_timestamp_ns;
 
     return true;
+}
+
+size_t HailortAsyncDenoise::get_input_frame_size(const std::string &tensor_name) const
+{
+    return m_configured_devices.at(m_current_vdevice_name)->infer_model->input(tensor_name)->get_frame_size();
+}
+
+hailo_3d_image_shape_t HailortAsyncDenoise::get_input_frame_shape(const std::string &tensor_name) const
+{
+    return m_configured_devices.at(m_current_vdevice_name)->infer_model->input(tensor_name)->shape();
+}
+
+size_t HailortAsyncDenoise::get_output_frame_size(const std::string &tensor_name) const
+{
+    return m_configured_devices.at(m_current_vdevice_name)->infer_model->output(tensor_name)->get_frame_size();
+}
+
+hailo_3d_image_shape_t HailortAsyncDenoise::get_output_frame_shape(const std::string &tensor_name) const
+{
+    return m_configured_devices.at(m_current_vdevice_name)->infer_model->output(tensor_name)->shape();
 }
 
 void HailortAsyncDenoise::set_infer_layers(std::shared_ptr<hailort::InferModel> infer_model,

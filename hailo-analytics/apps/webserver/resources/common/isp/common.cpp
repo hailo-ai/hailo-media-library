@@ -171,6 +171,8 @@ static constexpr const char *SENSOR_IMX675_NAME = "imx675";
 static constexpr const char *SENSOR_IMX715_NAME = "imx715";
 static constexpr const char *SENSOR_IMX334_NAME = "imx334";
 static constexpr const char *SENSOR_IMX664_NAME = "imx664";
+static constexpr const char *SENSOR_IMX307_NAME = "imx307";
+static constexpr const char *SENSOR_IMX662_NAME = "imx662";
 
 SensorModel webserver::common::get_sensor_type()
 {
@@ -201,6 +203,14 @@ SensorModel webserver::common::get_sensor_type()
             {
                 return SensorModel::SENSOR_IMX664;
             }
+            if (name.find(SENSOR_IMX307_NAME) == 0)
+            {
+                return SensorModel::SENSOR_IMX307;
+            }
+            if (name.find(SENSOR_IMX662_NAME) == 0)
+            {
+                return SensorModel::SENSOR_IMX662;
+            }
         }
     }
     WEBSERVER_LOG_ERROR("No supported sensor found in {}", SENSOR_PATH);
@@ -215,6 +225,8 @@ const std::unordered_map<SensorModel, std::vector<Resolution>> sensor_resolution
     {SensorModel::SENSOR_IMX715, {Resolution::_HD, Resolution::_FHD, Resolution::_QHD, Resolution::_4K}},
     {SensorModel::SENSOR_IMX334, {Resolution::_HD, Resolution::_FHD, Resolution::_QHD, Resolution::_4K}},
     {SensorModel::SENSOR_IMX664, {Resolution::_HD, Resolution::_FHD, Resolution::_QHD, Resolution::_4MP}},
+    {SensorModel::SENSOR_IMX307, {Resolution::_HD, Resolution::_FHD, Resolution::_QHD, Resolution::_4K}},
+    {SensorModel::SENSOR_IMX662, {Resolution::_HD, Resolution::_FHD, Resolution::_QHD, Resolution::_4K}},
     {SensorModel::SENSOR_UNKNOWN,
      {Resolution::_HD, Resolution::_FHD, Resolution::_QHD, Resolution::_5MP, Resolution::_4K, Resolution::_SD}}};
 }
