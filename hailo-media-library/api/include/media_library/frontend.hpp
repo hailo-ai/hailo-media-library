@@ -65,6 +65,22 @@ typedef std::function<void(HailoMediaLibraryBufferPtr, uint32_t)> FrontendWrappe
  */
 typedef std::map<output_stream_id_t, FrontendWrapperCallback> FrontendCallbacksMap;
 
+typedef struct _GstBuffer GstBuffer;
+
+/*!
+ * @brief type for user callback function to receive the original GstBuffer
+ *
+ * The GstBuffer passed to the callback has been reffed — the callee owns a
+ * ref and must either unref it or transfer ownership (e.g. via gst_pad_push).
+ * @ref MediaLibraryFrontend::subscribe_gst
+ */
+typedef std::function<void(GstBuffer *)> FrontendGstBufferCallback;
+
+/**
+ * @brief A map that associates output stream ID with `FrontendGstBufferCallback` function objects.
+ */
+typedef std::map<output_stream_id_t, FrontendGstBufferCallback> FrontendGstBufferCallbacksMap;
+
 /** @defgroup MediaLibrary Frontend (Dewarp + Multi-Resize) CPP API
  */
 class MediaLibraryFrontend;
@@ -168,6 +184,22 @@ class MediaLibraryFrontend
      * @ref AppWrapperCallback
      */
     media_library_return subscribe(FrontendCallbacksMap callbacks);
+
+    /**
+     * @brief Subscribe to receive the original GstBuffer from the frontend pipeline
+     *
+     * Unlike subscribe(), the callback receives the original GstBuffer produced
+     * by the internal pipeline — avoiding the teardown/rebuild cycle.
+     * The GstBuffer is reffed before the callback is invoked; the callee owns
+     * that ref and must either unref it or transfer ownership (e.g. gst_pad_push).
+     *
+     * For a given stream_id, only ONE callback type fires (gst takes priority
+     * over the plain buffer callback registered via subscribe()).
+     *
+     * @param[in] callbacks - a map of GstBuffer callback functions keyed by stream id
+     * @return media_library_return - status of the subscription operation
+     */
+    media_library_return subscribe_gst(FrontendGstBufferCallbacksMap callbacks);
 
     /**
      * @brief Get all subscriber IDs currently registered with the MediaLibraryFrontend module

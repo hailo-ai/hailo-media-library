@@ -70,6 +70,7 @@ tl::expected<std::shared_ptr<OverlayRepository>, media_library_return> OverlayRe
     auto repo = std::make_shared<OverlayRepository>();
     repo->m_frame_width = 0;
     repo->m_frame_height = 0;
+    repo->m_frame_size_set = false;
     return repo;
 }
 
@@ -318,14 +319,21 @@ tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_ove
     }
 
     ImageOverlayImplPtr impl = overlay_expected.value();
-    auto ret = impl->create_dsp_overlays(m_frame_width, m_frame_height);
-    if (!ret.has_value())
+    if (m_frame_size_set)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure image overlay {}", overlay.id);
-        m_pending_additions.erase(overlay.id);
-        return tl::make_unexpected(ret.error());
+        auto ret = impl->create_dsp_overlays(m_frame_width, m_frame_height);
+        if (!ret.has_value())
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure image overlay {}", overlay.id);
+            m_pending_additions.erase(overlay.id);
+            return tl::make_unexpected(ret.error());
+        }
     }
-
+    else
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Frame size not set, skipping dsp overlay creation for overlay id={}",
+                             overlay.id);
+    }
     std::unique_lock lock(m_mutex);
     m_overlays.image[overlay.id] = impl;
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Image overlay upserted id={} (total={})", overlay.id, m_overlays.size());
@@ -362,12 +370,20 @@ tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_ove
     }
 
     TextOverlayImplPtr impl = overlay_expected.value();
-    auto ret = impl->create_dsp_overlays(m_frame_width, m_frame_height);
-    if (!ret.has_value())
+    if (m_frame_size_set)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure text overlay {}", overlay.id);
-        m_pending_additions.erase(overlay.id);
-        return tl::make_unexpected(ret.error());
+        auto ret = impl->create_dsp_overlays(m_frame_width, m_frame_height);
+        if (!ret.has_value())
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure image overlay {}", overlay.id);
+            m_pending_additions.erase(overlay.id);
+            return tl::make_unexpected(ret.error());
+        }
+    }
+    else
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Frame size not set, skipping dsp overlay creation for overlay id={}",
+                             overlay.id);
     }
     std::unique_lock lock(m_mutex);
     m_overlays.text[overlay.id] = impl;
@@ -405,12 +421,20 @@ tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_ove
     }
 
     DateTimeOverlayImplPtr impl = overlay_expected.value();
-    auto ret = impl->create_dsp_overlays(m_frame_width, m_frame_height);
-    if (!ret.has_value())
+    if (m_frame_size_set)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure datetime overlay {}", overlay.id);
-        m_pending_additions.erase(overlay.id);
-        return tl::make_unexpected(ret.error());
+        auto ret = impl->create_dsp_overlays(m_frame_width, m_frame_height);
+        if (!ret.has_value())
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure image overlay {}", overlay.id);
+            m_pending_additions.erase(overlay.id);
+            return tl::make_unexpected(ret.error());
+        }
+    }
+    else
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Frame size not set, skipping dsp overlay creation for overlay id={}",
+                             overlay.id);
     }
 
     std::unique_lock lock(m_mutex);
@@ -449,12 +473,20 @@ tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_ove
     }
 
     CustomOverlayImplPtr impl = overlay_expected.value();
-    auto ret = impl->create_dsp_overlays(m_frame_width, m_frame_height);
-    if (!ret.has_value())
+    if (m_frame_size_set)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure custom overlay {}", overlay.id);
-        m_pending_additions.erase(overlay.id);
-        return tl::make_unexpected(ret.error());
+        auto ret = impl->create_dsp_overlays(m_frame_width, m_frame_height);
+        if (!ret.has_value())
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure image overlay {}", overlay.id);
+            m_pending_additions.erase(overlay.id);
+            return tl::make_unexpected(ret.error());
+        }
+    }
+    else
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Frame size not set, skipping dsp overlay creation for overlay id={}",
+                             overlay.id);
     }
 
     std::unique_lock lock(m_mutex);
@@ -492,6 +524,7 @@ media_library_return OverlayRepository::set_frame_size(int frame_width, int fram
         LOGGER__MODULE__TRACE(MODULE_NAME, "Frame size unchanged ({}x{})", frame_width, frame_height);
         return MEDIA_LIBRARY_SUCCESS;
     }
+    m_frame_size_set = true;
     m_frame_width = frame_width;
     m_frame_height = frame_height;
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Frame size set to {}x{}", frame_width, frame_height);

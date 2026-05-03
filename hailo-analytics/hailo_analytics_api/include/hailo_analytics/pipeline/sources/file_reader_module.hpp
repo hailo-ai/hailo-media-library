@@ -84,46 +84,31 @@ class FileReader
      * @brief Get the frame interval for timing purposes
      * @return Frame interval in milliseconds
      */
-    std::chrono::milliseconds get_frame_interval() const
-    {
-        return m_frame_interval;
-    }
+    std::chrono::milliseconds get_frame_interval() const;
 
     /**
      * @brief Get the total number of frames in the file
      * @return Total frame count
      */
-    size_t get_total_frames() const
-    {
-        return m_total_frames;
-    }
+    size_t get_total_frames() const;
 
     /**
      * @brief Get the current frame index
      * @return Current frame index
      */
-    size_t get_current_frame_index() const
-    {
-        return m_current_frame_index;
-    }
+    size_t get_current_frame_index() const;
 
     /**
      * @brief Check if looping is enabled
      * @return True if looping is enabled
      */
-    bool is_loop_enabled() const
-    {
-        return m_loop_enabled;
-    }
+    bool is_loop_enabled() const;
 
     /**
      * @brief Get the configured FPS
      * @return Frames per second
      */
-    double get_fps() const
-    {
-        return m_fps;
-    }
+    double get_fps() const;
 
     /**
      * @brief Reset to the beginning of the file

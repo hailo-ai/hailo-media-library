@@ -233,7 +233,7 @@ void MediaLibraryPreIspDenoise::ensure_correct_hailort_instance(const denoise_co
 }
 
 media_library_return MediaLibraryPreIspDenoise::create_and_initialize_buffer_pools(
-    const input_video_config_t & /*input_video_configs*/)
+    const denoise_config_t &denoise_configs, [[maybe_unused]] const input_video_config_t &input_video_configs)
 {
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Creating and initializing Pre-ISP denoise buffer pools (mode: {})",
                           m_hailort_denoise->type() == HailortAsyncDenoiseType::PreISPHdm ? "HDM" : "VD");
@@ -241,14 +241,20 @@ media_library_return MediaLibraryPreIspDenoise::create_and_initialize_buffer_poo
     // Create HDM-specific buffer pools
     if (m_hailort_denoise->type() == HailortAsyncDenoiseType::PreISPHdm)
     {
-        auto result = initialize_buffer_pool(FUSION_BUFFER_POOL_NAME, FUSION_WIDTH * FUSION_FEATURES, FUSION_HEIGHT,
-                                             BUFFER_POOL_MAX_BUFFERS, HAILO_FORMAT_GRAY16, m_fusion_buffer_pool);
+        auto fusion_shape =
+            m_hailort_denoise->get_input_frame_shape(denoise_configs.bayer_network_config.input_fusion_feedback);
+        auto result = initialize_buffer_pool(FUSION_BUFFER_POOL_NAME, fusion_shape.width * fusion_shape.features,
+                                             fusion_shape.height, denoise_configs.pool_max_buffers, HAILO_FORMAT_GRAY16,
+                                             m_fusion_buffer_pool);
         if (result != MEDIA_LIBRARY_SUCCESS)
         {
             return result;
         }
-        result = initialize_buffer_pool(GAMMA_BUFFER_POOL_NAME, GAMMA_WIDTH * GAMMA_FEATURES, GAMMA_HEIGHT,
-                                        BUFFER_POOL_MAX_BUFFERS, HAILO_FORMAT_GRAY16, m_gamma_buffer_pool);
+        auto gamma_shape =
+            m_hailort_denoise->get_input_frame_shape(denoise_configs.bayer_network_config.input_gamma_feedback);
+        result =
+            initialize_buffer_pool(GAMMA_BUFFER_POOL_NAME, gamma_shape.width * gamma_shape.features, gamma_shape.height,
+                                   denoise_configs.pool_max_buffers, HAILO_FORMAT_GRAY16, m_gamma_buffer_pool);
         if (result != MEDIA_LIBRARY_SUCCESS)
         {
             return result;
@@ -285,7 +291,7 @@ media_library_return MediaLibraryPreIspDenoise::free_buffer_pools()
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibraryPreIspDenoise::acquire_output_buffer(NetworkInferenceBindingsPtr bindings)
+media_library_return MediaLibraryPreIspDenoise::acquire_output_buffers(NetworkInferenceBindingsPtr bindings)
 {
     LOGGER__MODULE__TRACE(MODULE_NAME, "Acquiring output buffer for Pre-ISP denoise");
 

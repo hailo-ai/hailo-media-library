@@ -1,0 +1,16 @@
+{% extends "!page.html" %}
+
+{% block footer %}
+<script type="text/javascript">
+    $(document).ready(function() {
+        $(".toggle > *").hide();
+        $(".open-by-default").parent().children().not(".header").toggle(400);
+        $(".open-by-default").parent().children(".header").toggleClass("open");
+        $(".toggle .header").show();
+        $(".toggle .header").click(function() {
+            $(this).parent().children().not(".header").toggle(400);
+            $(this).parent().children(".header").toggleClass("open");
+        })
+    });
+</script>
+{% endblock %}

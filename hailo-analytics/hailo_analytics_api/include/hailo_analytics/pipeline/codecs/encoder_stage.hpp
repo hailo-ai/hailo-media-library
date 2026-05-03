@@ -30,7 +30,7 @@ namespace hailo_analytics::pipeline::codecs
 class EncoderStage : public hailo_analytics::pipeline::ThreadedStage
 {
   private:
-    MediaLibraryEncoderPtr m_encoder; ///< Media library encoder instance.
+    MediaLibraryEncoder *m_encoder; ///< Non-owning pointer to media library encoder instance.
 
   public:
     /**
@@ -50,7 +50,7 @@ class EncoderStage : public hailo_analytics::pipeline::ThreadedStage
      * @param encoder Media library encoder pointer.
      * @return AppStatus Status of the creation.
      */
-    AppStatus create(MediaLibraryEncoderPtr encoder);
+    AppStatus create(MediaLibraryEncoder &encoder);
 
     /**
      * @brief Initialize the encoder stage.
@@ -72,7 +72,7 @@ class EncoderStage : public hailo_analytics::pipeline::ThreadedStage
      * @param encoder Media library encoder pointer.
      * @return AppStatus Status of the configuration.
      */
-    AppStatus configure(MediaLibraryEncoderPtr encoder);
+    AppStatus configure(MediaLibraryEncoder &encoder);
 
     /**
      * @brief Process a buffer by encoding it.
