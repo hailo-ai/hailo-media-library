@@ -9,6 +9,32 @@
 #include <malloc.h>
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
+VideoFile::VideoFile(const std::string &path, int64_t start_ts, int64_t duration)
+    : file_path(path), start_timestamp_ms(start_ts), duration_ms(duration)
+{
+}
+
+RtpPacketData::RtpPacketData()
+    : data(nullptr), size(0), timestamp(0), sequence_number(0), ssrc(0), marker_bit(false), payload_type(0),
+      original_timestamp_ms(0), codec_type(CodecType::UNKNOWN), is_keyframe(false)
+{
+}
+
+ErrorInfo::ErrorInfo(Type t, const std::string &msg, const std::string &path) : type(t), message(msg), file_path(path)
+{
+}
+
+MKVStreamer::FileContext::FileContext(const VideoFile &vf)
+    : video_file(vf), pipeline(nullptr), appsink(nullptr), payloader(nullptr), is_prepared(false), is_eos(false),
+      current_position_ms(0), detected_codec(RtpPacketData::CodecType::UNKNOWN), base_rtp_timestamp(0), bus_watch_id(0)
+{
+}
+
+MKVStreamer::FileContext::~FileContext()
+{
+    cleanup();
+}
+
 // Helper structure to pass data to and from the GStreamer callback.
 struct CodecDetectData
 {

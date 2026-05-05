@@ -85,6 +85,12 @@ class MediaLibraryMultiResize::Impl final
     // set the callbacks object
     media_library_return observe(const MediaLibraryMultiResize::callbacks_t &callbacks);
 
+    // Clean internal state on stop
+    void clean_on_stop();
+
+    // Test-only accessor
+    bool is_denoise_element_enabled() const;
+
   private:
     static constexpr int max_frames_jitter_multiplier = 3;
     static constexpr int max_frames_latency_multiplier = 20;
@@ -161,6 +167,16 @@ media_library_return MediaLibraryMultiResize::handle_frame(HailoMediaLibraryBuff
 media_library_return MediaLibraryMultiResize::observe(const MediaLibraryMultiResize::callbacks_t &callbacks)
 {
     return m_impl->observe(callbacks);
+}
+
+void MediaLibraryMultiResize::clean_on_stop()
+{
+    m_impl->clean_on_stop();
+}
+
+bool MediaLibraryMultiResize::is_denoise_element_enabled() const
+{
+    return m_impl->is_denoise_element_enabled();
 }
 
 //------------------------ MediaLibraryMultiResize::Impl ------------------------
@@ -890,6 +906,9 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(HailoMe
     clock_gettime(CLOCK_MONOTONIC, &start_resize);
 
     std::optional<dsp_image_enhancement_params_t> dsp_image_enhancement_params;
+
+    m_dsp_image_enhancement->m_denoise_element_enabled = input_buffer_attached_config->iq_settings.denoise.enabled;
+
     if (m_dsp_image_enhancement->is_enabled())
     {
         /* If denoise is disabled only histogram equalization can be applied */
@@ -943,6 +962,13 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(HailoMe
         .flip_rotate_params = dsp_flip_rotate_params ? &dsp_flip_rotate_params.value() : nullptr,
     };
 
+    // Flush CPU writes (sample steps) to DMA buffers before DSP access
+    if (m_dsp_image_enhancement->is_enabled() && dsp_image_enhancement_params &&
+        dsp_image_enhancement_params->histogram_params)
+    {
+        m_dsp_image_enhancement->sync_histogram_buffers_end();
+    }
+
     dsp_status ret = dsp_utils::perform_dsp_frontend_process(dsp_frontend_params);
 
     clock_gettime(CLOCK_MONOTONIC, &end_resize);
@@ -954,9 +980,13 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(HailoMe
 
     if (m_dsp_image_enhancement->is_enabled() && dsp_image_enhancement_params->histogram_params)
     {
+        // Invalidate cache to read DSP-written histogram data
+        m_dsp_image_enhancement->sync_histogram_buffers_start();
         m_dsp_image_enhancement->update_dsp_params_from_histogram(
             m_dsp_image_enhancement->m_denoise_element_enabled,
             dsp_image_enhancement_params->histogram_params->histogram);
+        // Release CPU access after reading histogram and writing LUT
+        m_dsp_image_enhancement->sync_histogram_buffers_end();
     }
 
     return MEDIA_LIBRARY_SUCCESS;
@@ -1107,6 +1137,17 @@ media_library_return MediaLibraryMultiResize::Impl::observe(const MediaLibraryMu
 {
     m_callbacks = callbacks;
     return MEDIA_LIBRARY_SUCCESS;
+}
+
+void MediaLibraryMultiResize::Impl::clean_on_stop()
+{
+    m_prev_rotation_config = rotation_config_t();
+    m_prev_resolutions.clear();
+}
+
+bool MediaLibraryMultiResize::Impl::is_denoise_element_enabled() const
+{
+    return m_dsp_image_enhancement->m_denoise_element_enabled;
 }
 
 inline size_t MediaLibraryMultiResize::Impl::get_outputs_count(HailoMediaLibraryBufferPtr input_buffer)

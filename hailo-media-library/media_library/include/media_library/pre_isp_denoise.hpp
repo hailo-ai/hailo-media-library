@@ -57,20 +57,15 @@ class MediaLibraryPreIspDenoise : public MediaLibraryDenoise
     std::shared_ptr<MediaLibraryBufferPool> m_gamma_buffer_pool;
     static constexpr const char *GAMMA_BUFFER_POOL_NAME = "gamma_pool";
     std::queue<HailoMediaLibraryBufferPtr> m_gamma_buffer_queue;
-    static constexpr size_t GAMMA_WIDTH = 960;
-    static constexpr size_t GAMMA_HEIGHT = 540;
-    static constexpr size_t GAMMA_FEATURES = 1;
 
     std::shared_ptr<MediaLibraryBufferPool> m_fusion_buffer_pool;
     static constexpr const char *FUSION_BUFFER_POOL_NAME = "fusion_pool";
     std::queue<HailoMediaLibraryBufferPtr> m_fusion_buffer_queue;
-    static constexpr size_t FUSION_WIDTH = 960;
-    static constexpr size_t FUSION_HEIGHT = 540;
-    static constexpr size_t FUSION_FEATURES = 16;
 
-    media_library_return create_and_initialize_buffer_pools(const input_video_config_t &input_video_configs) override;
+    media_library_return create_and_initialize_buffer_pools(const denoise_config_t &denoise_configs,
+                                                            const input_video_config_t &input_video_configs) override;
     media_library_return free_buffer_pools() override;
-    media_library_return acquire_output_buffer(NetworkInferenceBindingsPtr bindings) override;
+    media_library_return acquire_output_buffers(NetworkInferenceBindingsPtr bindings) override;
 
   private:
     bool process_inference(NetworkInferenceBindingsPtr bindings) override;

@@ -40,27 +40,29 @@ class IspResource : public Resource
     bool get_isp_converge();
     void wait_isp_converge(int polling_interval, int delay_after_polling);
     void wait_safe_to_pull();
+    void register_refresh(HTTPServer &srv);
+    void register_filters_manual_state(HTTPServer &srv);
+    void register_powerline_frequency(HTTPServer &srv);
+    void register_noise_reduction(HTTPServer &srv);
+    void register_wdr(HTTPServer &srv);
+    void register_awb(HTTPServer &srv);
+    void register_stream_params(HTTPServer &srv);
+    void register_auto_exposure(HTTPServer &srv);
+    void register_safe_to_pull(HTTPServer &srv);
+    void register_sensor_model(HTTPServer &srv);
 
   public:
     class IspResourceState : public ResourceState
     {
       public:
         bool isp_3aconfig_updated;
-        IspResourceState(bool isp_3aconfig_updated) : isp_3aconfig_updated(isp_3aconfig_updated)
-        {
-        }
+        IspResourceState(bool isp_3aconfig_updated);
     };
 
     IspResource(std::shared_ptr<EventBus> event_bus, std::shared_ptr<ConfigResourceMedialib> config_res);
-    void http_register(std::shared_ptr<HTTPServer> srv) override;
-    std::string name() override
-    {
-        return "isp";
-    }
-    ResourceType get_type() override
-    {
-        return ResourceType::RESOURCE_ISP;
-    }
+    void http_register(HTTPServer &srv) override;
+    std::string name() override;
+    ResourceType get_type() override;
     void init(bool set_auto_wb = true);
     std::vector<std::string> get_illumination_names();
     std::string get_awb_target_keyword(webserver::common::auto_white_balance_profile profile);

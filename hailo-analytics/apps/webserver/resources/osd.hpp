@@ -43,15 +43,9 @@ class OsdResource : public Resource
         OsdResourceState(nlohmann::json config);
     };
     OsdResource(std::shared_ptr<EventBus> event_bus, std::shared_ptr<ConfigResourceBase> configs);
-    void http_register(std::shared_ptr<HTTPServer> srv) override;
-    std::string name() override
-    {
-        return "osd";
-    }
-    ResourceType get_type() override
-    {
-        return ResourceType::RESOURCE_OSD;
-    }
+    void http_register(HTTPServer &srv) override;
+    std::string name() override;
+    ResourceType get_type() override;
     nlohmann::json get_encoder_osd_config();
     std::vector<std::string> get_overlays_to_delete(nlohmann::json previouse_config, nlohmann::json new_config);
 
@@ -66,6 +60,12 @@ class OsdResource : public Resource
     nlohmann::json map_overlays(nlohmann::json config, std::function<nlohmann::json(nlohmann::json)> transform_osd);
     std::vector<std::string> get_all_overlays_ids();
     void update_osds(uint32_t new_width, uint32_t new_height);
+    void register_get_osd_endpoint(HTTPServer &srv);
+    void register_get_formats_endpoint(HTTPServer &srv);
+    void register_get_images_endpoint(HTTPServer &srv);
+    void register_patch_osd_endpoint(HTTPServer &srv);
+    void register_put_osd_endpoint(HTTPServer &srv);
+    void register_upload_endpoint(HTTPServer &srv);
     bool m_initialize;
 
     struct resolution_conf_t
@@ -76,6 +76,7 @@ class OsdResource : public Resource
     };
 
     resolution_conf_t m_resolution_conf;
+    rotation_angle_t m_default_rotation;
 };
 } // namespace resources
 } // namespace webserver
