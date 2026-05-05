@@ -37,9 +37,9 @@ std::string read_file_to_string(const std::string &filepath)
     return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
 }
 
-void connect_frontend_to_encoders(MediaLibraryPtr media_lib)
+void connect_frontend_to_encoders(MediaLibrary &media_lib)
 {
-    auto streams_exp = media_lib->m_frontend->get_outputs_streams();
+    auto streams_exp = media_lib.m_frontend->get_outputs_streams();
     if (!streams_exp.has_value())
     {
         std::cerr << "Failed to get output streams" << std::endl;
@@ -49,20 +49,20 @@ void connect_frontend_to_encoders(MediaLibraryPtr media_lib)
     FrontendCallbacksMap fe_callbacks;
     for (const auto &stream : streams_exp.value())
     {
-        fe_callbacks[stream.id] = [media_lib, stream_id = stream.id](HailoMediaLibraryBufferPtr buffer, size_t) {
-            if (media_lib->m_encoders.find(stream_id) != media_lib->m_encoders.end())
+        fe_callbacks[stream.id] = [&media_lib, stream_id = stream.id](HailoMediaLibraryBufferPtr buffer, size_t) {
+            if (media_lib.m_encoders.find(stream_id) != media_lib.m_encoders.end())
             {
-                media_lib->m_encoders[stream_id]->add_buffer(buffer);
+                media_lib.m_encoders[stream_id]->add_buffer(buffer);
             }
         };
     }
-    media_lib->subscribe_to_frontend_output(fe_callbacks);
+    media_lib.subscribe_to_frontend_output(fe_callbacks);
 }
 
-void subscribe_to_encoded_output(MediaLibraryPtr media_lib, std::map<output_stream_id_t, std::ofstream> &output_files,
+void subscribe_to_encoded_output(MediaLibrary &media_lib, std::map<output_stream_id_t, std::ofstream> &output_files,
                                  const std::string &output_prefix)
 {
-    auto streams_exp = media_lib->m_frontend->get_outputs_streams();
+    auto streams_exp = media_lib.m_frontend->get_outputs_streams();
     if (!streams_exp.has_value())
     {
         std::cerr << "Failed to get output streams" << std::endl;
@@ -71,7 +71,7 @@ void subscribe_to_encoded_output(MediaLibraryPtr media_lib, std::map<output_stre
 
     for (const auto &stream : streams_exp.value())
     {
-        if (media_lib->m_encoders.find(stream.id) == media_lib->m_encoders.end())
+        if (media_lib.m_encoders.find(stream.id) == media_lib.m_encoders.end())
         {
             continue;
         }
@@ -84,7 +84,7 @@ void subscribe_to_encoded_output(MediaLibraryPtr media_lib, std::map<output_stre
             continue;
         }
 
-        media_lib->subscribe_to_encoder_output(
+        media_lib.subscribe_to_encoder_output(
             stream.id, [&output_files, stream_id = stream.id](HailoMediaLibraryBufferPtr buffer, size_t size) {
                 char *data = static_cast<char *>(buffer->get_plane_ptr(0));
                 if (data)
@@ -113,8 +113,8 @@ bool initialize_pipeline(Resources &resources, const std::string &config_path, c
         return false;
     }
 
-    connect_frontend_to_encoders(resources.media_lib);
-    subscribe_to_encoded_output(resources.media_lib, resources.output_files, output_prefix);
+    connect_frontend_to_encoders(*resources.media_lib);
+    subscribe_to_encoded_output(*resources.media_lib, resources.output_files, output_prefix);
 
     ret = resources.media_lib->start_pipeline();
     if (ret != media_library_return::MEDIA_LIBRARY_SUCCESS)

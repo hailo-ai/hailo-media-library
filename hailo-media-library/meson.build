@@ -1,6 +1,6 @@
 # Project Declaration
 project('media-library', 'c', 'cpp',
-    version : '1.10.1',
+    version : '1.11.0',
     default_options : [ 'warning_level=2', 'werror=true',
                         'buildtype=' + get_option('buildtype'),
                         'c_std=c11', 'cpp_std=c++20']
@@ -98,4 +98,5 @@ pkgc.generate(
 
 # Build after libmedialib.so is ready
 subdir('gst_plugin')
+subdir('api/gst')
 subdir('executables')

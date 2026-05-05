@@ -1,0 +1,156 @@
+version: "1.0"
+connection:
+    host: 192.168.12.21
+    username: hailo
+
+targets:
+    dynamic_privacy_mask:
+        enabled: true
+        description: "Dynamic privacy masking application using Linknet segmentation model"
+        platforms: [hailo15h, hailo15l]
+        requirements:
+            - name: linknet_mbv1_ss_dpm_128.hef
+              source:
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15h/hefs/linknet_mbv1_ss_dpm_128.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15l/hefs/linknet_mbv1_ss_dpm_128.hef
+              destination: dynamic_privacy_mask/resources
+              checksum:
+                  hailo15h: ddd900fa4f883d7dd8b895ce41a2ef9e
+                  hailo15l: 222d314d8c9d1e6bf0559dfc16332e19
+
+            - name: linknet_mbv1_ss_dpm_256.hef
+              source:
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15h/hefs/linknet_mbv1_ss_dpm_256.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15l/hefs/linknet_mbv1_ss_dpm_256.hef
+              destination: dynamic_privacy_mask/resources
+              checksum:
+                  hailo15h: 76efa36290e0c018b7bb2e5ab1d2d280
+                  hailo15l: 4158c5e2ad5676e498b747204b83e83c
+
+    webserver:
+        enabled: true
+        description: "Camera viewer webserver application"
+        platforms: [hailo15h, hailo15l]
+        requirements:
+            - name: yolov5s_seg_1class_nv12.hef
+              source:
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15h/hefs/yolov5s_seg_1class_nv12.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15l/hefs/yolov5s_seg_1class_nv12.hef
+              destination: webserver/resources
+              checksum:
+                  hailo15h: 8afe7dfece6f3b1b67fdf1e2c6b3e232
+                  hailo15l: 0e86d1bbe9a476622ea44bf65cb27434
+
+    face_landmarks:
+        enabled: true
+        description: "Face landmarks application models (YOLOv8, Face Landmarks, CLIP ResNet)"
+        platforms: [hailo15h, hailo15l]
+        requirements:
+            - name: hailo_yolov8s_384_640.hef
+              source:
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15h/hefs/hailo_yolov8s_384_640.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15l/hefs/hailo_yolov8s_384_640.hef
+              destination: face_landmarks/resources
+              checksum:
+                  hailo15h: 1af63c9a0cd4e5816268be7a0ac966c4
+                  hailo15l: c84a21ea00b22cd2399c9ae136816286
+
+            - name: hailo_yolov8n_384_640.hef
+              source:
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15h/hefs/hailo_yolov8n_384_640.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15l/hefs/hailo_yolov8n_384_640.hef
+              destination: face_landmarks/resources
+              checksum:
+                  hailo15h: c10aa597eecadeb6ea20c8a2b864929c
+                  hailo15l: 3fecd94a64ada245c7439d38e81a3cdd
+
+            - name: face_landmarks_lite.hef
+              source:
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15h/hefs/face_landmarks_lite.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15l/hefs/face_landmarks_lite.hef
+              destination: face_landmarks/resources
+              checksum:
+                  hailo15h: 5b9af62897d14151455f35f1e5881188
+                  hailo15l: 92f03696d83d198238069a183fc53d91
+
+            - name: clip_resnet_50x4_image_encoder_nv12.hef
+              source:
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15h/hefs/clip_resnet_50x4_image_encoder_nv12.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15l/hefs/clip_resnet_50x4_image_encoder_nv12.hef
+              destination: face_landmarks/resources
+              checksum:
+                  hailo15h: b10023101b164be16a3ec12a89377dbd
+                  hailo15l: 4ef4edd728ef9bbfad4db11f381f1f7e
+
+    clip:
+        enabled: true
+        description: "CLIP semantic search application with ViT-B/32 models"
+        platforms: [hailo15h, hailo15l]
+        requirements:
+            - name: clip_vit_b_32_image_encoder_nv12.hef
+              source:
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15h/hefs/clip_vit_b_32_image_encoder_nv12.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15l/hefs/clip_vit_b_32_image_encoder_nv12.hef
+              destination: clip/resources
+              checksum:
+                  hailo15h: a4cde9e2660bbd9bc7d47cd244fd82ed
+                  hailo15l: 9c4a98d943322a884039872ab454596c
+
+            - name: clip_vit_b_32_text_encoder.hef
+              source:
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15h/hefs/clip_vit_b_32_text_encoder.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15l/hefs/clip_vit_b_32_text_encoder.hef
+              destination: clip/resources
+              checksum:
+                  hailo15h: 07957b2b556a2d4cfee95241aca57cf3
+                  hailo15l: 38da2a10f744feca4d1cbae5f02d8506
+
+            - name: clip_vit_b32_embedding_lookup.bin
+              source:
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15h/hefs/clip_vit_b32_embedding_lookup.bin
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15l/hefs/clip_vit_b32_embedding_lookup.bin
+              destination: clip/resources
+              checksum:
+                  hailo15h: 83e2e79d7391ecf5a8fdbf0fa576beac
+                  hailo15l: 83e2e79d7391ecf5a8fdbf0fa576beac
+
+            - name: clip_vit_b32_text_projection_bias.bin
+              source:
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15h/hefs/clip_vit_b32_text_projection_bias.bin
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15l/hefs/clip_vit_b32_text_projection_bias.bin
+              destination: clip/resources
+              checksum:
+                  hailo15h: 60ef8774e09836b54facfe4fd9e57279
+                  hailo15l: 60ef8774e09836b54facfe4fd9e57279
+
+            - name: clip_vit_b32_text_projection_weights.bin
+              source:
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15h/hefs/clip_vit_b32_text_projection_weights.bin
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15l/hefs/clip_vit_b32_text_projection_weights.bin
+              destination: clip/resources
+              checksum:
+                  hailo15h: 70d2c89ded6b39ba962bf90366da642b
+                  hailo15l: 70d2c89ded6b39ba962bf90366da642b
+
+            - name: tokenizer.json
+              source:
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15h/hefs/tokenizer.json
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15l/hefs/tokenizer.json
+              destination: clip/resources
+              checksum:
+                  hailo15h: 30d20c581ebf1d80626083ca95e9f883
+                  hailo15l: 30d20c581ebf1d80626083ca95e9f883
+
+    license_plate_recognition:
+        enabled: true
+        description: "License plate recognition application with one model (OCR)"
+        platforms: [hailo15h, hailo15l]
+        requirements:
+            - name: paddle_ocr_v5_mobile_recognition.hef
+              source:
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15h/hefs/paddle_ocr_v5_mobile_recognition.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/0.0.0.LGL-dv-LGL_14/hailo15l/hefs/paddle_ocr_v5_mobile_recognition.hef
+              destination: license_plate_recognition/resources
+              checksum:
+                  hailo15h: 1be55d8dfa5e32d9d93789c2e52c7158
+                  hailo15l: b49df4e85a3028f258a3ee7427217867

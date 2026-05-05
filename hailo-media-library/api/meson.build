@@ -2,7 +2,8 @@
 # APP WRAPPER SOURCE
 ################################################
 sources = [
-  'src/encoder/encoder.cpp',
+  'src/encoder/encoder_api.cpp',
+  'src/encoder/encoder_api_internal.cpp',
   'src/frontend/frontend.cpp',
   'src/media_library/media_library.cpp',
   'src/media_library/media_library_api_types.cpp',

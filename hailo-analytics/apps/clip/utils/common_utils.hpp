@@ -38,17 +38,9 @@ bool ensure_directory_exists(const std::string &path);
 
 std::string join_path(const std::string &base, const std::string &relative);
 
-// inline join path and filename
-inline std::string join_path_and_file_name(const std::string &base, const std::string &filename)
-{
-    return (fs::path(base) / fs::path(filename).filename()).string();
-}
+std::string join_path_and_file_name(const std::string &base, const std::string &filename);
 
-// inline extract filename from full path
-inline std::string extract_file_name(const std::string &full_path)
-{
-    return fs::path(full_path).filename().string();
-}
+std::string extract_file_name(const std::string &full_path);
 
 int move_file_sendfile(const std::string &src, const std::string &dst);
 
@@ -196,35 +188,8 @@ template <typename... Args> class AsyncCallbackHandler
     std::atomic<bool> m_stop;
 };
 
-inline std::shared_ptr<uint8_t> page_aligned_alloc(size_t size)
-{
-    auto addr = mmap(NULL, size, PROT_WRITE | PROT_READ, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-    if (MAP_FAILED == addr)
-        throw std::bad_alloc();
-    return std::shared_ptr<uint8_t>(reinterpret_cast<uint8_t *>(addr), [size](void *addr) { munmap(addr, size); });
-}
-
-inline unsigned long long getTotalMemoryBytes()
-{
-    struct sysinfo info;
-
-    if (sysinfo(&info) != 0)
-    {
-        return 0; // Error
-    }
-
-    return info.totalram * info.mem_unit;
-}
-
-inline double getTotalMemoryGB()
-{
-    unsigned long long bytes = getTotalMemoryBytes();
-    if (bytes == 0)
-    {
-        return 0.0;
-    }
-
-    return bytes / (1024.0 * 1024.0 * 1024.0);
-}
+std::shared_ptr<uint8_t> page_aligned_alloc(size_t size);
+unsigned long long getTotalMemoryBytes();
+double getTotalMemoryGB();
 
 } // namespace SystemUtils

@@ -4,7 +4,8 @@ post_proc_install_dir = get_option('post_processes_install_dir')
 # DETECTION SOURCES - YOLOV5M
 ################################################
 yolo_hailortpp_sources = [
-    'detection/yolo_hailortpp.cpp'
+    'detection/yolo_hailortpp.cpp',
+    'common/nms.cpp',
 ]
 
 shared_library('yolo_hailortpp_post',
@@ -23,6 +24,7 @@ shared_library('yolo_hailortpp_post',
 
 mediapipe_post_sources = [
     'facial_landmarking/mediapipe_landmarks_post.cpp',
+    'common/tensors.cpp',
 ]
 
 shared_library('mediapipe_post',
@@ -41,11 +43,12 @@ shared_library('mediapipe_post',
 detection_new_api_post_sources = [
   'detection/yolo_postprocess.cpp',
   'detection/yolo_output.cpp',
+  'common/nms.cpp',
 ]
 
 shared_library('yolo_post',
     detection_new_api_post_sources,
-    cpp_args : hailo_lib_args,
+    cpp_args : hailo_lib_args + ['-Wno-psabi'],
     include_directories: [include_directories('./')],
     dependencies : [libhailo_postprocess_tools_dep],
     gnu_symbol_visibility : 'default',
@@ -95,10 +98,29 @@ shared_library('clipgen_post',
 ################################################
 linknet_post_sources = [
     'semantic_segmentation/linknet.cpp',
+    'common/tensors.cpp',
 ]
 
 shared_library('linknet_post',
     linknet_post_sources,
+    cpp_args : hailo_lib_args,
+    include_directories: [include_directories('./')],
+    dependencies : [libhailo_postprocess_tools_dep],
+    gnu_symbol_visibility : 'default',
+    install: true,
+    install_dir: post_proc_install_dir,
+)
+
+################################################
+# LICENSE PLATE RECOGNITION OCR SOURCES
+################################################
+ocr_post_sources = [
+    'license_plate_recognition/ocr_post.cpp',
+    'common/tensors.cpp',
+]
+
+shared_library('ocr_post',
+    ocr_post_sources,
     cpp_args : hailo_lib_args,
     include_directories: [include_directories('./')],
     dependencies : [libhailo_postprocess_tools_dep],

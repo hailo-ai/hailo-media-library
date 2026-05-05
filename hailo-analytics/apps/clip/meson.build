@@ -32,7 +32,12 @@ database_src = [
   'database/src/database.cpp',
   'database/src/faiss_table.cpp',
   'database/src/thumbnail_table.cpp',
-  'database/src/video_table.cpp'
+  'database/src/video_table.cpp',
+  'database/src/faiss_factory.cpp',
+  'database/src/faiss_shard.cpp',
+  'database/src/faiss_partitioned.cpp',
+  'database/database_manager.cpp',
+  'database/sql_factory.cpp'
 ]
 
 custom_pipeline_src = [
@@ -40,8 +45,24 @@ custom_pipeline_src = [
   'custom/streaming/mkv_streamer.cpp',
   'custom/service/player_service_ext.cpp',
   'custom/service/storage_cleanup_service_ext.cpp',
+  'custom/service/query_service/clip_text_encoder.cpp',
+  'custom/service/query_service/hailort_service.cpp',
+  'custom/service/query_service/query_service_ext.cpp',
+  'custom/service/query_service/text_encoder.cpp',
+  'custom/service/storage_monitor_service_ext.cpp',
+  'custom/service/storage_cleanup_strategy.cpp',
+  'custom/pipeline/cache_stage.cpp',
   'utils/common_utils.cpp',
-  'utils/clip_app_config_parser.cpp'
+  'apps/clip_pipeline_ai.cpp',
+  'utils/clip_app_config_parser.cpp',
+  'custom/service/app_control_service_ext.cpp',
+  'custom/service/query_service/hailort_buffer_manager.cpp',
+  'custom/streaming/webrtc_streamer_ext.cpp',
+  'custom/pipeline/clip_image_preprocess.cpp',
+  'custom/pipeline/thumb_storage_stage.cpp',
+  'custom/pipeline/faiss_storage_stage.cpp',
+  'custom/pipeline/video_storage_stage.cpp',
+  'custom/pipeline/full_frame_bbox_injector_stage.cpp'
 ]
 
 # Include tokenizers subdirectory to build the sample code for test if needed

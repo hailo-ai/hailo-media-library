@@ -3,6 +3,7 @@ eis_incdir = [include_directories('.')]
 
 eis_sources = files(
   'eis.cpp',
+  'eis_utils.cpp',
   'iir_filter.cpp',
   'gyro_device.cpp',
   'arguments_parser.cpp',

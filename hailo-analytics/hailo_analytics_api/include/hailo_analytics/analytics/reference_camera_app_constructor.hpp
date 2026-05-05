@@ -5,17 +5,9 @@
 #include <memory>
 #include <map>
 #include <optional>
-#include <queue>
-#include <fstream>
-#include <iostream>
-#include <sstream>
 #include <string>
-#include <thread>
-#include <signal.h>
 #include <unordered_map>
 #include <vector>
-#include <functional>
-#include <typeindex>
 #include <type_traits>
 
 // third-party includes
@@ -23,14 +15,11 @@
 #include <cxxopts/cxxopts.hpp>
 
 // medialibrary includes
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "media_library/media_library.hpp"
-#include "media_library/encoder.hpp"
 #include "media_library/frontend.hpp"
-#include "media_library/signal_utils.hpp"
 
 // hailo analytics includes
-#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
-#include "hailo_analytics/pipeline/sources/frontend_stage_from_file.hpp"
 #include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
 #include "hailo_analytics/pipeline/codecs/encoder_stage.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
@@ -69,10 +58,7 @@ struct UserDataBase
   public:
     virtual ~UserDataBase() = default;
 
-    virtual const char *type_name() const
-    {
-        return "UserDataBase";
-    }
+    virtual const char *type_name() const;
 
     // This is a base class for user data that can be extended by the user
     // to store any custom data needed for the application.
@@ -123,9 +109,7 @@ class CameraAppExtension
 
     // Called when registered with CameraAppConstructor, can be used to ontain the app instance
     // on registration for some additional initialization of the service that inherit from this class
-    virtual void on_registered([[maybe_unused]] CameraAppConstructor &app)
-    {
-    }
+    virtual void on_registered(CameraAppConstructor &app);
 
   protected:
     CameraAppConstructor *m_app = nullptr;
@@ -138,11 +122,15 @@ class CameraAppConstructor : public std::enable_shared_from_this<CameraAppConstr
   public:
     struct InitializerParams
     {
-        std::shared_ptr<MediaLibrary> media_library_component;
+        // When non-null, this MediaLibrary is borrowed (not owned). The caller is
+        // responsible for keeping it alive and releasing it after this app is stopped.
+        MediaLibrary *media_library_component;
         std::string media_library_config_path;
         std::string media_library_profile_name;
-        bool initialize_media_library_configuration = true;
-        bool initialize_media_library_profile = true;
+        bool initialize_media_library_configuration;
+        bool initialize_media_library_profile;
+
+        InitializerParams();
     };
 
     virtual ~CameraAppConstructor();
@@ -243,38 +231,13 @@ class CameraAppClassFactory
   public:
     using CreatorFunc = std::shared_ptr<CameraAppConstructor> (*)();
 
-    void register_class(const std::string &name, CreatorFunc func)
-    {
-        if (m_registry.find(name) == m_registry.end())
-        {
-            m_registry[name] = func;
-            m_registration_order.push_back(name); // Record the order
-        }
-    }
+    void register_class(const std::string &name, CreatorFunc func);
 
-    std::shared_ptr<CameraAppConstructor> create(const std::string &name) const
-    {
-        auto it = m_registry.find(name);
-        if (it != m_registry.end())
-        {
-            return it->second();
-        }
-        return nullptr;
-    }
+    std::shared_ptr<CameraAppConstructor> create(const std::string &name) const;
 
-    std::vector<std::string> get_registration_name_in_order()
-    {
-        return m_registration_order;
-    }
+    std::vector<std::string> get_registration_name_in_order();
 
-    std::shared_ptr<CameraAppConstructor> create_first_registered() const
-    {
-        if (!m_registration_order.empty())
-        {
-            return create(m_registration_order.front());
-        }
-        return nullptr;
-    }
+    std::shared_ptr<CameraAppConstructor> create_first_registered() const;
 
   private:
     std::unordered_map<std::string, CreatorFunc> m_registry;

@@ -34,6 +34,8 @@
 #include "imx334_capabilities.hpp"
 #include "imx715_capabilities.hpp"
 #include "imx664_capabilities.hpp"
+#include "imx307_capabilities.hpp"
+#include "imx662_capabilities.hpp"
 
 namespace sensor_config
 {
@@ -57,6 +59,8 @@ inline std::unordered_map<SensorType, SensorCapabilities> all_sensor_capabilitie
     {SensorType::IMX334, sensor_config::imx334::capabilities},
     {SensorType::IMX715, sensor_config::imx715::capabilities},
     {SensorType::IMX664, sensor_config::imx664::capabilities},
+    {SensorType::IMX307, sensor_config::imx307::capabilities},
+    {SensorType::IMX662, sensor_config::imx662::capabilities},
 };
 
 inline std::vector<std::string> sensor_index_to_video_device{"/dev/video0", "/dev/video3"};
