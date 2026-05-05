@@ -28,10 +28,7 @@ class StorageCleanupServiceExt : public hailo_analytics::analytics::app_construc
         std::string thumbnail_db_name;
         std::string video_db_name;
 
-        DatabaseConfig(const std::string &faiss, const std::string &thumbnail, const std::string &video)
-            : faiss_db_name(faiss), thumbnail_db_name(thumbnail), video_db_name(video)
-        {
-        }
+        DatabaseConfig(const std::string &faiss, const std::string &thumbnail, const std::string &video);
     };
 
     StorageCleanupServiceExt();

@@ -233,4 +233,15 @@ class MediaLibraryEncoder
      * @param config_manager_interactor - The ConfigManagerInteractor object to be set
      */
     void set_config_manager_interactor(const ConfigManagerInteractor &config_manager_interactor);
+
+    /**
+     * @brief Enable or disable the config attacher in the encoder pipeline.
+     *
+     * When running the encoder standalone (without a full MediaLibrary pipeline),
+     * enable this to ensure buffers have an attached profile for OSD/privacy mask.
+     * Must be called before set_config().
+     *
+     * @param enable - true to add a config attacher, false to disable (default)
+     */
+    void add_config_attacher(bool enable);
 };

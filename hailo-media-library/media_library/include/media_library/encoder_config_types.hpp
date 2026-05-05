@@ -31,6 +31,7 @@
 #include <string>
 #include <optional>
 #include <variant>
+#include <vector>
 #include <unordered_map>
 
 enum codec_t
@@ -134,22 +135,6 @@ struct coding_roi_t
     }
 };
 
-struct coding_roi_area_t
-{
-    bool enable;
-    uint32_t top;
-    uint32_t left;
-    uint32_t bottom;
-    uint32_t right;
-    uint32_t qp_delta;
-
-    bool operator==(const coding_roi_area_t &other) const
-    {
-        return enable == other.enable && top == other.top && left == other.left && bottom == other.bottom &&
-               right == other.right && qp_delta == other.qp_delta;
-    }
-};
-
 struct sei_messages_config_t
 {
     bool encoder_timing_sei;
@@ -168,14 +153,11 @@ struct coding_control_config_t
     coding_roi_t intra_area;
     coding_roi_t ipcm_area1;
     coding_roi_t ipcm_area2;
-    coding_roi_area_t roi_area1;
-    coding_roi_area_t roi_area2;
 
     bool operator==(const coding_control_config_t &other) const
     {
         return sei_messages == other.sei_messages && deblocking_filter == other.deblocking_filter &&
-               intra_area == other.intra_area && ipcm_area1 == other.ipcm_area1 && ipcm_area2 == other.ipcm_area2 &&
-               roi_area1 == other.roi_area1 && roi_area2 == other.roi_area2;
+               intra_area == other.intra_area && ipcm_area1 == other.ipcm_area1 && ipcm_area2 == other.ipcm_area2;
     }
 };
 
@@ -352,6 +334,31 @@ struct encoder_monitors_config_t
     }
 };
 
+struct normalized_roi_t
+{
+    float x;      // Normalized x coordinate (0.0 - 1.0)
+    float y;      // Normalized y coordinate (0.0 - 1.0)
+    float width;  // Normalized width (0.0 - 1.0)
+    float height; // Normalized height (0.0 - 1.0)
+
+    bool operator==(const normalized_roi_t &other) const
+    {
+        return x == other.x && y == other.y && width == other.width && height == other.height;
+    }
+};
+
+struct smart_encoder_config_t
+{
+    bool enabled;
+    uint8_t background_qp_delta;
+    std::vector<normalized_roi_t> rois;
+
+    bool operator==(const smart_encoder_config_t &other) const
+    {
+        return enabled == other.enabled && background_qp_delta == other.background_qp_delta && rois == other.rois;
+    }
+};
+
 struct hailo_encoder_config_t
 {
     std::string config_path;
@@ -361,8 +368,17 @@ struct hailo_encoder_config_t
     coding_control_config_t coding_control;
     rate_control_config_t rate_control;
     encoder_monitors_config_t monitors_control;
+    smart_encoder_config_t smart_encoder;
 
     bool operator==(const hailo_encoder_config_t &other) const
+    {
+        return config_path == other.config_path && input_stream == other.input_stream &&
+               output_stream == other.output_stream && gop == other.gop && coding_control == other.coding_control &&
+               rate_control == other.rate_control && monitors_control == other.monitors_control &&
+               smart_encoder == other.smart_encoder;
+    }
+
+    bool equal_excluding_smart_encoder(const hailo_encoder_config_t &other) const
     {
         return config_path == other.config_path && input_stream == other.input_stream &&
                output_stream == other.output_stream && gop == other.gop && coding_control == other.coding_control &&

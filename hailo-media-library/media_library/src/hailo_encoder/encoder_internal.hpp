@@ -23,7 +23,6 @@
 #pragma once
 #include "files_utils.hpp"
 #include <condition_variable>
-#include <iostream>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -188,11 +187,12 @@ class Encoder::Impl final
     VCEncRateCtrl m_vc_rate_cfg;
     VCEncPreProcessingCfg m_vc_pre_proc_cfg;
     uint32_t m_input_stride;
-    std::string m_stream_id;
+    output_stream_id_t m_stream_id;
 
     // const char * const m_json_schema = load_json_schema();
     VCEncInst m_inst;
     VCEncIn m_enc_in;
+    std::vector<VCEncIn::VCEncRoi> m_rois; /* Owned ROI array; m_enc_in.rois points here */
     VCEncOut m_enc_out;
     int m_next_gop_size;
     VCEncPictureCodingType m_next_coding_type;
@@ -261,14 +261,13 @@ class Encoder::Impl final
     media_library_return release();
     media_library_return dispose();
     encoder_monitors get_monitors();
-    void set_stream_id(const std::string &stream_id);
+    void set_stream_id(const output_stream_id_t &stream_id);
     void set_start_callback(EncoderStartCallback callback);
 
     // static const char *json_schema const get_json_schema() const;
     // static const char * const load_json_schema() const;
   private:
     void updateArea(coding_roi_t &area, VCEncPictureArea &vc_area);
-    void updateArea(coding_roi_area_t &area, VCEncPictureArea &vc_area);
     media_library_return init_gop_config();
     void create_gop_config();
     media_library_return config_init();
@@ -278,6 +277,7 @@ class Encoder::Impl final
     media_library_return init_preprocessing_config();
     media_library_return init_encoder_config();
     media_library_return init_monitors_config();
+    void apply_smart_encoder_config(const smart_encoder_config_t &smart_encoder);
     void stamp_time_and_log_fps(timespec &start_handle, timespec &end_handle);
     media_library_return get_level(std::string level, bool codecH264, u32 width, u32 height, u32 framerate,
                                    u32 framerate_denom, VCEncLevel &vc_level_out);

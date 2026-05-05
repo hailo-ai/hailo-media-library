@@ -268,4 +268,22 @@ GstFlowReturn OutputModule::add_buffer_internal(GstBuffer *buffer)
     return ret;
 }
 
+gboolean OutputModule::bus_call(GstBus *bus, GstMessage *msg, gpointer user_data)
+{
+    OutputModule *output_module = static_cast<OutputModule *>(user_data);
+    return output_module->on_bus_call(bus, msg);
+}
+
+void OutputModule::fps_measurement(GstElement *fpssink, gdouble fps, gdouble droprate, gdouble avgfps,
+                                   gpointer user_data)
+{
+    OutputModule *output_module = static_cast<OutputModule *>(user_data);
+    output_module->on_fps_measurement(fpssink, fps, droprate, avgfps);
+}
+
+void hailo_media_library_output_release(OutputPtrWrapper *wrapper)
+{
+    delete wrapper;
+}
+
 } // namespace hailo_analytics::pipeline::sinks

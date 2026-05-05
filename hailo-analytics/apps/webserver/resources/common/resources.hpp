@@ -39,54 +39,29 @@ class Resource
     virtual void reset_config() {};
 
   public:
-    Resource(std::shared_ptr<EventBus> event_bus) : m_event_bus(event_bus)
-    {
-        subscribe_callback(EventType::RESET_CONFIG, EventPriority::EVENT_PRIORITY_MEDIUM,
-                           [this](ResourceStateChangeNotification notification) { this->reset_config(); });
-    }
+    Resource(std::shared_ptr<EventBus> event_bus);
     virtual ~Resource() = default;
-    virtual std::string name()
-    {
-        return "ResourceBase";
-    };
+    virtual std::string name();
     virtual ResourceType get_type() = 0;
-    virtual void http_register(std::shared_ptr<HTTPServer> srv) = 0;
+    virtual void http_register(HTTPServer &srv) = 0;
 
-    virtual std::string to_string()
-    {
-        return m_config.dump();
-    }
+    virtual std::string to_string();
 
-    virtual nlohmann::json get()
-    {
-        return m_config;
-    }
+    virtual nlohmann::json get();
 
     template <typename T> void on_resource_change(EventType type, std::shared_ptr<T> state)
     {
         m_event_bus->notify(type, state);
     }
 
-    void subscribe_callback(EventType resource_type, ResourceChangeCallback callback)
-    {
-        m_event_bus->subscribe(name(), resource_type, EventPriority::EVENT_PRIORITY_HIGH, callback);
-    }
+    void subscribe_callback(EventType resource_type, ResourceChangeCallback callback);
 
-    void subscribe_callback(EventType resource_type, EventPriority priority, ResourceChangeCallback callback)
-    {
-        m_event_bus->subscribe(name(), resource_type, priority, callback);
-    }
+    void subscribe_callback(EventType resource_type, EventPriority priority, ResourceChangeCallback callback);
 
-    void subscribe_callback(std::initializer_list<EventType> resource_types, ResourceChangeCallback callback)
-    {
-        m_event_bus->subscribe(name(), resource_types, EventPriority::EVENT_PRIORITY_HIGH, callback);
-    }
+    void subscribe_callback(std::initializer_list<EventType> resource_types, ResourceChangeCallback callback);
 
     void subscribe_callback(std::initializer_list<EventType> resource_types, EventPriority priority,
-                            ResourceChangeCallback callback)
-    {
-        m_event_bus->subscribe(name(), resource_types, priority, callback);
-    }
+                            ResourceChangeCallback callback);
 };
 } // namespace resources
 } // namespace webserver

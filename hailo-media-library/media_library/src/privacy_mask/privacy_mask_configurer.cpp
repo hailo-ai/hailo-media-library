@@ -527,7 +527,7 @@ media_library_return PrivacyMaskConfigurer::set_dynamic_mask_enabled(bool enable
     {
         const bool is_enabled = true;
         current_profile.encoded_output_streams.at(m_stream_id).masking.dynamic_privacy_mask_config =
-            dynamic_privacy_mask_config_t{is_enabled, {}, 0};
+            dynamic_privacy_mask_config_t{is_enabled, {}, 0, 10000, 34, AnalyticsQueryType::WithinDelta};
     }
     auto &dynamic_config = stream_privacy_mask_config.dynamic_privacy_mask_config.value();
     dynamic_config.enabled = enable;
@@ -580,7 +580,7 @@ media_library_return PrivacyMaskConfigurer::configure(const std::string &config)
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to validate configuration");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-    auto config_json = nlohmann::json::parse(clean_config)["privacy_mask"];
+    auto config_json = nlohmann::json::parse(clean_config)["masking"];
     std::string privacy_mask_config_string = config_json.dump();
 
     auto privacy_mask_config = std::make_unique<privacy_mask_config_t>();

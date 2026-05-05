@@ -1,34 +1,11 @@
-#include "media_library/examples_common.hpp"
+#include "common/common.hpp"
+#include <map>
 
 struct StreamResolution
 {
     uint32_t width;
     uint32_t height;
 };
-
-void remove_all_osd(MediaLibraryPtr media_lib)
-{
-    for (auto &entry : media_lib->m_encoders)
-    {
-        auto encoder = entry.second;
-        if (!encoder)
-            continue;
-
-        auto blender = encoder->get_osd_blender();
-        if (!blender)
-            continue;
-
-        // Remove all overlays completely (not just disable)
-        blender->remove_overlay("example_text1");
-        blender->remove_overlay("example_text2");
-        blender->remove_overlay("example_image");
-        blender->remove_overlay("example_datetime");
-        blender->remove_overlay("example_text1_changed");
-        blender->remove_overlay("example_text2_changed");
-        blender->remove_overlay("example_image_changed");
-        blender->remove_overlay("example_datetime_changed");
-    }
-}
 
 media_library_return change_resolution(MediaLibraryPtr media_lib, const std::vector<StreamResolution> &new_resolutions)
 {
@@ -38,15 +15,7 @@ media_library_return change_resolution(MediaLibraryPtr media_lib, const std::vec
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
 
-    std::cout << "\n=== Resolution change (Dynamic Vector Input) ===" << std::endl;
-
-    // IMPORTANT: Remove all OSD overlays BEFORE stopping pipeline
-    // This prevents "overlay not ready to blend" errors during resolution change
-    std::cout << "Removing OSD overlays before resolution change..." << std::endl;
-    remove_all_osd(media_lib);
-
-    // Wait for pending frames to be processed without OSD
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::cout << "\n=== Resolution change ===" << std::endl;
 
     // Get the current profile
     auto profile_exp = media_lib->get_current_profile();
@@ -58,10 +27,21 @@ media_library_return change_resolution(MediaLibraryPtr media_lib, const std::vec
 
     config_profile_t profile = profile_exp.value();
 
-    auto &encoded_streams = profile.encoded_output_streams;
-    auto &app_inputs = profile.application_settings.application_input_streams.resolutions;
+    // Save OSD configs and temporarily remove them before changing resolution.
+    // OSD overlays are positioned using pixel coordinates tied to the current
+    // resolution. If we change the resolution while overlays are still active,
+    // their positions become invalid for the new frame size, causing a crash.
+    // After the resolution change completes, we restore the OSD so overlays
+    // are recreated with correct positions for the new resolution.
+    std::map<std::string, config_stream_osd_t> saved_osd;
+    for (auto &[stream_id, encoded_stream] : profile.encoded_output_streams)
+    {
+        saved_osd[stream_id] = encoded_stream.osd;
+        encoded_stream.osd = config_stream_osd_t{};
+    }
 
-    size_t num_to_update = std::min({encoded_streams.size(), app_inputs.size(), new_resolutions.size()});
+    auto &app_inputs = profile.application_settings.application_input_streams.resolutions;
+    size_t num_to_update = std::min({profile.encoded_output_streams.size(), app_inputs.size(), new_resolutions.size()});
 
     if (num_to_update == 0)
     {
@@ -71,7 +51,7 @@ media_library_return change_resolution(MediaLibraryPtr media_lib, const std::vec
 
     std::cout << "Updating " << num_to_update << " encoder(s)." << std::endl;
 
-    auto encoded_it = encoded_streams.begin();
+    auto encoded_it = profile.encoded_output_streams.begin();
     for (size_t i = 0; i < num_to_update; ++i, ++encoded_it)
     {
         std::string stream_id = encoded_it->first;
@@ -134,24 +114,45 @@ media_library_return change_resolution(MediaLibraryPtr media_lib, const std::vec
         }
     }
 
+    // Phase 1: Stop pipeline and apply resolution change with OSD cleared.
+    // With overlays removed from the config, the resolution change can proceed
+    // safely without the blender trying to render overlays at invalid positions.
     std::cout << "Stopping pipeline for resolution change..." << std::endl;
     media_lib->stop_pipeline();
 
-    std::cout << "Applying new resolution settings..." << std::endl;
+    std::cout << "Applying new resolution (OSD temporarily cleared)..." << std::endl;
     media_library_return ret = media_lib->set_override_parameters(profile);
-
     if (ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         std::cout << "Failed to apply resolution override: " << static_cast<int>(ret) << std::endl;
         return ret;
     }
 
-    std::cout << "Restarting pipeline..." << std::endl;
+    // Wait for pipeline to restart and stabilize at new resolution
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-    // Wait for pipeline to stabilize
+    // Phase 2: Restore OSD config and re-apply. Overlays will be created fresh
+    // by the blender at the new resolution with correct pixel offsets.
+    std::cout << "Restoring OSD overlays at new resolution..." << std::endl;
+    for (auto &[stream_id, encoded_stream] : profile.encoded_output_streams)
+    {
+        auto osd_it = saved_osd.find(stream_id);
+        if (osd_it != saved_osd.end())
+        {
+            encoded_stream.osd = osd_it->second;
+        }
+    }
+
+    ret = media_lib->set_override_parameters(profile);
+    if (ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        std::cout << "Failed to restore OSD: " << static_cast<int>(ret) << std::endl;
+        return ret;
+    }
+
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     std::cout << "Resolution override applied successfully." << std::endl;
-    return ret;
+    return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
 int main()
@@ -204,21 +205,32 @@ int main()
     std::this_thread::sleep_for(std::chrono::seconds(5));
 
     // TEST 1
-    std::cout << "\n>>> TEST 1: Changing Resolution to 1920x1080 (Stream 0) and 1280x720 (Stream 1) <<<" << std::endl;
+    std::cout << "\n>>> TEST 1: Changing Resolution to 1920x1080 (Stream 0) and 960x540 (Stream 1) <<<" << std::endl;
+    std::vector<StreamResolution> mid_res_settings;
+    mid_res_settings.push_back({1920, 1080});
+    mid_res_settings.push_back({960, 540});
+
+    change_resolution(m_media_lib, mid_res_settings);
+
+    std::cout << "Playing with MID resolution for 10 seconds..." << std::endl;
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+
+    // TEST 2
+    std::cout << "\n>>> TEST 2: Changing Resolution to 1280x720 (Stream 0) and 640x360 (Stream 1) <<<" << std::endl;
     std::vector<StreamResolution> low_res_settings;
-    low_res_settings.push_back({1920, 1080});
     low_res_settings.push_back({1280, 720});
+    low_res_settings.push_back({640, 360});
 
     change_resolution(m_media_lib, low_res_settings);
 
     std::cout << "Playing with LOWER resolution for 10 seconds..." << std::endl;
     std::this_thread::sleep_for(std::chrono::seconds(10));
 
-    // TEST 2
-    std::cout << "\n>>> TEST 2: Restoring Resolution to 3840x2160 (Both Streams) <<<" << std::endl;
+    // TEST 3
+    std::cout << "\n>>> TEST 3: Restoring Resolution to 3840x2160 (Stream 0) and 1280x720 (Stream 1) <<<" << std::endl;
     std::vector<StreamResolution> high_res_settings;
     high_res_settings.push_back({3840, 2160});
-    high_res_settings.push_back({3840, 2160});
+    high_res_settings.push_back({1280, 720});
 
     change_resolution(m_media_lib, high_res_settings);
 

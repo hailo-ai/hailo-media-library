@@ -182,13 +182,14 @@ static void gst_hailo_config_attacher_finalize(GObject *object)
 {
     GstHailoConfigAttacher *self = GST_HAILO_CONFIG_ATTACHER(object);
     GST_DEBUG_OBJECT(self, "finalize");
-    if (self->params->m_is_config_manager_owner)
-    {
-        delete self->params->config_manager_interactor;
-        self->params->config_manager_interactor = nullptr;
-    }
     if (self->params != nullptr)
     {
+        if (self->params->m_is_config_manager_owner)
+        {
+            delete self->params->config_manager_interactor;
+            self->params->config_manager_interactor = nullptr;
+            gst_mode_config_manager_interactor = nullptr;
+        }
         delete self->params;
         self->params = nullptr;
     }

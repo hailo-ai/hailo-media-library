@@ -8,9 +8,9 @@
 #include "rapidjson/filereadstream.h"
 #include "rapidjson/schema.h"
 #include "hailo_postprocess_tools/objects/json_config.hpp"
-#include "common/labels/coco_eighty.hpp"
-#include "common/labels/yolo_personface.hpp"
-#include "common/labels/hailo_yolov8n.hpp"
+#include "hailo_postprocess_tools/labels/coco_eighty.hpp"
+#include "hailo_postprocess_tools/labels/yolo_personface.hpp"
+#include "hailo_postprocess_tools/labels/hailo_yolov8n.hpp"
 #include "hailo_nms_decode.hpp"
 #include "yolo_hailortpp.hpp"
 

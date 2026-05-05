@@ -39,19 +39,31 @@ AppStatus Pipeline::start()
     // Start the sink stages
     for (auto &stage : m_sink_stages)
     {
-        stage->start();
+        AppStatus status = stage->start();
+        if (status != AppStatus::SUCCESS)
+        {
+            return status;
+        }
     }
 
     // Start the general stages
     for (auto &stage : m_gen_stages)
     {
-        stage->start();
+        AppStatus status = stage->start();
+        if (status != AppStatus::SUCCESS)
+        {
+            return status;
+        }
     }
 
     // Start the source stages
     for (auto &stage : m_src_stages)
     {
-        stage->start();
+        AppStatus status = stage->start();
+        if (status != AppStatus::SUCCESS)
+        {
+            return status;
+        }
     }
     return AppStatus::SUCCESS;
 }
@@ -61,19 +73,31 @@ AppStatus Pipeline::stop()
     // Stop the source stages
     for (auto &stage : m_src_stages)
     {
-        stage->stop();
+        AppStatus status = stage->stop();
+        if (status != AppStatus::SUCCESS)
+        {
+            return status;
+        }
     }
 
     // Stop the general stages
     for (auto &stage : m_gen_stages)
     {
-        stage->stop();
+        AppStatus status = stage->stop();
+        if (status != AppStatus::SUCCESS)
+        {
+            return status;
+        }
     }
 
     // Stop the sink stages
     for (auto &stage : m_sink_stages)
     {
-        stage->stop();
+        AppStatus status = stage->stop();
+        if (status != AppStatus::SUCCESS)
+        {
+            return status;
+        }
     }
     return AppStatus::SUCCESS;
 }
@@ -103,6 +127,21 @@ StagePtr Pipeline::get_stage_by_name(std::string stage_name)
         }
     }
     return nullptr;
+}
+
+const std::vector<StagePtr> &Pipeline::get_stages() const
+{
+    return m_stages;
+}
+
+StagePtr Pipeline::get_in_stage() const
+{
+    return m_in_stage;
+}
+
+StagePtr Pipeline::get_out_stage() const
+{
+    return m_out_stage;
 }
 
 } // namespace hailo_analytics::pipeline

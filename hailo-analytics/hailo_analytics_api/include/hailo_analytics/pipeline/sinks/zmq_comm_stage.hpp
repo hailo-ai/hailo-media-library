@@ -200,7 +200,7 @@ class ZmqCommStageBuild
 
         /**
          * @brief Sets the publisher socket address.
-         * @param addr Address to bind the publisher socket to (e.g., "tcp://\*:5555")
+         * @param addr Address to bind the publisher socket to (e.g., "tcp://0.0.0.0:5555")
          * @return Reference to this builder for method chaining
          */
         Builder &set_pub_address(const std::string &addr);
