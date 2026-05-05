@@ -128,3 +128,31 @@ Architecture get_hailo_architecture()
 
     return Architecture::UNKNOWN;
 }
+
+std::string profile_type_to_display_name(ProfileType type, bool is_hdm)
+{
+    if (type == ProfileType::LowlightBayer && is_hdm)
+    {
+        return "AI-ISP Gen3";
+    }
+    return nlohmann::json(type).get<std::string>();
+}
+
+ProfileType display_name_to_profile_type(const std::string &name)
+{
+    // "AI-ISP Gen3" maps to LowlightBayer (same as Gen2, distinguished by denoise config)
+    if (name == "AI-ISP Gen3")
+    {
+        return ProfileType::LowlightBayer;
+    }
+    return nlohmann::json(name).get<ProfileType>();
+}
+
+bool is_env_variable_on(const std::string &env_var_name, const std::string &required_value)
+{
+    auto env_var = std::getenv(env_var_name.c_str());
+    if (nullptr == env_var)
+        return false;
+    std::string val(env_var);
+    return (val == required_value || val == "true" || val == "TRUE" || val == "True");
+}

@@ -36,7 +36,7 @@ namespace hailo_analytics::pipeline::sources
 class FrontendStage : public hailo_analytics::pipeline::ThreadedStage
 {
   protected:
-    MediaLibraryFrontendPtr m_frontend; ///< Media library frontend instance.
+    MediaLibraryFrontend *m_frontend; ///< Media library frontend instance.
     std::map<output_stream_id_t, std::vector<hailo_analytics::pipeline::StagePtr>>
         m_stream_subscribers; ///< Map of stream IDs to subscriber stages.
 
@@ -68,7 +68,7 @@ class FrontendStage : public hailo_analytics::pipeline::ThreadedStage
      * @param frontend Media library frontend pointer.
      * @return AppStatus Status of the creation.
      */
-    AppStatus create(MediaLibraryFrontendPtr frontend);
+    AppStatus create(MediaLibraryFrontend &frontend);
 
     /**
      * @brief Add a subscriber to this stage's output.
@@ -123,7 +123,7 @@ class FrontendStage : public hailo_analytics::pipeline::ThreadedStage
      * @param frontend Media library frontend pointer.
      * @return AppStatus Status of the configuration.
      */
-    AppStatus configure(MediaLibraryFrontendPtr frontend);
+    AppStatus configure(MediaLibraryFrontend &frontend);
 
     /**
      * @brief Main processing loop for the frontend stage.

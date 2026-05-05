@@ -190,4 +190,29 @@ FileReader::~FileReader()
     deinit();
 }
 
+std::chrono::milliseconds FileReader::get_frame_interval() const
+{
+    return m_frame_interval;
+}
+
+size_t FileReader::get_total_frames() const
+{
+    return m_total_frames;
+}
+
+size_t FileReader::get_current_frame_index() const
+{
+    return m_current_frame_index;
+}
+
+bool FileReader::is_loop_enabled() const
+{
+    return m_loop_enabled;
+}
+
+double FileReader::get_fps() const
+{
+    return m_fps;
+}
+
 } // namespace hailo_analytics::pipeline::sources

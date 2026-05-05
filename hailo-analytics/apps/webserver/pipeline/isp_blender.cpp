@@ -1,7 +1,12 @@
 #include "isp_blender.hpp"
+#include "common/logger_macros.hpp"
 
 using namespace webserver::pipeline;
 #define MEDIALIB_NOT_SET "Media library is not set"
+
+IspBlender::IspBlender() : m_media_library(std::nullopt), pipeline_active(false)
+{
+}
 
 void IspBlender::applyProfile(const config_profile_t &cfg) const
 {
@@ -103,10 +108,10 @@ config_profile_t IspBlender::get_profile_by_name(const std::string &profile_name
     return expected_profile.value();
 }
 
-void IspBlender::set_media_library(std::shared_ptr<MediaLibrary> mediaLib)
+void IspBlender::set_media_library(MediaLibrary &mediaLib)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex);
-    m_media_library = mediaLib;
+    m_media_library = &mediaLib;
     pipeline_active = m_media_library.has_value();
 }
 

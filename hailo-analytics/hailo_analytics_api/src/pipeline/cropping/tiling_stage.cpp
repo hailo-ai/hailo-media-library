@@ -27,6 +27,8 @@ AppStatus TilingCropStage::init()
         return AppStatus::DSP_OPERATION_ERROR;
     }
 
+    setup_pool_notification();
+
     /* Create the HailoTileROI objects and the buffer pools we will have pool per tile */
     for (std::size_t i = 0; i < m_bbox_tiles.size(); ++i)
     {
