@@ -1,6 +1,7 @@
 #include "hailo_analytics/pipeline/core/queue.hpp"
 #include "hailo_analytics/perfetto/hailo_analytics_perfetto.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include <media_library/buffer_pool.hpp>
 
 namespace hailo_analytics::pipeline
 {
@@ -86,7 +87,12 @@ void Queue::push(BufferPtr buffer)
         // if leaky, pop the front for a full queue
         if (m_queue.size() >= m_max_buffers)
         {
-            m_tracing->track_frame_dropped(m_queue.front()->get_buffer()->isp_timestamp_ns);
+
+            HailoMediaLibraryBufferPtr buffer = m_queue.front()->get_buffer();
+            if (buffer != nullptr)
+            {
+                m_tracing->track_frame_dropped(buffer->isp_timestamp_ns);
+            }
             m_queue.pop();
         }
     }

@@ -6,7 +6,7 @@
 #include "hailo_postprocess_tools/objects/hailo_objects.hpp"
 #include "hailo_postprocess_tools/objects/hailo_common.hpp"
 #include "yolo_output.hpp"
-#include "common/labels/coco_eighty.hpp"
+#include "hailo_postprocess_tools/labels/coco_eighty.hpp"
 
 __BEGIN_DECLS
 

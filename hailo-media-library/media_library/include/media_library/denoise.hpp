@@ -76,7 +76,6 @@ class MediaLibraryDenoise
     static constexpr std::chrono::milliseconds HAILORT_SCHEDULER_TIMEOUT{1000};
     static constexpr int HAILORT_SCHEDULER_BATCH_SIZE = 1;
 
-    static constexpr size_t BUFFER_POOL_MAX_BUFFERS = 6;
     static constexpr int RESOULTION_MULTIPLE_REQUIRED_BY_DENOISE_NETWORK = 16;
 
     // configured flag - to determine if first configuration was done
@@ -136,7 +135,8 @@ class MediaLibraryDenoise
     // Helper methods for derived classes to manage inference callback thread
     void start_inference_callback_thread();
     void stop_inference_callback_thread();
-    media_library_return init(const denoise_config_t &denoise_configs, const input_video_config_t &input_video_configs);
+    media_library_return init(const denoise_config_t &denoise_configs, const input_video_config_t &input_video_configs,
+                              const hailort_t &hailort_config);
 
     NetworkInferenceBindingsPtr create_bindings(HailoMediaLibraryBufferPtr input_buffer,
                                                 HailoMediaLibraryBufferPtr output_buffer) const;
@@ -145,9 +145,9 @@ class MediaLibraryDenoise
     // virtual functions to override
     virtual void prepare_hailort_instance(const denoise_config_t & /*denoise_configs*/) {};
     virtual media_library_return create_and_initialize_buffer_pools(
-        const input_video_config_t &input_video_configs) = 0;
+        const denoise_config_t &denoise_configs, const input_video_config_t &input_video_configs) = 0;
     virtual media_library_return free_buffer_pools() = 0;
-    virtual media_library_return acquire_output_buffer(NetworkInferenceBindingsPtr bindings) = 0;
+    virtual media_library_return acquire_output_buffers(NetworkInferenceBindingsPtr bindings) = 0;
     virtual bool process_inference(NetworkInferenceBindingsPtr bindings) = 0;
     virtual void copy_meta(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr output_buffer) = 0;
 

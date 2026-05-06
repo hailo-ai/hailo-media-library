@@ -74,6 +74,17 @@ int CroppingMetadata::get_num_crops()
     return m_num_crops;
 }
 
+// SkippedDetectionsMetadata class implementation
+SkippedDetectionsMetadata::SkippedDetectionsMetadata(std::vector<HailoDetectionPtr> detections)
+    : Metadata(MetadataType::SKIPPED_DETECTIONS), m_skipped_detections(std::move(detections))
+{
+}
+
+const std::vector<HailoDetectionPtr> &SkippedDetectionsMetadata::get_skipped_detections() const
+{
+    return m_skipped_detections;
+}
+
 // Buffer class implementation
 Buffer::Buffer(HailoMediaLibraryBufferPtr buffer) : m_buffer(buffer)
 {

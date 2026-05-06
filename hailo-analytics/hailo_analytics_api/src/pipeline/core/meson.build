@@ -6,7 +6,8 @@ pipeline_sources = [
     'stage.cpp',
     'pipeline.cpp',
     'pipeline_builder.cpp',
-    'pipeline_exporter.cpp'
+    'pipeline_exporter.cpp',
+    'pipeline_database.cpp'
 ]
 
 # Compile lib

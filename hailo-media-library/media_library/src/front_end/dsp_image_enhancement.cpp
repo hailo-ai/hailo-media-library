@@ -1,4 +1,5 @@
 #include "dsp_image_enhancement.hpp"
+#include "buffer_pool.hpp"
 #include <algorithm>
 #include <numeric>
 #include <cmath>
@@ -6,6 +7,88 @@
 #include "media_library_logger.hpp"
 
 #define MODULE_NAME LoggerType::Dsp
+
+bool DspImageEnhancement::init_histogram_dma_buffers()
+{
+    // Already initialized - prevent double initialization
+    if (m_histogram_buffer_pool && m_histogram_eq_buffer_pool)
+    {
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Histogram DMA buffers already initialized");
+        return true;
+    }
+
+    // Allocate DMA buffer pool for histogram params
+    m_histogram_buffer_pool = std::make_shared<MediaLibraryBufferPool>(
+        sizeof(dsp_image_enhancement_histogram_t), 1, HAILO_FORMAT_GRAY8, 1, HAILO_MEMORY_TYPE_DMABUF,
+        sizeof(dsp_image_enhancement_histogram_t), "histogram_params");
+
+    media_library_return ret = m_histogram_buffer_pool->init();
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init histogram DMA buffer pool");
+        return false;
+    }
+
+    m_histogram_dma_buffer = std::make_shared<hailo_media_library_buffer>();
+    ret = m_histogram_buffer_pool->acquire_buffer(m_histogram_dma_buffer);
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to acquire histogram DMA buffer");
+        return false;
+    }
+
+    void *hist_plane_ptr = m_histogram_dma_buffer->get_plane_ptr(0);
+    if (!hist_plane_ptr)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Histogram DMA buffer plane pointer is null");
+        return false;
+    }
+    m_dsp_histogram_params = std::shared_ptr<dsp_image_enhancement_histogram_t>(
+        m_histogram_dma_buffer, reinterpret_cast<dsp_image_enhancement_histogram_t *>(hist_plane_ptr));
+    memset(m_dsp_histogram_params.get(), 0, sizeof(dsp_image_enhancement_histogram_t));
+    m_dsp_histogram_params->x_sample_step = default_histogram_sample_step;
+    m_dsp_histogram_params->y_sample_step = default_histogram_sample_step;
+
+    // Allocate DMA buffer pool for histogram equalization params
+    m_histogram_eq_buffer_pool = std::make_shared<MediaLibraryBufferPool>(
+        sizeof(dsp_histogram_equalization_params_t), 1, HAILO_FORMAT_GRAY8, 1, HAILO_MEMORY_TYPE_DMABUF,
+        sizeof(dsp_histogram_equalization_params_t), "histogram_eq_params");
+    ret = m_histogram_eq_buffer_pool->init();
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init histogram eq DMA buffer pool");
+        return false;
+    }
+    m_histogram_eq_dma_buffer = std::make_shared<hailo_media_library_buffer>();
+    ret = m_histogram_eq_buffer_pool->acquire_buffer(m_histogram_eq_dma_buffer);
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to acquire histogram eq DMA buffer");
+        return false;
+    }
+    void *eq_plane_ptr = m_histogram_eq_dma_buffer->get_plane_ptr(0);
+    if (!eq_plane_ptr)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Histogram eq DMA buffer plane pointer is null");
+        return false;
+    }
+    m_histogram_eq_params = std::shared_ptr<dsp_histogram_equalization_params_t>(
+        m_histogram_eq_dma_buffer, reinterpret_cast<dsp_histogram_equalization_params_t *>(eq_plane_ptr));
+    memset(m_histogram_eq_params.get(), 0, sizeof(dsp_histogram_equalization_params_t));
+    return true;
+}
+
+void DspImageEnhancement::sync_histogram_buffers_start()
+{
+    DmaMemoryAllocator::get_instance().dmabuf_sync_start(m_histogram_dma_buffer->get_plane_ptr(0));
+    DmaMemoryAllocator::get_instance().dmabuf_sync_start(m_histogram_eq_dma_buffer->get_plane_ptr(0));
+}
+
+void DspImageEnhancement::sync_histogram_buffers_end()
+{
+    DmaMemoryAllocator::get_instance().dmabuf_sync_end(m_histogram_dma_buffer->get_plane_ptr(0));
+    DmaMemoryAllocator::get_instance().dmabuf_sync_end(m_histogram_eq_dma_buffer->get_plane_ptr(0));
+}
 
 DspImageEnhancement::DspImageEnhancement()
     : m_denoise_element_enabled(false), m_enabled(false), m_running(true),
@@ -30,15 +113,21 @@ DspImageEnhancement::DspImageEnhancement()
           .histogram_equalization_alpha = 0.5,
           .histogram_equalization_clip_threshold = 1.0,
       },
-      m_dsp_histogram_params{
-          .x_sample_step = 29,
-          .y_sample_step = 29,
-          .histogram = {0},
-      },
-      m_histogram_eq_params{}, m_dsp_params(get_default_disabled_dsp_params()), m_histogram_clip_thr(1.0),
+      m_dsp_histogram_params(nullptr), m_histogram_eq_params(nullptr), m_histogram_clip_thr(1.0),
       m_histogram_alpha(0.5), m_isp_params_update_thread(&DspImageEnhancement::read_params_from_isp, this),
       m_brightness(std::nullopt)
 {
+    if (init_histogram_dma_buffers())
+    {
+        m_do_histogram_equalization = true;
+    }
+    else
+    {
+        m_do_histogram_equalization = false;
+        LOGGER__MODULE__ERROR(MODULE_NAME,
+                              "Failed to initialize histogram DMA buffers, histogram equalization will be disabled");
+    }
+    m_dsp_params = get_default_disabled_dsp_params();
 }
 
 DspImageEnhancement::~DspImageEnhancement()
@@ -48,6 +137,8 @@ DspImageEnhancement::~DspImageEnhancement()
     {
         m_isp_params_update_thread.join();
     }
+    m_dsp_histogram_params.reset();
+    m_histogram_eq_params.reset();
 }
 
 bool DspImageEnhancement::is_enabled()
@@ -82,8 +173,8 @@ dsp_image_enhancement_params_t DspImageEnhancement::get_default_disabled_dsp_par
                 .saturation_v_a = 1.0,
                 .saturation_v_b = 0,
             },
-        .histogram_params = m_do_histogram_equalization ? &m_dsp_histogram_params : nullptr,
-        .histogram_equalization_params = m_do_histogram_equalization ? &m_histogram_eq_params : nullptr,
+        .histogram_params = m_do_histogram_equalization ? m_dsp_histogram_params.get() : nullptr,
+        .histogram_equalization_params = m_do_histogram_equalization ? m_histogram_eq_params.get() : nullptr,
     };
 
     return params;
@@ -199,8 +290,8 @@ void DspImageEnhancement::update_lut(const Histogram &histogram)
     double cdf_max = cdf.back();
     for (size_t i = 0; i < DSP_HISTOGRAM_SIZE; i++)
     {
-        m_histogram_eq_params.lut[i] =
-            static_cast<uint8_t>(m_histogram_alpha * m_histogram_eq_params.lut[i] +
+        m_histogram_eq_params->lut[i] =
+            static_cast<uint8_t>(m_histogram_alpha * m_histogram_eq_params->lut[i] +
                                  (1 - m_histogram_alpha) * (((cdf[i] * 255.0) / cdf_max) + 0.5));
     }
 }
@@ -290,15 +381,15 @@ void DspImageEnhancement::update_dsp_params_from_isp()
 
     if (m_isp_params.histogram_equalization)
     {
-        m_dsp_params.histogram_params = &m_dsp_histogram_params;
-        m_dsp_params.histogram_equalization_params = &m_histogram_eq_params;
+        m_dsp_params.histogram_params = m_dsp_histogram_params.get();
+        m_dsp_params.histogram_equalization_params = m_histogram_eq_params.get();
         m_dsp_params.color.contrast = 1;   // "Disable" contrast for histogram equalization
         m_dsp_params.color.brightness = 0; // "Disable" brightness for histogram equalization
         m_brightness = std::nullopt;
     }
     else if (m_isp_params.auto_luma)
     {
-        m_dsp_params.histogram_params = &m_dsp_histogram_params;
+        m_dsp_params.histogram_params = m_dsp_histogram_params.get();
         m_dsp_params.histogram_equalization_params = nullptr;
     }
     else
@@ -429,5 +520,5 @@ void DspImageEnhancement::set_histogram_equalization_enabled(bool enabled)
 
 const dsp_histogram_equalization_params_t *DspImageEnhancement::get_histogram_eq_params() const
 {
-    return &m_histogram_eq_params;
+    return m_histogram_eq_params.get();
 }

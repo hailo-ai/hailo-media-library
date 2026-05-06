@@ -15,7 +15,6 @@ examples/
 ├── resolution_change_example/      Dynamic resolution changes
 ├── rotation_example/               Image rotation (0/90/180/270)
 ├── common/                         Shared utilities
-├── calculate_text_size_osd.cpp     OSD text dimension calculator
 ├── config_tuning_gst_application.cpp   ISP configuration tuning
 └── frontend_example.cpp            DEPRECATED - see modular examples
 ```
@@ -190,26 +189,7 @@ examples/
 
 ---
 
-### 9. Text Size Calculator (`calculate_text_size_osd.cpp`)
-
-**What it does:**
-
--   Calculates text dimensions for OSD elements
--   Standalone utility tool
-
-**Usage:**
-
-```bash
-./calculate_text_size_osd <font_path> <font_size> <text> <line_thickness>
-```
-
-**Output:** Width and height required for the text overlay.
-
-**Test focus:** Verify OSD text dimension calculations.
-
----
-
-### 10. ISP Configuration Tuning (`config_tuning_gst_application.cpp`)
+### 9. ISP Configuration Tuning (`config_tuning_gst_application.cpp`)
 
 **What it does:**
 

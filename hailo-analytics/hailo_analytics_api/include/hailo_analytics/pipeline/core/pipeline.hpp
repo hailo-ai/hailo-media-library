@@ -160,28 +160,19 @@ class Pipeline : public Stage
      * @brief Get all stages in the pipeline.
      * @return Vector of all stages
      */
-    const std::vector<StagePtr> &get_stages() const
-    {
-        return m_stages;
-    }
+    const std::vector<StagePtr> &get_stages() const;
 
     /**
      * @brief Get the input stage of the pipeline.
      * @return Shared pointer to the input stage, or nullptr if not set
      */
-    StagePtr get_in_stage() const
-    {
-        return m_in_stage;
-    }
+    StagePtr get_in_stage() const;
 
     /**
      * @brief Get the output stage of the pipeline.
      * @return Shared pointer to the output stage, or nullptr if not set
      */
-    StagePtr get_out_stage() const
-    {
-        return m_out_stage;
-    }
+    StagePtr get_out_stage() const;
 };
 
 } // namespace hailo_analytics::pipeline

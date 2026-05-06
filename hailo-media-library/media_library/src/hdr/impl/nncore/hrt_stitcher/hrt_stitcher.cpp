@@ -34,10 +34,11 @@ void HailortAsyncStitching::set_on_infer_finish(
 }
 
 int HailortAsyncStitching::init(const std::string &hef_path, const std::string &group_id, int scheduler_threshold,
-                                int scheduler_timeout_in_ms, int num_exp)
+                                int scheduler_timeout_in_ms, int num_exp, bool use_hailort_service)
 {
     m_hef_path = hef_path;
     m_group_id = group_id;
+    m_use_hailort_service = use_hailort_service;
     m_scheduler_threshold = scheduler_threshold;
     m_scheduler_timeout_in_ms = scheduler_timeout_in_ms;
     m_tensors_info.init(num_exp);
@@ -46,7 +47,9 @@ int HailortAsyncStitching::init(const std::string &hef_path, const std::string &
     memset(&vdevice_params, 0, sizeof(vdevice_params));
     hailo_init_vdevice_params(&vdevice_params);
     vdevice_params.group_id = m_group_id.c_str();
-
+    vdevice_params.multi_process_service = m_use_hailort_service;
+    LOGGER__MODULE__INFO(LOGGER_TYPE, "Creating vdevice with group_id={}, use_hailort_service={}", group_id,
+                         use_hailort_service);
     auto vdevice_exp = hailort::VDevice::create(vdevice_params);
     if (!vdevice_exp)
     {

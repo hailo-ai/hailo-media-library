@@ -87,8 +87,7 @@
         "camera_fov_factor": 0.85,
         "line_readout_time": 7410,
         "hdr_exposure_ratio": 0.2,
-        "min_angle_deg": 0.05,
-        "max_angle_deg": 6.0
+        "min_angle_deg": 0.05
     },
     "gyro": {
         "enabled": false,

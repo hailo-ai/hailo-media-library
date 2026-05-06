@@ -72,7 +72,10 @@ static inline std::shared_ptr<T> make_shared_nothrow(Args &&...args) noexcept(no
 static inline bool is_env_variable_on(const std::string &env_var_name, const std::string &required_value = "1")
 {
     auto env_var = std::getenv(env_var_name.c_str());
-    return ((nullptr != env_var) && (required_value == env_var));
+    if (nullptr == env_var)
+        return false;
+    std::string val(env_var);
+    return (val == required_value || val == "true" || val == "TRUE" || val == "True");
 }
 
 template <typename T> static inline tl::expected<T, media_library_return> get_env_variable(const std::string &var_name)

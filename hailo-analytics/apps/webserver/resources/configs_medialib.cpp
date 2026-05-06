@@ -1,10 +1,30 @@
 #include "configs.hpp"
+#include "common/common.hpp"
 #include "media_library/config_parser.hpp"
 #include "media_library/encoder_config_types.hpp"
 #include "media_library/media_library_types.hpp"
 #include "pipeline/pipeline.hpp"
 
+#include <algorithm>
+#include <array>
+#include <optional>
+
 using namespace webserver::resources;
+
+std::string ConfigResourceMedialib::name()
+{
+    return "medialib config";
+}
+
+nlohmann::json ConfigResourceMedialib::get_current_profile()
+{
+    return m_profile;
+}
+
+nlohmann::json ConfigResourceMedialib::get_current_medialib_config()
+{
+    return m_medialib_config;
+}
 
 ConfigResourceMedialib::ConfigResourceMedialib(std::shared_ptr<EventBus> event_bus, std::string config_path)
     : ConfigResourceBase(event_bus)
@@ -19,6 +39,8 @@ ConfigResourceMedialib::ConfigResourceMedialib(std::shared_ptr<EventBus> event_b
     m_medialib_config = medialib_config.value();
     // Load default profile config
     m_default_profile_name = m_medialib_config["default_profile"];
+    // Determine HDM mode from the lowlight bayer profile
+    m_is_hdm_mode = check_lowlight_bayer_is_hdm();
     // Initialize throttling state to uninitialized
     m_current_throttling_state = media_library_throttling_state_t::THROTTLING_STATE_UNINITIALIZED;
 
@@ -234,6 +256,89 @@ tl::expected<nlohmann::json, std::string> ConfigResourceMedialib::enable_gyro_if
     }
 }
 
+static bool has_hdm_denoise_fields(const nlohmann::json &iq_settings)
+{
+    if (!iq_settings.contains("denoise"))
+    {
+        return false;
+    }
+    const auto &denoise = iq_settings.at("denoise");
+    if (!denoise.value("bayer", false) || !denoise.contains("network"))
+    {
+        return false;
+    }
+    static const std::array<std::string, 4> HDM_FIELDS = {"input_fusion_feedback", "output_fusion_feedback",
+                                                          "input_gamma_feedback", "output_gamma_feedback"};
+    const auto &network = denoise.at("network");
+    return std::all_of(HDM_FIELDS.begin(), HDM_FIELDS.end(), [&network](const std::string &field) {
+        return network.contains(field) && !network[field].get<std::string>().empty();
+    });
+}
+
+static std::optional<nlohmann::json> resolve_iq_settings(const nlohmann::json &profile_json)
+{
+    // iq_settings may be a file path (string) or an already-flattened inline object
+    if (profile_json.contains("iq_settings") && profile_json["iq_settings"].is_string())
+    {
+        std::string iq_path = profile_json["iq_settings"];
+        std::ifstream iq_file(iq_path);
+        if (!iq_file.is_open())
+        {
+            WEBSERVER_LOG_ERROR("Failed to open IQ settings file: {}", iq_path);
+            return std::nullopt;
+        }
+        nlohmann::json iq_settings;
+        iq_file >> iq_settings;
+        return iq_settings;
+    }
+    if (profile_json.contains("iq_settings_content"))
+    {
+        return std::optional<nlohmann::json>{profile_json["iq_settings_content"]};
+    }
+    return std::nullopt;
+}
+
+bool ConfigResourceMedialib::check_lowlight_bayer_is_hdm() const
+{
+    static constexpr std::string_view LOWLIGHT_BAYER_PREFIX = "Lowlight_Bayer";
+    for (const auto &profile : m_medialib_config["profiles"])
+    {
+        std::string name = profile["name"];
+        if (!name.starts_with(LOWLIGHT_BAYER_PREFIX))
+        {
+            continue;
+        }
+
+        try
+        {
+            std::string config_file = profile["config_file"];
+            std::ifstream file(config_file);
+            if (!file.is_open())
+            {
+                WEBSERVER_LOG_ERROR("Failed to open lowlight bayer config file: {}", config_file);
+                continue;
+            }
+            nlohmann::json profile_json;
+            file >> profile_json;
+            auto iq_settings = resolve_iq_settings(profile_json);
+            if (!iq_settings.has_value())
+            {
+                continue;
+            }
+            if (has_hdm_denoise_fields(iq_settings.value()))
+            {
+                return true;
+            }
+        }
+        catch (const std::exception &e)
+        {
+            WEBSERVER_LOG_ERROR("Failed to parse lowlight bayer config: {}", e.what());
+            continue;
+        }
+    }
+    return false;
+}
+
 tl::expected<nlohmann::json, std::string> ConfigResourceMedialib::load_config_from_file(const std::string &file_path)
 {
     std::ifstream configFile(file_path);
@@ -274,9 +379,22 @@ void ConfigResourceMedialib::update_profile()
     on_resource_change(EventType::PROFILE_UPDATE_REQUEST, std::make_shared<EmptyState>());
 }
 
-void ConfigResourceMedialib::http_register(std::shared_ptr<HTTPServer> srv)
+nlohmann::json ConfigResourceMedialib::build_profile_response() const
 {
-    srv->Post("/reset_all", [this](const nlohmann::json &req) {
+    nlohmann::json profile_json;
+    profile_json["profile"]["active"] = profile_type_to_display_name(m_current_profile_type, m_is_hdm_mode);
+    nlohmann::json supported_list = nlohmann::json::array();
+    for (const auto &profile : m_supported_profiles)
+    {
+        supported_list.push_back(profile_type_to_display_name(profile, m_is_hdm_mode));
+    }
+    profile_json["profile"]["supported"] = supported_list;
+    return profile_json;
+}
+
+void ConfigResourceMedialib::http_register(HTTPServer &srv)
+{
+    srv.Post("/reset_all", [this](const nlohmann::json &req) {
         WEBSERVER_LOG_INFO("POST /reset_all called");
         try
         {
@@ -289,7 +407,7 @@ void ConfigResourceMedialib::http_register(std::shared_ptr<HTTPServer> srv)
         WEBSERVER_LOG_INFO("POST /reset_all completed");
     });
 
-    srv->Put("/profile", [this](const nlohmann::json &j_body) {
+    srv.Put("/profile", [this](const nlohmann::json &j_body) {
         //{ "profile_name": "profile_name" }
         WEBSERVER_LOG_INFO("PUT /profile called");
         if (!j_body.contains("profile") || !j_body["profile"].contains("active"))
@@ -297,17 +415,15 @@ void ConfigResourceMedialib::http_register(std::shared_ptr<HTTPServer> srv)
             WEBSERVER_LOG_ERROR("Profile name not found in request body");
             throw std::runtime_error("Profile name not found in request body");
         }
-        auto profile_name = j_body["profile"]["active"].get<ProfileType>();
+        auto profile_name = display_name_to_profile_type(j_body["profile"]["active"].get<std::string>());
         {
             std::shared_lock<std::shared_mutex> lock(m_config_mutex);
             if (profile_name == m_current_profile_type)
             {
                 WEBSERVER_LOG_INFO("Profile {} is already active", j_body["profile"]["active"]);
-                nlohmann::json profile_json;
-                profile_json["profile"]["active"] = m_current_profile_type;
-                profile_json["profile"]["supported"] = m_supported_profiles;
+                auto response = build_profile_response();
                 WEBSERVER_LOG_INFO("PUT /profile completed");
-                return profile_json;
+                return response;
             }
         }
 
@@ -320,26 +436,24 @@ void ConfigResourceMedialib::http_register(std::shared_ptr<HTTPServer> srv)
         nlohmann::json profile_json;
         {
             std::shared_lock<std::shared_mutex> lock(m_config_mutex);
-            profile_json["profile"]["active"] = m_current_profile_type;
-            profile_json["profile"]["supported"] = m_supported_profiles;
+            profile_json = build_profile_response();
         }
         WEBSERVER_LOG_INFO("PUT /profile completed");
         return profile_json;
     });
 
-    srv->Get("/profile", std::function<nlohmann::json()>([this]() {
-                 WEBSERVER_LOG_INFO("GET /profile called");
-                 nlohmann::json profile_json;
-                 {
-                     std::shared_lock<std::shared_mutex> lock(m_config_mutex);
-                     profile_json["profile"]["active"] = m_current_profile_type;
-                     profile_json["profile"]["supported"] = m_supported_profiles;
-                 }
-                 WEBSERVER_LOG_INFO("GET /profile completed");
-                 return profile_json;
-             }));
+    srv.Get("/profile", std::function<nlohmann::json()>([this]() {
+                WEBSERVER_LOG_INFO("GET /profile called");
+                nlohmann::json profile_json;
+                {
+                    std::shared_lock<std::shared_mutex> lock(m_config_mutex);
+                    profile_json = build_profile_response();
+                }
+                WEBSERVER_LOG_INFO("GET /profile completed");
+                return profile_json;
+            }));
 
-    srv->Put("/digital_image_stabilization", [this](const nlohmann::json &j_body) {
+    srv.Put("/digital_image_stabilization", [this](const nlohmann::json &j_body) {
         WEBSERVER_LOG_INFO("PUT /digital_image_stabilization called");
         if (!j_body.contains("digital_image_stabilization"))
         {
@@ -353,7 +467,7 @@ void ConfigResourceMedialib::http_register(std::shared_ptr<HTTPServer> srv)
         return nlohmann::json();
     });
 
-    srv->Put("/electronic_image_stabilization", [this](const nlohmann::json &j_body) {
+    srv.Put("/electronic_image_stabilization", [this](const nlohmann::json &j_body) {
         WEBSERVER_LOG_INFO("PUT /electronic_image_stabilization called");
         if (!j_body.contains("electronic_image_stabilization"))
         {
@@ -376,45 +490,45 @@ void ConfigResourceMedialib::http_register(std::shared_ptr<HTTPServer> srv)
         return nlohmann::json();
     });
 
-    srv->Get("/digital_image_stabilization", std::function<nlohmann::json()>([this]() {
-                 WEBSERVER_LOG_INFO("GET /image_stabilization called");
-                 update_profile();
-                 nlohmann::json j;
-                 {
-                     std::shared_lock<std::shared_mutex> lock(m_config_mutex);
-                     j["digital_image_stabilization"]["active"] = m_current_profile.stabilizer_settings.dis.enabled;
-                 }
-                 WEBSERVER_LOG_INFO("GET /digital_image_stabilization completed");
-                 return j;
-             }));
+    srv.Get("/digital_image_stabilization", std::function<nlohmann::json()>([this]() {
+                WEBSERVER_LOG_INFO("GET /image_stabilization called");
+                update_profile();
+                nlohmann::json j;
+                {
+                    std::shared_lock<std::shared_mutex> lock(m_config_mutex);
+                    j["digital_image_stabilization"]["active"] = m_current_profile.stabilizer_settings.dis.enabled;
+                }
+                WEBSERVER_LOG_INFO("GET /digital_image_stabilization completed");
+                return j;
+            }));
 
-    srv->Get("/electronic_image_stabilization", std::function<nlohmann::json()>([this]() {
-                 WEBSERVER_LOG_INFO("GET /image_stabilization called");
-                 update_profile();
-                 nlohmann::json j;
-                 {
-                     std::shared_lock<std::shared_mutex> lock(m_config_mutex);
-                     j["electronic_image_stabilization"]["gyro_exist"] = gyro_exist;
-                     j["electronic_image_stabilization"]["active"] =
-                         gyro_exist && m_current_profile.stabilizer_settings.eis.enabled;
-                 }
-                 WEBSERVER_LOG_INFO("GET /electronic_image_stabilization completed");
-                 return j;
-             }));
+    srv.Get("/electronic_image_stabilization", std::function<nlohmann::json()>([this]() {
+                WEBSERVER_LOG_INFO("GET /image_stabilization called");
+                update_profile();
+                nlohmann::json j;
+                {
+                    std::shared_lock<std::shared_mutex> lock(m_config_mutex);
+                    j["electronic_image_stabilization"]["gyro_exist"] = gyro_exist;
+                    j["electronic_image_stabilization"]["active"] =
+                        gyro_exist && m_current_profile.stabilizer_settings.eis.enabled;
+                }
+                WEBSERVER_LOG_INFO("GET /electronic_image_stabilization completed");
+                return j;
+            }));
 
-    srv->Get("/architecture", std::function<nlohmann::json()>([this]() {
-                 WEBSERVER_LOG_INFO("GET /architecture called");
-                 nlohmann::json j;
-                 j["architecture"] = get_hailo_architecture();
-                 WEBSERVER_LOG_INFO("GET /architecture completed");
-                 return j;
-             }));
+    srv.Get("/architecture", std::function<nlohmann::json()>([this]() {
+                WEBSERVER_LOG_INFO("GET /architecture called");
+                nlohmann::json j;
+                j["architecture"] = get_hailo_architecture();
+                WEBSERVER_LOG_INFO("GET /architecture completed");
+                return j;
+            }));
 
-    srv->Get("/throttling_state", std::function<nlohmann::json()>([this]() {
-                 WEBSERVER_LOG_INFO("GET /throttling_state called");
-                 nlohmann::json j;
-                 j["throttling_state"] = m_current_throttling_state;
-                 WEBSERVER_LOG_INFO("GET /throttling_state completed");
-                 return j;
-             }));
+    srv.Get("/throttling_state", std::function<nlohmann::json()>([this]() {
+                WEBSERVER_LOG_INFO("GET /throttling_state called");
+                nlohmann::json j;
+                j["throttling_state"] = m_current_throttling_state;
+                WEBSERVER_LOG_INFO("GET /throttling_state completed");
+                return j;
+            }));
 }

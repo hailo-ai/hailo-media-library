@@ -134,7 +134,7 @@ static void gst_hailofrontendbinsrc_class_init(GstHailoFrontendBinSrcClass *klas
 
     g_object_class_install_property(
         gobject_class, PROP_CONFIG,
-        g_param_spec_pointer("config", "Frontendbinsrc config", "Frontedbinsrc config as frontend_config_t",
+        g_param_spec_pointer("config", "Frontendbinsrc config", "Frontendbinsrc config as frontend_config_t",
                              (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
 
     g_object_class_install_property(gobject_class, PROP_HDR_CONFIG,
@@ -547,7 +547,7 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
         break;
     }
     case GST_STATE_CHANGE_PAUSED_TO_PLAYING: {
-        GST_DEBUG_OBJECT(self, "GST_STATE_NULL_TO_READY");
+        GST_DEBUG_OBJECT(self, "GST_STATE_CHANGE_PAUSED_TO_PLAYING");
         if (!self->params->m_pre_isp_denoise->is_enabled(self->params->m_frontend_config.denoise_config))
         {
             self->params->m_pre_isp_denoise->deinit();
@@ -567,7 +567,6 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
     switch (transition)
     {
     case GST_STATE_CHANGE_PAUSED_TO_PLAYING: {
-        GST_DEBUG_OBJECT(self, "GST_STATE_CHANGE_PAUSED_TO_PLAYING");
         if (!self->params->m_isp_manager->start())
         {
             GST_ERROR_OBJECT(self, "Failed to start ISP Manager");
@@ -684,8 +683,8 @@ static GstPadProbeReturn gst_hailofrontendbinsrc_v4l2src_probe(GstPad *, GstPadP
 {
     GstHailoFrontendBinSrc *frontendbincsrc = static_cast<GstHailoFrontendBinSrc *>(frontenbinsrc_uncasted);
 
-    // Drop frames #1-12 to allow buffer pools to alloc (using the first frame) and not cause end of pipeline stress
-    const size_t buffers_to_drop = 12;
+    // Drop frames #1-20 to allow buffer pools to alloc (using the first frame) and not cause end of pipeline stress
+    const size_t buffers_to_drop = 20;
     const size_t first_frame_index_to_drop = 1;
     const size_t last_frame_index_to_drop = buffers_to_drop + first_frame_index_to_drop - 1;
 
