@@ -1,4 +1,4 @@
-#include "media_library/examples_common.hpp"
+#include "common/common.hpp"
 
 bool set_override_parameters(config_profile_t override_profile)
 {

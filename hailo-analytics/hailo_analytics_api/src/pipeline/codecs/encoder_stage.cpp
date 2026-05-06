@@ -11,14 +11,9 @@ EncoderStage::EncoderStage(std::string name, size_t queue_size, bool leaky, bool
     m_encoder = nullptr;
 }
 
-AppStatus EncoderStage::create(MediaLibraryEncoderPtr encoder)
+AppStatus EncoderStage::create(MediaLibraryEncoder &encoder)
 {
-    if (encoder == nullptr)
-    {
-        HAILO_ANALYTICS_LOG_ERROR("Encoder {} creation failed: given encoder is nullptr", m_stage_name);
-        return AppStatus::INVALID_ARGUMENT;
-    }
-    m_encoder = encoder; // TODO because the encoder not created in the stage i cant control its name
+    m_encoder = &encoder; // TODO because the encoder not created in the stage i cant control its name
     m_encoder->subscribe([this](HailoMediaLibraryBufferPtr buffer, size_t size) {
         // Keep in mind, this does not pass Buffer metadata from encoder input to the next stage
         // It is generally assumed that this is near the end of pipeline.
@@ -52,7 +47,7 @@ AppStatus EncoderStage::deinit()
     return AppStatus::SUCCESS;
 }
 
-AppStatus EncoderStage::configure(MediaLibraryEncoderPtr encoder)
+AppStatus EncoderStage::configure(MediaLibraryEncoder &encoder)
 {
     if (m_encoder != nullptr)
     {
@@ -97,7 +92,7 @@ std::shared_ptr<EncoderStage> EncoderStageBuild::Builder::buildptr() const
 {
     THROW_IF_MISSING(m_stage_name.has_value(), "set_stage_name");
 
-    return std::make_shared<EncoderStage>(m_stage_name.value(), m_queue_size, m_leaky, m_trace);
+    return std::make_unique<EncoderStage>(m_stage_name.value(), m_queue_size, m_leaky, m_trace);
 }
 
 EncoderStageBuild::Builder EncoderStageBuild::create()

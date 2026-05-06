@@ -28,6 +28,7 @@
 #include "media_library_logger.hpp"
 #include "gyro_device.hpp"
 #include "common.hpp"
+#include "eis_utils.hpp"
 
 #define MODULE_NAME LoggerType::LdcMesh
 #define CALIBRATION_VECOTR_SIZE 1024
@@ -418,8 +419,9 @@ media_library_return LdcMeshContext::initialize_dis_context()
 
     // Initialize dis dewarp mesh object using DIS library
     RetCodes ret = dis_init(&m_dis_ctx, m_ldc_configs.dis_config, calib, m_input_width, m_input_height,
-                            m_ldc_configs.dewarp_config.camera_type, camera_fov_factor,
-                            m_ldc_configs.eis_config.enabled, &dewarp_mesh);
+                            m_ldc_configs.dewarp_config.enabled ? m_ldc_configs.dewarp_config.camera_type
+                                                                : CAMERA_TYPE_INPUT_DISTORTIONS,
+                            camera_fov_factor, m_ldc_configs.eis_config.enabled, &dewarp_mesh);
     if (ret != DIS_OK)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "dewarp mesh initialization failed on error {}", ret);
@@ -429,6 +431,9 @@ media_library_return LdcMeshContext::initialize_dis_context()
     // Convert stuct to dsp_dewarp_mesh_t
     m_dewarp_mesh.mesh_width = dewarp_mesh.mesh_width;
     m_dewarp_mesh.mesh_height = dewarp_mesh.mesh_height;
+    m_max_rotation_angles = get_max_rotation_angles();
+    LOGGER__MODULE__INFO(MODULE_NAME, "Max rotation angles (Radians) are set to: {} (Yaw, Pitch, Roll). (FOV = {})",
+                         m_max_rotation_angles, camera_fov_factor);
     return status;
 }
 
@@ -587,6 +592,7 @@ media_library_return LdcMeshContext::handle_frame(HailoMediaLibraryBufferPtr inp
     }
     else // free the context and reinitialize, since dis parameters might have changed
     {
+        m_magnification = m_ldc_configs.optical_zoom_config.magnification;
         ret = free_dis_context();
         if (ret != MEDIA_LIBRARY_SUCCESS)
             return ret;
@@ -599,19 +605,6 @@ media_library_return LdcMeshContext::handle_frame(HailoMediaLibraryBufferPtr inp
     ret = initialize_angular_dis();
     if (ret != MEDIA_LIBRARY_SUCCESS)
         return ret;
-
-    // if magnification level has changed, reinitialize dis context
-    if (m_magnification != m_ldc_configs.optical_zoom_config.magnification)
-    {
-        m_magnification = m_ldc_configs.optical_zoom_config.magnification;
-        ret = free_dis_context();
-        if (ret != MEDIA_LIBRARY_SUCCESS)
-            return ret;
-
-        ret = initialize_dis_context();
-        if (ret != MEDIA_LIBRARY_SUCCESS)
-            return ret;
-    }
 
     ret = initialize_dewarp_mesh();
     if (ret != MEDIA_LIBRARY_SUCCESS)
@@ -689,6 +682,7 @@ media_library_return LdcMeshContext::on_frame_vsm_update(struct hailo15_vsm &vsm
 
     return MEDIA_LIBRARY_SUCCESS;
 }
+
 static tl::expected<std::vector<gyro_sample_t>, gyro_status_t> get_gyro_samples(
     GyroDevice *gyroApi, EIS *eisApi, uint64_t curr_frame_isp_timestamp_ns, uint64_t integration_time,
     isp_utils::isp_hdr_sensor_params_t &hdr_sensor_params, uint64_t *threshold_timestamp,
@@ -705,6 +699,26 @@ static tl::expected<std::vector<gyro_sample_t>, gyro_status_t> get_gyro_samples(
         eisApi->get_middle_exposure_timestamp(timestamp, hdr_sensor_params, exposures_ratio, *threshold_timestamp);
 
     return gyroApi->get_gyro_samples_by_threshold(*threshold_timestamp);
+}
+
+cv::Vec3d LdcMeshContext::get_max_rotation_angles()
+{
+    cv::Vec3d max_rotation_angles = {RADIANS(180), RADIANS(180), RADIANS(180)}; // default to unlimited angles
+    if (!m_ldc_configs.eis_config.force_clamp_correction_angles)
+    {
+        return max_rotation_angles;
+    }
+
+    rotation_angles_t dis_max_angles;
+    RetCodes ret = dis_get_max_rotation_angles(m_dis_ctx, &dis_max_angles);
+    if (ret != DIS_OK)
+    {
+        LOGGER__MODULE__ERROR(
+            MODULE_NAME, "Failed to get max rotation angles from dis, will not clamp correction angles, status: {}",
+            ret);
+    }
+
+    return {dis_max_angles.pitch, dis_max_angles.yaw, dis_max_angles.roll};
 }
 
 media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp_timestamp_ns,
@@ -790,13 +804,34 @@ media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp
     if (!m_eis_ptr->converged())
     {
         /* If the gyro samples did not converge or stabilization is paused, perform dewarp with no correction */
-        LOGGER__MODULE__WARNING(MODULE_NAME, "Gyro HPF is not converged yet, skipping EIS");
+        LOGGER__MODULE__TRACE(MODULE_NAME, "Gyro HPF is not converged yet, skipping EIS");
         m_last_threshold_timestamp = threshold_timestamp;
         goto generate_grid;
     }
-    current_orientations = m_eis_ptr->integrate_rotations_rolling_shutter(unbiased_gyro_samples);
-    current_orientations = m_eis_ptr->get_orientations_based_on_shakes_state(current_orientations);
 
+    current_orientations = m_eis_ptr->integrate_rotations_rolling_shutter(unbiased_gyro_samples);
+
+    if (m_ldc_configs.eis_config.force_clamp_correction_angles)
+    {
+        // if clamping is enabled, clamp the rotation angles to the maximum allowed angles
+        // to do that, convert the rotation matrices to euler angles -> clamp the euler angles -> convert back to
+        // rotation matrices
+        for (auto &rot_mat_pair : current_orientations)
+        {
+            auto rot_mat = rot_mat_pair.second;
+            cv::Vec3d euler_angles = eis_utils::rot_mat_to_euler_angles(rot_mat);
+            cv::Vec3d clamped_euler_angles = eis_utils::clamp_euler_angles(euler_angles, m_max_rotation_angles);
+            rot_mat_pair.second = eis_utils::euler_angles_to_rot_mat(clamped_euler_angles);
+
+            if (euler_angles != clamped_euler_angles)
+            {
+                LOGGER__MODULE__INFO(MODULE_NAME, "EIS correction angles have been clamped. (prev={}, current={})",
+                                     euler_angles, clamped_euler_angles);
+            }
+        }
+    }
+
+    current_orientations = m_eis_ptr->get_orientations_based_on_shakes_state(current_orientations);
     if ((!current_orientations.empty()) && (current_orientations[0].first != 0))
     {
         rolling_shutter_rotations = m_eis_ptr->get_rolling_shutter_rotations(
@@ -808,25 +843,19 @@ media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp
 generate_grid:
     /* A safety mechanism to remove any unwanted side effects that were gathered
      during the time EIS was on, such as bias */
-    if ((enabled) && ((m_eis_ptr->m_frame_count++) >= (curr_fps * EIS_RESET_TIME)))
+    if (enabled && m_eis_ptr->check_periodic_reset(rolling_shutter_rotations, curr_fps))
     {
-        bool reset_needed = m_eis_ptr->check_periodic_reset(rolling_shutter_rotations, curr_fps);
-
-        if (reset_needed)
-        {
-            m_eis_ptr->reset_history(false);
-            m_last_threshold_timestamp = 0;
-        }
+        LOGGER__MODULE__INFO(MODULE_NAME, "EIS periodic reset triggered, resetting EIS data");
+        m_eis_ptr->reset_history(false);
+        m_last_threshold_timestamp = 0;
     }
 
-    dis_generate_eis_grid_rolling_shutter(m_dis_ctx, flip_mirror_rot, rolling_shutter_rotations, &grid,
-                                          m_ldc_configs.eis_config.max_extensions_per_thr, m_magnification,
-                                          m_ldc_configs.eis_config.min_extensions_per_thr,
-                                          m_ldc_configs.optical_zoom_config.max_zoom_level);
+    dis_generate_eis_grid_rolling_shutter(m_dis_ctx, flip_mirror_rot, rolling_shutter_rotations, &grid);
     m_dewarp_mesh.mesh_table = grid.mesh_table;
     m_dewarp_mesh.mesh_width = grid.mesh_width;
     m_dewarp_mesh.mesh_height = grid.mesh_height;
 
+    ++m_eis_ptr->m_frame_count;
     return MEDIA_LIBRARY_SUCCESS;
 }
 

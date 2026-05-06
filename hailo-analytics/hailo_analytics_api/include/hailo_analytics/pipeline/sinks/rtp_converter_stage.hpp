@@ -49,9 +49,9 @@ class RTPConverterStage : public hailo_analytics::pipeline::ThreadedStage
       public:
         RTPReceiver() = default;
         virtual ~RTPReceiver() = default;
-        virtual void on_rtp_packet(GstSample *sample, rtp_session_id_t session_id) = 0;
+        virtual void on_rtp_packet(GstSample *sample, rtp_session_id_t stream_name) = 0;
         virtual rtp_session_id_t start(std::string session_name) = 0;
-        virtual void stop(rtp_session_id_t session_id) = 0;
+        virtual void stop(std::string stream_name) = 0;
     };
 
     /**
@@ -200,7 +200,7 @@ class RTPConverterStageBuild : public RTPConverterStage
          * @brief Build and return the RTPConverterStage.
          * @return Shared pointer to the constructed RTPConverterStage.
          */
-        std::shared_ptr<RTPConverterStage> buildptr() const;
+        std::unique_ptr<RTPConverterStage> buildptr() const;
     };
 
     /**

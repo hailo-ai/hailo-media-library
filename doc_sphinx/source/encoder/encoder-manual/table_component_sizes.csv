@@ -1,0 +1,11 @@
+Input Formats,Y (bytes),Cb (bytes),Cr (bytes),Y+Cb+Cr (bytes),Cb+Cr (bytes),R+G+B (bytes)
+Planar YCbCr 4:2:0,W x H,(W/2) x (H/2),(W/2) x (H/2),,,
+Planar YCbCr 4:2:0 10 bits(I010),W x H x 2,(W/2) x H,(W/2) x H,,,
+Semiplanar YCbCr 4:2:0 10 bits(P010),W x H x 2,,,,W x H,
+Planar YCbCr 4:2:0 10 bits packed,(W x H x 10) / 8,((W / 2) x ,((W / 2) x ,,,
+,,(H x 5) ) / 8,(H x 5) ) / 8,,,
+YCbCr 4:2:0 10 bits (Y0L2),,,,W x H x 2,,
+Semiplanar YCbCr 4:2:0,W x H,,,,(W x H) / 2,
+Interleaved YCbCr 4:2:2,,,,W x H x 2,,
+16-bit RGB,,,,,,W x H x 2
+32-bit RGB ,,,,,,W x H x 2

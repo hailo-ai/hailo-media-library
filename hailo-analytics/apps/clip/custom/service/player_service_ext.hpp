@@ -35,10 +35,7 @@ class VideoStreamingServiceExt : public hailo_analytics::analytics::app_construc
     // WebRTC access for web service
     std::shared_ptr<hailo_analytics::pipeline::sinks::RTPConverterStage::RTPReceiver> get_webrtc_streamer() const;
 
-    const std::string &get_session_id() const
-    {
-        return m_session_id;
-    }
+    const std::string &get_session_id() const;
 
   private:
     // Initialization methods

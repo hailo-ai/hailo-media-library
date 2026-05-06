@@ -1,6 +1,6 @@
 # Project Declaration
 project('hailo-analytics', 'c', 'cpp',
-    version : '1.10.1',
+    version : '1.11.0',
     default_options : [ 'warning_level=2', 'werror=false',
                         'buildtype=' + get_option('buildtype'),
                         'c_std=c11', 'cpp_std=c++20']
@@ -52,12 +52,17 @@ platform = get_option('platform')
 ################################################
 # Perfetto Dep
 ################################################
-perfetto_dep = meson.get_compiler('cpp').find_library('perfetto', required: false, dirs: '/usr/lib/')
-
-if perfetto_dep.found()
-  hailo_lib_args += ['-DHAVE_PERFETTO']
+if get_option('perfetto')
+    perfetto_dep = meson.get_compiler('cpp').find_library('perfetto', required: false, dirs: '/usr/lib/')
+    if perfetto_dep.found()
+        hailo_lib_args += ['-DHAVE_PERFETTO']
+    else
+        perfetto_dep = dependency('', required: false)
+        hailo_lib_args += ['-DPERFETTO_NOT_FOUND']
+    endif
 else
-  hailo_lib_args += ['-DPERFETTO_NOT_FOUND']
+    perfetto_dep = dependency('', required: false)
+    hailo_lib_args += ['-DPERFETTO_NOT_FOUND']
 endif
 
 ################################################
@@ -73,4 +78,7 @@ base_deps = gst_deps + medialib_dep + postprocess_tools_dep + libhailort_dep + p
 ################################################
 subdir('hailo_analytics_api')
 subdir('apps')
-subdir('verification')
+
+if get_option('build_verification')
+    subdir('verification')
+endif
