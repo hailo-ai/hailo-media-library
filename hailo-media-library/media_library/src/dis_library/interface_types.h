@@ -126,4 +126,11 @@ struct angular_dis_params_t
     bool stabilize_rotation;
 };
 
+struct rotation_angles_t
+{
+    float roll;
+    float pitch;
+    float yaw;
+};
+
 #endif // _DIS_INTERFACE_TYPES_H_

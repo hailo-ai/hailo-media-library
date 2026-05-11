@@ -68,13 +68,23 @@ media_library_return AnalyticsDB::add_semantic_segmentation_entry(const std::str
 void AnalyticsDB::clear_db()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Resetting AnalyticsDB instance.");
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Clearing AnalyticsDB entries (preserving configuration).");
+    for (auto &[id, entries] : m_detection_entries_db)
+        entries.clear();
+    for (auto &[id, entries] : m_instance_segmentation_entries_db)
+        entries.clear();
+    for (auto &[id, entries] : m_semantic_segmentation_entries_db)
+        entries.clear();
+}
+
+void AnalyticsDB::reset_db()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Resetting AnalyticsDB (clearing entries and configuration).");
     m_detection_entries_db.clear();
     m_instance_segmentation_entries_db.clear();
     m_semantic_segmentation_entries_db.clear();
-    m_application_analytics_config.detection_analytics_config.clear();
-    m_application_analytics_config.instance_segmentation_analytics_config.clear();
-    m_application_analytics_config.semantic_segmentation_analytics_config.clear();
+    m_application_analytics_config = {};
 }
 
 void AnalyticsDB::add_configuration(application_analytics_config_t application_analytics_config)

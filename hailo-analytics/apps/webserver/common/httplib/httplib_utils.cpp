@@ -1,4 +1,5 @@
 #include "httplib_utils.hpp"
+#include "common/logger_macros.hpp"
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <ctime>
@@ -82,9 +83,14 @@ HTTPServer::HTTPServer()
     m_impl->set_cors();
 }
 
-std::shared_ptr<HTTPServer> HTTPServer::create()
+HTTPServer::~HTTPServer()
 {
-    return std::make_shared<HTTPServer>();
+    WEBSERVER_LOG_INFO("HTTPServer destroyed");
+}
+
+std::unique_ptr<HTTPServer> HTTPServer::create()
+{
+    return std::make_unique<HTTPServer>();
 }
 
 void HTTPServer::listen(const std::string &host, int port)

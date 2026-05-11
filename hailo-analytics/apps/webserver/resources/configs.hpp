@@ -26,18 +26,10 @@ class ConfigResourceBase : public Resource
     std::string m_encoder_name;
 
   public:
-    ConfigResourceBase(std::shared_ptr<EventBus> event_bus) : Resource(event_bus)
-    {
-    }
+    ConfigResourceBase(std::shared_ptr<EventBus> event_bus);
     virtual ~ConfigResourceBase() = default;
-    std::string name() override
-    {
-        return "config";
-    }
-    ResourceType get_type() override
-    {
-        return ResourceType::RESOURCE_CONFIG_MANAGER;
-    }
+    std::string name() override;
+    ResourceType get_type() override;
     nlohmann::json get_frontend_default_config();
     nlohmann::json get_encoder_default_config();
     nlohmann::json get_osd_default_config();
@@ -58,6 +50,7 @@ class ConfigResourceMedialib : public ConfigResourceBase
     nlohmann::json m_medialib_config;
     config_profile_t m_current_profile;
     std::vector<ProfileType> m_supported_profiles;
+    bool m_is_hdm_mode = false;
     bool gyro_exist = false;
     mutable std::shared_mutex m_config_mutex;
 
@@ -65,25 +58,19 @@ class ConfigResourceMedialib : public ConfigResourceBase
     tl::expected<nlohmann::json, std::string> extract_frontend_config();
     tl::expected<nlohmann::json, std::string> extract_encoder_config();
     tl::expected<void, std::string> extract_profile_data(const std::string &profile_name);
+    bool check_lowlight_bayer_is_hdm() const;
+
+    nlohmann::json build_profile_response() const;
 
     void reset_config() override;
 
   public:
     ConfigResourceMedialib(std::shared_ptr<EventBus> event_bus, std::string config_path);
     ~ConfigResourceMedialib() = default;
-    std::string name() override
-    {
-        return "medialib config";
-    }
-    void http_register(std::shared_ptr<HTTPServer> srv) override;
-    nlohmann::json get_current_profile()
-    {
-        return m_profile;
-    }
-    nlohmann::json get_current_medialib_config()
-    {
-        return m_medialib_config;
-    }
+    std::string name() override;
+    void http_register(HTTPServer &srv) override;
+    nlohmann::json get_current_profile();
+    nlohmann::json get_current_medialib_config();
 
     void update_profile();
     tl::expected<nlohmann::json, std::string> get_profile(const nlohmann::json &profile_name);

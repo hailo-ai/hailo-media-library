@@ -148,6 +148,6 @@ class ConfigManagerInteractor
     tl::expected<MediaLibraryConfig, media_library_return> get_medialib_config() const;
     std::optional<std::string> get_isp_sensor_symlink_path() const;
     std::optional<std::string> get_isp_3a_config_symlink_path() const;
-    void update_encoder_streams_for_rotation() const;
+    media_library_return update_encoder_streams_for_rotation() const;
     media_library_return backup_profiles(const std::string &backup_filepath);
 };

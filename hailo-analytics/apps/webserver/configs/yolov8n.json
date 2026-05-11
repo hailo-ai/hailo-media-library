@@ -1,0 +1,8 @@
+{
+    "iou_threshold": 0.9,
+    "detection_threshold": 0.38,
+    "output_activation": "none",
+    "label_offset": 1,
+    "max_boxes": 10000,
+    "labels": ["unlabeled", "person", "vehicle", "face", "license_plate"]
+}

@@ -4,9 +4,9 @@
 #include <optional>
 #include <string>
 #include <cstddef>
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "tl/expected.hpp"
 
-#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
 #include "hailo_analytics/analytics/common_configs.hpp"
 #include "hailo_analytics/pipeline/cropping/bbox_crop_stage.hpp"
 #include "hailo_analytics/pipeline/cropping/aggregator_stage.hpp"
@@ -25,7 +25,7 @@ inline constexpr std::string_view LANDMARKS_SUBPIPELINE = "landmarks_subpipeline
 // Face landmarks AI Stage parameters
 inline constexpr std::string_view LANDMARKS_STAGE = "face_landmarks";
 inline constexpr std::string_view LANDMARKS_BASE_HEF =
-    "/home/root/apps/ai_example_app/resources/face_landmarks_lite.hef";
+    "/home/root/apps/face_landmarks/resources/face_landmarks_lite.hef";
 inline constexpr std::string_view LANDMARKS_GROUP_ID = "device0";
 
 // Face landmarks Postprocess parameters

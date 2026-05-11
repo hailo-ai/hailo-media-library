@@ -28,14 +28,21 @@
 #pragma once
 
 #include "dsp_utils.hpp"
+#include <memory>
 #include <mqueue.h>
 #include <functional>
 #include <shared_mutex>
 #include <thread>
 #include <utility>
 
+// Forward declarations for DMA buffer pool (full include in .cpp only)
+class MediaLibraryBufferPool;
+using MediaLibraryBufferPoolPtr = std::shared_ptr<MediaLibraryBufferPool>;
+struct hailo_media_library_buffer;
+using HailoMediaLibraryBufferPtr = std::shared_ptr<hailo_media_library_buffer>;
+
 /**
- * @brief Denoise parameters recived from the ISP
+ * @brief Denoise parameters received from the ISP
  *
  */
 struct __attribute__((packed)) isp_image_enhancement_params_t
@@ -91,10 +98,14 @@ class DspImageEnhancement
 
     const dsp_histogram_equalization_params_t *get_histogram_eq_params() const;
 
+    void sync_histogram_buffers_start();
+    void sync_histogram_buffers_end();
+
   private:
     // queue name from which the image enhancement parameters are read from the ISP
     static constexpr char isp_data[] = "/post_denoise_data";
     static constexpr uint32_t histogram_sample_size = 10'000;
+    static constexpr uint16_t default_histogram_sample_step = 29;
 
     void read_params_from_isp();
     void update_dsp_params_from_isp();
@@ -103,14 +114,22 @@ class DspImageEnhancement
     void contrast_brightness_lowpass_filter(float contrast, int16_t brightness, float &new_contrast,
                                             float &new_brightness);
     void update_lut(const Histogram &histogram);
+    bool init_histogram_dma_buffers();
 
     std::atomic<bool> m_enabled;
     std::atomic<bool> m_running;
+
     isp_image_enhancement_params_t m_isp_params;
-    dsp_image_enhancement_histogram_t m_dsp_histogram_params;
-    dsp_histogram_equalization_params_t m_histogram_eq_params;
+    std::shared_ptr<dsp_image_enhancement_histogram_t> m_dsp_histogram_params;
+    std::shared_ptr<dsp_histogram_equalization_params_t> m_histogram_eq_params;
     dsp_image_enhancement_params_t m_dsp_params;
     bool m_do_histogram_equalization;
+
+    // DMA-backed buffers for histogram data (pools declared first = destroyed last, outlive buffers)
+    MediaLibraryBufferPoolPtr m_histogram_buffer_pool;
+    MediaLibraryBufferPoolPtr m_histogram_eq_buffer_pool;
+    HailoMediaLibraryBufferPtr m_histogram_dma_buffer;
+    HailoMediaLibraryBufferPtr m_histogram_eq_dma_buffer;
     double m_histogram_clip_thr;
     double m_histogram_alpha;
 

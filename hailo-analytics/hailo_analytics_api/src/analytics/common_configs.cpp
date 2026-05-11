@@ -35,6 +35,8 @@ void ai_stage_config_t::merge_from(const ai_stage_config_t &other)
         pool_mode = *other.pool_mode;
     if (other.nms_score_threshold)
         nms_score_threshold = *other.nms_score_threshold;
+    if (other.nms_classes_filter_mask)
+        nms_classes_filter_mask = *other.nms_classes_filter_mask;
     if (other.nms_max_accumulated_mask_size_multiplier)
         nms_max_accumulated_mask_size_multiplier = *other.nms_max_accumulated_mask_size_multiplier;
     if (other.trace)
@@ -67,6 +69,8 @@ void ai_stage_config_t::apply_to(ai_stages::HailortAsyncStageBuild::Builder &b) 
         b.set_pool_mode_opt(*pool_mode);
     if (nms_score_threshold)
         b.set_nms_score_threshold(*nms_score_threshold);
+    if (nms_classes_filter_mask)
+        b.set_nms_classes_filter_mask(*nms_classes_filter_mask);
     if (nms_max_accumulated_mask_size_multiplier)
         b.set_nms_max_accumulated_mask_size_multiplier(*nms_max_accumulated_mask_size_multiplier);
     if (trace)

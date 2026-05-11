@@ -33,13 +33,6 @@ struct DetectionAnalyticsData
     std::vector<hailo_detection_t> analytics_buffer;
 };
 
-enum class AnalyticsQueryType
-{
-    Closest,
-    Exact,
-    WithinDelta
-};
-
 struct AnalyticsQueryOptions
 {
     AnalyticsQueryType m_type = AnalyticsQueryType::Closest;
@@ -53,6 +46,7 @@ class AnalyticsDB
   public:
     static AnalyticsDB &instance();
     void clear_db();
+    void reset_db();
     void add_configuration(application_analytics_config_t application_analytics_config);
 
     media_library_return add_detection_entry(const std::string &analytics_id, const DetectionAnalyticsData &data);
