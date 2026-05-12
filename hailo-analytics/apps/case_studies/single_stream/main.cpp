@@ -1,9 +1,6 @@
 // general includes
-#include <queue>
 #include <fstream>
 #include <iostream>
-#include <sstream>
-#include <thread>
 #include <tl/expected.hpp>
 #include <cxxopts/cxxopts.hpp>
 
@@ -27,6 +24,7 @@ enum class ArgumentType
     Config,
     Profile,
     HostIP,
+    UdpPort,
     Error
 };
 
@@ -49,8 +47,10 @@ cxxopts::Options build_arg_parser()
         cxxopts::value<std::string>()->default_value(MEDIALIB_CONFIG_PATH))
     ("a,profile", "Profile name", 
         cxxopts::value<std::string>()->default_value(NO_PROFILE_SELECTED))
-    ("o,host-ip", "Host IP address for UDP output", 
-        cxxopts::value<std::string>()->default_value(HOST_IP));
+    ("o,host-ip", "Host IP address for UDP output",
+        cxxopts::value<std::string>()->default_value(HOST_IP))
+    ("u,udp-port", "UDP output port (default: 5000)",
+        cxxopts::value<std::string>()->default_value(""));
     // clang-format on
 
     return options;
@@ -91,6 +91,11 @@ std::vector<ArgumentType> handle_arguments(const cxxopts::ParseResult &result, c
         arguments.push_back(ArgumentType::HostIP);
     }
 
+    if (result.count("udp-port") && !result["udp-port"].as<std::string>().empty())
+    {
+        arguments.push_back(ArgumentType::UdpPort);
+    }
+
     // Handle unrecognized options
     for (const auto &unrecognized : result.unmatched())
     {
@@ -109,6 +114,7 @@ struct AppResources
     std::string medialib_config_path;
     std::string profile_name;
     std::string host_ip = HOST_IP;
+    std::string udp_port;
 };
 
 std::string read_string_from_file(const char *file_path)
@@ -164,9 +170,26 @@ void configure_media_library(std::shared_ptr<AppResources> app_resources)
  */
 void create_pipeline(std::shared_ptr<AppResources> app_resources)
 {
-    // Vision Pipeline
-    auto pipeline = hailo_analytics::analytics::vision::generate_vision_pipeline(app_resources->media_library,
-                                                                                 "single_stream_pipeline");
+    // Get output streams from frontend to configure all outputs
+    auto output_streams = app_resources->media_library->m_frontend->get_outputs_streams();
+    if (!output_streams.has_value())
+    {
+        HAILO_ANALYTICS_LOG_ERROR("Failed to get output streams from frontend");
+        throw std::runtime_error("Failed to get output streams from frontend");
+    }
+
+    // Create base vision configuration and override host IP
+    int base_port = app_resources->udp_port.empty() ? 5000 : std::stoi(app_resources->udp_port);
+    auto vision_config = hailo_analytics::analytics::vision::base_vision_config(output_streams.value(), base_port);
+    // Override host IP for all output streams (single stream: sink0)
+    for (auto &[id, output] : vision_config.outputs)
+    {
+        output.udp_config.host = app_resources->host_ip;
+    }
+
+    // Vision Pipeline with user configuration
+    auto pipeline = hailo_analytics::analytics::vision::generate_vision_pipeline(
+        *app_resources->media_library, "single_stream_pipeline", vision_config);
     if (!pipeline.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create vision pipeline");
@@ -227,6 +250,9 @@ int main(int argc, char *argv[])
             break;
         case ArgumentType::HostIP:
             app_resources->host_ip = result["host-ip"].as<std::string>();
+            break;
+        case ArgumentType::UdpPort:
+            app_resources->udp_port = result["udp-port"].as<std::string>();
             break;
         case ArgumentType::Error:
             return 1;

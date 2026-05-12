@@ -300,7 +300,8 @@ struct dewarp_config_t
 
     bool operator==(const dewarp_config_t &other) const
     {
-        return sensor_calib_path == other.sensor_calib_path && interpolation_type == other.interpolation_type;
+        return sensor_calib_path == other.sensor_calib_path && interpolation_type == other.interpolation_type &&
+               camera_type == other.camera_type && enabled == other.enabled;
     }
     bool operator!=(const dewarp_config_t &other) const
     {
@@ -345,7 +346,6 @@ struct optical_zoom_config_t
     bool enabled;
     float magnification;
     float max_dewarping_magnification;
-    float max_zoom_level;
 
     void override(const optical_zoom_config_t &other)
     {
@@ -354,7 +354,6 @@ struct optical_zoom_config_t
             enabled = other.enabled;
             magnification = other.magnification;
             max_dewarping_magnification = other.max_dewarping_magnification;
-            max_zoom_level = other.max_zoom_level;
         }
     }
     bool operator==(const optical_zoom_config_t &other) const;
@@ -424,7 +423,15 @@ struct rotation_config_t
 
 struct output_resolution_t
 {
-    static bool is_persistent;
+    struct override_policy
+    {
+        bool framerate;
+        bool pool_max_buffers;
+        bool dimensions;
+        bool scaling_mode;
+    };
+    static override_policy persistent_fields; ///< \hideinitializer
+
     uint32_t framerate;
     uint32_t pool_max_buffers;
     dsp_utils::crop_resize_dims_t dimensions;
@@ -433,13 +440,14 @@ struct output_resolution_t
 
     void override(const output_resolution_t &other)
     {
-        if (is_persistent)
-        {
+        if (persistent_fields.framerate)
             framerate = other.framerate;
+        if (persistent_fields.pool_max_buffers)
             pool_max_buffers = other.pool_max_buffers;
+        if (persistent_fields.dimensions)
             dimensions = other.dimensions;
+        if (persistent_fields.scaling_mode)
             scaling_mode = other.scaling_mode;
-        }
     }
 
     bool operator==(const output_resolution_t &other) const
@@ -742,8 +750,7 @@ struct eis_config_t
     float min_angle_deg;
     float max_angle_deg;
     uint32_t shakes_type_buff_size;
-    uint32_t max_extensions_per_thr;
-    uint32_t min_extensions_per_thr;
+    bool force_clamp_correction_angles;
 
     void override(const eis_config_t &other)
     {
@@ -762,8 +769,7 @@ struct eis_config_t
             min_angle_deg = other.min_angle_deg;
             max_angle_deg = other.max_angle_deg;
             shakes_type_buff_size = other.shakes_type_buff_size;
-            max_extensions_per_thr = other.max_extensions_per_thr;
-            min_extensions_per_thr = other.min_extensions_per_thr;
+            force_clamp_correction_angles = other.force_clamp_correction_angles;
         }
     }
     bool operator==(const eis_config_t &other) const;
@@ -861,6 +867,7 @@ struct denoise_config_t
     std::string sensor;
     denoise_method_t denoising_quality;
     uint32_t loopback_count;
+    uint32_t pool_max_buffers;
     feedback_network_config_t network_config;
     bayer_network_config_t bayer_network_config;
 
@@ -871,6 +878,7 @@ struct denoise_config_t
         sensor = "imx678";
         denoising_quality = DENOISE_METHOD_VD2;
         loopback_count = 1;
+        pool_max_buffers = 6;
     }
 
     media_library_return update(denoise_config_t &denoise_configs)
@@ -880,6 +888,7 @@ struct denoise_config_t
         sensor = denoise_configs.sensor;
         denoising_quality = denoise_configs.denoising_quality;
         loopback_count = denoise_configs.loopback_count;
+        pool_max_buffers = denoise_configs.pool_max_buffers;
         network_config = denoise_configs.network_config;
         bayer_network_config = denoise_configs.bayer_network_config;
 
@@ -895,6 +904,7 @@ struct denoise_config_t
             sensor = other.sensor;
             denoising_quality = other.denoising_quality;
             loopback_count = other.loopback_count;
+            pool_max_buffers = other.pool_max_buffers;
             network_config = other.network_config;
             bayer_network_config = other.bayer_network_config;
         }
@@ -1026,6 +1036,7 @@ struct semantic_segmentation_analytics_config_t
     uint32_t original_height_ratio;
     std::vector<label_t> labels;
     size_t max_entries;
+    size_t mask_size;
 };
 
 struct application_analytics_config_t
@@ -1187,15 +1198,27 @@ struct analytics_entry_t
     }
 };
 
+enum class AnalyticsQueryType
+{
+    Closest,
+    Exact,
+    WithinDelta
+};
+
 struct dynamic_privacy_mask_config_t
 {
+    static bool is_persistent;
     bool enabled;
     std::vector<analytics_entry_t> analytics;
     size_t dilation_size;
+    uint32_t timeout_ms;
+    uint32_t delta_ms;
+    AnalyticsQueryType query_type;
 
     bool operator==(const dynamic_privacy_mask_config_t &other) const
     {
-        return enabled == other.enabled && analytics == other.analytics && dilation_size == other.dilation_size;
+        return enabled == other.enabled && analytics == other.analytics && dilation_size == other.dilation_size &&
+               timeout_ms == other.timeout_ms && delta_ms == other.delta_ms && query_type == other.query_type;
     }
 };
 
@@ -1203,19 +1226,22 @@ struct privacy_mask_config_t
 {
     static bool is_persistent;
     PrivacyMaskType mask_type;
-    uint32_t pixelization_size; // Range: 2 to 64
+    uint32_t pixelization_size;
     rgb_color_t color_value;
     std::optional<dynamic_privacy_mask_config_t> dynamic_privacy_mask_config;
     std::optional<static_privacy_mask_config_t> static_privacy_mask_config;
 
     void override(const privacy_mask_config_t &other)
     {
+        if (dynamic_privacy_mask_config_t::is_persistent)
+        {
+            dynamic_privacy_mask_config = other.dynamic_privacy_mask_config;
+        }
         if (is_persistent)
         {
             mask_type = other.mask_type;
             pixelization_size = other.pixelization_size;
             color_value = other.color_value;
-            dynamic_privacy_mask_config = other.dynamic_privacy_mask_config;
             static_privacy_mask_config = other.static_privacy_mask_config;
         }
     }
@@ -1506,7 +1532,6 @@ struct config_iq_settings_t
         if (is_persistent)
         {
             version = other.version;
-            grayscale = other.grayscale;
         }
 
         automatic_algorithms_config.override(other.automatic_algorithms_config);

@@ -1,4 +1,4 @@
-#include "media_library/examples_common.hpp"
+#include "common/common.hpp"
 
 void update_osd_profile_name(const std::string &profile_name)
 {
@@ -99,8 +99,6 @@ int main()
     m_media_lib = media_lib_expected.value();
 
     std::string medialib_config_string = read_string_from_file(get_config_path().c_str());
-
-    m_media_lib->set_override_persistent_settings(true);
 
     m_media_lib->subscribe_to_profile_restricted(
         [](const config_profile_t &previous_profile, const config_profile_t &new_profile) {

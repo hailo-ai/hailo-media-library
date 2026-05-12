@@ -21,12 +21,13 @@ using BufferPtr = std::shared_ptr<Buffer>;
  */
 enum class MetadataType
 {
-    UNKNOWN,        ///< Unknown metadata type
-    BUFFER,         ///< Buffer metadata type
-    TENSOR,         ///< Tensor metadata type
-    EXPECTED_CROPS, ///< Expected crops metadata type
-    SIZE,           ///< Size metadata type
-    BATCH,          ///< Batch metadata type
+    UNKNOWN,            ///< Unknown metadata type
+    BUFFER,             ///< Buffer metadata type
+    TENSOR,             ///< Tensor metadata type
+    EXPECTED_CROPS,     ///< Expected crops metadata type
+    SIZE,               ///< Size metadata type
+    BATCH,              ///< Batch metadata type
+    SKIPPED_DETECTIONS, ///< Skipped detections metadata type (quality gate)
 };
 
 /**
@@ -203,6 +204,33 @@ class CroppingMetadata : public Metadata
     int get_num_crops();
 };
 using CroppingMetadataPtr = std::shared_ptr<CroppingMetadata>;
+
+/**
+ * @brief Metadata class for carrying quality-gated detections through the pipeline.
+ *
+ * When the quality gate filters out detections that already have cached classifications,
+ * those detections are stored in this metadata so they can be re-added to the ROI
+ * after aggregation completes.
+ */
+class SkippedDetectionsMetadata : public Metadata
+{
+  private:
+    std::vector<HailoDetectionPtr> m_skipped_detections;
+
+  public:
+    /**
+     * @brief Constructs a SkippedDetectionsMetadata object.
+     * @param detections Vector of detections that were skipped by the quality gate
+     */
+    SkippedDetectionsMetadata(std::vector<HailoDetectionPtr> detections);
+
+    /**
+     * @brief Gets the skipped detections.
+     * @return Const reference to the vector of skipped detections
+     */
+    const std::vector<HailoDetectionPtr> &get_skipped_detections() const;
+};
+using SkippedDetectionsMetadataPtr = std::shared_ptr<SkippedDetectionsMetadata>;
 
 /**
  * @brief Represents a single image frame with associated metadata and region of interest.

@@ -50,7 +50,7 @@ std::vector<HailoMediaLibraryBufferPtr> AnalyticsDBStage::collect_tensor_buffers
     return tensor_buffers;
 }
 
-AppStatus AnalyticsDBStage::add_empty_semantic_segmentation_entry(BufferPtr data, const std::string &reason)
+AppStatus AnalyticsDBStage::add_cached_or_empty_semantic_segmentation_entry(BufferPtr data, const std::string &reason)
 {
     auto &analytics_db = AnalyticsDB::instance();
     auto timestamp = get_timestamp_from_buffer(data);
@@ -64,6 +64,7 @@ AppStatus AnalyticsDBStage::add_empty_semantic_segmentation_entry(BufferPtr data
         db_data.ts = timestamp;
         HAILO_ANALYTICS_LOG_TRACE("Repeating cached semantic segmentation result ({} masks) for timestamp {} ns",
                                   db_data.analytics_buffer.size(), isp_timestamp_ns);
+        m_last_semantic_segmentation_data.reset();
     }
     else
     {
@@ -382,8 +383,8 @@ AppStatus AnalyticsDBStage::process_semantic_segmentation(BufferPtr data, HailoM
 
     if (masks.empty())
     {
-        HAILO_ANALYTICS_LOG_TRACE("No semantic masks found in sub-objects - adding empty entry");
-        return add_empty_semantic_segmentation_entry(data, "no masks found after processing detections");
+        HAILO_ANALYTICS_LOG_TRACE("No semantic masks found in sub-objects - adding cached or empty entry");
+        return add_cached_or_empty_semantic_segmentation_entry(data, "no masks found after processing detections");
     }
 
     auto tensor_buffers = collect_tensor_buffers(data);
@@ -431,7 +432,7 @@ AppStatus AnalyticsDBStage::process(BufferPtr data)
         if (!roi)
         {
             HAILO_ANALYTICS_LOG_TRACE("[{}] No ROI found in buffer - adding empty entry", m_stage_name);
-            auto status = add_empty_semantic_segmentation_entry(data, "no ROI found");
+            auto status = add_cached_or_empty_semantic_segmentation_entry(data, "no ROI found");
             send_to_subscribers(data);
             return status;
         }
@@ -480,7 +481,7 @@ AppStatus AnalyticsDBStage::process(BufferPtr data)
 
         if (mask_objects.empty())
         {
-            auto status = add_empty_semantic_segmentation_entry(data, "no HAILO_CLASS_MASK objects found");
+            auto status = add_cached_or_empty_semantic_segmentation_entry(data, "no HAILO_CLASS_MASK objects found");
             send_to_subscribers(data);
             return status;
         }
@@ -492,7 +493,7 @@ AppStatus AnalyticsDBStage::process(BufferPtr data)
             HAILO_ANALYTICS_LOG_TRACE("[{}] TENSOR metadata missing for buffer with {} HailoClassMask objects "
                                       "- adding empty entry",
                                       m_stage_name, mask_objects.size());
-            auto status = add_empty_semantic_segmentation_entry(data, "tensor metadata missing");
+            auto status = add_cached_or_empty_semantic_segmentation_entry(data, "tensor metadata missing");
             send_to_subscribers(data);
             return status;
         }
