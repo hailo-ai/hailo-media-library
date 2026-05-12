@@ -30,24 +30,55 @@ The HailoRT CLI is preinstalled on the board image as `/usr/bin/hailortcli`. The
 
 ## Procedure
 
-1. **Batch the read in a single SSH call**:
+The board identifies its own SBC revision via `/etc/build-info`'s `MACHINE` field. The procedure reads it inline and picks the right INA set automatically — no need to ask the user.
+
+| `MACHINE`              | Board label         | INA addresses for SOC power                       | Rails measured                                  |
+|------------------------|---------------------|---------------------------------------------------|-------------------------------------------------|
+| `hailo15-sbc`          | SBC-Mercury-Rev2    | `1-42`, `1-43`, `1-40`                            | DDR_VDDQX, INA_0V8, INA_1V8                     |
+| `hailo15-sbc-rev3-1`   | SBC-Mercury-Rev3.1  | `1-46`, `1-47`, `1-43`, `1-48`                    | INA_0V6, VDDQ_SOC, INA_0V8, INA_1V8             |
+| `hailo15l-sbc`         | SBC-Pluto           | `1-40`, `1-41`, `1-44`, `1-46`, `1-47`            | INA_1V8, INA_0V8, INA_3V3, VDDQX_SOC, VDDQ_SOC  |
+
+1. **Batch the read in a single SSH call.** The script auto-selects `INAS` from `MACHINE`:
+
    ```bash
    ssh root@<board> '
+     M=$(awk -F" = " "/^MACHINE/{print \$2}" /etc/build-info)
+     case "$M" in
+       hailo15-sbc)        L="SBC-Mercury-Rev2";   INAS="1-42 1-43 1-40" ;;
+       hailo15-sbc-rev3-1) L="SBC-Mercury-Rev3.1"; INAS="1-46 1-47 1-43 1-48" ;;
+       hailo15l-sbc)       L="SBC-Pluto";          INAS="1-40 1-41 1-44 1-46 1-47" ;;
+       *)                  L="unknown($M)";        INAS="" ;;
+     esac
+
      echo "=== identity ==="
      uname -a; grep ^VERSION= /etc/os-release
+     echo "Board: $L (MACHINE=$M)"
 
-     echo "=== sensors ==="
-     # H15 die temps 1 & 2, NEAR_H15L_SOC board temp, VDD_CORE power (0v8 rail),
-     # 3v3 / 1v8 / 1v1 rail power, currents, voltages.
+     echo "=== sensors (raw rails — thermals + per-INA power) ==="
      sensors
+
+     echo "=== SOC power (sum of $INAS) ==="
+     sensors 2>/dev/null | awk -v addrs="$INAS" "
+       BEGIN { n = split(addrs, a, \" \"); for (i = 1; i <= n; i++) want[a[i]] = 1; total = 0 }
+       /^ina231_precise-i2c-/ {
+         split(\$0, p, \"i2c-\"); curr = p[2]
+         keep = (curr in want) ? 1 : 0
+       }
+       /Power:/ && keep {
+         val = \$3 + 0; unit = \$4
+         if (unit == \"uW\") val /= 1000000
+         else if (unit == \"mW\") val /= 1000
+         total += val
+       }
+       END { printf \"SOC power: %.2f W\n\", total }
+     "
 
      echo "=== cpu / mem ==="
      cat /proc/loadavg
      top -bn1 -w 200 | sed -n "1,5p"
-     free -h | head -2   
+     free -h | head -2
 
      echo "=== cma / dma-buf (OS Guide §6.3) ==="
-     # Add -v to also list usage per DMA-BUF exporter (useful when chasing leaks).
      /usr/bin/hailo-dma-usage.sh -v 2>/dev/null
 
      echo "=== nn core (HailoRT CLI) ==="
@@ -59,6 +90,8 @@ The HailoRT CLI is preinstalled on the board image as `/usr/bin/hailortcli`. The
    '
    ```
 
+   The aggregator parses each `ina231_precise-i2c-X-XX` chip's `Power:` line, normalizes the unit (µW / mW / W), and prints exactly `SOC power: N.NN W`. The full per-rail `sensors` output stays above it for debugging. If `MACHINE` is unrecognized, `INAS` is empty and SOC power will print `0.00 W` — flag that to the user instead of trusting the number.
+
 2. **Capture one frame of `hailortcli monitor`** for live NN core utilization. The interactive form (`hailortcli monitor`) refreshes in place using ANSI screen-clear codes, so a plain piped/timeout'd ssh returns empty. Use this incantation instead — it forces line buffering, kills after 2 s, strips the ANSI escapes, and keeps just the first refresh:
    ```bash
    ssh root@<board> 'stdbuf -oL hailortcli monitor & p=$!; sleep 2; kill $p 2>/dev/null' \
@@ -67,21 +100,19 @@ The HailoRT CLI is preinstalled on the board image as `/usr/bin/hailortcli`. The
    ```
    Empty output ⇒ the running app didn't export `HAILO_MONITOR=1`, or isn't using a `VDevice` (see Gotchas) — report that fact, don't make up a "0 %" reading.
 
-3. **Summarize — extract numbers, don't dump raw output.** Highlight any line that's trending hot or unusually loaded *first*. For thermal context see the CMA gotcha below — the `(high = +X°C)` numbers in `sensors` output are sensor-chip trip points, **not** the SoC die's thermal envelope, which is SCU-managed per OS Guide §3.3.
+3. **Summarize — extract numbers, don't dump raw output.** Use the **`SOC power: <N> W`** line from step 1 as the headline power figure (not per-rail). Highlight any line that's trending hot or unusually loaded *first*. The `(high = +X°C)` numbers inside the raw `sensors` block are sensor-chip trip points, **not** the SoC die's thermal envelope (which is SCU-managed — see thermal gotcha below).
 
 ## Output format
 
 ```
-H15L · SW <ver> · uptime <…>
+H15<H|L> rev<…> · SW <ver> · uptime <…>
 Thermals:  H15 temp1 <X>°C  temp2 <Y>°C  near-SoC <Z>°C
-Power:     VDD_CORE <P> W (<I> A @ <V> V)
+SOC power: <N.NN> W
 CPU (4c):  load <1m> / <5m> / <15m>   id <X>% sy <Y>%
 Memory:    <avail> MiB available of <total> MiB
 NN core:   <N> device(s), FW <ver>
 Running:   <app cmd line>
 ```
-
-Typical idle-to-moderate observations: H15 die temps **70–74°C**, VDD_CORE **2–3 W** (≈2.2 W with AI-ISP + analytics, ≈3 W with detection-only). These are observations from healthy runs, not thermal limits — die throttling and the 120°C hard shutdown are SCU-side (§3.3); see the thermal gotcha below.
 
 If anything looks off — load > 3 on 4 cores, MemAvailable < 200 MiB, no NN device found, app crash-looping, or die temps trending into the 80–90s — call it out as the **first** line of the report.
 
