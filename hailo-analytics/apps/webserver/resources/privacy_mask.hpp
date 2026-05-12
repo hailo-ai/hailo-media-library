@@ -18,12 +18,8 @@ class PrivacyMaskResource : public Resource
     struct normalized_vertex
     {
         double x, y;
-        normalized_vertex(double x, double y) : x(x), y(y)
-        {
-        }
-        normalized_vertex() : x(0), y(0)
-        {
-        }
+        normalized_vertex(double x, double y);
+        normalized_vertex();
     };
     struct normalized_polygon
     {
@@ -81,19 +77,10 @@ class PrivacyMaskResource : public Resource
 
     PrivacyMaskResource(std::shared_ptr<EventBus> event_bus,
                         std::shared_ptr<webserver::resources::ConfigResourceBase> configs);
-    void http_register(std::shared_ptr<HTTPServer> srv) override;
-    std::string name() override
-    {
-        return "privacy_mask";
-    }
-    ResourceType get_type() override
-    {
-        return ResourceType::RESOURCE_PRIVACY_MASK;
-    }
-    std::map<std::string, normalized_polygon> get_privacy_masks()
-    {
-        return m_privacy_masks;
-    }
+    void http_register(HTTPServer &srv) override;
+    std::string name() override;
+    ResourceType get_type() override;
+    std::map<std::string, normalized_polygon> get_privacy_masks();
     void renable_masks();
 
   private:

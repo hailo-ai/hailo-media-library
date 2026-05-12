@@ -112,9 +112,12 @@ extern "C"
     /// @param rolling_shutter_rotations buffer of rotaions during the last 2 frames
     /// @param grid output grid
     RetCodes dis_generate_eis_grid_rolling_shutter(void *ctx, FlipMirrorRot flip_mirror_rot,
-                                                   const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT *grid,
-                                                   uint32_t max_extensions_per_thr, float curr_zoom_level,
-                                                   uint32_t min_extensions_per_thr, float max_zoom_level);
+                                                   const std::vector<cv::Mat> &rolling_shutter_rotations,
+                                                   DewarpT *grid);
+
+    /// @brief Calculates the maximum stabilizing rotation angles, so no black corners would appear
+    /// @return the maximum stabilizing rotation angles
+    RetCodes dis_get_max_rotation_angles(void *ctx, rotation_angles_t *max_angles);
 
 #ifdef __cplusplus
 };

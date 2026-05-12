@@ -1,7 +1,7 @@
 
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/analytics/reference_camera_app_constructor.hpp"
-#include <stdexcept>
+#include "hailo_analytics/pipeline/sources/frontend_stage_from_file.hpp"
 
 namespace hailo_analytics::analytics::app_constructor
 {
@@ -9,6 +9,24 @@ namespace hailo_analytics::analytics::app_constructor
 namespace StageNames
 {
 constexpr const char *frontend = "frontend_stage";
+}
+
+const char *UserDataBase::type_name() const
+{
+    return "UserDataBase";
+}
+
+CameraAppConstructor::InitializerParams::InitializerParams()
+{
+    media_library_component = nullptr;
+    media_library_config_path = "";
+    media_library_profile_name = "";
+    initialize_media_library_configuration = true;
+    initialize_media_library_profile = true;
+}
+
+void CameraAppExtension::on_registered([[maybe_unused]] CameraAppConstructor &app)
+{
 }
 
 CameraAppConstructor::CameraAppConstructor() = default;
@@ -137,7 +155,7 @@ tl::expected<bool, CamAppReturnCode> CameraAppConstructor::initialize(CameraAppC
 
     if (params.media_library_component)
     {
-        m_media_library = params.media_library_component;
+        m_media_library = std::shared_ptr<MediaLibrary>(params.media_library_component, [](MediaLibrary *) {});
     }
     else
     {
@@ -148,8 +166,7 @@ tl::expected<bool, CamAppReturnCode> CameraAppConstructor::initialize(CameraAppC
             return tl::unexpected(CamAppReturnCode::MEDIA_LIBRARY_INIT_FAILED);
         }
 
-        m_media_library = media_lib_expected.value();
-        m_media_library->set_override_persistent_settings(true);
+        m_media_library = std::move(media_lib_expected.value());
     }
 
     if (params.initialize_media_library_configuration)
@@ -207,7 +224,7 @@ tl::expected<bool, CamAppReturnCode> CameraAppConstructor::initialize(CameraAppC
                                       .buildptr();
         m_components.m_frontend_stage = std::static_pointer_cast<FrontendStage>(frontend_from_file);
         hailo_analytics::pipeline::AppStatus frontend_config_status =
-            frontend_from_file->configure(m_media_library->m_frontend);
+            frontend_from_file->configure(*m_media_library->m_frontend);
         if (frontend_config_status != hailo_analytics::pipeline::AppStatus::SUCCESS)
         {
             HAILO_ANALYTICS_LOG_ERROR("Failed to configure frontend from file at {}", __FUNCTION__);
@@ -233,7 +250,7 @@ tl::expected<bool, CamAppReturnCode> CameraAppConstructor::initialize(CameraAppC
                                             .set_stage_name(StageNames::frontend)
                                             .buildptr();
         hailo_analytics::pipeline::AppStatus frontend_config_status =
-            m_components.m_frontend_stage->configure(m_media_library->m_frontend);
+            m_components.m_frontend_stage->configure(*m_media_library->m_frontend);
         if (frontend_config_status != hailo_analytics::pipeline::AppStatus::SUCCESS)
         {
             HAILO_ANALYTICS_LOG_ERROR("Failed to configure frontend at {}", __FUNCTION__);
@@ -261,7 +278,7 @@ tl::expected<bool, CamAppReturnCode> CameraAppConstructor::initialize(CameraAppC
         m_components.m_encoder_stages[stream_id].encoder_stage_ptr = encoder_stage;
 
         hailo_analytics::pipeline::AppStatus enc_config_status =
-            encoder_stage->configure(m_media_library->m_encoders[stream_id]);
+            encoder_stage->configure(*m_media_library->m_encoders[stream_id]);
         if (enc_config_status != hailo_analytics::pipeline::AppStatus::SUCCESS)
         {
             HAILO_ANALYTICS_LOG_ERROR("Failed to configure encoder at {}", __FUNCTION__);
@@ -300,6 +317,39 @@ tl::expected<bool, CamAppReturnCode> CameraAppConstructor::initialize(CameraAppC
     m_pipeline = *build_result;
     m_initialized = true;
     return m_initialized;
+}
+
+void CameraAppClassFactory::register_class(const std::string &name, CreatorFunc func)
+{
+    if (m_registry.find(name) == m_registry.end())
+    {
+        m_registry[name] = func;
+        m_registration_order.push_back(name); // Record the order
+    }
+}
+
+std::shared_ptr<CameraAppConstructor> CameraAppClassFactory::create(const std::string &name) const
+{
+    auto it = m_registry.find(name);
+    if (it != m_registry.end())
+    {
+        return it->second();
+    }
+    return nullptr;
+}
+
+std::vector<std::string> CameraAppClassFactory::get_registration_name_in_order()
+{
+    return m_registration_order;
+}
+
+std::shared_ptr<CameraAppConstructor> CameraAppClassFactory::create_first_registered() const
+{
+    if (!m_registration_order.empty())
+    {
+        return create(m_registration_order.front());
+    }
+    return nullptr;
 }
 
 } // namespace hailo_analytics::analytics::app_constructor

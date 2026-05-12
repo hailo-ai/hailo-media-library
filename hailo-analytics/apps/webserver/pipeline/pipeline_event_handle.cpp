@@ -12,7 +12,7 @@ template <typename T> static inline T clamp01(T v)
 void BasePipeline::callback_handle_update_profile(ResourceStateChangeNotification notif)
 {
     WEBSERVER_LOG_DEBUG("Pipeline: Handling update profile event");
-    auto expected_profile = m_app_resources->media_library->get_current_profile();
+    auto expected_profile = m_app_resources->media_library.get_current_profile();
     if (!expected_profile.has_value())
     {
         WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -101,7 +101,7 @@ void BasePipeline::callback_handle_update_profile(ResourceStateChangeNotificatio
         },
         notif.resource_state);
 
-    media_library_return ret = m_app_resources->media_library->set_override_parameters(current_profile);
+    media_library_return ret = m_app_resources->media_library.set_override_parameters(current_profile);
     if (ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         WEBSERVER_LOG_ERROR("Failed to set profile");
@@ -192,7 +192,7 @@ void BasePipeline::update_fps(uint32_t fps, config_profile_t &profile_config)
         resolution.framerate = fps;
     }
     // NOTE: waiting for encoder api from mosko
-    encoder_config_t encoder = m_app_resources->media_library->m_encoders[m_stream_4k_name]->get_config();
+    encoder_config_t encoder = m_app_resources->media_library.m_encoders[m_stream_4k_name]->get_config();
     if (std::holds_alternative<jpeg_encoder_config_t>(encoder))
     {
         WEBSERVER_LOG_CRITICAL("JPEG encoder config is not supported in webserver");
@@ -285,7 +285,7 @@ void BasePipeline::update_rotation(const std::string &rotation, config_profile_t
     // CONFIGURE ENCODER
     // NOTE: waiting for encoder api from mosko
     //  encoder_config_t& encoder = profile_config.encoder_configs[m_stream_4k_name];
-    encoder_config_t encoder = m_app_resources->media_library->m_encoders[m_stream_4k_name]->get_config();
+    encoder_config_t encoder = m_app_resources->media_library.m_encoders[m_stream_4k_name]->get_config();
     if (std::holds_alternative<jpeg_encoder_config_t>(encoder))
     {
         WEBSERVER_LOG_CRITICAL("JPEG encoder config is not supported in webserver");
@@ -317,7 +317,7 @@ void BasePipeline::callback_handle_profile_switch(ResourceStateChangeNotificatio
     m_current_profile_type = state->value;
     auto profile_name = this->get_profile_name_by_type(state->value);
     WEBSERVER_LOG_INFO("Pipeline: Resolved profile name: {}", profile_name);
-    auto res = m_app_resources->media_library->set_profile(profile_name);
+    auto res = m_app_resources->media_library.set_profile(profile_name);
     if (res != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         if (res == MEDIA_LIBRARY_PROFILE_IS_RESTRICTED)
@@ -333,17 +333,18 @@ void BasePipeline::callback_handle_profile_switch(ResourceStateChangeNotificatio
 
         throw std::runtime_error("Failed to switch profile: " + profile_name);
     }
+
     WEBSERVER_LOG_DEBUG("Pipeline: Switch profile event handled");
 
-    m_resources->m_event_bus->notify(
+    m_resources.m_event_bus->notify(
         EventType::PROFILE_UPDATE,
-        std::make_shared<ProfileState>(ProfileStateData{m_app_resources->media_library->get_current_profile().value(),
+        std::make_shared<ProfileState>(ProfileStateData{m_app_resources->media_library.get_current_profile().value(),
                                                         state->value, profile_name, m_supported_profiles}));
 }
 
 hailo_encoder_config_t BasePipeline::get_encoder_config()
 {
-    auto expected_profile = m_app_resources->media_library->get_current_profile();
+    auto expected_profile = m_app_resources->media_library.get_current_profile();
     if (!expected_profile.has_value())
     {
         WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -354,7 +355,7 @@ hailo_encoder_config_t BasePipeline::get_encoder_config()
     // NOTE: waiting for encoder api from mosko
     //  encoder_config_t encoder_config = current_profile.m_encoders[m_stream_4k_name];
     encoder_config_t encoder_config =
-        m_app_resources->media_library->m_encoders[m_stream_4k_name]
+        m_app_resources->media_library.m_encoders[m_stream_4k_name]
             ->get_config(); // TODO get the config form the profile(mosko need to be updated from the real struct)
     if (std::holds_alternative<jpeg_encoder_config_t>(encoder_config))
     {
@@ -369,7 +370,7 @@ void BasePipeline::callback_handle_encoder(ResourceStateChangeNotification notif
     WEBSERVER_LOG_DEBUG("Pipeline: Handling encoder resource state change");
     auto state = notif.getResourceStateFromBase<EncoderResource::EncoderResourceState>();
 
-    auto expected_profile = m_app_resources->media_library->get_current_profile();
+    auto expected_profile = m_app_resources->media_library.get_current_profile();
     if (!expected_profile.has_value())
     {
         WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -377,7 +378,7 @@ void BasePipeline::callback_handle_encoder(ResourceStateChangeNotification notif
     }
     config_profile_t current_profile = expected_profile.value();
 
-    encoder_config_t encoder_config = m_app_resources->media_library->m_encoders[m_stream_4k_name]->get_config();
+    encoder_config_t encoder_config = m_app_resources->media_library.m_encoders[m_stream_4k_name]->get_config();
     if (std::holds_alternative<jpeg_encoder_config_t>(encoder_config))
     {
         WEBSERVER_LOG_CRITICAL("JPEG encoder config is not supported in webserver");
@@ -388,7 +389,7 @@ void BasePipeline::callback_handle_encoder(ResourceStateChangeNotification notif
 
     current_profile.encoded_output_streams[m_stream_4k_name].encoding = hailo_encoder_config;
 
-    if (m_app_resources->media_library->set_override_parameters(current_profile) !=
+    if (m_app_resources->media_library.set_override_parameters(current_profile) !=
         media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         WEBSERVER_LOG_ERROR("Failed to set profile");
@@ -399,12 +400,12 @@ void BasePipeline::callback_handle_encoder(ResourceStateChangeNotification notif
 
 std::shared_ptr<osd::Blender> BasePipeline::get_osd_blender()
 {
-    return m_app_resources->media_library->m_encoders[m_stream_4k_name]->get_osd_blender();
+    return m_app_resources->media_library.m_encoders[m_stream_4k_name]->get_osd_blender();
 }
 
 std::shared_ptr<PrivacyMaskBlender> BasePipeline::get_privacy_blender()
 {
-    return m_app_resources->media_library->m_encoders[m_stream_4k_name]->get_privacy_mask_blender();
+    return m_app_resources->media_library.m_encoders[m_stream_4k_name]->get_privacy_mask_blender();
 }
 
 void BasePipeline::callback_handle_osd(ResourceStateChangeNotification notif)

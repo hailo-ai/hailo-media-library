@@ -25,20 +25,14 @@
 #include "camera.h"
 #include "dis.h"
 #include "dis_math.h"
-#include "media_library_logger.hpp"
-
-#if LOG_TO_FILE // see log.h
-DisFileLog disFileLog;
-#endif // LOG_TO_FILE
-
-static constexpr LoggerType LOGGER_TYPE = LoggerType::Dis;
+#include "dis_logger.h"
 
 RetCodes dis_init(void **ctx, dis_config_t &cfg, dis_calibration_t calib, int32_t out_width, int32_t out_height,
                   camera_type_t camera_type, float camera_fov_factor, bool is_eis_enabled, DewarpT *grid)
 {
     if (grid == nullptr)
     {
-        LOGGER__MODULE__ERROR(LOGGER_TYPE, "dis_init: grid = 0");
+        DIS_LOG_ERROR("dis_init: grid = 0");
         return ERROR_INPUT_DATA;
     }
     if (*ctx != nullptr)
@@ -54,7 +48,7 @@ RetCodes dis_init(void **ctx, dis_config_t &cfg, dis_calibration_t calib, int32_
     DIS &dis = *reinterpret_cast<DIS *>(*ctx);
     dis.cfg = cfg;
 
-    LOGGER__MODULE__INFO(LOGGER_TYPE, "dis_init out resolution  {}x{}", out_width, out_height);
+    DIS_LOG_INFO("dis_init out resolution  {}x{}", out_width, out_height);
 
     // If DIS AND EIS are disabled, changing the field of view is not supported
     if ((!dis.cfg.enabled) && (!is_eis_enabled))
@@ -105,8 +99,7 @@ RetCodes dis_generate_grid(void *ctx, int in_width, int in_height, float motion_
         return ERROR_INIT;
     if ((in_width != dis.in_cam.res.x) || (in_height != dis.in_cam.res.y))
     {
-        LOGGER__MODULE__ERROR(LOGGER_TYPE,
-                              "dis_generateGrid: Input image resolution differs from the one in the calibration");
+        DIS_LOG_ERROR("dis_generateGrid: Input image resolution differs from the one in the calibration");
         return ERROR_INPUT_DATA;
     }
 
@@ -128,8 +121,7 @@ RetCodes dis_dewarp_only_grid(void *ctx, int in_width, int in_height, FlipMirror
         return ERROR_INIT;
     if ((in_width != dis.in_cam.res.x) || (in_height != dis.in_cam.res.y))
     {
-        LOGGER__MODULE__ERROR(LOGGER_TYPE,
-                              "dis_generateGrid: Input image resolution differs from the one in the calibration");
+        DIS_LOG_ERROR("dis_generateGrid: Input image resolution differs from the one in the calibration");
         return ERROR_INPUT_DATA;
     }
 
@@ -155,9 +147,7 @@ RetCodes dis_generate_eis_grid(void *ctx, FlipMirrorRot flip_mirror_rot, cv::Mat
 }
 
 RetCodes dis_generate_eis_grid_rolling_shutter(void *ctx, FlipMirrorRot flip_mirror_rot,
-                                               const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT *grid,
-                                               uint32_t max_extensions_per_thr, float curr_zoom_level,
-                                               uint32_t min_extensions_per_thr, float max_zoom_level)
+                                               const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT *grid)
 {
     if (ctx == nullptr)
         return ERROR_CTX;
@@ -167,7 +157,19 @@ RetCodes dis_generate_eis_grid_rolling_shutter(void *ctx, FlipMirrorRot flip_mir
     if (!dis.initialized)
         return ERROR_INIT;
 
-    return dis.generate_eis_grid_rolling_shutter(flip_mirror_rot, rolling_shutter_rotations, *grid,
-                                                 max_extensions_per_thr, curr_zoom_level, min_extensions_per_thr,
-                                                 max_zoom_level);
+    return dis.generate_eis_grid_rolling_shutter(flip_mirror_rot, rolling_shutter_rotations, *grid);
+}
+
+RetCodes dis_get_max_rotation_angles(void *ctx, rotation_angles_t *max_angles)
+{
+    if (ctx == nullptr)
+        return ERROR_CTX;
+    if (max_angles == nullptr)
+        return ERROR_INPUT_DATA;
+    DIS &dis = *reinterpret_cast<DIS *>(ctx);
+    if (!dis.initialized)
+        return ERROR_INIT;
+
+    *max_angles = dis.get_max_rotation_angles();
+    return DIS_OK;
 }

@@ -2,6 +2,7 @@
 #include <nlohmann/json.hpp>
 #include "media_library_logger.hpp"
 #include "eis.hpp"
+#include "eis_utils.hpp"
 
 #define MODULE_NAME LoggerType::Eis
 #define RAD_TO_DEG(x) ((x) * 180.0 / CV_PI)
@@ -62,27 +63,13 @@ static inline cv::Mat get_curr_gyro_rotation_mat(const unbiased_gyro_sample_t &g
     return gyro_rot_mat;
 }
 
-static cv::Mat euler_angles_to_rot_mat(const cv::Vec3d &angles)
-{
-    double roll = angles[0], pitch = angles[1], yaw = angles[2];
-
-    double sin_roll = std::sin(roll), cos_roll = std::cos(roll);
-    double sin_pitch = std::sin(pitch), cos_pitch = std::cos(pitch);
-    double sin_yaw = std::sin(yaw), cos_yaw = std::cos(yaw);
-
-    cv::Mat R_x = (cv::Mat_<double>(3, 3) << 1, 0, 0, 0, cos_roll, -sin_roll, 0, sin_roll, cos_roll);
-
-    cv::Mat R_y = (cv::Mat_<double>(3, 3) << cos_pitch, 0, sin_pitch, 0, 1, 0, -sin_pitch, 0, cos_pitch);
-
-    cv::Mat R_z = (cv::Mat_<double>(3, 3) << cos_yaw, -sin_yaw, 0, sin_yaw, cos_yaw, 0, 0, 0, 1);
-
-    return R_z * R_y * R_x;
-}
-
 shakes_state_t EIS::get_curr_shakes_state()
 {
-    double std_angle_deg = RAD_TO_DEG(cv::norm(m_rotation_buffer.standard_deviation()));
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Mean: {}", RAD_TO_DEG(cv::norm(m_rotation_buffer.mean())));
+    auto stand_dev = m_rotation_buffer.standard_deviation();
+    double std_angle_deg = RAD_TO_DEG(cv::norm(stand_dev));
+    auto mean = m_rotation_buffer.mean();
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Mean: {} = |{}|, Std: {} = |{}|", RAD_TO_DEG(cv::norm(mean)), RAD_TO_DEG(mean),
+                          std_angle_deg, RAD_TO_DEG(stand_dev));
 
     if (std_angle_deg < m_min_angle_deg)
     {
@@ -110,17 +97,18 @@ std::vector<std::pair<uint64_t, cv::Mat>> EIS::get_orientations_based_on_shakes_
 
     if (curr_shakes_state == shakes_state_t::VIOLENT)
     {
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Shakes state is VIOLENT, returning identity orientations");
         return {std::make_pair(0, cv::Mat::eye(3, 3, CV_64F))};
     }
     else if (curr_shakes_state == shakes_state_t::NOISE)
     {
         /* In Noise state return the last Normal state orientations with the current timestamps */
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Shakes state is NOISE, returning last normal shakes state orientations");
         for (size_t i = 0; i < current_orientations.size(); ++i)
         {
             current_orientations[i].second = last_normal_shakes_state_orientations;
         }
     }
-
     last_normal_shakes_state_orientations = current_orientations[0].second.clone();
     return current_orientations;
 }
@@ -175,7 +163,7 @@ std::vector<std::pair<uint64_t, cv::Mat>> EIS::integrate_rotations_rolling_shutt
         m_prev_angle = m_cur_angle;
         m_cur_angle += cv::Vec3d(gyro_samples[i].vx, gyro_samples[i].vy, gyro_samples[i].vz) * dt;
         m_rotation_buffer.push(m_cur_angle);
-        cv::Mat delta_rot = euler_angles_to_rot_mat(m_cur_angle);
+        cv::Mat delta_rot = eis_utils::euler_angles_to_rot_mat(m_cur_angle);
         cv::Mat rot_camera = (m_gyro_to_cam_rot_mat * delta_rot.t()) * m_gyro_to_cam_rot_mat.t();
         out_rotations.emplace_back(std::pair<uint64_t, cv::Mat>(gyro_samples[i].timestamp_ns, rot_camera));
         out_rotations_count = out_rotations.size();
@@ -349,6 +337,16 @@ EIS::EIS(const std::string &config_filename, uint32_t window_size, uint32_t samp
 
 bool EIS::check_periodic_reset(std::vector<cv::Mat> &rolling_shutter_rotations, uint32_t curr_fps)
 {
+    if (m_frame_count < ((curr_fps * EIS_RESET_TIME)))
+    {
+        return false;
+    }
+    if (m_frame_count >= (curr_fps * EIS_RESET_TIME) + EIS_OPTIMAL_RESET_FRAMES_CHECK_NUM)
+    {
+        LOGGER__MODULE__TRACE(MODULE_NAME, "[EIS] triggering Periodic Reset, time elapsed");
+        return true;
+    }
+
     /* If we haven't yet reached the hard deadline, check if this is a "good" time for reset:
         If all of the rotation matrices are close to the identity matrix, that way the reset will
         have less of a visual impact. Meaning:
@@ -357,23 +355,20 @@ bool EIS::check_periodic_reset(std::vector<cv::Mat> &rolling_shutter_rotations, 
             reset EIS only if all the rotation matrices are close to the identity matrix (all the angels are less
        then the threshold). if frame_count >= EIS_RESET_FRAMES_NUM + EIS_OPTIMAL_RESET_FRAMES_CHECK_NUM reset EIS
     */
-    if (m_frame_count < ((curr_fps * EIS_RESET_TIME) + EIS_OPTIMAL_RESET_FRAMES_CHECK_NUM))
+    for (auto &rotation : rolling_shutter_rotations)
     {
-        for (auto &rotation : rolling_shutter_rotations)
-        {
-            cv::Mat rvec;
-            cv::Rodrigues(rotation, rvec);
-            double angle = cv::norm(rvec);
+        cv::Mat rvec;
+        cv::Rodrigues(rotation, rvec);
+        double angle = cv::norm(rvec);
 
-            if (angle > EIS_RESET_ANGLES_THRESHOLD)
-            {
-                /* If one of the angles is above the threshold,
-                    we are not close enough to the identity matrix */
-                return false;
-            }
+        if (angle > EIS_RESET_ANGLES_THRESHOLD)
+        {
+            /* If one of the angles is above the threshold,
+                we are not close enough to the identity matrix */
+            return false;
         }
     }
-
+    LOGGER__MODULE__TRACE(MODULE_NAME, "[EIS] triggering Periodic Reset, correction angles are low enough");
     return true;
 }
 

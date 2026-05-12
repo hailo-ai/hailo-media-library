@@ -19,6 +19,20 @@ using namespace webserver;
      state == IspResource::FiltersManualState::FILTER_STATE_FORCE_AUTO)
 #define ISP_FILTERS_MANUAL_STATE_IS_MANUAL(state) (state == IspResource::FiltersManualState::FILTER_STATE_MANUAL)
 
+IspResource::IspResourceState::IspResourceState(bool isp_3aconfig_updated) : isp_3aconfig_updated(isp_3aconfig_updated)
+{
+}
+
+std::string IspResource::name()
+{
+    return "isp";
+}
+
+ResourceType IspResource::get_type()
+{
+    return ResourceType::RESOURCE_ISP;
+}
+
 IspResource::IspResource(std::shared_ptr<EventBus> event_bus, std::shared_ptr<ConfigResourceMedialib> config_res)
     : Resource(event_bus), m_baseline_stream_params(0, 0, 0, 0, 0), m_baseline_wdr_params(0),
       m_baseline_backlight_params(0, 0), m_isp_filters_manual_state(IspResource::FiltersManualState::FILTER_STATE_AUTO),
@@ -154,22 +168,39 @@ void IspResource::wait_safe_to_pull()
     }
 }
 
-void IspResource::http_register(std::shared_ptr<HTTPServer> srv)
+void IspResource::http_register(HTTPServer &srv)
 {
-    srv->Get("/isp/refresh", std::function<void()>([this]() {
-                 if (ISP_FILTERS_MANUAL_STATE_IS_MANUAL(m_isp_filters_manual_state))
-                     m_isp_filters_manual_state =
-                         IspResource::FiltersManualState::FILTER_STATE_AUTO; // reset to auto state on refresh
-                 this->init();
-             }));
+    register_refresh(srv);
+    register_filters_manual_state(srv);
+    register_powerline_frequency(srv);
+    register_noise_reduction(srv);
+    register_wdr(srv);
+    register_awb(srv);
+    register_stream_params(srv);
+    register_auto_exposure(srv);
+    register_safe_to_pull(srv);
+    register_sensor_model(srv);
+}
 
-    srv->Get("/isp/filters_manual_state", std::function<nlohmann::json()>([this]() {
-                 nlohmann::json j_out;
-                 j_out["auto"] = ISP_FILTERS_MANUAL_STATE_IS_AUTO(m_isp_filters_manual_state);
-                 return j_out;
-             }));
+void IspResource::register_refresh(HTTPServer &srv)
+{
+    srv.Get("/isp/refresh", std::function<void()>([this]() {
+                if (ISP_FILTERS_MANUAL_STATE_IS_MANUAL(m_isp_filters_manual_state))
+                    m_isp_filters_manual_state =
+                        IspResource::FiltersManualState::FILTER_STATE_AUTO; // reset to auto state on refresh
+                this->init();
+            }));
+}
 
-    srv->Post(
+void IspResource::register_filters_manual_state(HTTPServer &srv)
+{
+    srv.Get("/isp/filters_manual_state", std::function<nlohmann::json()>([this]() {
+                nlohmann::json j_out;
+                j_out["auto"] = ISP_FILTERS_MANUAL_STATE_IS_AUTO(m_isp_filters_manual_state);
+                return j_out;
+            }));
+
+    srv.Post(
         "/isp/filters_manual_state",
         std::function<std::pair<nlohmann::json, int>(const nlohmann::json &req)>([this](const nlohmann::json &req) {
             std::string ret_msg;
@@ -193,66 +224,72 @@ void IspResource::http_register(std::shared_ptr<HTTPServer> srv)
             j_out["auto"] = state;
             return std::pair<nlohmann::json, int>(j_out, 200);
         }));
+}
 
-    srv->Post("/isp/powerline_frequency",
-              std::function<nlohmann::json(const nlohmann::json &req)>([this](const nlohmann::json &req) {
-                  std::string ret_msg;
-                  powerline_frequency_t freq = POWERLINE_FREQUENCY_OFF;
-                  bool ret = json_extract_value<powerline_frequency_t>(req, "powerline_freq", freq, &ret_msg);
-                  if (!ret)
-                  {
-                      WEBSERVER_LOG_ERROR("Failed to extract powerline frequency from JSON: {}", ret_msg);
-                      throw std::runtime_error(ret_msg);
-                  }
-                  // When adaptive_ae is enabled, the anti-flicker setting will be overridden by its configuration.
-                  // Adaptive_ae includes a field that dictates the anti-flicker behavior, bypassing the ioctl-defined
-                  // value. If adaptive_ae is disabled, the ioctl setting will take effect. Therefore, both
-                  // configurations are updated to ensure consistency.
-                  automatic_algorithms_config_t config = m_isp_blender_ptr->get_current_automatic_algorithms_config();
-                  // update in v4l2 ctrl only if adaptive AE is disabled
-                  WEBSERVER_LOG_DEBUG("Setting powerline frequency to: {}", freq);
-                  ret = v4l2_ctrl::set<int>(v4l2_ctrl::Video0Ctrl::POWERLINE_FREQUENCY, (uint16_t)freq);
-                  if (!ret)
-                  {
-                      WEBSERVER_LOG_ERROR("Failed to set powerline frequency");
-                      throw std::runtime_error("Failed to set powerline frequency");
-                  }
-                  // update in 3a config if adaptive AE is enabled
-                  config.adaptive_ae.flicker_period = (u_int16_t)freq;
-                  config.hdr_adaptive_ae.flicker_period = (u_int16_t)freq;
-                  m_isp_blender_ptr->set_automatic_algorithms_config(config);
-
-                  nlohmann::json j_out;
-                  j_out["powerline_freq"] = freq;
-                  return j_out;
-              }));
-
-    srv->Get("/isp/powerline_frequency", std::function<nlohmann::json()>([this]() {
-                 wait_safe_to_pull();
-                 powerline_frequency_t freq;
+void IspResource::register_powerline_frequency(HTTPServer &srv)
+{
+    srv.Post("/isp/powerline_frequency",
+             std::function<nlohmann::json(const nlohmann::json &req)>([this](const nlohmann::json &req) {
+                 std::string ret_msg;
+                 powerline_frequency_t freq = POWERLINE_FREQUENCY_OFF;
+                 bool ret = json_extract_value<powerline_frequency_t>(req, "powerline_freq", freq, &ret_msg);
+                 if (!ret)
+                 {
+                     WEBSERVER_LOG_ERROR("Failed to extract powerline frequency from JSON: {}", ret_msg);
+                     throw std::runtime_error(ret_msg);
+                 }
+                 // When adaptive_ae is enabled, the anti-flicker setting will be overridden by its configuration.
+                 // Adaptive_ae includes a field that dictates the anti-flicker behavior, bypassing the ioctl-defined
+                 // value. If adaptive_ae is disabled, the ioctl setting will take effect. Therefore, both
+                 // configurations are updated to ensure consistency.
                  automatic_algorithms_config_t config = m_isp_blender_ptr->get_current_automatic_algorithms_config();
-                 if (!config.adaptive_ae.enabled)
+                 // update in v4l2 ctrl only if adaptive AE is disabled
+                 WEBSERVER_LOG_DEBUG("Setting powerline frequency to: {}", freq);
+                 ret = v4l2_ctrl::set<int>(v4l2_ctrl::Video0Ctrl::POWERLINE_FREQUENCY, (uint16_t)freq);
+                 if (!ret)
                  {
-                     int val;
-                     bool ret = v4l2_ctrl::get<int>(v4l2_ctrl::Video0Ctrl::POWERLINE_FREQUENCY, val);
-                     if (!ret)
-                     {
-                         WEBSERVER_LOG_ERROR("Failed to get powerline frequency");
-                         throw std::runtime_error("Failed to get powerline frequency");
-                     }
-                     freq = (powerline_frequency_t)val;
+                     WEBSERVER_LOG_ERROR("Failed to set powerline frequency");
+                     throw std::runtime_error("Failed to set powerline frequency");
                  }
-                 else
-                 {
-                     freq = (powerline_frequency_t)config.adaptive_ae.flicker_period;
-                 }
+                 // update in 3a config if adaptive AE is enabled
+                 config.adaptive_ae.flicker_period = (u_int16_t)freq;
+                 config.hdr_adaptive_ae.flicker_period = (u_int16_t)freq;
+                 m_isp_blender_ptr->set_automatic_algorithms_config(config);
+
                  nlohmann::json j_out;
                  j_out["powerline_freq"] = freq;
-                 WEBSERVER_LOG_DEBUG("Got powerline frequency: {}", freq);
                  return j_out;
              }));
 
-    srv->Post("/isp/noise_reduction", [this](const nlohmann::json &req) {
+    srv.Get("/isp/powerline_frequency", std::function<nlohmann::json()>([this]() {
+                wait_safe_to_pull();
+                powerline_frequency_t freq;
+                automatic_algorithms_config_t config = m_isp_blender_ptr->get_current_automatic_algorithms_config();
+                if (!config.adaptive_ae.enabled)
+                {
+                    int val;
+                    bool ret = v4l2_ctrl::get<int>(v4l2_ctrl::Video0Ctrl::POWERLINE_FREQUENCY, val);
+                    if (!ret)
+                    {
+                        WEBSERVER_LOG_ERROR("Failed to get powerline frequency");
+                        throw std::runtime_error("Failed to get powerline frequency");
+                    }
+                    freq = (powerline_frequency_t)val;
+                }
+                else
+                {
+                    freq = (powerline_frequency_t)config.adaptive_ae.flicker_period;
+                }
+                nlohmann::json j_out;
+                j_out["powerline_freq"] = freq;
+                WEBSERVER_LOG_DEBUG("Got powerline frequency: {}", freq);
+                return j_out;
+            }));
+}
+
+void IspResource::register_noise_reduction(HTTPServer &srv)
+{
+    srv.Post("/isp/noise_reduction", [this](const nlohmann::json &req) {
         std::string ret_msg;
         int nr = 0;
         bool ret = json_extract_value<int>(req, "noise_reduction", nr, &ret_msg);
@@ -274,247 +311,273 @@ void IspResource::http_register(std::shared_ptr<HTTPServer> srv)
             throw std::runtime_error("Failed to set noise reduction");
         }
     });
+}
 
-    srv->Post("/isp/wdr", std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &j_body) {
-                  if (ISP_FILTERS_MANUAL_STATE_IS_AUTO(m_isp_filters_manual_state))
-                  {
-                      WEBSERVER_LOG_ERROR("WDR can only be set in manual mode");
-                      throw std::runtime_error("WDR can only be set in manual mode");
-                  }
-
-                  wide_dynamic_range_t wdr = j_body.get<wide_dynamic_range_t>();
-                  auto val = v4l2_ctrl::calculate_value_from_precentage<int32_t>(
-                      wdr.value, v4l2_ctrl::Video0Ctrl::WDR_CONTRAST, m_baseline_wdr_params);
-                  WEBSERVER_LOG_INFO("Setting WDR to: {}", val);
-                  bool ret = v4l2_ctrl::set<int16_t>(v4l2_ctrl::Video0Ctrl::WDR_CONTRAST, val);
-                  if (!ret)
-                  {
-                      WEBSERVER_LOG_ERROR("Failed to set WDR");
-                      throw std::runtime_error("Failed to set WDR");
-                  }
-                  return j_body;
-              }));
-
-    srv->Get("/isp/wdr", std::function<nlohmann::json()>([this]() {
+void IspResource::register_wdr(HTTPServer &srv)
+{
+    srv.Post("/isp/wdr", std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &j_body) {
                  if (ISP_FILTERS_MANUAL_STATE_IS_AUTO(m_isp_filters_manual_state))
                  {
-                     wide_dynamic_range_t wdr;
-                     wdr.value = 50; // default value for auto mode
-                     nlohmann::json j_out = wdr;
-                     WEBSERVER_LOG_DEBUG("WDR is in auto mode, returning default value: 50");
-                     return j_out;
+                     WEBSERVER_LOG_ERROR("WDR can only be set in manual mode");
+                     throw std::runtime_error("WDR can only be set in manual mode");
                  }
 
-                 wait_safe_to_pull();
-                 wide_dynamic_range_t wdr;
-                 int32_t val;
-                 bool ret = v4l2_ctrl::get<int32_t>(v4l2_ctrl::Video0Ctrl::WDR_CONTRAST, val);
+                 wide_dynamic_range_t wdr = j_body.get<wide_dynamic_range_t>();
+                 auto val = v4l2_ctrl::calculate_value_from_precentage<int32_t>(
+                     wdr.value, v4l2_ctrl::Video0Ctrl::WDR_CONTRAST, m_baseline_wdr_params);
+                 WEBSERVER_LOG_INFO("Setting WDR to: {}", val);
+                 bool ret = v4l2_ctrl::set<int16_t>(v4l2_ctrl::Video0Ctrl::WDR_CONTRAST, val);
                  if (!ret)
                  {
-                     WEBSERVER_LOG_ERROR("Failed to get WDR");
-                     throw std::runtime_error("Failed to get WDR");
+                     WEBSERVER_LOG_ERROR("Failed to set WDR");
+                     throw std::runtime_error("Failed to set WDR");
                  }
-                 wdr.value = v4l2_ctrl::calculate_precentage_from_value<int32_t>(
-                     val, v4l2_ctrl::Video0Ctrl::WDR_CONTRAST, m_baseline_wdr_params);
-                 WEBSERVER_LOG_INFO("Got WDR value: {}", wdr.value);
-                 nlohmann::json j_out = wdr;
-                 return j_out;
+                 return j_body;
              }));
 
-    srv->Post("/isp/awb", std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &j_body) {
-                  auto awb_type_names = get_illumination_names();
-                  webserver::common::auto_white_balance_t awb;
-                  try
-                  {
-                      awb = j_body.get<webserver::common::auto_white_balance_t>();
-                  }
-                  catch (const std::exception &e)
-                  {
-                      WEBSERVER_LOG_ERROR("Failed to cast JSON to auto_white_balance_t: {}", e.what());
-                      throw std::runtime_error("Failed to cast JSON to auto_white_balance_t");
-                  }
+    srv.Get("/isp/wdr", std::function<nlohmann::json()>([this]() {
+                if (ISP_FILTERS_MANUAL_STATE_IS_AUTO(m_isp_filters_manual_state))
+                {
+                    wide_dynamic_range_t wdr;
+                    wdr.value = 50; // default value for auto mode
+                    nlohmann::json j_out = wdr;
+                    WEBSERVER_LOG_DEBUG("WDR is in auto mode, returning default value: 50");
+                    return j_out;
+                }
 
-                  WEBSERVER_LOG_DEBUG("AWB POST request, logical profile = {}", static_cast<int>(awb.value));
+                wait_safe_to_pull();
+                wide_dynamic_range_t wdr;
+                int32_t val;
+                bool ret = v4l2_ctrl::get<int32_t>(v4l2_ctrl::Video0Ctrl::WDR_CONTRAST, val);
+                if (!ret)
+                {
+                    WEBSERVER_LOG_ERROR("Failed to get WDR");
+                    throw std::runtime_error("Failed to get WDR");
+                }
+                wdr.value = v4l2_ctrl::calculate_precentage_from_value<int32_t>(
+                    val, v4l2_ctrl::Video0Ctrl::WDR_CONTRAST, m_baseline_wdr_params);
+                WEBSERVER_LOG_INFO("Got WDR value: {}", wdr.value);
+                nlohmann::json j_out = wdr;
+                return j_out;
+            }));
+}
 
-                  if (awb.value == AUTO_WHITE_BALANCE_PROFILE_AUTO)
-                  {
-                      WEBSERVER_LOG_DEBUG("Setting AWB to auto");
-                      v4l2_ctrl::set<uint16_t>(v4l2_ctrl::Video0Ctrl::AWB_MODE, 1);
-                  }
-                  else
-                  {
-                      std::string target_keyword = get_awb_target_keyword(awb.value);
-
-                      int32_t found_index = -1;
-                      const bool exact = (target_keyword == "A" || target_keyword == "B");
-
-                      for (size_t i = 0; i < awb_type_names.size(); ++i)
-                      {
-                          if ((exact && awb_type_names[i] == target_keyword) ||
-                              (!exact && awb_type_names[i].find(target_keyword) != std::string::npos))
-                          {
-                              found_index = static_cast<int32_t>(i);
-                              WEBSERVER_LOG_DEBUG("Mapped logical profile '{}' to HW index {} (Name: {})",
-                                                  target_keyword, found_index, awb_type_names[i]);
-                              break;
-                          }
-                      }
-
-                      if (found_index == -1)
-                      {
-                          WEBSERVER_LOG_ERROR("Target AWB profile '{}' not found in current calibration file!",
-                                              target_keyword);
-                          throw std::runtime_error("AWB profile not supported by current sensor calibration");
-                      }
-
-                      WEBSERVER_LOG_DEBUG("Setting AWB to manual, logical_profile = {}, hw_illum_index = {}",
-                                          static_cast<int>(awb.value), found_index);
-
-                      v4l2_ctrl::set<uint16_t>(v4l2_ctrl::Video0Ctrl::AWB_MODE, 0);
-                      v4l2_ctrl::set<uint16_t>(v4l2_ctrl::Video0Ctrl::AWB_ILLUM_INDEX, found_index);
-
-                      int32_t current_idx = -1;
-                      bool ret = v4l2_ctrl::get<int32_t>(v4l2_ctrl::Video0Ctrl::AWB_ILLUM_INDEX, current_idx);
-                      if (ret)
-                      {
-                          WEBSERVER_LOG_DEBUG("AWB_ILLUM_INDEX readback from driver = {}", current_idx);
-                      }
-                      else
-                      {
-                          WEBSERVER_LOG_ERROR("Failed to read AWB_ILLUM_INDEX back from driver");
-                      }
-                  }
-
-                  nlohmann::json j_out = awb;
-                  return j_out;
-              }));
-
-    srv->Get("/isp/awb", std::function<nlohmann::json()>([this]() {
-                 wait_safe_to_pull();
-                 int32_t val;
-                 bool ret = v4l2_ctrl::get<int32_t>(v4l2_ctrl::Video0Ctrl::AWB_MODE, val);
-                 if (!ret)
+void IspResource::register_awb(HTTPServer &srv)
+{
+    srv.Post("/isp/awb", std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &j_body) {
+                 auto awb_type_names = get_illumination_names();
+                 webserver::common::auto_white_balance_t awb;
+                 try
                  {
-                     WEBSERVER_LOG_ERROR("Failed to get AWB mode");
-                     throw std::runtime_error("Failed to get AWB mode");
+                     awb = j_body.get<webserver::common::auto_white_balance_t>();
                  }
-                 if (val != 1) // manual mode, get profile
+                 catch (const std::exception &e)
                  {
-                     ret = v4l2_ctrl::get<int32_t>(v4l2_ctrl::Video0Ctrl::AWB_ILLUM_INDEX, val);
-                     if (!ret)
+                     WEBSERVER_LOG_ERROR("Failed to cast JSON to auto_white_balance_t: {}", e.what());
+                     throw std::runtime_error("Failed to cast JSON to auto_white_balance_t");
+                 }
+
+                 WEBSERVER_LOG_DEBUG("AWB POST request, logical profile = {}", static_cast<int>(awb.value));
+
+                 // Auto mode: enable the ISP's built-in AWB algorithm (AWB_MODE = 1)
+                 if (awb.value == AUTO_WHITE_BALANCE_PROFILE_AUTO)
+                 {
+                     WEBSERVER_LOG_DEBUG("Setting AWB to auto");
+                     v4l2_ctrl::set<uint16_t>(v4l2_ctrl::Video0Ctrl::AWB_MODE, 1);
+                 }
+                 else
+                 {
+                     // Manual profile: translate the logical profile enum to a calibration
+                     // keyword (e.g. "D50", "D65", "A"), then look up the corresponding
+                     // hardware illumination index from the sensor calibration file (awb_type_names).
+                     std::string target_keyword = get_awb_target_keyword(awb.value);
+
+                     int32_t found_index = -1;
+                     // Short keywords like "A" and "B" require exact match to avoid
+                     // false substring hits (e.g. "A" matching "D65_A_mix").
+                     const bool exact = (target_keyword == "A" || target_keyword == "B");
+
+                     for (size_t i = 0; i < awb_type_names.size(); ++i)
                      {
-                         WEBSERVER_LOG_ERROR("Failed to get AWB profile");
-                         throw std::runtime_error("Failed to get AWB profile");
+                         if ((exact && awb_type_names[i] == target_keyword) ||
+                             (!exact && awb_type_names[i].find(target_keyword) != std::string::npos))
+                         {
+                             found_index = static_cast<int32_t>(i);
+                             WEBSERVER_LOG_DEBUG("Mapped logical profile '{}' to HW index {} (Name: {})",
+                                                 target_keyword, found_index, awb_type_names[i]);
+                             break;
+                         }
+                     }
+
+                     if (found_index == -1)
+                     {
+                         WEBSERVER_LOG_ERROR("Target AWB profile '{}' not found in current calibration file!",
+                                             target_keyword);
+                         throw std::runtime_error("AWB profile not supported by current sensor calibration");
+                     }
+
+                     WEBSERVER_LOG_DEBUG("Setting AWB to manual, logical_profile = {}, hw_illum_index = {}",
+                                         static_cast<int>(awb.value), found_index);
+
+                     // Disable auto-AWB (mode 0) and apply the resolved illumination index
+                     v4l2_ctrl::set<uint16_t>(v4l2_ctrl::Video0Ctrl::AWB_MODE, 0);
+                     v4l2_ctrl::set<uint16_t>(v4l2_ctrl::Video0Ctrl::AWB_ILLUM_INDEX, found_index);
+
+                     // Readback verification: confirm the driver accepted the index
+                     int32_t current_idx = -1;
+                     bool ret = v4l2_ctrl::get<int32_t>(v4l2_ctrl::Video0Ctrl::AWB_ILLUM_INDEX, current_idx);
+                     if (ret)
+                     {
+                         WEBSERVER_LOG_DEBUG("AWB_ILLUM_INDEX readback from driver = {}", current_idx);
+                     }
+                     else
+                     {
+                         WEBSERVER_LOG_ERROR("Failed to read AWB_ILLUM_INDEX back from driver");
                      }
                  }
-                 else // automatic mode
-                 {
-                     val = -1;
-                 }
-                 webserver::common::auto_white_balance_t awb{(webserver::common::auto_white_balance_profile)val};
+
                  nlohmann::json j_out = awb;
                  return j_out;
              }));
 
-    srv->Get("/isp/stream_params", std::function<nlohmann::json()>([this]() {
+    srv.Get("/isp/awb", std::function<nlohmann::json()>([this]() {
+                wait_safe_to_pull();
+                int32_t val;
+                bool ret = v4l2_ctrl::get<int32_t>(v4l2_ctrl::Video0Ctrl::AWB_MODE, val);
+                if (!ret)
+                {
+                    WEBSERVER_LOG_ERROR("Failed to get AWB mode");
+                    throw std::runtime_error("Failed to get AWB mode");
+                }
+                if (val != 1) // manual mode, get profile
+                {
+                    ret = v4l2_ctrl::get<int32_t>(v4l2_ctrl::Video0Ctrl::AWB_ILLUM_INDEX, val);
+                    if (!ret)
+                    {
+                        WEBSERVER_LOG_ERROR("Failed to get AWB profile");
+                        throw std::runtime_error("Failed to get AWB profile");
+                    }
+                }
+                else // automatic mode
+                {
+                    val = -1;
+                }
+                webserver::common::auto_white_balance_t awb{(webserver::common::auto_white_balance_profile)val};
+                nlohmann::json j_out = awb;
+                return j_out;
+            }));
+}
+
+void IspResource::register_stream_params(HTTPServer &srv)
+{
+    srv.Get("/isp/stream_params", std::function<nlohmann::json()>([this]() {
+                if (ISP_FILTERS_MANUAL_STATE_IS_AUTO(m_isp_filters_manual_state))
+                {
+                    webserver::common::stream_params_t p{50, 50, 50, 50};
+                    nlohmann::json j_out = p;
+                    return j_out;
+                }
+
+                wait_safe_to_pull();
+                stream_isp_params_t p(0, 0, 0, 0, 0);
+                uint16_t *sharpness_down = &p.sharpness_down;
+                uint16_t *sharpness_up = &p.sharpness_up;
+                v4l2_ctrl::get<uint16_t *>(v4l2_ctrl::Video0Ctrl::SHARPNESS_DOWN, sharpness_down);
+                v4l2_ctrl::get<uint16_t *>(v4l2_ctrl::Video0Ctrl::SHARPNESS_UP, sharpness_up);
+                v4l2_ctrl::get<int32_t>(v4l2_ctrl::Video0Ctrl::BRIGHTNESS, p.brightness);
+                v4l2_ctrl::get<int32_t>(v4l2_ctrl::Video0Ctrl::SATURATION, p.saturation);
+                v4l2_ctrl::get<int32_t>(v4l2_ctrl::Video0Ctrl::CONTRAST, p.contrast);
+                nlohmann::json j_out = m_baseline_stream_params.to_stream_params(p);
+                WEBSERVER_LOG_INFO("Got stream params: {}", j_out.dump());
+                return j_out;
+            }));
+
+    srv.Post("/isp/stream_params",
+             std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &j_body) {
                  if (ISP_FILTERS_MANUAL_STATE_IS_AUTO(m_isp_filters_manual_state))
                  {
-                     webserver::common::stream_params_t p{50, 50, 50, 50};
-                     nlohmann::json j_out = p;
-                     return j_out;
+                     WEBSERVER_LOG_ERROR("Stream params can only be set in manual mode");
+                     throw std::runtime_error("Stream params can only be set in manual mode");
                  }
 
-                 wait_safe_to_pull();
-                 stream_isp_params_t p(0, 0, 0, 0, 0);
-                 uint16_t *sharpness_down = &p.sharpness_down;
-                 uint16_t *sharpness_up = &p.sharpness_up;
-                 v4l2_ctrl::get<uint16_t *>(v4l2_ctrl::Video0Ctrl::SHARPNESS_DOWN, sharpness_down);
-                 v4l2_ctrl::get<uint16_t *>(v4l2_ctrl::Video0Ctrl::SHARPNESS_UP, sharpness_up);
-                 v4l2_ctrl::get<int32_t>(v4l2_ctrl::Video0Ctrl::BRIGHTNESS, p.brightness);
-                 v4l2_ctrl::get<int32_t>(v4l2_ctrl::Video0Ctrl::SATURATION, p.saturation);
-                 v4l2_ctrl::get<int32_t>(v4l2_ctrl::Video0Ctrl::CONTRAST, p.contrast);
-                 nlohmann::json j_out = m_baseline_stream_params.to_stream_params(p);
-                 WEBSERVER_LOG_INFO("Got stream params: {}", j_out.dump());
+                 std::string ret_msg;
+                 webserver::common::stream_params_t stream_params;
+                 try
+                 {
+                     stream_params = j_body.get<webserver::common::stream_params_t>();
+                 }
+                 catch (const std::exception &e)
+                 {
+                     throw std::runtime_error("Failed to cast JSON to stream_params_t");
+                 }
+                 auto isp_params = m_baseline_stream_params.from_stream_params(stream_params);
+                 WEBSERVER_LOG_INFO(
+                     "Setting stream params to: \n\tSharpness Down: {}\n\tSharpness Up: {}\n\tSaturation: "
+                     "{}\n\tBrightness: {}\n\tContrast: {}",
+                     isp_params.sharpness_down, isp_params.sharpness_up, isp_params.saturation, isp_params.brightness,
+                     isp_params.contrast);
+                 v4l2_ctrl::set<int32_t>(v4l2_ctrl::Video0Ctrl::SATURATION, isp_params.saturation);
+                 v4l2_ctrl::set<int32_t>(v4l2_ctrl::Video0Ctrl::BRIGHTNESS, static_cast<int8_t>(isp_params.brightness));
+                 v4l2_ctrl::set<int32_t>(v4l2_ctrl::Video0Ctrl::CONTRAST, isp_params.contrast);
+
+                 v4l2_ctrl::set<uint16_t>(v4l2_ctrl::Video0Ctrl::EE_ENABLE, 0);
+
+                 v4l2_ctrl::set<uint16_t *>(v4l2_ctrl::Video0Ctrl::SHARPNESS_DOWN, &isp_params.sharpness_down);
+                 v4l2_ctrl::set<uint16_t *>(v4l2_ctrl::Video0Ctrl::SHARPNESS_UP, &isp_params.sharpness_up);
+
+                 v4l2_ctrl::set<uint16_t>(v4l2_ctrl::Video0Ctrl::EE_ENABLE, 1);
+
+                 // cast out to json
+                 nlohmann::json j_out = stream_params;
                  return j_out;
              }));
+}
 
-    srv->Post(
-        "/isp/stream_params",
-        std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &j_body) {
-            if (ISP_FILTERS_MANUAL_STATE_IS_AUTO(m_isp_filters_manual_state))
-            {
-                WEBSERVER_LOG_ERROR("Stream params can only be set in manual mode");
-                throw std::runtime_error("Stream params can only be set in manual mode");
-            }
+void IspResource::register_auto_exposure(HTTPServer &srv)
+{
+    srv.Post("/isp/auto_exposure",
+             std::function<nlohmann::json(const nlohmann::json &)>(
+                 [this](const nlohmann::json &j_body) { return this->set_auto_exposure(j_body); }));
 
-            std::string ret_msg;
-            webserver::common::stream_params_t stream_params;
-            try
-            {
-                stream_params = j_body.get<webserver::common::stream_params_t>();
-            }
-            catch (const std::exception &e)
-            {
-                throw std::runtime_error("Failed to cast JSON to stream_params_t");
-            }
-            auto isp_params = m_baseline_stream_params.from_stream_params(stream_params);
-            WEBSERVER_LOG_INFO("Setting stream params to: \n\tSharpness Down: {}\n\tSharpness Up: {}\n\tSaturation: "
-                               "{}\n\tBrightness: {}\n\tContrast: {}",
-                               isp_params.sharpness_down, isp_params.sharpness_up, isp_params.saturation,
-                               isp_params.brightness, isp_params.contrast);
-            v4l2_ctrl::set<int32_t>(v4l2_ctrl::Video0Ctrl::SATURATION, isp_params.saturation);
-            v4l2_ctrl::set<int32_t>(v4l2_ctrl::Video0Ctrl::BRIGHTNESS, static_cast<int8_t>(isp_params.brightness));
-            v4l2_ctrl::set<int32_t>(v4l2_ctrl::Video0Ctrl::CONTRAST, isp_params.contrast);
-
-            v4l2_ctrl::set<uint16_t>(v4l2_ctrl::Video0Ctrl::EE_ENABLE, 0);
-
-            v4l2_ctrl::set<uint16_t *>(v4l2_ctrl::Video0Ctrl::SHARPNESS_DOWN, &isp_params.sharpness_down);
-            v4l2_ctrl::set<uint16_t *>(v4l2_ctrl::Video0Ctrl::SHARPNESS_UP, &isp_params.sharpness_up);
-
-            v4l2_ctrl::set<uint16_t>(v4l2_ctrl::Video0Ctrl::EE_ENABLE, 1);
-
-            // cast out to json
-            nlohmann::json j_out = stream_params;
-            return j_out;
-        }));
-
-    srv->Post("/isp/auto_exposure",
-              std::function<nlohmann::json(const nlohmann::json &)>(
-                  [this](const nlohmann::json &j_body) { return this->set_auto_exposure(j_body); }));
-
-    srv->Patch("/isp/auto_exposure", [this](const nlohmann::json &j_body) {
+    srv.Patch("/isp/auto_exposure", [this](const nlohmann::json &j_body) {
         auto params = this->get_auto_exposure();
         nlohmann::json j_params = params;
         j_params.merge_patch(j_body);
         return this->set_auto_exposure(j_params);
     });
 
-    srv->Get("/isp/auto_exposure", std::function<nlohmann::json()>([this]() {
-                 wait_safe_to_pull();
-                 auto params = this->get_auto_exposure();
-                 nlohmann::json j_out = params;
-                 return j_out;
-             }));
+    srv.Get("/isp/auto_exposure", std::function<nlohmann::json()>([this]() {
+                wait_safe_to_pull();
+                auto params = this->get_auto_exposure();
+                nlohmann::json j_out = params;
+                return j_out;
+            }));
 
-    srv->Get("/isp/ranges/auto_exposure", std::function<nlohmann::json()>([this]() {
-                 nlohmann::json j_out = get_auto_exposure_ranges();
-                 return j_out;
-             }));
+    srv.Get("/isp/ranges/auto_exposure", std::function<nlohmann::json()>([this]() {
+                nlohmann::json j_out = get_auto_exposure_ranges();
+                return j_out;
+            }));
+}
 
-    srv->Get("/isp/safe_to_pull", std::function<nlohmann::json()>([this]() {
-                 nlohmann::json j_out;
-                 j_out["safe_to_pull"] = get_isp_converge();
-                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                 return j_out;
-             }));
+void IspResource::register_safe_to_pull(HTTPServer &srv)
+{
+    srv.Get("/isp/safe_to_pull", std::function<nlohmann::json()>([this]() {
+                nlohmann::json j_out;
+                j_out["safe_to_pull"] = get_isp_converge();
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                return j_out;
+            }));
+}
 
-    srv->Get("/isp/sensor_model", std::function<nlohmann::json()>([this]() {
-                 nlohmann::json j_out;
-                 j_out["sensor_model"] = get_sensor_type();
-                 j_out["available_resolutions"] = webserver::common::sensor_resolutions_for_user.at(get_sensor_type());
-                 WEBSERVER_LOG_DEBUG("Got sensor model: {}", j_out["sensor_model"]);
-                 return j_out;
-             }));
+void IspResource::register_sensor_model(HTTPServer &srv)
+{
+    srv.Get("/isp/sensor_model", std::function<nlohmann::json()>([this]() {
+                nlohmann::json j_out;
+                j_out["sensor_model"] = get_sensor_type();
+                j_out["available_resolutions"] = webserver::common::sensor_resolutions_for_user.at(get_sensor_type());
+                WEBSERVER_LOG_DEBUG("Got sensor model: {}", j_out["sensor_model"]);
+                return j_out;
+            }));
 }
 
 ae_ranges_t IspResource::get_auto_exposure_ranges()
