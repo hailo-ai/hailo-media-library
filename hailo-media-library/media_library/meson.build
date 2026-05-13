@@ -86,22 +86,9 @@ libfrontend = static_library('frontend_internal',
 )
 medialib_components += [libfrontend]
 
-encoder_lib_sources = [
-    'src/encoder/gop_config.cpp',
-    'src/encoder/hailo_encoder.cpp',
-]
-
-libencoder = static_library('encoder_internal',
-    encoder_lib_sources,
-    cpp_args: common_args,
-    include_directories: medialib_include_dirs,
-    dependencies: [],
-    pic: true,
-)
-medialib_components += [libencoder]
-
 media_library_encoder_lib_sources = [
     'src/hailo_encoder/encoder.cpp',
+    'src/hailo_encoder/encoder_internal.cpp',
     'src/hailo_encoder/encoder_config.cpp',
     'src/hailo_encoder/encoder_gop_config.cpp',
 ]

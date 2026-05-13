@@ -14,17 +14,10 @@ bool FaissTable::create_tables()
                             "  track_id INTEGER NOT NULL,"
                             "  timestamp INTEGER NOT NULL,"
                             "  network_embedding_name TEXT NOT NULL,"
+                            "  classification_label TEXT,"
                             "  UNIQUE(faiss_id, network_embedding_name));";
 
-    bool success = execute(sql);
-    if (success)
-    {
-        // Force a checkpoint to make schema changes durable and visible to other connections.
-        // TRUNCATE is often a good choice here as it commits and shrinks the WAL file.
-        execute("PRAGMA wal_checkpoint(TRUNCATE);");
-    }
-
-    return success;
+    return execute(sql);
 }
 
 bool FaissTable::table_exists()
@@ -41,16 +34,26 @@ bool FaissTable::table_exists()
     return exists;
 }
 
-void FaissTable::insert(int64_t faissId, int32_t trackId, int64_t timestamp, const std::string &embedding_name)
+void FaissTable::insert(int64_t faissId, int32_t trackId, int64_t timestamp, const std::string &embedding_name,
+                        const std::string &classification_label)
 {
-    auto stmt = prepare("INSERT OR IGNORE INTO faiss_metadata (faiss_id, track_id, timestamp, network_embedding_name) "
-                        "VALUES (?, ?, ?, ?);");
+    auto stmt = prepare("INSERT OR IGNORE INTO faiss_metadata (faiss_id, track_id, timestamp, network_embedding_name, "
+                        "classification_label) "
+                        "VALUES (?, ?, ?, ?, ?);");
     if (!stmt)
         return;
     sqlite3_bind_int64(stmt, 1, faissId);
     sqlite3_bind_int(stmt, 2, trackId);
     sqlite3_bind_int64(stmt, 3, timestamp);
     sqlite3_bind_text(stmt, 4, embedding_name.c_str(), -1, SQLITE_TRANSIENT);
+    if (!classification_label.empty())
+    {
+        sqlite3_bind_text(stmt, 5, classification_label.c_str(), -1, SQLITE_TRANSIENT);
+    }
+    else
+    {
+        sqlite3_bind_null(stmt, 5);
+    }
     int rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE)
     {
@@ -61,7 +64,8 @@ void FaissTable::insert(int64_t faissId, int32_t trackId, int64_t timestamp, con
     sqlite3_finalize(stmt);
 }
 
-void FaissTable::insert_batch(const std::vector<std::tuple<int64_t, int32_t, int64_t, std::string>> &records)
+void FaissTable::insert_batch(
+    const std::vector<std::tuple<int64_t, int32_t, int64_t, std::string, std::string>> &records)
 {
     if (records.empty())
         return;
@@ -73,8 +77,9 @@ void FaissTable::insert_batch(const std::vector<std::tuple<int64_t, int32_t, int
         return;
     }
 
-    auto stmt = prepare("INSERT OR IGNORE INTO faiss_metadata (faiss_id, track_id, timestamp, network_embedding_name) "
-                        "VALUES (?, ?, ?, ?);");
+    auto stmt = prepare("INSERT OR IGNORE INTO faiss_metadata (faiss_id, track_id, timestamp, network_embedding_name, "
+                        "classification_label) "
+                        "VALUES (?, ?, ?, ?, ?);");
     if (!stmt)
     {
         execute("ROLLBACK;");
@@ -92,6 +97,16 @@ void FaissTable::insert_batch(const std::vector<std::tuple<int64_t, int32_t, int
         sqlite3_bind_int(stmt, 2, std::get<1>(record));                                // track_id
         sqlite3_bind_int64(stmt, 3, std::get<2>(record));                              // timestamp
         sqlite3_bind_text(stmt, 4, std::get<3>(record).c_str(), -1, SQLITE_TRANSIENT); // embedding_name
+
+        const std::string &classification_label = std::get<4>(record);
+        if (!classification_label.empty())
+        {
+            sqlite3_bind_text(stmt, 5, classification_label.c_str(), -1, SQLITE_TRANSIENT);
+        }
+        else
+        {
+            sqlite3_bind_null(stmt, 5);
+        }
 
         int rc = sqlite3_step(stmt);
         if (rc != SQLITE_DONE)
@@ -117,8 +132,8 @@ void FaissTable::insert_batch(const std::vector<std::tuple<int64_t, int32_t, int
 
 std::optional<FaissTableQueryResult> FaissTable::query_timestamp(int64_t faissId, const std::string &embedding_name)
 {
-    auto stmt =
-        prepare("SELECT track_id, timestamp FROM faiss_metadata WHERE faiss_id = ? AND network_embedding_name = ?;");
+    auto stmt = prepare("SELECT track_id, timestamp, classification_label FROM faiss_metadata WHERE faiss_id = ? AND "
+                        "network_embedding_name = ?;");
     if (!stmt)
         return std::nullopt;
     sqlite3_bind_int64(stmt, 1, faissId);
@@ -129,6 +144,9 @@ std::optional<FaissTableQueryResult> FaissTable::query_timestamp(int64_t faissId
         FaissTableQueryResult result;
         result.track_id = sqlite3_column_int(stmt, 0);
         result.timestamp = sqlite3_column_int64(stmt, 1);
+
+        result.classification_label = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
+
         sqlite3_finalize(stmt);
         return result;
     }
@@ -155,7 +173,8 @@ std::vector<FaissTableBatchQueryResult> FaissTable::query_batch_timestamp(
         size_t batch_size = std::min(MAX_BATCH_SIZE, queries.size() - offset);
 
         // Build a query with multiple conditions using OR clauses
-        std::string sql = "SELECT faiss_id, track_id, timestamp, network_embedding_name FROM faiss_metadata WHERE ";
+        std::string sql = "SELECT faiss_id, track_id, timestamp, network_embedding_name, classification_label FROM "
+                          "faiss_metadata WHERE ";
 
         // Add conditions for each query in this batch
         for (size_t i = 0; i < batch_size; ++i)
@@ -190,11 +209,14 @@ std::vector<FaissTableBatchQueryResult> FaissTable::query_batch_timestamp(
             int64_t timestamp = sqlite3_column_int64(stmt, 2);
             std::string embedding_name = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
 
+            std::string classification_label = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
+
             FaissTableBatchQueryResult batch_result;
             batch_result.faiss_id = faiss_id;
             batch_result.embedding_name = embedding_name;
             batch_result.result.track_id = track_id;
             batch_result.result.timestamp = timestamp;
+            batch_result.result.classification_label = classification_label;
 
             results.push_back(batch_result);
         }
@@ -208,7 +230,8 @@ std::vector<FaissTableBatchQueryResult> FaissTable::query_batch_timestamp(
 std::vector<FaissRecord> FaissTable::get_records_by_timestamp_range(int64_t start_timestamp, int64_t end_timestamp)
 {
     std::vector<FaissRecord> records;
-    auto stmt = prepare("SELECT id, faiss_id, track_id, timestamp, network_embedding_name FROM faiss_metadata WHERE "
+    auto stmt = prepare("SELECT id, faiss_id, track_id, timestamp, network_embedding_name, classification_label FROM "
+                        "faiss_metadata WHERE "
                         "timestamp >= ? AND timestamp <= ? ORDER BY timestamp;");
     if (!stmt)
         return records;
@@ -224,6 +247,9 @@ std::vector<FaissRecord> FaissTable::get_records_by_timestamp_range(int64_t star
         record.track_id = sqlite3_column_int(stmt, 2);
         record.timestamp = sqlite3_column_int64(stmt, 3);
         record.network_embedding_name = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
+
+        record.classification_label = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
+
         records.push_back(record);
     }
 

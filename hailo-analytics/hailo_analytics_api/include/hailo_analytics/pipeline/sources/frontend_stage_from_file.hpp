@@ -1,13 +1,16 @@
 #pragma once
 
 // General includes
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 #include <thread>
 
 // Media-Library includes
 #include "media_library/buffer_pool.hpp"
 
 // Infra includes
+#include "hailo_analytics/pipeline/core/stage.hpp"
 #include "hailo_analytics/pipeline/sources/file_reader_module.hpp"
 #include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
 
@@ -38,6 +41,11 @@ class FrontendStageFromFile : public FrontendStage
     bool m_loop_enabled;
     size_t m_buffer_pool_size;
 
+    // Pool mode support
+    StagePoolMode m_pool_mode;
+    std::mutex m_buff_pool_mutex;
+    std::condition_variable m_available_buffers_cv;
+
   public:
     /**
      * @brief Constructor for FrontendStageFromFile
@@ -55,14 +63,14 @@ class FrontendStageFromFile : public FrontendStage
      */
     FrontendStageFromFile(std::string name, const std::string &file_location, size_t width, size_t height, double fps,
                           bool loop_enabled, size_t queue_size, bool leaky, size_t buffer_pool_size,
-                          bool trace_processing_operations = true);
+                          StagePoolMode pool_mode = StagePoolMode::BLOCKING, bool trace_processing_operations = true);
 
     /**
      * @brief Create and configure the frontend stage with file input
      * @param frontend MediaLibrary frontend instance
      * @return AppStatus indicating success or failure
      */
-    AppStatus create(MediaLibraryFrontendPtr frontend);
+    AppStatus create(MediaLibraryFrontend &frontend);
 
     /**
      * @brief Stop the frontend stage
@@ -87,13 +95,18 @@ class FrontendStageFromFile : public FrontendStage
      * @param frontend MediaLibrary frontend instance
      * @return AppStatus indicating success or failure
      */
-    AppStatus configure(MediaLibraryFrontendPtr frontend);
+    AppStatus configure(MediaLibraryFrontend &frontend);
 
   private:
     /**
      * @brief Thread function that reads frames from file and feeds them to the frontend
      */
     void feeding_thread_func();
+
+    /**
+     * @brief Setup buffer pool notifications for blocking mode
+     */
+    void setup_pool_notifications();
 
     /**
      * @brief Start processing trace if tracing is enabled
@@ -126,6 +139,7 @@ class FrontendStageFromFileBuild : public FrontendStageFromFile
         bool m_loop_enabled = true;
         size_t m_queue_size = FRONTEND_QUEUE_SIZE_DEFAULT;
         bool m_leaky = false;
+        StagePoolMode m_pool_mode = StagePoolMode::BLOCKING;
         bool m_trace = true;
 
       public:
@@ -138,6 +152,7 @@ class FrontendStageFromFileBuild : public FrontendStageFromFile
         Builder &set_queue_size_opt(size_t size);
         Builder &set_leaky_opt(bool activate);
         Builder &set_buffer_pool_size(size_t size);
+        Builder &set_pool_mode_opt(StagePoolMode mode);
         Builder &set_trace_opt(bool activate);
 
         std::shared_ptr<FrontendStageFromFile> buildptr() const;

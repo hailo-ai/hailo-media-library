@@ -113,6 +113,16 @@ void FileSourceStage::loop()
     }
 
     HAILO_ANALYTICS_LOG_INFO("FileSourceStage loop ended");
+
+    if (m_eos_callback)
+    {
+        m_eos_callback();
+    }
+}
+
+void FileSourceStage::set_eos_callback(EosCallback callback)
+{
+    m_eos_callback = std::move(callback);
 }
 
 void FileSourceStage::trace_processing_start(BufferPtr buffer)

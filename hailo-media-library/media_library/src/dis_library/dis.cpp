@@ -27,16 +27,14 @@
 #include "dis_common.h"
 #include "dis_math.h"
 #include "interface_types.h"
-#include "media_library_logger.hpp"
+#include "dis_logger.h"
 
 #include <map>
 #include <sstream>
 
 #define DSP_MAX_MESH_WIDTH ((261 << MESH_FRACT_BITS) - ((1 << MESH_FRACT_BITS) / 2) - 1)
 #define DSP_MAX_MESH_HEIGHT ((247 << MESH_FRACT_BITS) - 1)
-#define EIS_OUT_OF_BOUNDS_COUNTDOWN (60)
-
-static constexpr LoggerType LOGGER_TYPE = LoggerType::Dis;
+#define EIS_CORRECTION_PAUSE_COUNT (30)
 
 /// Map from the possible FlipMirrorRot values to their corresponding rotation matrices.
 const std::map<int, mat2> ROT_MAT_MAP = {{0, {1, 0, 0, 1}},  {1, {0, -1, 1, 0}}, {2, {-1, 0, 0, -1}},
@@ -59,7 +57,7 @@ int DIS::init_in_cam(dis_calibration_t calib)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// init_in_cam()
+// init()
 ///////////////////////////////////////////////////////////////////////////////
 RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, float camera_fov_factor)
 {
@@ -68,22 +66,20 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
 
     if (out_width <= 0 || out_height <= 0)
     {
-        LOGGER__MODULE__ERROR(LOGGER_TYPE,
-                              "Output size my be between 2 and 4095. Otherwise the grid.mesh_table format can not be ");
+        DIS_LOG_ERROR("Output size my be between 2 and 4095. Otherwise the grid.mesh_table format can not be ");
         return ERROR_INPUT_DATA;
     }
 
     if (camera_fov_factor < 0.1 || camera_fov_factor > 1)
     {
-        LOGGER__MODULE__ERROR(LOGGER_TYPE, "Camera field of view factor must be between 0.1 and 1 ");
+        DIS_LOG_ERROR("Camera field of view factor must be between 0.1 and 1 ");
         return ERROR_INPUT_DATA;
     }
 
     // create input camera from 'calib' structure
     if (in_cam.res.x <= 1 || in_cam.res.x >= 4096 || in_cam.res.y <= 1 || in_cam.res.y >= 4096)
     {
-        LOGGER__MODULE__ERROR(LOGGER_TYPE,
-                              "Input size may be between 2 and 4095. Otherwise the grid.mesh_table format can not be ");
+        DIS_LOG_ERROR("Input size may be between 2 and 4095. Otherwise the grid.mesh_table format can not be ");
         return ERROR_CALIB;
     }
 
@@ -92,7 +88,8 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
     float flen = 0.0;
     // create virtual camera
     if (m_camera_type == CAMERA_TYPE_PINHOLE)
-    { // pinhole
+    {
+        // pinhole
         const float in_tan_ltrb[4] = {
             tan(std::min(in_cam.ltrb[0], RADIANS(89.9))), tan(std::min(in_cam.ltrb[1], RADIANS(89.9))),
             tan(std::min(in_cam.ltrb[2], RADIANS(89.9))), tan(std::min(in_cam.ltrb[3], RADIANS(89.9)))};
@@ -197,17 +194,17 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
 
     float eff_in_height = tan(in_cam.ltrb[3]) * flen + in_cam.oc.y;
     float eff_in_width = tan(in_cam.ltrb[2]) * flen + in_cam.oc.x;
-    LOGGER__MODULE__INFO(LOGGER_TYPE, "In CAM Eff (WxH):  {:.3f}, {:.3f}", eff_in_width, eff_in_height);
+    DIS_LOG_INFO("In CAM Eff (WxH):  {:.3f}, {:.3f}", eff_in_width, eff_in_height);
     float y1 = eff_in_height / 2;
     float y0 = out_cam->res.y / 2;
     float x0 = out_cam->res.x / 2;
     float x1 = std::sqrt(pow(x0, 2) + pow(y0, 2) - pow(y1, 2));
-    LOGGER__MODULE__INFO(LOGGER_TYPE, "-- In CAM Eff (WxH): {:.3f}, {:.3f}", x1, y1);
-    LOGGER__MODULE__INFO(LOGGER_TYPE, "-- Out CAM Eff (WxH): {:.3f}, {:.3f}", x0, y0);
+    DIS_LOG_INFO("-- In CAM Eff (WxH): {:.3f}, {:.3f}", x1, y1);
+    DIS_LOG_INFO("-- Out CAM Eff (WxH): {:.3f}, {:.3f}", x0, y0);
 
     float string0 = std::hypotf(y1 - y0, x1 - x0);
     room4stab_theta = std::acos((2 * pow(out_cam->diag / 2, 2) - pow(string0, 2)) / (2 * pow(out_cam->diag / 2, 2)));
-    LOGGER__MODULE__INFO(LOGGER_TYPE, "Room 4 Stab Rot deg: {:.3f}", DEGREES(room4stab_theta));
+    DIS_LOG_INFO("Room 4 Stab Rot deg: {:.3f}", DEGREES(room4stab_theta));
 
     room4stab[0] = in_cam.ltrb[0] - out_cam->ltrb[0];
     room4stab[1] = in_cam.ltrb[1] - out_cam->ltrb[1];
@@ -224,7 +221,7 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
     {
         if (room4stab[i] <= -1e-5)
         { // if <=0, but leave some room for quantization errors when automaticx full-fov
-            LOGGER__MODULE__ERROR(LOGGER_TYPE, "Output camera FOV is too large.");
+            DIS_LOG_ERROR("Output camera FOV is too large.");
             return ERROR_CONFIG;
         }
     }
@@ -232,15 +229,13 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
     {
         if (room4stab[i] < ONE_DEG_IN_RADS)
         {
-            LOGGER__MODULE__WARN(
-                LOGGER_TYPE,
-                "Large output camera FOV may cause stabilization to be unoptimal. Black corners may appear.");
+            DIS_LOG_WARN("Large output camera FOV may cause stabilization to be unoptimal. Black corners may appear.");
             break;
         }
     }
-    LOGGER__MODULE__INFO(LOGGER_TYPE, "outFOV % .2f deg (max %.2f), room4stab deg LTBR: %.3f %.3f %.3f %.3f",
-                         DEGREES(out_cam->fov), DEGREES(max_out_fov), DEGREES(room4stab[0]), DEGREES(room4stab[1]),
-                         DEGREES(room4stab[2]), DEGREES(room4stab[3]));
+    DIS_LOG_INFO("outFOV {:.2f} deg (max {:.2f}), room4stab deg LTRB: {:.3f} {:.3f} {:.3f} {:.3f}",
+                 DEGREES(out_cam->fov), DEGREES(max_out_fov), DEGREES(room4stab[0]), DEGREES(room4stab[1]),
+                 DEGREES(room4stab[2]), DEGREES(room4stab[3]));
 
     k = cfg.minimun_coefficient_filter;
 
@@ -251,6 +246,18 @@ RetCodes DIS::init(int out_width, int out_height, camera_type_t camera_type, flo
     last_flip_mirror_rot = NATURAL;
     initialized = true;
     return DIS_OK;
+}
+
+rotation_angles_t DIS::get_max_rotation_angles()
+{
+    rotation_angles_t max_angles;
+
+    // Assuming the rotation limitations are +/- symmetrical for left-right and up-down
+    max_angles.yaw = std::min(std::abs(room4stab[0]), std::abs(room4stab[2]));
+    max_angles.pitch = std::min(std::abs(room4stab[1]), std::abs(room4stab[3]));
+    max_angles.roll = RADIANS(180.0f); // Let roll be unlimited.
+
+    return max_angles;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -293,7 +300,7 @@ RetCodes DIS::generate_grid(vec2 fmv, FlipMirrorRot flip_mirror_rot,
 
     if (std::abs(fmv.x) > in_cam.res.x * 0.5f || std::abs(fmv.y) > in_cam.res.y * 0.5f)
     {
-        LOGGER__MODULE__ERROR(LOGGER_TYPE, "fmv with impossible value {:.1f} {:.1f}", fmv.x, fmv.y);
+        DIS_LOG_ERROR("fmv with impossible value {:.1f} {:.1f}", fmv.x, fmv.y);
         return ERROR_INPUT_DATA; // impossible fmv values
     }
 
@@ -459,7 +466,7 @@ RetCodes DIS::generate_grid(vec2 fmv, FlipMirrorRot flip_mirror_rot,
     return DIS_OK;
 }
 
-static bool eis_update_mesh(DewarpT &grid, int x, int y, mat3 stab_rot9, const FishEye &in_cam,
+static void eis_update_mesh(DewarpT &grid, int x, int y, mat3 stab_rot9, const FishEye &in_cam,
                             const std::vector<vec3> &out_rays)
 {
     int ind = y * grid.mesh_width + x;
@@ -469,13 +476,6 @@ static bool eis_update_mesh(DewarpT &grid, int x, int y, mat3 stab_rot9, const F
 #endif
     grid.mesh_table[ind * 2] = pt.x * (1 << MESH_FRACT_BITS);     // x
     grid.mesh_table[ind * 2 + 1] = pt.y * (1 << MESH_FRACT_BITS); // y
-
-    if (pt.x < 0 || pt.y < 0 || pt.x >= in_cam.res.x || pt.y >= in_cam.res.y)
-    {
-        return false;
-    }
-
-    return true;
 }
 
 static mat3 flatten_stab_rot(const cv::Mat &stab_rot)
@@ -560,8 +560,7 @@ static bool is_mesh_valid(DewarpT &grid)
             int mesh_width = std::abs(max_x - min_x);
             if (mesh_width > DSP_MAX_MESH_WIDTH)
             {
-                LOGGER__MODULE__ERROR(
-                    LOGGER_TYPE,
+                DIS_LOG_ERROR(
                     "Invalid mesh width detected! This means that the dewarp mesh passed to the DSP was not created "
                     "correctly."
                     "The mesh width will be truncated for this frame to prevent DSP crash. Be aware that this will "
@@ -575,8 +574,7 @@ static bool is_mesh_valid(DewarpT &grid)
             int mesh_height = std::abs(max_y - min_y);
             if (mesh_height > DSP_MAX_MESH_HEIGHT)
             {
-                LOGGER__MODULE__ERROR(
-                    LOGGER_TYPE,
+                DIS_LOG_ERROR(
                     "Invalid mesh height detected! This means that the dewarp mesh passed to the DSP was not created "
                     "correctly."
                     "The mesh height will be truncated for this frame to prevent DSP crash. Be aware that this will "
@@ -594,9 +592,7 @@ static bool is_mesh_valid(DewarpT &grid)
 // generate_eis_grid_rolling_shutter()
 ///////////////////////////////////////////////////////////////////////////////
 RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
-                                                const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT &grid,
-                                                uint32_t max_extensions_per_thr, float curr_zoom_level,
-                                                uint32_t min_extensions_per_thr, float max_zoom_level)
+                                                const std::vector<cv::Mat> &rolling_shutter_rotations, DewarpT &grid)
 {
     RetCodes ret = DIS_OK;
     if (cfg.debug.generate_resize_grid)
@@ -607,8 +603,8 @@ RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
 
     if (rolling_shutter_rotations.size() != (size_t)grid.mesh_height)
     {
-        LOGGER__MODULE__INFO(LOGGER_TYPE, "Rolling shutter rotations size ({}) and grid height ({}) mismatch!",
-                             rolling_shutter_rotations.size(), (size_t)grid.mesh_height);
+        DIS_LOG_INFO("Rolling shutter rotations size ({}) and grid height ({}) mismatch!",
+                     rolling_shutter_rotations.size(), (size_t)grid.mesh_height);
         return ERROR_INPUT_DATA;
     }
 
@@ -623,7 +619,6 @@ RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
         calc_out_rays(grid.mesh_width, grid.mesh_height, MESH_CELL_SIZE_PIX, flip_mirror_rot);
     }
 
-    int out_of_bounds_px_count = 0;
     for (int y = 0; y < grid.mesh_height; y++)
     {
         auto rotation = (flip_mirror_rot != FLIPV && flip_mirror_rot != FLIPV_MIRROR)
@@ -632,26 +627,21 @@ RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
         mat3 stab_rot9 = flatten_stab_rot(rotation);
         for (int x = 0; x < grid.mesh_width; x++)
         {
-            bool in_bounds = eis_update_mesh(grid, x, y, stab_rot9, in_cam, out_rays);
-
-            if (!in_bounds)
-            {
-                out_of_bounds_px_count++;
-            }
+            eis_update_mesh(grid, x, y, stab_rot9, in_cam, out_rays);
         }
     }
 
-    auto out_of_bounds_px_ratio =
-        static_cast<float>(out_of_bounds_px_count) * 100 / (grid.mesh_width * grid.mesh_height);
+    // if mesh is not valid - stop applying EIS correction for a few frames to let the filter stabilize
+    // usually happens due to too big movements to the camera, which causes a big section of the mesh to be 'out of
+    // frame'
+    if (!is_mesh_valid(grid))
+    {
+        eis_correction_pause_count = EIS_CORRECTION_PAUSE_COUNT;
+    }
 
-    /* Compute the threshold for allowable out-of-bounds pixels before disabling EIS.
-       The threshold scales with zoom level: at higher zooms, we allow proportionally
-       more out-of-bounds pixels (up to max_extensions_per_thr). At minimum, we enforce
-       at least min_extensions_per_thr so EIS doesn’t get disabled too aggressively. */
-    float out_of_bounds_thr =
-        MAX(min_extensions_per_thr, (curr_zoom_level) * (max_extensions_per_thr / max_zoom_level));
-
-    auto apply_identity_mesh = [&](DewarpT &grid) {
+    // If countdown is active, force identity mesh
+    if (eis_correction_pause_count > 0)
+    {
         ret = ERROR_EIS_BAD_MESH;
         mat3 stab_rot9 = flatten_stab_rot(cv::Mat::eye(3, 3, CV_32F));
         for (int y = 0; y < grid.mesh_height; y++)
@@ -661,18 +651,7 @@ RetCodes DIS::generate_eis_grid_rolling_shutter(FlipMirrorRot flip_mirror_rot,
                 eis_update_mesh(grid, x, y, stab_rot9, in_cam, out_rays);
             }
         }
-    };
-
-    if ((out_of_bounds_px_ratio > out_of_bounds_thr) || !is_mesh_valid(grid))
-    {
-        eis_out_of_bounds_countdown = EIS_OUT_OF_BOUNDS_COUNTDOWN; // reset countdown
-    }
-
-    // If countdown is active, force identity mesh
-    if (eis_out_of_bounds_countdown > 0)
-    {
-        apply_identity_mesh(grid);
-        eis_out_of_bounds_countdown--;
+        eis_correction_pause_count--;
     }
 
     frame_cnt++;

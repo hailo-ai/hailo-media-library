@@ -102,6 +102,17 @@ class MediaLibraryMultiResize
      */
     media_library_return handle_frame(HailoMediaLibraryBufferPtr input_frame,
                                       MultiResizeOutputBuffersMap &output_frames);
+
+    /**
+     * @brief Clean internal state on stop
+     *
+     * Clears previous rotation config and resolutions so that
+     * the next start triggers a fresh output resolutions change callback.
+     */
+    void clean_on_stop();
+
+    /* Test-only accessor */
+    bool is_denoise_element_enabled() const;
 };
 
 /** @} */ // end of multi_resize_type_definitions

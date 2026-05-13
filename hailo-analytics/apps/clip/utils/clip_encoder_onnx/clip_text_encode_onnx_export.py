@@ -1,21 +1,44 @@
 import torch
 import torch.nn as nn
-import clip
 import os
 import argparse
 import sys
+
+# Try importing both CLIP libraries
+try:
+    import clip
+    OPENAI_CLIP_AVAILABLE = True
+except ImportError:
+    OPENAI_CLIP_AVAILABLE = False
+    print("⚠️  OpenAI CLIP not available. Install with: pip install git+https://github.com/openai/CLIP.git")
+
+try:
+    import open_clip
+    OPEN_CLIP_AVAILABLE = True
+except ImportError:
+    OPEN_CLIP_AVAILABLE = False
+    print("⚠️  OpenCLIP not available. Install with: pip install open-clip-torch")
 
 # Configuration
 MODEL_CONFIGS = {
     "ViT-B/32": {
         "model_name": "ViT-B/32",
         "output_file": "clip_vit_b32_text_encoder_full.onnx",
-        "embedding_dim": 512
+        "embedding_dim": 512,
+        "library": "openai"  # Uses OpenAI CLIP
     },
     "RN50x4": {
         "model_name": "RN50x4", 
         "output_file": "clip_resnet50x4_text_encoder_full.onnx",
-        "embedding_dim": 640
+        "embedding_dim": 640,
+        "library": "openai"  # Uses OpenAI CLIP
+    },
+    "ViT-L/14-laion2B": {
+        "model_name": "ViT-L-14",
+        "pretrained": "laion2b_s32b_b82k",
+        "output_file": "clip_vit_l14_laion2b_text_encoder_full.onnx",
+        "embedding_dim": 768,
+        "library": "open_clip"  # Uses OpenCLIP, NOTE: compatible with HuggingFace when exporting embedding, projection matrix
     }
 }
 
@@ -23,12 +46,37 @@ def export_clip_text_encoder(model_key, device="cpu"):
     """Export CLIP text encoder to ONNX format"""
     
     config = MODEL_CONFIGS[model_key]
-    print(f"🚀 Starting export for {config['model_name']}")
+    library = config.get("library", "openai")
+    
+    # Check if required library is available
+    if library == "openai" and not OPENAI_CLIP_AVAILABLE:
+        print(f"❌ OpenAI CLIP is required for {config['model_name']} but not installed")
+        print("   Install with: pip install git+https://github.com/openai/CLIP.git")
+        return False
+    
+    if library == "open_clip" and not OPEN_CLIP_AVAILABLE:
+        print(f"❌ OpenCLIP is required for {config['model_name']} but not installed")
+        print("   Install with: pip install open-clip-torch")
+        return False
+    
+    print(f"🚀 Starting export for {config['model_name']} using {library}")
     
     try:
-        # Load CLIP model
+        # Load CLIP model based on library
         print(f"📥 Loading {config['model_name']} model...")
-        model, preprocess = clip.load(config["model_name"], device=device)
+        
+        if library == "openai":
+            model, preprocess = clip.load(config["model_name"], device=device)
+            tokenize_func = clip.tokenize
+        else:  # open_clip
+            pretrained = config.get("pretrained", "openai")
+            model, _, preprocess = open_clip.create_model_and_transforms(
+                config["model_name"],
+                pretrained=pretrained,
+                device=device
+            )
+            tokenize_func = open_clip.tokenize
+        
         model.eval()
         print(f"✅ Model loaded successfully")
         
@@ -48,7 +96,7 @@ def export_clip_text_encoder(model_key, device="cpu"):
         # Create dummy input with correct dtype (int32 for ONNX compatibility)
         print("🔧 Preparing dummy input...")
         dummy_text = ["a photo of a cat", "a beautiful sunset"]  # Multiple examples for robustness
-        text_tokens = clip.tokenize(dummy_text).to(device)
+        text_tokens = tokenize_func(dummy_text).to(device)
         
         # Convert to int32 for ONNX compatibility
         text_tokens_int32 = text_tokens.to(torch.int32)
@@ -200,10 +248,23 @@ def list_available_networks():
     print("=" * 50)
     
     for key, config in MODEL_CONFIGS.items():
-        print(f"🔹 {key}")
+        library = config.get("library", "openai")
+        available = (library == "openai" and OPENAI_CLIP_AVAILABLE) or \
+                   (library == "open_clip" and OPEN_CLIP_AVAILABLE)
+        status = "✅" if available else "❌"
+        
+        print(f"{status} {key}")
         print(f"   Model: {config['model_name']}")
+        if library == "open_clip" and "pretrained" in config:
+            print(f"   Pretrained: {config['pretrained']}")
         print(f"   Output file: {config['output_file']}")
         print(f"   Embedding dimension: {config['embedding_dim']}")
+        print(f"   Library: {library}")
+        if not available:
+            if library == "openai":
+                print(f"   ⚠️  Install: pip install git+https://github.com/openai/CLIP.git")
+            else:
+                print(f"   ⚠️  Install: pip install open-clip-torch")
         print()
 
 def main():

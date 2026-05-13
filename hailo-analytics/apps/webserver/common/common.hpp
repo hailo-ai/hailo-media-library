@@ -78,11 +78,7 @@ inline bool json_extract_value(const nlohmann::json &json, const std::string &ke
     return true;
 }
 
-static inline bool is_env_variable_on(const std::string &env_var_name, const std::string &required_value = "1")
-{
-    auto env_var = std::getenv(env_var_name.c_str());
-    return ((nullptr != env_var) && (required_value == env_var));
-}
+bool is_env_variable_on(const std::string &env_var_name, const std::string &required_value = "1");
 
 enum class Architecture
 {
@@ -105,14 +101,16 @@ enum class pipeline_t
     Detection,
     CLIP,
     ProfileManager,
-    FaceLandmarks
+    FaceLandmarks,
+    DynamicPrivacyMask
 };
 
 NLOHMANN_JSON_SERIALIZE_ENUM(pipeline_t, {{pipeline_t::Basic, "Off"},
                                           {pipeline_t::Detection, "Detection"},
                                           {pipeline_t::CLIP, "Clip text search"},
                                           {pipeline_t::ProfileManager, "Profile Manager"},
-                                          {pipeline_t::FaceLandmarks, "Face Landmarks"}})
+                                          {pipeline_t::FaceLandmarks, "Face Landmarks"},
+                                          {pipeline_t::DynamicPrivacyMask, "Dynamic Privacy Mask"}})
 
 enum class ProfileType
 {
@@ -128,3 +126,6 @@ NLOHMANN_JSON_SERIALIZE_ENUM(ProfileType, {{ProfileType::Daylight, "Daylight"},
                                            {ProfileType::HighDynamicRange, "High Dynamic Range"},
                                            {ProfileType::LowlightBayer, "AI-ISP Gen2"},
                                            {ProfileType::DenoiseHdr, "Denoise HDR"}})
+
+std::string profile_type_to_display_name(ProfileType type, bool is_hdm);
+ProfileType display_name_to_profile_type(const std::string &name);

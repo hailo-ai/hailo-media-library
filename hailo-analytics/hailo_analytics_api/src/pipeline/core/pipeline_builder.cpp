@@ -11,6 +11,30 @@
 namespace hailo_analytics::pipeline
 {
 
+PipelineBuilder &PipelineBuilder::add_stage(const std::string &name, StagePtr stage, StageType type)
+{
+    if (!stage)
+    {
+        throw std::invalid_argument("Stage is null for name: " + name);
+    }
+
+    validate_and_add_stage(name, stage, type);
+
+    return *this;
+}
+
+PipelineBuilder &PipelineBuilder::add_stage(StagePtr stage, StageType type)
+{
+    if (!stage)
+    {
+        throw std::invalid_argument("Stage pointer is null.");
+    }
+
+    validate_and_add_stage(stage->get_name(), stage, type);
+
+    return *this;
+}
+
 PipelineBuilder &PipelineBuilder::connect(const std::string &sourceName, const std::string &targetName)
 {
     if (m_allStages.find(sourceName) == m_allStages.end())

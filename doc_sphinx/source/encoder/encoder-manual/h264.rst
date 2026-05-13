@@ -1,0 +1,129 @@
+Encode H264 
+============
+
+.. code-block:: c
+
+    #include "hevcencapi.h"
+    #include <stdlib.h>
+
+    VCEncRet ret;
+    VCEncInst encoder;
+    VCEncConfig cfg;
+    VCEncCodingCtrl codingCfg;
+    VCEncRateCtrl rcCfg;
+    VCEncIn encIn;
+    VCEncOut encOut;
+    i32 next, last;
+    u32 picture_size;
+    u32 pict_bus_address = 0;
+    u32 pict_bus_address_stab = 0;
+    u32 outbuf_size;
+    u32 outbuf_bus_address = 0;
+    u32 *outbuf_virt_address = NULL;
+
+    /* Step 1: Initialize an encoder instance */
+    /* 30 fps frame rate */
+    cfg.frameRateDenom = 1;
+    cfg.frameRateNum = 30; /* this is the time resolution also */
+
+    /* VGA resolution */
+    cfg.width = 640;
+    cfg.height = 480;
+
+    /* Stream type */
+    cfg.streamType = VCENC_BYTE_STREAM;
+    cfg.profile = VCENC_H264_HIGH_PROFILE;
+    cfg.level = VCENC_H264_LEVEL_5_1;
+    cfg.codecH264 = 1;
+
+    /* Output buffer size */
+    outbuf_size = cfg.width * cfg.height;
+
+    /* Picture buffer size YUV 420 */
+    picture_size = (cfg.width * cfg.height * 3) / 2;
+
+    if ((ret = VCEncInit(&cfg, &encoder)) != VCENC_OK) {
+        /* Handle here the error situation */
+        goto end;
+    }
+
+    /* Step 2: Optional extra encoder configuration */
+    /* Step 3: Allocate linear memory resources. This implementation is OS specific and not part of this example. */
+    AllocDMAMemory(&outbuf_virt_address, &outbuf_bus_address, &outbuf_size);
+    AllocDMAMemory(NULL, &pict_bus_address, &picture_size);
+
+    encIn.pOutBuf = outbuf_virt_address;
+    encIn.busOutBuf = outbuf_bus_address;
+    encIn.outBufSize = outbuf_size; /* bytes */
+
+    /* Step 4: Start the stream */
+    ret = VCEncStrmStart(encoder, &encIn, &encOut);
+    if (ret != VCENC_OK) {
+        /* Handle here the error situation */
+        goto close;
+    }
+
+    /* Save the generated stream. This implementation is OS specific and not part of this example. */
+    SaveStream(encIn.pOutBuf, encOut.streamSize);
+
+    /* Step 5: Encode the video frames */
+    ret = VCENC_FRAME_READY;
+    next = 0;
+    last = 300; /* encode 300 frames */
+
+    while ((next <= last) && (ret == VCENC_FRAME_READY || ret == VCENC_OUTPUT_BUFFER_OVERFLOW)) {
+        if (next == 0)
+            encIn.timeIncrement = 0; /* start time is 0 */
+        else
+            encIn.timeIncrement = 1; /* time units between frames */
+
+        /* Select frame type */
+        encIn.codingType = (next == 0) ? VCENC_INTRA_FRAME : VCENC_PREDICTED_FRAME;
+
+        /* Read next frame and get the bus address. This implementation is OS specific and not part of this example. */
+        ReadYuv420PlanarFrame(pict_bus_address);
+
+        /* We assume one linear buffer for the input image in planar YCbCr 4:2:0 format */
+        encIn.busLuma = pict_bus_address;
+        encIn.busChromaU = encIn.busLuma + cfg.width * cfg.height;
+        encIn.busChromaV = encIn.busChromaU + (cfg.width / 2) * (cfg.height / 2);
+
+        ret = VCEncStrmEncode(encoder, &encIn, &encOut, NULL, NULL);
+
+        switch (ret) {
+            case VCENC_FRAME_READY:
+                SaveStream(encIn.pOutBuf, encOut.streamSize);
+                break;
+            case VCENC_SYSTEM_ERROR:
+                /* Fatal system error, can't continue */
+                next = last;
+                break;
+            default:
+                /* All the others are ERROR codes */
+                /* The next frame will be forced to INTRA coded by the encoder */
+                break;
+        }
+        next++;
+    } /* End of main encoding loop */
+
+    /* Step 6: End stream */
+    ret = VCEncStrmEnd(encoder, &encIn, &encOut);
+    if (ret != VCENC_OK) {
+        /* Handle here the error situation */
+        goto close;
+    } else {
+        SaveStream(encIn.pOutBuf, encOut.streamSize);
+    }
+
+    /* Free all resources */
+    FreeDMAMemory(outbuf_virt_address, outbuf_bus_address, outbuf_size);
+    FreeDMAMemory(NULL, pict_bus_address, picture_size);
+
+    close:
+    /* Last Step: Release the encoder instance */
+    if ((ret = VCEncRelease(encoder)) != VCENC_OK) {
+        /* There is nothing much to do for an error here, just a notification message. */
+        /* There must be a fault somewhere else that caused a failure of the encoder release. */
+    }
+
+    end: /* Nothing else to do */
