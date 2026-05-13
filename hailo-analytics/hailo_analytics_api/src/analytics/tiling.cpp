@@ -6,6 +6,7 @@ namespace hailo_analytics::analytics::tiling
 {
 
 namespace ai_stages = hailo_analytics::pipeline::ai;
+using TrackerBuilder = ai_stages::DetectionTrackerStageBuild::Builder;
 
 // ============================================================================
 // tiling_config_t implementation
@@ -76,6 +77,88 @@ void tiling_config_t::apply_to(cropping_stages::TilingCropStageBuild::Builder &b
 }
 
 // ============================================================================
+// tracker_config_t implementation
+// ============================================================================
+
+void tracker_config_t::merge_from(const tracker_config_t &other)
+{
+    if (other.enabled)
+        enabled = *other.enabled;
+    if (other.stage_name)
+        stage_name = *other.stage_name;
+    if (other.queue_size)
+        queue_size = *other.queue_size;
+    if (other.leaky)
+        leaky = *other.leaky;
+    if (other.trace)
+        trace = *other.trace;
+    if (other.labels_map)
+        labels_map = *other.labels_map;
+    if (other.max_tracklets)
+        max_tracklets = *other.max_tracklets;
+    if (other.max_missed_frames)
+        max_missed_frames = *other.max_missed_frames;
+    if (other.min_confirmed_frames)
+        min_confirmed_frames = *other.min_confirmed_frames;
+    if (other.aging_threshold)
+        aging_threshold = *other.aging_threshold;
+    if (other.add_threshold)
+        add_threshold = *other.add_threshold;
+    if (other.association_threshold)
+        association_threshold = *other.association_threshold;
+    if (other.iou_weight)
+        iou_weight = *other.iou_weight;
+    if (other.class_aware_tracking)
+        class_aware_tracking = *other.class_aware_tracking;
+    if (other.enable_kalman_filter)
+        enable_kalman_filter = *other.enable_kalman_filter;
+    if (other.position_std_weight)
+        position_std_weight = *other.position_std_weight;
+    if (other.velocity_std_weight)
+        velocity_std_weight = *other.velocity_std_weight;
+    if (other.smoothing_alpha)
+        smoothing_alpha = *other.smoothing_alpha;
+}
+
+void tracker_config_t::apply_to(TrackerBuilder &b) const
+{
+    if (stage_name)
+        b.set_stage_name(*stage_name);
+    if (queue_size)
+        b.set_queue_size_opt(*queue_size);
+    if (leaky)
+        b.set_leaky_opt(*leaky);
+    if (trace)
+        b.set_trace_opt(*trace);
+    if (labels_map)
+        b.set_labels_map(*labels_map);
+    if (max_tracklets)
+        b.set_max_tracklets(*max_tracklets);
+    if (max_missed_frames)
+        b.set_max_missed_frames(*max_missed_frames);
+    if (min_confirmed_frames)
+        b.set_min_confirmed_frames(*min_confirmed_frames);
+    if (aging_threshold)
+        b.set_aging_threshold(*aging_threshold);
+    if (add_threshold)
+        b.set_add_threshold(*add_threshold);
+    if (association_threshold)
+        b.set_association_threshold(*association_threshold);
+    if (iou_weight)
+        b.set_iou_weight(*iou_weight);
+    if (class_aware_tracking)
+        b.set_class_aware_tracking(*class_aware_tracking);
+    if (enable_kalman_filter)
+        b.set_enable_kalman_filter(*enable_kalman_filter);
+    if (position_std_weight)
+        b.set_position_std_weight(*position_std_weight);
+    if (velocity_std_weight)
+        b.set_velocity_std_weight(*velocity_std_weight);
+    if (smoothing_alpha)
+        b.set_smoothing_alpha(*smoothing_alpha);
+}
+
+// ============================================================================
 // tiling_detection_config_t implementation
 // ============================================================================
 
@@ -84,6 +167,7 @@ void tiling_detection_config_t::merge_from(const tiling_detection_config_t &othe
     tiling_config.merge_from(other.tiling_config);
     detection_config.merge_from(other.detection_config);
     aggregator_config.merge_from(other.aggregator_config);
+    tracker_config.merge_from(other.tracker_config);
 }
 
 void tiling_detection_config_t::apply_to(cropping_stages::TilingCropStageBuild::Builder &b) const
@@ -150,6 +234,12 @@ generate_tiling_detection_pipeline(const std::string &pipeline_name,
     {
         cfg.merge_from(user_configs.value()); // user overrides
     }
+    if (cfg.tracker_config.enabled.value_or(false))
+    {
+        // The tracker needs to know which frames were AI-processed, so preserve
+        // sub-frame tensor metadata on the aggregator output.
+        cfg.aggregator_config.copy_sub_frame_tensor_to_metadata = true;
+    }
 
     // Create pipeline builder
     hailo_analytics::pipeline::PipelineBuilder pip_builder;
@@ -188,12 +278,35 @@ generate_tiling_detection_pipeline(const std::string &pipeline_name,
     // Detection Pipeline -> Aggregator sub input
     pip_builder.connect(detection_pipeline->get_name(), cfg.aggregator_config.stage_name.value());
 
+    // Optionally add detection tracker stage after the aggregator
+    std::shared_ptr<ai_stages::DetectionTrackerStage> tracker_stage = nullptr;
+    if (cfg.tracker_config.enabled.value_or(false))
+    {
+        auto tracker_builder = ai_stages::DetectionTrackerStageBuild::create();
+        if (!cfg.tracker_config.stage_name)
+        {
+            tracker_builder.set_stage_name(std::string(TRACKER_STAGE));
+        }
+        cfg.tracker_config.apply_to(tracker_builder);
+        tracker_stage = tracker_builder.buildptr();
+
+        pip_builder.add_stage(tracker_stage);
+        pip_builder.connect(cfg.aggregator_config.stage_name.value(), tracker_stage->get_name());
+    }
+
     // Create the pipeline
     hailo_analytics::pipeline::PipelinePtr pipeline = pip_builder.build(pipeline_name, true);
 
     // Set the input and output stages
     pipeline->set_in_stage(tiling_stage);
-    pipeline->set_out_stage(aggregator_stage);
+    if (tracker_stage)
+    {
+        pipeline->set_out_stage(tracker_stage);
+    }
+    else
+    {
+        pipeline->set_out_stage(aggregator_stage);
+    }
 
     return pipeline;
 }

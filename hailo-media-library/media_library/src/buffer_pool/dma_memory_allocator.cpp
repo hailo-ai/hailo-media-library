@@ -22,23 +22,26 @@
  */
 
 #include "dma_memory_allocator.hpp"
+
+#include <fcntl.h>
+#include <stdio.h>
+#include <errno.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <bits/mman-map-flags-generic.h>
+#include <fmt/format.h>
+#include <string.h>
+#include <optional>
+#include <string>
+#include <string_view>
+
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
 #include "files_utils.hpp"
 #include "common.hpp"
 #include "env_vars.hpp"
-#include <fstream>
-#include <fcntl.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <sys/user.h>
-#include <unistd.h>
 
 #define MODULE_NAME LoggerType::BufferPool
 
@@ -214,7 +217,6 @@ media_library_return DmaMemoryAllocator::dmabuf_map(dma_heap_allocation_data &he
     if (*mapped_memory == MAP_FAILED)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "dmabuf map failed, errno = {}", strerror(errno));
-        close(heap_data.fd);
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
@@ -247,6 +249,7 @@ media_library_return DmaMemoryAllocator::allocate_dma_buffer(uint size, void **b
     if (dmabuf_map(heap_data, buffer) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "dmabuf_map failed!");
+        close(heap_data.fd);
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 

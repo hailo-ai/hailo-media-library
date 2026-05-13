@@ -7,6 +7,7 @@
 
 // Infra includes
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_analytics/pipeline/core/stage_tracing_perfetto.hpp"
 #include "hailo_analytics/pipeline/sources/frontend_stage_from_file.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
 
@@ -24,13 +25,12 @@ FrontendStageFromFile::FrontendStageFromFile(std::string name, const std::string
     m_file_reader = nullptr;
 }
 
-AppStatus FrontendStageFromFile::create(MediaLibraryFrontend &frontend)
+AppStatus FrontendStageFromFile::create(MediaLibraryPtr media_library)
 {
-    // Create FileReader internally with the provided parameters
     m_file_reader = std::make_shared<FileReader>(m_stage_name + "_reader", m_file_location, m_width, m_height, m_fps,
                                                  m_loop_enabled);
 
-    return FrontendStage::create(frontend);
+    return FrontendStage::create(media_library);
 }
 
 AppStatus FrontendStageFromFile::stop()
@@ -100,10 +100,11 @@ AppStatus FrontendStageFromFile::deinit()
     return FrontendStage::deinit();
 }
 
-AppStatus FrontendStageFromFile::configure(MediaLibraryFrontend &frontend)
+AppStatus FrontendStageFromFile::configure(MediaLibraryPtr media_library)
 {
-    auto config = frontend.get_config();
-    if (!config.has_value() || config.value().input_config.source_type != frontend_src_element_t::APPSRC)
+    auto current_profile = media_library->get_current_profile();
+    if (!current_profile.has_value() ||
+        current_profile.value().sensor_config.input_video.source_type != frontend_src_element_t::APPSRC)
     {
         HAILO_ANALYTICS_LOG_ERROR("FrontendStageFromFile requires frontend with APPSRC source type. "
                                   "Reconfigure the frontend before calling configure().");
@@ -113,7 +114,7 @@ AppStatus FrontendStageFromFile::configure(MediaLibraryFrontend &frontend)
     m_file_reader = std::make_shared<FileReader>(m_stage_name + "_reader", m_file_location, m_width, m_height, m_fps,
                                                  m_loop_enabled);
 
-    return FrontendStage::configure(frontend);
+    return FrontendStage::configure(media_library);
 }
 
 void FrontendStageFromFile::setup_pool_notifications()
@@ -181,7 +182,7 @@ void FrontendStageFromFile::feeding_thread_func()
             std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
                 .count();
 
-        if (m_frontend->add_buffer(buffer) != MEDIA_LIBRARY_SUCCESS)
+        if (m_media_library->add_buffer_to_frontend(buffer) != MEDIA_LIBRARY_SUCCESS)
         {
             HAILO_ANALYTICS_LOG_WARN("Failed to add buffer to frontend, skipping frame");
             trace_processing_end();
@@ -219,7 +220,7 @@ void FrontendStageFromFile::trace_processing_start(HailoMediaLibraryBufferPtr bu
     }
 }
 
-void FrontendStageFromFile::trace_processing_end([[maybe_unused]] HailoMediaLibraryBufferPtr buffer)
+void FrontendStageFromFile::trace_processing_end(HailoMediaLibraryBufferPtr /*buffer*/)
 {
     if (m_trace_processing_operations)
     {

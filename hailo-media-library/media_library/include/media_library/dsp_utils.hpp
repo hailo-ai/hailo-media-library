@@ -27,11 +27,16 @@
 
 #pragma once
 
-#include "hailo/hailodsp.h"
-#include "media_library_buffer.hpp"
 #include <stdint.h>
+#include <hailo/hailodsp_base.h>
+#include <stddef.h>
 #include <vector>
 #include <optional>
+#include <memory>
+#include <utility>
+
+#include "hailo/hailodsp.h"
+#include "media_library_buffer.hpp"
 
 #define MIN_ISP_AE_FPS_FOR_DIS (20)
 

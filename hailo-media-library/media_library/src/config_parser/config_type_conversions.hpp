@@ -181,7 +181,6 @@ MEDIALIB_JSON_SERIALIZE_ENUM(dsp_scaling_mode_t, {
 
 MEDIALIB_JSON_SERIALIZE_ENUM(AnalyticsType, {
                                                 {AnalyticsType::DETECTION, "DETECTION"},
-                                                {AnalyticsType::INSTANCE_SEGMENTATION, "INSTANCE_SEGMENTATION"},
                                                 {AnalyticsType::SEMANTIC_SEGMENTATION, "SEMANTIC_SEGMENTATION"},
                                             })
 
@@ -937,6 +936,7 @@ void to_json(nlohmann::json &j, const smart_encoder_config_t &smart_enc)
         {"enabled", smart_enc.enabled},
         {"background_qp_delta", smart_enc.background_qp_delta},
         {"rois", smart_enc.rois},
+        {"analytics_labels", smart_enc.analytics_labels},
     };
     LOGGER__MODULE__TRACE(MODULE_NAME, "Successfully Converted smart encoder configuration to JSON");
 }
@@ -946,6 +946,7 @@ void from_json(const nlohmann::json &j, smart_encoder_config_t &smart_enc)
     j.at("enabled").get_to(smart_enc.enabled);
     j.at("background_qp_delta").get_to(smart_enc.background_qp_delta);
     j.at("rois").get_to(smart_enc.rois);
+    j.at("analytics_labels").get_to(smart_enc.analytics_labels);
     LOGGER__MODULE__TRACE(MODULE_NAME, "Successfully loaded smart encoder configuration");
 }
 
@@ -973,7 +974,6 @@ void from_json(const nlohmann::json &j, hailo_encoder_config_t &enc_conf)
     j.at("encoding").at("hailo_encoder").at("coding_control").get_to(enc_conf.coding_control);
     j.at("encoding").at("hailo_encoder").at("rate_control").get_to(enc_conf.rate_control);
     j.at("encoding").at("hailo_encoder").at("monitors_control").get_to(enc_conf.monitors_control);
-
     j.at("encoding").at("hailo_encoder").at("smart_encoder").get_to(enc_conf.smart_encoder);
 
     if (EncoderConfigPresets::get_instance().apply_preset(enc_conf) != MEDIA_LIBRARY_SUCCESS)
@@ -1434,6 +1434,7 @@ void to_json(nlohmann::json &j, const hailort_t &hrt_conf)
         {"hailort",
          {
              {"device-id", hrt_conf.device_id},
+             {"use-hailort-service", hrt_conf.use_hailort_service},
          }},
     };
 }
@@ -1442,6 +1443,10 @@ void from_json(const nlohmann::json &j, hailort_t &hrt_conf)
 {
     const auto &hailort = j.at("hailort");
     hailort.at("device-id").get_to(hrt_conf.device_id);
+    if (hailort.contains("use-hailort-service"))
+    {
+        hailort.at("use-hailort-service").get_to(hrt_conf.use_hailort_service);
+    }
 }
 
 //------------------------ feedback_network_config_t ------------------------
@@ -1803,34 +1808,6 @@ void from_json(const nlohmann::json &j, detection_analytics_config_t &config)
     j.at("max_entries").get_to(config.max_entries);
 }
 
-//------------------------ instance_segmentation_analytics_config_t ------------------------
-
-void to_json(nlohmann::json &j, const instance_segmentation_analytics_config_t &config)
-{
-    j = nlohmann::json{
-        {"analytics_data_id", config.analytics_data_id},
-        {"scaling_mode", config.scaling_mode},
-        {"width", config.width},
-        {"height", config.height},
-        {"original_width_ratio", config.original_width_ratio},
-        {"original_height_ratio", config.original_height_ratio},
-        {"labels", config.labels},
-        {"max_entries", config.max_entries},
-    };
-}
-
-void from_json(const nlohmann::json &j, instance_segmentation_analytics_config_t &config)
-{
-    j.at("analytics_data_id").get_to(config.analytics_data_id);
-    j.at("scaling_mode").get_to(config.scaling_mode);
-    j.at("width").get_to(config.width);
-    j.at("height").get_to(config.height);
-    j.at("original_width_ratio").get_to(config.original_width_ratio);
-    j.at("original_height_ratio").get_to(config.original_height_ratio);
-    j.at("labels").get_to(config.labels);
-    j.at("max_entries").get_to(config.max_entries);
-}
-
 //------------------------ semantic_segmentation_analytics_config_t ------------------------
 
 void to_json(nlohmann::json &j, const semantic_segmentation_analytics_config_t &config)
@@ -1879,17 +1856,6 @@ inline void to_json(nlohmann::json &j, const application_analytics_config_t &con
         }
     }
 
-    if (!config.instance_segmentation_analytics_config.empty())
-    {
-        analytics_content["instance_segmentation"] = nlohmann::json::array();
-        for (const auto &[key, value] : config.instance_segmentation_analytics_config)
-        {
-            nlohmann::json segmentation_entry = value;
-            segmentation_entry["analytics_data_id"] = key;
-            analytics_content["instance_segmentation"].push_back(segmentation_entry);
-        }
-    }
-
     if (!config.semantic_segmentation_analytics_config.empty())
     {
         analytics_content["semantic_segmentation"] = nlohmann::json::array();
@@ -1912,7 +1878,6 @@ inline void from_json(const nlohmann::json &j, application_analytics_config_t &c
     const auto &analytics_content = j.contains("application_analytics") ? j.at("application_analytics") : j;
 
     config.detection_analytics_config.clear();
-    config.instance_segmentation_analytics_config.clear();
     config.semantic_segmentation_analytics_config.clear();
 
     if (analytics_content.contains("detection"))
@@ -1922,16 +1887,6 @@ inline void from_json(const nlohmann::json &j, application_analytics_config_t &c
             detection_analytics_config_t detection_config = detection_entry;
             std::string analytics_data_id = detection_entry.at("analytics_data_id").get<std::string>();
             config.detection_analytics_config[analytics_data_id] = detection_config;
-        }
-    }
-
-    if (analytics_content.contains("instance_segmentation"))
-    {
-        for (const auto &segmentation_entry : analytics_content.at("instance_segmentation"))
-        {
-            instance_segmentation_analytics_config_t segmentation_config = segmentation_entry;
-            std::string analytics_data_id = segmentation_entry.at("analytics_data_id").get<std::string>();
-            config.instance_segmentation_analytics_config[analytics_data_id] = segmentation_config;
         }
     }
 
@@ -2689,6 +2644,10 @@ void from_json(const nlohmann::json &j, config_application_settings_t &app_setti
     // Extract hailort device_id directly from the JSON structure
     const auto &hailort_json = j.at("hailort");
     hailort_json.at("device-id").get_to(app_settings.hailort.device_id);
+    if (hailort_json.contains("use-hailort-service"))
+    {
+        hailort_json.at("use-hailort-service").get_to(app_settings.hailort.use_hailort_service);
+    }
     // Extract application_analytics content directly
     auto analytics_json = nlohmann::json();
     if (j.contains("application_analytics"))
@@ -2707,7 +2666,9 @@ void to_json(nlohmann::json &j, const config_application_settings_t &app_setting
                        {"motion_detection", app_settings.motion_detection},
                        {"rotation", app_settings.rotation},
                        {"flip", app_settings.flip},
-                       {"hailort", {{"device-id", app_settings.hailort.device_id}}},
+                       {"hailort",
+                        {{"device-id", app_settings.hailort.device_id},
+                         {"use-hailort-service", app_settings.hailort.use_hailort_service}}},
                        {"application_analytics", app_settings.application_analytics}};
 }
 
@@ -2934,8 +2895,7 @@ void to_json(nlohmann::json &j, const config_iq_settings_t &iq_settings)
 
 void from_json(const nlohmann::json &j, config_stream_osd_t &osd)
 {
-    // Support both wrapped ("osd") and unwrapped formats
-    const auto &osd_json = j.contains("osd") ? j.at("osd") : j;
+    const auto &osd_json = j.at("osd");
 
     if (osd_json.contains("image") && osd_json.at("image").is_array())
     {
@@ -3001,44 +2961,54 @@ void to_json(nlohmann::json &j, const config_stream_osd_t &osd)
 
 void from_json(const nlohmann::json &j, config_encoded_output_stream_t &stream)
 {
-    j.at("encoding_content").get_to(stream.encoding);
-    std::visit([&j](auto &&config) -> void { config.config_path = j.at("encoding").get<std::string>(); },
-               stream.encoding);
-    j.at("osd_content").get_to(stream.osd);
+    j.at("encoding").get_to(stream.encoding);
+    j.at("osd").get_to(stream.osd);
 
-    // Handle both flattened format and nested format for masking
-    // no masking given, putting default empty config
     stream.masking.pixelization_size = 60;
     stream.masking.color_value = {0, 0, 0};
     stream.masking.mask_type = PrivacyMaskType::COLOR;
-    if (j.contains("masking_content"))
+    if (j.contains("masking"))
     {
-        const auto &masking_content = j.at("masking_content");
-        if (masking_content.contains("masking"))
-        {
-            // Nested format: masking_content -> masking -> actual data
-            masking_content.at("masking").get_to(stream.masking);
-        }
-        else
-        {
-            // Flattened format: masking_content -> actual data
-            masking_content.get_to(stream.masking);
-        }
+        j.at("masking").get_to(stream.masking);
     }
 }
 
 void to_json(nlohmann::json &j, const config_encoded_output_stream_t &stream)
 {
-    nlohmann::json temp_encoding = stream.encoding;
-    j["encoding"] = temp_encoding["encoding"];
-    nlohmann::json temp_osd = stream.osd;
-    j["osd"] = temp_osd["osd"];
+    j["encoding"] = stream.encoding;
+    j["osd"] = stream.osd;
     j["masking"] = stream.masking;
 }
 
 void from_json(const nlohmann::json &j, config_profile_t &profile)
 {
     LOGGER__MODULE__TRACE(MODULE_NAME, "Converting JSON to config_profile_t");
+    j.at("version").get_to(profile.version);
+    if (j.contains("name"))
+    {
+        j.at("name").get_to(profile.name);
+    }
+    j.at("sensor_config").get_to(profile.sensor_config);
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Loaded sensor configuration");
+    j.at("application_settings").get_to(profile.application_settings);
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Loaded application settings");
+    j.at("stabilizer_settings").get_to(profile.stabilizer_settings);
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Loaded stabilizer settings");
+    j.at("iq_settings").get_to(profile.iq_settings);
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Loaded IQ settings");
+
+    const auto &encoded_output_streams_json = j.at("encoded_output_streams");
+    for (const auto &[stream_id, stream_json] : encoded_output_streams_json.items())
+    {
+        profile.encoded_output_streams[stream_id] = stream_json.get<config_encoded_output_stream_t>();
+    }
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Successfully converted JSON to config_profile_t");
+}
+
+config_profile_t parse_flattened_config_profile(const nlohmann::json &j)
+{
+    config_profile_t profile;
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Parsing flattened config profile (with _content keys)");
     j.at("version").get_to(profile.version);
     j.at("sensor_config_content").get_to(profile.sensor_config);
     LOGGER__MODULE__TRACE(MODULE_NAME, "Loaded sensor configuration");
@@ -3052,9 +3022,35 @@ void from_json(const nlohmann::json &j, config_profile_t &profile)
     const auto &encoded_output_streams_json = j.at("encoded_output_streams");
     for (auto it = encoded_output_streams_json.begin(); it != encoded_output_streams_json.end(); ++it)
     {
-        profile.encoded_output_streams[it->at("stream_id")] = it.value().get<config_encoded_output_stream_t>();
+        const auto &stream_json = it.value();
+        config_encoded_output_stream_t stream;
+
+        stream_json.at("encoding_content").get_to(stream.encoding);
+        std::visit([&stream_json](
+                       auto &&config) -> void { config.config_path = stream_json.at("encoding").get<std::string>(); },
+                   stream.encoding);
+        stream_json.at("osd_content").get_to(stream.osd);
+
+        stream.masking.pixelization_size = 60;
+        stream.masking.color_value = {0, 0, 0};
+        stream.masking.mask_type = PrivacyMaskType::COLOR;
+        if (stream_json.contains("masking_content"))
+        {
+            const auto &masking_content = stream_json.at("masking_content");
+            if (masking_content.contains("masking"))
+            {
+                masking_content.at("masking").get_to(stream.masking);
+            }
+            else
+            {
+                masking_content.get_to(stream.masking);
+            }
+        }
+
+        profile.encoded_output_streams[stream_json.at("stream_id")] = stream;
     }
-    LOGGER__MODULE__TRACE(MODULE_NAME, "Successfully converted JSON to config_profile_t");
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Successfully parsed flattened config profile");
+    return profile;
 }
 
 void to_json(nlohmann::json &j, const config_profile_t &profile)
@@ -3066,6 +3062,7 @@ void to_json(nlohmann::json &j, const config_profile_t &profile)
     }
 
     j = nlohmann::json{{"version", profile.version},
+                       {"name", profile.name},
                        {"sensor_config", profile.sensor_config},
                        {"application_settings", profile.application_settings},
                        {"stabilizer_settings", profile.stabilizer_settings},
@@ -3073,7 +3070,7 @@ void to_json(nlohmann::json &j, const config_profile_t &profile)
                        {"encoded_output_streams", streams_json}};
 }
 
-// Note: DetectionAnalyticsData and InstanceSegmentationAnalyticsData contain
+// Note: DetectionAnalyticsData and SemanticSegmentationAnalyticsData contain
 // runtime data (Timestamp and hailo structures) and are typically not serialized to JSON.
 // If needed, custom serialization would be required for Timestamp and hailo types.
 

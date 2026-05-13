@@ -24,6 +24,7 @@
 #include "media_library_types.hpp"
 #include "isp_utils.hpp"
 #include "sensor_registry.hpp"
+#include "snapshot.hpp"
 #include "video_device.hpp"
 
 #include <linux/v4l2-controls.h>
@@ -123,11 +124,13 @@ MediaLibraryPreIspDenoise::MediaLibraryPreIspDenoise(IspManager &isp_manager)
 
     MediaLibraryDenoise::callbacks_t callbacks;
     callbacks.on_buffer_ready = [this](HailoMediaLibraryBufferPtr output_buffer) {
+        SnapshotManager::get_instance().take_snapshot("pre_isp_denoised", output_buffer, true);
         m_isp_manager.put_buffer_into_isp(output_buffer);
     };
     observe(callbacks);
 
     m_isp_manager.set_subscriber(static_cast<int>(MODULE_NAME), [this](HailoMediaLibraryBufferPtr raw_buffer) {
+        SnapshotManager::get_instance().take_snapshot("pre_isp_raw", raw_buffer, true);
         timestamp_buffer_if_missing(raw_buffer);
         return this->handle_frame(raw_buffer);
     });

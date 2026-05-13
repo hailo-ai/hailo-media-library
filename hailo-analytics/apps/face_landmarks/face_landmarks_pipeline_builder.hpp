@@ -14,10 +14,8 @@ inline constexpr std::string_view YOLO_POST_SO = "/usr/lib/hailo-post-processes/
 inline constexpr std::string_view YOLO_FUNC_NAME = "hailo_yolov8n";
 inline constexpr std::string_view YOLO_POST_CONF = "/home/root/apps/webserver/resources/configs/yolov5_personface.json";
 
-tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus> build_tiling_pipeline(
-    const std::string &name);
+hailo_analytics::analytics::tiling::tiling_detection_config_t default_tiling_config();
 
-tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus> build_landmarks_pipeline(
-    const std::string &name);
+hailo_analytics::analytics::face_landmarks::bbox_crop_landmarks_config_t default_landmarks_config();
 
 } // namespace face_landmarks_app

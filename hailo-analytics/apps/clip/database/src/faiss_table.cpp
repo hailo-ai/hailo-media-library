@@ -145,7 +145,8 @@ std::optional<FaissTableQueryResult> FaissTable::query_timestamp(int64_t faissId
         result.track_id = sqlite3_column_int(stmt, 0);
         result.timestamp = sqlite3_column_int64(stmt, 1);
 
-        result.classification_label = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
+        const char *label_ptr = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
+        result.classification_label = label_ptr ? label_ptr : "";
 
         sqlite3_finalize(stmt);
         return result;
@@ -207,9 +208,11 @@ std::vector<FaissTableBatchQueryResult> FaissTable::query_batch_timestamp(
             int64_t faiss_id = sqlite3_column_int64(stmt, 0);
             int32_t track_id = sqlite3_column_int(stmt, 1);
             int64_t timestamp = sqlite3_column_int64(stmt, 2);
-            std::string embedding_name = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
+            const char *name_ptr = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
+            std::string embedding_name = name_ptr ? name_ptr : "";
 
-            std::string classification_label = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
+            const char *label_ptr = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
+            std::string classification_label = label_ptr ? label_ptr : "";
 
             FaissTableBatchQueryResult batch_result;
             batch_result.faiss_id = faiss_id;
@@ -246,9 +249,11 @@ std::vector<FaissRecord> FaissTable::get_records_by_timestamp_range(int64_t star
         record.faiss_id = sqlite3_column_int64(stmt, 1);
         record.track_id = sqlite3_column_int(stmt, 2);
         record.timestamp = sqlite3_column_int64(stmt, 3);
-        record.network_embedding_name = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
+        const char *emb_ptr = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
+        record.network_embedding_name = emb_ptr ? emb_ptr : "";
 
-        record.classification_label = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
+        const char *cls_ptr = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
+        record.classification_label = cls_ptr ? cls_ptr : "";
 
         records.push_back(record);
     }

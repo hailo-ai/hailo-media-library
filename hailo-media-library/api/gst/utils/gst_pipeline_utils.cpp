@@ -61,7 +61,7 @@ std::optional<input_config_t> get_input_config_from_encoder(const encoder_config
 }
 
 // Format available stream IDs for error messages
-std::string format_aviallable_streams_ids(const config_profile_t &profile)
+std::string format_available_streams_ids(const config_profile_t &profile)
 {
     std::string result = "[";
     bool first = true;

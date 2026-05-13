@@ -1,19 +1,17 @@
 #pragma once
 
-#include <iostream>
+#include <errno.h>
+#include <stdint.h>
 #include <optional>
-#include <fstream>
 #include <span>
 #include <map>
 #include <cstring>
-#include <fcntl.h>
-#include <sys/ioctl.h>
+#include <chrono>
+#include <utility>
 #include <linux/videodev2.h>
 #include <type_traits>
-#include <unistd.h>
 #include <mutex>
 #include <memory>
-#include <vector>
 #include <thread>
 
 #include "files_utils.hpp"
@@ -71,7 +69,7 @@ enum class Video0Ctrl
     WB_B_GAIN,
 
     HDR_RATIOS,
-    HDR_FORWARD_TIMESTAMPS,
+    ISP_FORWARD_TIMESTAMPS,
 
     BLS_RED,
     BLS_GREEN_RED,

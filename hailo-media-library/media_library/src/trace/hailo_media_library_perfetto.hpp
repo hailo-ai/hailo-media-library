@@ -30,7 +30,7 @@
 
 /* we want to support being included from both medialib core and the rest of media-lib */
 #if __has_include("media_library/common.hpp")
-#include "media_library/common.hpp"
+#include "common.hpp"
 #else
 #include "common.hpp"
 #endif
@@ -61,6 +61,8 @@ HAILO_PERFETTO_DEFINE_CATEGORIES(
 #define DSP_OPS_TRACK (perfetto::NamedTrack("Dsp Operations", 0, MEDIA_LIBRARY_TRACK))
 #define DSP_THREADED_TRACK (perfetto::ThreadSubTrack::Current(DSP_OPS_TRACK))
 #define FPS_TRACK (perfetto::NamedTrack("Framerate", 0, MEDIA_LIBRARY_TRACK))
+#define SERVICE_TRACK (perfetto::NamedTrack("gRPC Server", 0, MEDIA_LIBRARY_TRACK))
+#define SERVICE_CLIENT_TRACK (perfetto::NamedTrack("gRPC Client", 0, MEDIA_LIBRARY_TRACK))
 
 #define HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN(event_name, track, category, ...)                                        \
     TRACE_EVENT_BEGIN((category), (event_name), (track), ##__VA_ARGS__)

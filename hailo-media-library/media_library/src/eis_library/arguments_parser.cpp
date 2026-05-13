@@ -1,4 +1,5 @@
-#include <iostream>
+#include <CLI/CLI.hpp>
+
 #include "arguments_parser.hpp"
 #include "gyro_device.hpp"
 

@@ -1,7 +1,14 @@
 #include "media_library_rule_checker.hpp"
+
+#include <spdlog/spdlog.h>
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "rule_checker/rule_checker_interface.h"
 #include "rule_checker/eval_result.h"
 #include "rule_checker/logger_interface.h"
+#include "media_library_logger.hpp"
 
 #define MODULE_NAME LoggerType::Config
 class RuleCheckerLogger : public rule_checker::ILogger

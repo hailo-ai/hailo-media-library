@@ -39,6 +39,8 @@ void ai_stage_config_t::merge_from(const ai_stage_config_t &other)
         nms_classes_filter_mask = *other.nms_classes_filter_mask;
     if (other.nms_max_accumulated_mask_size_multiplier)
         nms_max_accumulated_mask_size_multiplier = *other.nms_max_accumulated_mask_size_multiplier;
+    if (other.use_hailort_service)
+        use_hailort_service = *other.use_hailort_service;
     if (other.trace)
         trace = *other.trace;
 }
@@ -73,6 +75,8 @@ void ai_stage_config_t::apply_to(ai_stages::HailortAsyncStageBuild::Builder &b) 
         b.set_nms_classes_filter_mask(*nms_classes_filter_mask);
     if (nms_max_accumulated_mask_size_multiplier)
         b.set_nms_max_accumulated_mask_size_multiplier(*nms_max_accumulated_mask_size_multiplier);
+    if (use_hailort_service)
+        b.set_use_hailort_service(*use_hailort_service);
     if (trace)
         b.set_trace_opt(*trace);
 }

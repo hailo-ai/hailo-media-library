@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include <nlohmann/json.hpp>
 #include <thread>
 #include <chrono>
 
@@ -7,6 +6,7 @@
 #include "hailo_analytics/pipeline/codecs/analytic_metadata_packager_stage.hpp"
 #include "hailo_analytics/pipeline/core/buffer.hpp"
 #include "hailo_postprocess_tools/objects/hailo_objects.hpp"
+#include "analytics_metadata.pb.h"
 
 using namespace hailo_analytics::pipeline::sinks;
 using namespace hailo_analytics::pipeline;
@@ -31,11 +31,17 @@ HailoMediaLibraryBufferPtr make_mock_buffer()
     return buf;
 }
 
-void attach_zmq_json_message(BufferPtr buffer)
+void attach_zmq_proto_message(BufferPtr buffer)
 {
-    nlohmann::json metadata_json = codecs::build_metadata_json(buffer);
+    hailo_analytics::Frame frame;
+    if (!codecs::build_metadata_proto(buffer, frame))
+        return;
+
+    std::string serialized;
+    ASSERT_TRUE(frame.SerializeToString(&serialized));
+
     auto zmq_msg = std::make_shared<HailoZMQMessage>();
-    zmq_msg->set_output_msg(metadata_json.dump());
+    zmq_msg->set_output_msg(std::move(serialized));
     buffer->get_roi()->add_object(zmq_msg);
 }
 
@@ -45,7 +51,7 @@ BufferPtr make_buffer_with_detection()
     auto roi = std::make_shared<HailoROI>(HailoBBox(0, 0, 1, 1));
     roi->add_object(std::make_shared<HailoDetection>(HailoBBox(0.1f, 0.2f, 0.3f, 0.4f), "person", 0.9f));
     auto buffer = std::make_shared<Buffer>(mock_buf, roi);
-    attach_zmq_json_message(buffer);
+    attach_zmq_proto_message(buffer);
     return buffer;
 }
 
@@ -65,13 +71,8 @@ BufferPtr make_buffer_with_face_landmarks()
     roi->add_object(person);
 
     auto buffer = std::make_shared<Buffer>(mock_buf, roi);
-    attach_zmq_json_message(buffer);
+    attach_zmq_proto_message(buffer);
     return buffer;
-}
-
-BufferPtr make_empty_buffer()
-{
-    return std::make_shared<Buffer>(make_mock_buffer());
 }
 
 } // namespace
@@ -136,6 +137,24 @@ TEST(MetadataWebSocketSinkStageTest, ProcessWithNoClientsReturnsSuccess)
     stage->deinit();
 }
 
+// Captures the next binary WebSocket frame received by the client into a promise as a std::string.
+// Only the binary alternative of the variant is captured; text frames (if any arrive) are ignored.
+auto capture_next_binary_frame(std::promise<std::string> &promise)
+{
+    return [&promise](rtc::message_variant msg) {
+        if (!std::holds_alternative<rtc::binary>(msg))
+            return;
+        const auto &bytes = std::get<rtc::binary>(msg);
+        try
+        {
+            promise.set_value(std::string(reinterpret_cast<const char *>(bytes.data()), bytes.size()));
+        }
+        catch (...)
+        {
+        }
+    };
+}
+
 TEST(MetadataWebSocketSinkStageTest, ClientConnectAndReceiveDetection)
 {
     uint16_t port = next_test_port();
@@ -146,18 +165,7 @@ TEST(MetadataWebSocketSinkStageTest, ClientConnectAndReceiveDetection)
     auto received_future = received_promise.get_future();
 
     auto client = std::make_shared<rtc::WebSocket>();
-    client->onMessage([&](rtc::message_variant msg) {
-        if (std::holds_alternative<std::string>(msg))
-        {
-            try
-            {
-                received_promise.set_value(std::get<std::string>(msg));
-            }
-            catch (...)
-            {
-            }
-        }
-    });
+    client->onMessage(capture_next_binary_frame(received_promise));
     client->open("ws://127.0.0.1:" + std::to_string(port));
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
@@ -166,9 +174,10 @@ TEST(MetadataWebSocketSinkStageTest, ClientConnectAndReceiveDetection)
     auto status = received_future.wait_for(std::chrono::seconds(2));
     ASSERT_EQ(status, std::future_status::ready);
 
-    auto json = nlohmann::json::parse(received_future.get());
-    EXPECT_TRUE(json.contains(analytic_metadata_fields::DETECTIONS));
-    EXPECT_EQ(json[analytic_metadata_fields::DETECTIONS][0][analytic_metadata_fields::detection::LABEL], "person");
+    hailo_analytics::Frame frame;
+    ASSERT_TRUE(frame.ParseFromString(received_future.get()));
+    ASSERT_EQ(frame.detections_size(), 1);
+    EXPECT_EQ(frame.detections(0).label(), "person");
 
     client->close();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -185,18 +194,7 @@ TEST(MetadataWebSocketSinkStageTest, ClientReceiveFaceLandmarksData)
     auto received_future = received_promise.get_future();
 
     auto client = std::make_shared<rtc::WebSocket>();
-    client->onMessage([&](rtc::message_variant msg) {
-        if (std::holds_alternative<std::string>(msg))
-        {
-            try
-            {
-                received_promise.set_value(std::get<std::string>(msg));
-            }
-            catch (...)
-            {
-            }
-        }
-    });
+    client->onMessage(capture_next_binary_frame(received_promise));
     client->open("ws://127.0.0.1:" + std::to_string(port));
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
@@ -205,30 +203,23 @@ TEST(MetadataWebSocketSinkStageTest, ClientReceiveFaceLandmarksData)
     auto status = received_future.wait_for(std::chrono::seconds(2));
     ASSERT_EQ(status, std::future_status::ready);
 
-    auto json = nlohmann::json::parse(received_future.get());
+    hailo_analytics::Frame frame;
+    ASSERT_TRUE(frame.ParseFromString(received_future.get()));
 
     // Top-level: person detection
-    ASSERT_TRUE(json.contains(analytic_metadata_fields::DETECTIONS));
-    auto &person = json[analytic_metadata_fields::DETECTIONS][0];
-    EXPECT_EQ(person[analytic_metadata_fields::detection::LABEL], "person");
+    ASSERT_EQ(frame.detections_size(), 1);
+    const auto &person = frame.detections(0);
+    EXPECT_EQ(person.label(), "person");
 
     // Nested: face detection under person
-    ASSERT_TRUE(person.contains(analytic_metadata_fields::DETECTIONS));
-    auto &face = person[analytic_metadata_fields::DETECTIONS][0];
-    EXPECT_EQ(face[analytic_metadata_fields::detection::LABEL], "face");
+    ASSERT_EQ(person.detections_size(), 1);
+    const auto &face = person.detections(0);
+    EXPECT_EQ(face.label(), "face");
 
-    // Nested: landmarks under face
-    ASSERT_TRUE(face.contains(analytic_metadata_fields::LANDMARKS));
-    auto &landmarks = face[analytic_metadata_fields::LANDMARKS];
-    ASSERT_EQ(landmarks.size(), 1);
-
-    // 3 points * 3 values (x, y, confidence) = 9 floats
-    auto &pts = landmarks[0][analytic_metadata_fields::landmark::POINTS];
-    ASSERT_EQ(pts.size(), 9);
-
-    // 2 pairs * 2 indices = 4 ints
-    auto &pairs = landmarks[0][analytic_metadata_fields::landmark::PAIRS];
-    ASSERT_EQ(pairs.size(), 4);
+    // Nested: landmarks under face — 3 points * 3 values, 2 pairs * 2 indices
+    ASSERT_EQ(face.landmarks_size(), 1);
+    EXPECT_EQ(face.landmarks(0).points_size(), 9);
+    EXPECT_EQ(face.landmarks(0).pairs_size(), 4);
 
     client->close();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -261,18 +252,7 @@ TEST(MetadataWebSocketSinkStageTest, ClientReceiveLargePayloadWithManyFaces)
         {
         }
     });
-    client->onMessage([&](rtc::message_variant msg) {
-        if (std::holds_alternative<std::string>(msg))
-        {
-            try
-            {
-                received_promise.set_value(std::get<std::string>(msg));
-            }
-            catch (...)
-            {
-            }
-        }
-    });
+    client->onMessage(capture_next_binary_frame(received_promise));
     client->open("ws://127.0.0.1:" + std::to_string(port));
     ASSERT_EQ(open_future.wait_for(std::chrono::seconds(2)), std::future_status::ready);
 
@@ -303,16 +283,16 @@ TEST(MetadataWebSocketSinkStageTest, ClientReceiveLargePayloadWithManyFaces)
     }
 
     auto buffer = std::make_shared<Buffer>(mock_buf, roi);
-    attach_zmq_json_message(buffer);
+    attach_zmq_proto_message(buffer);
 
     stage->process(buffer);
 
     auto status = received_future.wait_for(std::chrono::seconds(5));
     ASSERT_EQ(status, std::future_status::ready) << "Large payload with " << NUM_FACES << " faces was not received";
 
-    auto json = nlohmann::json::parse(received_future.get());
-    ASSERT_TRUE(json.contains(analytic_metadata_fields::DETECTIONS));
-    EXPECT_EQ(json[analytic_metadata_fields::DETECTIONS].size(), NUM_FACES);
+    hailo_analytics::Frame frame;
+    ASSERT_TRUE(frame.ParseFromString(received_future.get()));
+    EXPECT_EQ(frame.detections_size(), NUM_FACES);
 
     client->close();
     stage->deinit();
@@ -321,7 +301,7 @@ TEST(MetadataWebSocketSinkStageTest, ClientReceiveLargePayloadWithManyFaces)
 TEST(MetadataWebSocketSinkStageTest, SmallMaxMessageSizeRejectsLargePayload)
 {
     uint16_t port = next_test_port();
-    static constexpr size_t TINY_LIMIT = 512; // 512 bytes — too small for any detection JSON
+    static constexpr size_t TINY_LIMIT = 64; // smaller than any non-trivial protobuf Frame
     auto stage = WebSocketSinkStageBuild::create()
                      .set_stage_name("small_limit_test")
                      .set_port_opt(port)
@@ -343,11 +323,11 @@ TEST(MetadataWebSocketSinkStageTest, SmallMaxMessageSizeRejectsLargePayload)
         {
         }
     });
-    client->onMessage([&](rtc::message_variant msg) { message_received.store(true); });
+    client->onMessage([&](rtc::message_variant /*msg*/) { message_received.store(true); });
     client->open("ws://127.0.0.1:" + std::to_string(port));
     ASSERT_EQ(open_future.wait_for(std::chrono::seconds(2)), std::future_status::ready);
 
-    // Process a detection buffer — its JSON will exceed the tiny 512-byte limit
+    // Process a detection buffer — its serialized protobuf will exceed the tiny 512-byte limit
     auto buffer = make_buffer_with_face_landmarks();
     EXPECT_EQ(stage->process(buffer), AppStatus::SUCCESS);
 
@@ -390,18 +370,7 @@ TEST(MetadataWebSocketSinkStageTest, CustomMaxMessageSizeAllowsLargePayload)
         {
         }
     });
-    client->onMessage([&](rtc::message_variant msg) {
-        if (std::holds_alternative<std::string>(msg))
-        {
-            try
-            {
-                received_promise.set_value(std::get<std::string>(msg));
-            }
-            catch (...)
-            {
-            }
-        }
-    });
+    client->onMessage(capture_next_binary_frame(received_promise));
     client->open("ws://127.0.0.1:" + std::to_string(port));
     ASSERT_EQ(open_future.wait_for(std::chrono::seconds(2)), std::future_status::ready);
 
@@ -431,16 +400,16 @@ TEST(MetadataWebSocketSinkStageTest, CustomMaxMessageSizeAllowsLargePayload)
     }
 
     auto buffer = std::make_shared<Buffer>(mock_buf, roi);
-    attach_zmq_json_message(buffer);
+    attach_zmq_proto_message(buffer);
 
     stage->process(buffer);
 
     auto status = received_future.wait_for(std::chrono::seconds(5));
     ASSERT_EQ(status, std::future_status::ready) << "Large payload should be accepted with custom 2MB limit";
 
-    auto json = nlohmann::json::parse(received_future.get());
-    ASSERT_TRUE(json.contains(analytic_metadata_fields::DETECTIONS));
-    EXPECT_EQ(json[analytic_metadata_fields::DETECTIONS].size(), NUM_FACES);
+    hailo_analytics::Frame frame;
+    ASSERT_TRUE(frame.ParseFromString(received_future.get()));
+    EXPECT_EQ(frame.detections_size(), NUM_FACES);
 
     client->close();
     stage->deinit();

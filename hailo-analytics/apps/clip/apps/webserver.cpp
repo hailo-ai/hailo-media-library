@@ -251,14 +251,14 @@ void IntegratedWebServer::validateModelFiles()
 
 void IntegratedWebServer::setupCORS()
 {
-    server->set_pre_routing_handler([]([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
+    server->set_pre_routing_handler([](const httplib::Request & /*req*/, httplib::Response &res) {
         res.set_header("Access-Control-Allow-Origin", "*");
         res.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
         res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization");
         return httplib::Server::HandlerResponse::Unhandled;
     });
 
-    server->Options(".*", [](const httplib::Request &, [[maybe_unused]] httplib::Response &res) { return; });
+    server->Options(".*", [](const httplib::Request &, httplib::Response & /*res*/) { return; });
 }
 
 void IntegratedWebServer::setupRoutes()
@@ -284,7 +284,7 @@ void IntegratedWebServer::setupRoutes()
 
 void IntegratedWebServer::setupRootRoute()
 {
-    server->Get("/", [this]([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
+    server->Get("/", [this](const httplib::Request & /*req*/, httplib::Response &res) {
         std::cout << "GET /" << std::endl;
         serveIntegratedHTML(res);
     });
@@ -292,7 +292,7 @@ void IntegratedWebServer::setupRootRoute()
 
 void IntegratedWebServer::setupStatusRoute()
 {
-    server->Get("/api/status", []([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
+    server->Get("/api/status", [](const httplib::Request & /*req*/, httplib::Response &res) {
         std::cout << "GET /api/status" << std::endl;
         json response;
         response["status"] = "ok";
@@ -305,31 +305,30 @@ void IntegratedWebServer::setupStatusRoute()
 
 void IntegratedWebServer::setupEmbeddedRefreshRoutes()
 {
-    server->Get("/api/config/embedded_refresh",
-                [this]([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
-                    std::cout << "GET /api/config/embedded_refresh" << std::endl;
-                    json response;
+    server->Get("/api/config/embedded_refresh", [this](const httplib::Request & /*req*/, httplib::Response &res) {
+        std::cout << "GET /api/config/embedded_refresh" << std::endl;
+        json response;
 
-                    // Set header at the start for all response paths
-                    res.set_header("Content-Type", "application/json");
+        // Set header at the start for all response paths
+        res.set_header("Content-Type", "application/json");
 
-                    auto app_controlservice_ext = m_app->get_extension<AppControlServiceExt>();
-                    if (!app_controlservice_ext)
-                    {
-                        std::cerr << "AppControlServiceExt extension is not available" << std::endl;
-                        res.status = 500;
-                        json error_response;
-                        error_response["status"] = "error";
-                        error_response["message"] = "AppControlServiceExt extension not available";
-                        res.set_content(error_response.dump(), "application/json");
-                        return;
-                    }
+        auto app_controlservice_ext = m_app->get_extension<AppControlServiceExt>();
+        if (!app_controlservice_ext)
+        {
+            std::cerr << "AppControlServiceExt extension is not available" << std::endl;
+            res.status = 500;
+            json error_response;
+            error_response["status"] = "error";
+            error_response["message"] = "AppControlServiceExt extension not available";
+            res.set_content(error_response.dump(), "application/json");
+            return;
+        }
 
-                    response["rate"] = app_controlservice_ext->get_clip_embedding_refresh_rate().value();
+        response["rate"] = app_controlservice_ext->get_clip_embedding_refresh_rate().value();
 
-                    res.set_content(response.dump(), "application/json");
-                    res.status = 200;
-                });
+        res.set_content(response.dump(), "application/json");
+        res.status = 200;
+    });
 
     // Receives a new refresh rate, validates it, and updates the setting.
     server->Post("/api/config/embedded_refresh", [this](const httplib::Request &req, httplib::Response &res) {
@@ -387,7 +386,7 @@ void IntegratedWebServer::setupEmbeddedRefreshRoutes()
 void IntegratedWebServer::setupVideoPlaybackTotalLengthRoutes()
 {
     server->Get("/api/config/video_playback_total_length",
-                [this]([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
+                [this](const httplib::Request & /*req*/, httplib::Response &res) {
                     std::cout << "GET /api/config/video_playback_total_length" << std::endl;
                     json response;
 
@@ -468,7 +467,7 @@ void IntegratedWebServer::setupVideoPlaybackTotalLengthRoutes()
 
 void IntegratedWebServer::setupNetworksRoute()
 {
-    server->Get("/api/networks", [this]([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
+    server->Get("/api/networks", [this](const httplib::Request & /*req*/, httplib::Response &res) {
         std::cout << "GET /api/networks" << std::endl;
         json response = json::array();
         for (const auto &network : web_server_config->text_encoder_support_list)
@@ -711,43 +710,42 @@ void IntegratedWebServer::setupVideoThumbnailClickedRoute()
 
 void IntegratedWebServer::setupWebRtcSessionLiveMainRoute()
 {
-    server->Post("/api/webrtc/session-live-main",
-                 [this]([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
-                     std::cout << "POST /api/webrtc/session-live-main" << std::endl;
-                     try
-                     {
-                         json response;
-                         auto webrtc_streamer_ext = findWebRtcStreamer(WebRtcStreamers::StreamType::MAIN_LIVE);
-                         if (!webrtc_streamer_ext)
-                         {
-                             res.status = 400;
-                             response["status"] = "error";
-                             response["message"] = "WebRTCStreamerExt not found for Main live streaming view";
-                             res.set_content(response.dump(), "application/json");
-                             std::cerr << "WebRTCStreamerExt not found for Main live streaming view" << std::endl;
-                             return;
-                         }
+    server->Post("/api/webrtc/session-live-main", [this](const httplib::Request & /*req*/, httplib::Response &res) {
+        std::cout << "POST /api/webrtc/session-live-main" << std::endl;
+        try
+        {
+            json response;
+            auto webrtc_streamer_ext = findWebRtcStreamer(WebRtcStreamers::StreamType::MAIN_LIVE);
+            if (!webrtc_streamer_ext)
+            {
+                res.status = 400;
+                response["status"] = "error";
+                response["message"] = "WebRTCStreamerExt not found for Main live streaming view";
+                res.set_content(response.dump(), "application/json");
+                std::cerr << "WebRTCStreamerExt not found for Main live streaming view" << std::endl;
+                return;
+            }
 
-                         res.status = 200;
-                         response["status"] = "success";
-                         response["session_id"] = webrtc_streamer_ext->session_id;
-                         res.set_content(response.dump(), "application/json");
-                     }
-                     catch (const std::exception &e)
-                     {
-                         res.status = 500;
-                         json error_response;
-                         error_response["status"] = "error";
-                         error_response["message"] = "Invalid request";
-                         res.set_content(error_response.dump(), "application/json");
-                     }
-                 });
+            res.status = 200;
+            response["status"] = "success";
+            response["session_id"] = webrtc_streamer_ext->session_id;
+            res.set_content(response.dump(), "application/json");
+        }
+        catch (const std::exception &e)
+        {
+            res.status = 500;
+            json error_response;
+            error_response["status"] = "error";
+            error_response["message"] = "Invalid request";
+            res.set_content(error_response.dump(), "application/json");
+        }
+    });
 }
 
 void IntegratedWebServer::setupWebRtcSessionVideoThumbnailRoute()
 {
     server->Post("/api/webrtc/session-video-thumbnail",
-                 [this]([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
+                 [this](const httplib::Request & /*req*/, httplib::Response &res) {
                      std::cout << "POST /api/webrtc/session-video-thumbnail" << std::endl;
                      try
                      {
@@ -896,7 +894,7 @@ void IntegratedWebServer::setupWebRtcIceCandidateRoute()
 
 void IntegratedWebServer::setupWebRtcStatusRoute()
 {
-    server->Get("/api/webrtc/status", [this]([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
+    server->Get("/api/webrtc/status", [this](const httplib::Request & /*req*/, httplib::Response &res) {
         json statusJson;
 
         auto webrtc_streamer_ext = findWebRtcStreamer(WebRtcStreamers::StreamType::MAIN_LIVE);
@@ -938,7 +936,7 @@ void IntegratedWebServer::setupWebRtcVideoThumbnailStopRoute()
 
 void IntegratedWebServer::setupStorageStatusRoute()
 {
-    server->Get("/api/storage/status", [this]([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
+    server->Get("/api/storage/status", [this](const httplib::Request & /*req*/, httplib::Response &res) {
         json response;
 
         // Get storage info from StorageMonitorService

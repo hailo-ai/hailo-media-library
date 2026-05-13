@@ -56,6 +56,6 @@ std::optional<input_config_t> get_input_config_from_encoder(const encoder_config
  * @param[in] profile - the configuration profile to inspect.
  * @return A bracket-enclosed, comma-separated list of stream IDs.
  */
-std::string format_aviallable_streams_ids(const config_profile_t &profile);
+std::string format_available_streams_ids(const config_profile_t &profile);
 
 } // namespace hailo::gst_api

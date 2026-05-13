@@ -1,14 +1,21 @@
 #include "v4l2_ctrl.hpp"
-#include "sensor_registry.hpp"
 
-#include <cstdint>
+#include <asm/ioctl.h>
+#include <fcntl.h>
+#include <linux/v4l2-controls.h>
+#include <stdio.h>
+#include <sys/ioctl.h>
+#include <sys/types.h>
 #include <cstring>
 #include <optional>
 #include <filesystem>
 #include <fstream>
-#include <type_traits>
 #include <regex>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
+#include "sensor_registry.hpp"
 #include "media_library_logger.hpp"
 
 #define MODULE_NAME LoggerType::Isp
@@ -45,7 +52,7 @@ const std::unordered_map<Video0Ctrl, std::pair<std::string, uint32_t>> m_video0_
     {Video0Ctrl::DG_GAIN, {"isp_dg_gain", 0}},
     {Video0Ctrl::FAST_TOGGLE, {"", _IOR('D', BASE_VIDIOC_PRIVATE + 8, int)}},
     {Video0Ctrl::FAST_TOGGLE_PREPARE, {"", _IOR('D', BASE_VIDIOC_PRIVATE + 9, int)}},
-    {Video0Ctrl::HDR_FORWARD_TIMESTAMPS, {"timestamp_mode", _IOW('D', BASE_VIDIOC_PRIVATE + 5, bool)}},
+    {Video0Ctrl::ISP_FORWARD_TIMESTAMPS, {"timestamp_mode", _IOW('D', BASE_VIDIOC_PRIVATE + 5, bool)}},
 };
 
 const std::unordered_map<ImxCtrl, std::pair<std::string, uint32_t>> m_imx_ctrl_to_key = {

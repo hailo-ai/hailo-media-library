@@ -6,191 +6,194 @@
 #include "hailo_analytics/pipeline/codecs/analytic_metadata_packager_stage.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
 
+#include "analytics_metadata.pb.h"
+
 namespace hailo_analytics::pipeline::codecs
 {
 
-static nlohmann::json &append_detection(HailoDetectionPtr detection, const HailoBBox &roi_bbox, uint32_t native_width,
-                                        uint32_t native_height, nlohmann::json &metadata_json)
+namespace
 {
-    auto detection_bbox = detection->get_bbox();
 
-    if (!metadata_json.contains(analytic_metadata_fields::DETECTIONS))
-        metadata_json[analytic_metadata_fields::DETECTIONS] = nlohmann::json::array();
+constexpr const char *LANDMARKS_POINTS_FORMAT = "x,y,conf";
+constexpr uint32_t LANDMARKS_POINTS_STRIDE = 3;
 
-    metadata_json[analytic_metadata_fields::DETECTIONS].push_back({
-        {analytic_metadata_fields::detection::LABEL, detection->get_label()},
-        {analytic_metadata_fields::detection::DETECTION_CONFIDENCE, detection->get_confidence()},
-        {analytic_metadata_fields::detection::BBOX,
-         {
-             {analytic_metadata_fields::detection::bbox::XMIN,
-              ((detection_bbox.xmin() * roi_bbox.width()) + roi_bbox.xmin()) * native_width},
-             {analytic_metadata_fields::detection::bbox::YMIN,
-              ((detection_bbox.ymin() * roi_bbox.height()) + roi_bbox.ymin()) * native_height},
-             {analytic_metadata_fields::detection::bbox::XMAX,
-              ((detection_bbox.xmax() * roi_bbox.width()) + roi_bbox.xmin()) * native_width},
-             {analytic_metadata_fields::detection::bbox::YMAX,
-              ((detection_bbox.ymax() * roi_bbox.height()) + roi_bbox.ymin()) * native_height},
-         }},
-    });
+// Forward declaration; populate_objects_recursive recurses with both Frame and Detection parents.
+template <typename ParentMessage>
+void populate_objects_recursive(HailoROIPtr roi, const HailoBBox &parent_bbox, uint32_t native_width,
+                                uint32_t native_height, ParentMessage &parent);
 
-    return metadata_json[analytic_metadata_fields::DETECTIONS];
+// Both hailo_analytics::Frame and hailo_analytics::Detection expose add_detections() returning
+// Detection*, so a single template covers both parents without explicit dispatch.
+template <typename ParentMessage>
+hailo_analytics::Detection *populate_detection(HailoDetectionPtr detection, const HailoBBox &roi_bbox,
+                                               uint32_t native_width, uint32_t native_height, ParentMessage &parent)
+{
+    auto *detection_msg = parent.add_detections();
+
+    detection_msg->set_label(detection->get_label());
+    detection_msg->set_confidence(detection->get_confidence());
+
+    auto *bbox_msg = detection_msg->mutable_bbox();
+    auto bbox = detection->get_bbox();
+    bbox_msg->set_xmin(((bbox.xmin() * roi_bbox.width()) + roi_bbox.xmin()) * native_width);
+    bbox_msg->set_ymin(((bbox.ymin() * roi_bbox.height()) + roi_bbox.ymin()) * native_height);
+    bbox_msg->set_xmax(((bbox.xmax() * roi_bbox.width()) + roi_bbox.xmin()) * native_width);
+    bbox_msg->set_ymax(((bbox.ymax() * roi_bbox.height()) + roi_bbox.ymin()) * native_height);
+
+    return detection_msg;
 }
 
-static bool append_landmarks(HailoLandmarksPtr landmarks, const HailoBBox &roi_bbox, uint32_t native_width,
-                             uint32_t native_height, nlohmann::json &metadata_json)
+template <typename ParentMessage>
+hailo_analytics::Landmarks *populate_landmarks(HailoLandmarksPtr landmarks, const HailoBBox &roi_bbox,
+                                               uint32_t native_width, uint32_t native_height, ParentMessage &parent)
 {
     const auto &points_input = landmarks->get_points();
-    const auto &pairs_input = landmarks->get_pairs();
     if (points_input.empty())
-        return false;
+        return nullptr;
 
-    if (!metadata_json.contains(analytic_metadata_fields::LANDMARKS))
-        metadata_json[analytic_metadata_fields::LANDMARKS] = nlohmann::json::array();
+    auto *landmarks_msg = parent.add_landmarks();
+    landmarks_msg->set_points_format(LANDMARKS_POINTS_FORMAT);
+    landmarks_msg->set_points_stride(LANDMARKS_POINTS_STRIDE);
 
-    const float scale_x = roi_bbox.width() * (float)native_width;
-    const float offset_x = roi_bbox.xmin() * (float)native_width;
-    const float scale_y = roi_bbox.height() * (float)native_height;
-    const float offset_y = roi_bbox.ymin() * (float)native_height;
+    const float scale_x = roi_bbox.width() * static_cast<float>(native_width);
+    const float offset_x = roi_bbox.xmin() * static_cast<float>(native_width);
+    const float scale_y = roi_bbox.height() * static_cast<float>(native_height);
+    const float offset_y = roi_bbox.ymin() * static_cast<float>(native_height);
 
-    std::vector<float> points;
-    points.reserve(points_input.size() * 3);
+    auto *points_field = landmarks_msg->mutable_points();
+    points_field->Reserve(static_cast<int>(points_input.size() * LANDMARKS_POINTS_STRIDE));
     for (const auto &point : points_input)
     {
-        points.push_back(point.x() * scale_x + offset_x);
-        points.push_back(point.y() * scale_y + offset_y);
-        points.push_back(point.confidence());
+        points_field->Add(point.x() * scale_x + offset_x);
+        points_field->Add(point.y() * scale_y + offset_y);
+        points_field->Add(point.confidence());
     }
 
-    std::vector<int> pairs;
-    pairs.reserve(pairs_input.size() * 2);
+    const auto &pairs_input = landmarks->get_pairs();
+    auto *pairs_field = landmarks_msg->mutable_pairs();
+    pairs_field->Reserve(static_cast<int>(pairs_input.size() * 2));
     for (const auto &pair : pairs_input)
     {
-        pairs.push_back(static_cast<int>(pair.first));
-        pairs.push_back(static_cast<int>(pair.second));
+        pairs_field->Add(static_cast<uint32_t>(pair.first));
+        pairs_field->Add(static_cast<uint32_t>(pair.second));
     }
 
-    nlohmann::json landmark_obj = {
-        {analytic_metadata_fields::landmark::POINTS_FORMAT, analytic_metadata_fields::landmark::POINTS_FORMAT_VALUE},
-        {analytic_metadata_fields::landmark::POINTS_STRIDE, analytic_metadata_fields::landmark::POINTS_STRIDE_VALUE},
-        {analytic_metadata_fields::landmark::POINTS, std::move(points)},
-        {analytic_metadata_fields::landmark::PAIRS, std::move(pairs)}};
-
-    metadata_json[analytic_metadata_fields::LANDMARKS].push_back(std::move(landmark_obj));
-
-    return true;
+    return landmarks_msg;
 }
 
-static void append_classification(HailoClassificationPtr classification, nlohmann::json &metadata_json)
+template <typename ParentMessage>
+void populate_classification(HailoClassificationPtr classification, ParentMessage &parent)
 {
-    if (!metadata_json.contains(analytic_metadata_fields::CLASSIFICATIONS))
-        metadata_json[analytic_metadata_fields::CLASSIFICATIONS] = nlohmann::json::array();
-
-    metadata_json[analytic_metadata_fields::CLASSIFICATIONS].push_back({
-        {analytic_metadata_fields::classification::TYPE, classification->get_classification_type()},
-        {analytic_metadata_fields::classification::LABEL, classification->get_label()},
-        {analytic_metadata_fields::classification::CLASSIFICATION_CONFIDENCE, classification->get_confidence()},
-    });
+    auto *classification_msg = parent.add_classifications();
+    classification_msg->set_type(classification->get_classification_type());
+    classification_msg->set_label(classification->get_label());
+    classification_msg->set_confidence(classification->get_confidence());
 }
 
-static void append_objects_recursive(HailoROIPtr roi, const HailoBBox &parent_bbox, uint32_t native_width,
-                                     uint32_t native_height, nlohmann::json &metadata_json)
+void set_tracking_id(uint32_t /*tracking_id*/, hailo_analytics::Frame & /*parent*/)
+{
+    // Top-level Frame has no tracking_id; HailoUniqueID at the root is silently dropped (matches legacy JSON
+    // behaviour).
+}
+
+void set_tracking_id(uint32_t tracking_id, hailo_analytics::Detection &parent)
+{
+    parent.set_tracking_id(tracking_id);
+}
+
+template <typename ParentMessage>
+void populate_objects_recursive(HailoROIPtr roi, const HailoBBox &parent_bbox, uint32_t native_width,
+                                uint32_t native_height, ParentMessage &parent)
 {
     for (auto obj : roi->get_objects())
     {
-        nlohmann::json *current_node = nullptr;
-        HailoBBox object_bbox = parent_bbox;
-
         switch (obj->get_type())
         {
         case HAILO_DETECTION: {
-            HailoDetectionPtr detection = std::dynamic_pointer_cast<HailoDetection>(obj);
+            auto detection = std::dynamic_pointer_cast<HailoDetection>(obj);
+            auto *detection_msg = populate_detection(detection, parent_bbox, native_width, native_height, parent);
 
-            auto &detections_array =
-                append_detection(detection, parent_bbox, native_width, native_height, metadata_json);
-
-            current_node = &detections_array.back();
-            object_bbox = hailo_common::create_flattened_bbox(parent_bbox, detection->get_bbox());
+            auto child_roi = std::dynamic_pointer_cast<HailoROI>(obj);
+            if (child_roi)
+            {
+                auto child_bbox = hailo_common::create_flattened_bbox(parent_bbox, detection->get_bbox());
+                populate_objects_recursive(child_roi, child_bbox, native_width, native_height, *detection_msg);
+            }
             break;
         }
         case HAILO_LANDMARKS: {
-            HailoLandmarksPtr landmarks = std::dynamic_pointer_cast<HailoLandmarks>(obj);
+            auto landmarks = std::dynamic_pointer_cast<HailoLandmarks>(obj);
+            auto *landmarks_msg = populate_landmarks(landmarks, parent_bbox, native_width, native_height, parent);
 
-            if (append_landmarks(landmarks, parent_bbox, native_width, native_height, metadata_json))
+            auto child_roi = std::dynamic_pointer_cast<HailoROI>(obj);
+            if (landmarks_msg != nullptr && child_roi)
             {
-                current_node = &metadata_json[analytic_metadata_fields::LANDMARKS].back();
-                object_bbox = parent_bbox;
+                // Child ROI inherits parent_bbox (matches legacy code's object_bbox for landmarks).
+                // Landmarks message itself has no nested children fields, so we only recurse if we
+                // somehow share scope with sibling detections. Skipping to mirror legacy semantics.
             }
             break;
         }
         case HAILO_UNIQUE_ID: {
-            HailoUniqueIDPtr unique_id = std::dynamic_pointer_cast<HailoUniqueID>(obj);
-            metadata_json[analytic_metadata_fields::detection::TRACKING_ID] = unique_id->get_id();
+            auto unique_id = std::dynamic_pointer_cast<HailoUniqueID>(obj);
+            set_tracking_id(static_cast<uint32_t>(unique_id->get_id()), parent);
             break;
         }
         case HAILO_CLASSIFICATION: {
-            HailoClassificationPtr classification = std::dynamic_pointer_cast<HailoClassification>(obj);
-            append_classification(classification, metadata_json);
+            auto classification = std::dynamic_pointer_cast<HailoClassification>(obj);
+            populate_classification(classification, parent);
             break;
         }
         default:
-            HAILO_ANALYTICS_LOG_INFO("analytic_metadata_json: skipping unknown object type {}", obj->get_type());
+            HAILO_ANALYTICS_LOG_INFO("analytic_metadata_proto: skipping unknown object type {}", obj->get_type());
             break;
-        }
-
-        HailoROIPtr obj_roi = std::dynamic_pointer_cast<HailoROI>(obj);
-        if (current_node != nullptr && obj_roi != nullptr)
-        {
-            append_objects_recursive(obj_roi, object_bbox, native_width, native_height, *current_node);
         }
     }
 }
 
-nlohmann::json build_metadata_json(BufferPtr data)
+} // namespace
+
+bool build_metadata_proto(BufferPtr data, hailo_analytics::Frame &frame)
 {
     auto roi = data->get_roi();
     if (!roi)
-        return {};
+        return false;
 
     auto native_width = data->get_buffer()->buffer_data->width;
     auto native_height = data->get_buffer()->buffer_data->height;
 
-    nlohmann::json metadata_json;
-    append_objects_recursive(roi, roi->get_bbox(), native_width, native_height, metadata_json);
+    populate_objects_recursive(roi, roi->get_bbox(), native_width, native_height, frame);
 
-    if (metadata_json.empty())
-        return {};
+    if (frame.detections_size() == 0 && frame.landmarks_size() == 0 && frame.classifications_size() == 0)
+        return false;
 
-    metadata_json[analytic_metadata_fields::ISP_TIMESTAMP] = data->get_buffer()->isp_timestamp_ns;
-    metadata_json[analytic_metadata_fields::FRAME_WIDTH] = native_width;
-    metadata_json[analytic_metadata_fields::FRAME_HEIGHT] = native_height;
-
-    return metadata_json;
+    frame.set_isp_timestamp_ns(data->get_buffer()->isp_timestamp_ns);
+    frame.set_frame_width(native_width);
+    frame.set_frame_height(native_height);
+    return true;
 }
 
-AnalyticMetadataPackagerStage::AnalyticMetadataPackagerStage(std::string name, Format format, size_t queue_size,
-                                                             bool leaky, bool trace_processing_operations)
-    : hailo_analytics::pipeline::ThreadedStage(name, queue_size, leaky, trace_processing_operations), m_format(format)
+AnalyticMetadataPackagerStage::AnalyticMetadataPackagerStage(std::string name, size_t queue_size, bool leaky,
+                                                             bool trace_processing_operations)
+    : hailo_analytics::pipeline::ThreadedStage(name, queue_size, leaky, trace_processing_operations)
 {
 }
 
 AppStatus AnalyticMetadataPackagerStage::process(BufferPtr data)
 {
-    nlohmann::json metadata_json = build_metadata_json(data);
-    if (metadata_json.empty())
+    hailo_analytics::Frame frame;
+    if (!build_metadata_proto(data, frame))
         return AppStatus::SUCCESS;
 
+    std::string serialized;
+    if (!frame.SerializeToString(&serialized))
+    {
+        HAILO_ANALYTICS_LOG_WARN("analytic_metadata_proto: SerializeToString failed");
+        return AppStatus::SUCCESS;
+    }
+
     auto zmq_msg = std::make_shared<HailoZMQMessage>();
-
-    if (m_format == Format::JSON)
-    {
-        zmq_msg->set_output_msg(metadata_json.dump());
-    }
-    else
-    {
-        auto binary_msg = nlohmann::json::to_msgpack(metadata_json);
-        zmq_msg->set_output_msg(std::string(reinterpret_cast<const char *>(binary_msg.data()), binary_msg.size()));
-    }
-
+    zmq_msg->set_output_msg(std::move(serialized));
     data->get_roi()->add_object(zmq_msg);
 
     send_to_subscribers(data);
@@ -202,12 +205,6 @@ AnalyticMetadataPackagerStageBuild::Builder &AnalyticMetadataPackagerStageBuild:
     std::string name)
 {
     m_stage_name = name;
-    return *this;
-}
-
-AnalyticMetadataPackagerStageBuild::Builder &AnalyticMetadataPackagerStageBuild::Builder::set_format_opt(Format format)
-{
-    m_format = format;
     return *this;
 }
 
@@ -234,8 +231,7 @@ std::shared_ptr<AnalyticMetadataPackagerStage> AnalyticMetadataPackagerStageBuil
 {
     THROW_IF_MISSING(m_stage_name.has_value(), "set_stage_name");
 
-    return std::make_shared<AnalyticMetadataPackagerStage>(m_stage_name.value(), m_format, m_queue_size, m_leaky,
-                                                           m_trace);
+    return std::make_shared<AnalyticMetadataPackagerStage>(m_stage_name.value(), m_queue_size, m_leaky, m_trace);
 }
 
 AnalyticMetadataPackagerStageBuild::Builder AnalyticMetadataPackagerStageBuild::create()

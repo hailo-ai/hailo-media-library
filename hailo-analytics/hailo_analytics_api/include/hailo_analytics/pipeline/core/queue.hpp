@@ -2,14 +2,13 @@
 
 // General includes
 #include <atomic>
+#include <chrono>
 #include <optional>
 #include <queue>
 #include <mutex>
-#include <thread>
 #include <condition_variable>
 #include <string>
 #include <memory>
-#include <iostream>
 
 // Infra includes
 #include "buffer.hpp"
@@ -62,6 +61,8 @@ class Queue
      */
     Queue(std::string parent_name, std::string queue_name, size_t max_buffers, bool leaky = false);
     ~Queue();
+    Queue(const Queue &) = delete;
+    Queue &operator=(const Queue &) = delete;
 
     /**
      * @brief Gets the name of this queue.

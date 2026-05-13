@@ -12,7 +12,7 @@ namespace pipeline
 class ClipPipeline : public BasePipeline
 {
   public:
-    ClipPipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
+    ClipPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
                  RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H);
     static bool is_supported(webserver::resources::ResourceRepository &resources);
     static const ClipAppConfig &get_clip_config();
@@ -43,6 +43,7 @@ class ClipPipeline : public BasePipeline
     void register_networks_endpoint();
     void register_embedding_endpoint();
     void register_video_thumbnail_clicked_endpoint();
+    void register_video_segments_download_endpoint();
     void register_video_thumbnail_stop_endpoint();
     void register_storage_status_endpoint();
 };

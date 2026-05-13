@@ -26,20 +26,25 @@
  **/
 #pragma once
 
-#include "media_library/media_library.hpp"
-#include "media_library/utils.hpp"
-#include "media_library/media_library_types.hpp"
-#include "media_library/signal_utils.hpp"
+#include <tl/expected.hpp>
+#include <stdint.h>
+#include <unistd.h>
 #include <fstream>
 #include <optional>
 #include <iostream>
-#include <sstream>
-#include <tl/expected.hpp>
-#include <signal.h>
 #include <map>
-#include <thread>
-#include <cstring>
 #include <string>
+#include <functional>
+#include <memory>
+#include <stdexcept>
+#include <utility>
+#include <vector>
+
+#include "media_library/media_library.hpp"
+#include "media_library/media_library_types.hpp"
+#include "media_library/buffer_pool.hpp"
+#include "media_library/encoder.hpp"
+#include "media_library/frontend.hpp"
 
 // ============================================================================
 // Compile-time configuration macros
@@ -207,5 +212,12 @@ void connect_frontend_to_encoders(MediaLibrary &media_lib);
 void subscribe_to_encoded_output(MediaLibrary &media_lib, std::map<output_stream_id_t, std::ofstream> &output_files,
                                  const std::string &output_prefix);
 bool initialize_pipeline(Resources &resources, const std::string &config_path, const std::string &output_prefix);
+
+// Scale pixel-sized text/datetime overlay fields by `scale`.
+void scale_osd_pixel_fields(config_stream_osd_t &osd, double scale);
+
+// Rescale OSD pixel fields to each stream's encoder height, using the
+// profile's sensor input height as the reference.
+media_library_return scale_osd_to_output_resolution(MediaLibraryPtr media_lib);
 
 } // namespace examples

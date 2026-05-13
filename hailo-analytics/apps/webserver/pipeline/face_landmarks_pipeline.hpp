@@ -10,7 +10,7 @@ namespace pipeline
 class FaceLandmarksPipeline : public BasePipeline
 {
   public:
-    FaceLandmarksPipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
+    FaceLandmarksPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
                           RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H);
     static bool is_supported(webserver::resources::ResourceRepository &resources);
     virtual std::string pipeline_name() const override;

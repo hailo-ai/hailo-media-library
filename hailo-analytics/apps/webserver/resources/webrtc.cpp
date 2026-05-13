@@ -1,5 +1,7 @@
 #include "webrtc.hpp"
 #include "webrtc_turn.hpp"
+#include "rtc/rtc.hpp"
+#include <random>
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
@@ -9,6 +11,22 @@
 #include <cstring>
 
 using namespace webserver::resources;
+
+// WebrtcSession definition (moved here from webrtc.hpp to avoid rtc/rtc.hpp in the header)
+struct WebRtcResource::WebrtcSession
+{
+    rtp_session_id_t session_id;
+    std::string stream_name;
+    std::shared_ptr<rtc::PeerConnection> peer_connection;
+    std::shared_ptr<rtc::Track> track;
+    rtc::PeerConnection::State state = rtc::PeerConnection::State::New;
+    rtc::PeerConnection::GatheringState gathering_state = rtc::PeerConnection::GatheringState::New;
+    rtc::SSRC ssrc;
+    std::string codec;
+    nlohmann::json ICE_offer;
+};
+
+WebRtcResource::~WebRtcResource() = default;
 
 // Helper function to generate session id
 inline rtp_session_id_t generate_session_id()
@@ -40,7 +58,7 @@ WebRtcResource::WebRtcResource(std::shared_ptr<EventBus> event_bus, std::shared_
 {
     subscribe_callback(
         EventType::PIPELINE_READY, EventPriority::EVENT_PRIORITY_HIGH,
-        [this, configs](ResourceStateChangeNotification notification) {
+        [this, configs](ResourceStateChangeNotification /*notification*/) {
             WEBSERVER_LOG_INFO("Initializing WebRtcResource");
             this->m_stream_codec =
                 configs->get_encoder_default_config()["hailo_encoder"]["config"]["output_stream"]["codec"];

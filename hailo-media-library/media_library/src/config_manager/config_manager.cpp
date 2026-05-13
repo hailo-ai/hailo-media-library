@@ -1,21 +1,26 @@
 #include "config_manager.hpp"
-#include "config_parser.hpp"
-#include "config_backup.hpp"
-#include "logger_macros.hpp"
-#include "media_library_types.hpp"
-#include "sensor_registry.hpp"
-#include "media_library_rule_checker.hpp"
-#include <memory>
+
 #include <nlohmann/json.hpp>
+#include <assert.h>
+#include <imaging/aaa_config_types.hpp>
+#include <memory>
 #include <algorithm>
 #include <cctype>
-#include <ranges>
 #include <optional>
 #include <string>
 #include <map>
-#include <cmath>
-#include <climits>
-#include <tl/expected.hpp>
+#include <functional>
+#include <initializer_list>
+#include <ostream>
+#include <set>
+#include <vector>
+
+#include "config_parser.hpp"
+#include "config_backup.hpp"
+#include "media_library_types.hpp"
+#include "sensor_registry.hpp"
+#include "media_library_rule_checker.hpp"
+#include "media_library_logger.hpp"
 
 #define MODULE_NAME LoggerType::Config
 using json = nlohmann::json;
@@ -850,15 +855,27 @@ tl::expected<std::map<std::string, std::shared_ptr<config_profile_t>>, media_lib
     std::map<std::string, std::shared_ptr<config_profile_t>> name_to_profile;
     for (const auto &profile : medialib_conf.profiles)
     {
-        std::shared_ptr<config_profile_t> profile_config = std::make_shared<config_profile_t>();
         LOGGER__MODULE__INFO(MODULE_NAME, "Parsing profile: {} from file: {}", profile.name, profile.config_file);
         LOGGER__MODULE__TRACE(MODULE_NAME, "Profile config content: {}", profile.flattened_config_file_content.dump());
-        auto status = config_manager.config_string_to_struct<config_profile_t>(
-            profile.flattened_config_file_content.dump(), *profile_config);
-        if (status != MEDIA_LIBRARY_SUCCESS)
+
+        auto validation_status = config_manager.validate_configuration(profile.flattened_config_file_content.dump());
+        if (validation_status != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to parse profile: {} from file: {}", profile.name,
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to validate profile: {} from file: {}", profile.name,
                                   profile.config_file);
+            return tl::unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
+        }
+
+        std::shared_ptr<config_profile_t> profile_config;
+        try
+        {
+            profile_config = std::make_shared<config_profile_t>(
+                parse_flattened_config_profile(profile.flattened_config_file_content));
+        }
+        catch (const nlohmann::json::exception &e)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to parse profile: {} from file: {}: {}", profile.name,
+                                  profile.config_file, e.what());
             return tl::unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
         }
         name_to_profile[profile.name] = profile_config;

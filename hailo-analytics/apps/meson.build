@@ -4,6 +4,8 @@ apps_install_dir = get_option('apps_install_dir')
 ################################################
 # SUBDIRS
 ################################################
+
+
 if get_option('build_case_studies')
     subdir('case_studies')
 endif
@@ -27,5 +29,3 @@ endif
 if get_option('build_native')
     
 endif
-
-

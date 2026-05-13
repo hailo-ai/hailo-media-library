@@ -519,7 +519,7 @@ static bool validate_srcpads_against_profile(GstHailoVision *self, const config_
         if (profile.encoded_output_streams.find(stream_id) == profile.encoded_output_streams.end())
         {
             GST_ERROR_OBJECT(self, "stream-id '%s' not found in current profile. Available: %s", stream_id.c_str(),
-                             hailo::gst_api::format_aviallable_streams_ids(profile).c_str());
+                             hailo::gst_api::format_available_streams_ids(profile).c_str());
             return false;
         }
     }

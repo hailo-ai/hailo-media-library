@@ -98,7 +98,7 @@ overlay_vision_output_config_t base_overlay_vision_output_config(std::string out
 }
 
 tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus> generate_overlay_pipeline(
-    MediaLibraryEncoderPtr encoder, const std::string &pipeline_name,
+    MediaLibraryInterfacePtr media_library, const output_stream_id_t &stream_id, const std::string &pipeline_name,
     std::optional<overlay_vision_output_config_t> user_configs)
 {
     overlay_vision_output_config_t cfg = base_overlay_vision_output_config(); // default configs
@@ -120,8 +120,8 @@ tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::
 
     // Generate the vision output pipeline (encoder -> UDP)
     std::string vision_output_pipeline_name = pipeline_name + "_vision_output";
-    auto vision_result =
-        vision::generate_vision_output_pipeline(encoder, vision_output_pipeline_name, cfg.vision_output_config);
+    auto vision_result = vision::generate_vision_output_pipeline(media_library, stream_id, vision_output_pipeline_name,
+                                                                 cfg.vision_output_config);
     if (!vision_result.has_value())
     {
         return tl::unexpected(vision_result.error());

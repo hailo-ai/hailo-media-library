@@ -22,10 +22,10 @@
  */
 
 #include "gsthailofrontendbinsrc.hpp"
-#include "isp_manager.hpp"
+#include "media_library/isp_manager.hpp"
 #include "media_library/media_library_types.hpp"
 #include "media_library/sensor_registry.hpp"
-#include "media_library_logger.hpp"
+#include "media_library/media_library_logger.hpp"
 #include "media_library/isp_utils.hpp"
 #include "media_library/config_manager.hpp"
 #include "common/gstmedialibcommon.hpp"

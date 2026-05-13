@@ -158,7 +158,7 @@ hailo_analytics::pipeline::AppStatus VideoStorageStage::process(BufferPtr data)
 }
 
 void VideoStorageStage::segment_mkv_callback(const char *filename, uint32_t duration_ms, uint64_t start_time_epoch_ms,
-                                             [[maybe_unused]] uint32_t segment_index, void *user_data)
+                                             uint32_t /*segment_index*/, void *user_data)
 {
 
     // mkv_callback_debug(filename, duration_ms, start_time_epoch_ms, segment_index);
@@ -179,10 +179,11 @@ void VideoStorageStage::segment_mkv_callback(const char *filename, uint32_t dura
 
     // Add to pending operations
     {
+        int64_t db_start = static_cast<int64_t>(start_time_epoch_ms);
+        int64_t db_end = static_cast<int64_t>(start_time_epoch_ms + duration_ms);
         std::lock_guard<std::mutex> lock(video_storage_stage->m_data_mutex);
         video_storage_stage->m_pending_operations.emplace_back(
-            VideoPendingOperation{static_cast<int64_t>(start_time_epoch_ms),
-                                  static_cast<int64_t>(start_time_epoch_ms + duration_ms), std::string(filename)});
+            VideoPendingOperation{db_start, db_end, std::string(filename)});
     }
 
     // Notify the database thread

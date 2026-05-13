@@ -1,4 +1,5 @@
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_postprocess_tools/image_utils/overlay_native.hpp"
 #include "hailo_analytics/pipeline/overlay/overlay_stage.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
 

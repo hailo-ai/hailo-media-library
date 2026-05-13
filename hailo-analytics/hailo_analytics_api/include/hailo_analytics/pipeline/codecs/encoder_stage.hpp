@@ -9,7 +9,7 @@
 #include <algorithm>
 
 // Media-Library includes
-#include "media_library/encoder.hpp"
+#include "media_library/media_library.hpp"
 
 // Infra includes
 #include "hailo_analytics/pipeline/core/stage.hpp"
@@ -23,14 +23,15 @@ namespace hailo_analytics::pipeline::codecs
 /**
  * @brief Class representing an encoder stage in the pipeline.
  *
- * This stage encodes video frames using the media library encoder.
+ * This stage encodes video frames using the media library.
  * It receives buffers from upstream stages, encodes them, and passes
  * the encoded data to downstream stages.
  */
 class EncoderStage : public hailo_analytics::pipeline::ThreadedStage
 {
   private:
-    MediaLibraryEncoder *m_encoder; ///< Non-owning pointer to media library encoder instance.
+    MediaLibraryInterfacePtr m_media_library; ///< Shared MediaLibrary interface instance.
+    output_stream_id_t m_stream_id;           ///< Stream ID for the encoder within the MediaLibrary.
 
   public:
     /**
@@ -45,12 +46,13 @@ class EncoderStage : public hailo_analytics::pipeline::ThreadedStage
                  bool trace_processing_operations = true);
 
     /**
-     * @brief Create the encoder stage with an encoder instance.
+     * @brief Create the encoder stage with a MediaLibrary instance and stream ID.
      *
-     * @param encoder Media library encoder pointer.
+     * @param media_library Shared pointer to the MediaLibrary.
+     * @param stream_id The output stream ID for this encoder.
      * @return AppStatus Status of the creation.
      */
-    AppStatus create(MediaLibraryEncoder &encoder);
+    AppStatus create(MediaLibraryInterfacePtr media_library, const output_stream_id_t &stream_id);
 
     /**
      * @brief Initialize the encoder stage.
@@ -67,12 +69,13 @@ class EncoderStage : public hailo_analytics::pipeline::ThreadedStage
     AppStatus deinit() override;
 
     /**
-     * @brief Configure the encoder stage with an encoder instance.
+     * @brief Configure the encoder stage with a MediaLibrary instance and stream ID.
      *
-     * @param encoder Media library encoder pointer.
+     * @param media_library Shared pointer to the MediaLibrary.
+     * @param stream_id The output stream ID for this encoder.
      * @return AppStatus Status of the configuration.
      */
-    AppStatus configure(MediaLibraryEncoder &encoder);
+    AppStatus configure(MediaLibraryInterfacePtr media_library, const output_stream_id_t &stream_id);
 
     /**
      * @brief Process a buffer by encoding it.

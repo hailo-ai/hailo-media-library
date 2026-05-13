@@ -2,6 +2,9 @@
 
 // general includes
 #include <cstddef>
+#include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
 // medialibrary includes
@@ -28,6 +31,7 @@ enum class MetadataType
     SIZE,               ///< Size metadata type
     BATCH,              ///< Batch metadata type
     SKIPPED_DETECTIONS, ///< Skipped detections metadata type (quality gate)
+    ATTACHED_STREAM,    ///< One bundled passenger buffer from a sibling stream (see AttachedStreamMetadata)
 };
 
 /**
@@ -47,7 +51,9 @@ class Metadata
      * @param type The type of metadata (default: MetadataType::UNKNOWN)
      */
     Metadata(MetadataType type = MetadataType::UNKNOWN);
-    virtual ~Metadata() = default;
+    virtual ~Metadata();
+    Metadata(const Metadata &);
+    Metadata &operator=(const Metadata &);
 
     /**
      * @brief Gets the metadata type.
@@ -117,6 +123,32 @@ class BufferMetadata : public Metadata
     BufferPtr get_buffer();
 };
 using BufferMetadataPtr = std::shared_ptr<BufferMetadata>;
+
+/**
+ * @brief One passenger buffer from a sibling stream, attached to a carrier by BundleStreamsStage.
+ *
+ * Subclasses BufferMetadata (which already owns the passenger BufferPtr) and adds the stream id —
+ * the single source of truth for routing the passenger back at split time. Multiple instances of
+ * this metadata may live on a single carrier (one per bundled stream); the carrier's existing
+ * metadata vector holds all of them, no nested vector required.
+ */
+class AttachedStreamMetadata : public BufferMetadata
+{
+  public:
+    AttachedStreamMetadata(BufferPtr passenger, std::string stream_id)
+        : BufferMetadata(std::move(passenger), MetadataType::ATTACHED_STREAM), m_stream_id(std::move(stream_id))
+    {
+    }
+
+    const std::string &get_stream_id() const
+    {
+        return m_stream_id;
+    }
+
+  private:
+    std::string m_stream_id;
+};
+using AttachedStreamMetadataPtr = std::shared_ptr<AttachedStreamMetadata>;
 
 /**
  * @brief Metadata class for tensor information attached to a Buffer.
@@ -288,6 +320,14 @@ class Buffer
      * @return Shared pointer to the HailoROI object containing detection objects and bounding box information
      */
     HailoROIPtr get_roi() const;
+
+    /**
+     * @brief Replaces the buffer's ROI with the provided one.
+     *
+     * Used by SplitStreamsStage to propagate AI inference results from a bundled carrier onto
+     * each passenger so every stream's downstream encoder/blender sees the same HailoROI tree.
+     */
+    void set_roi(HailoROIPtr roi);
 
     // Metadata methods
     /**

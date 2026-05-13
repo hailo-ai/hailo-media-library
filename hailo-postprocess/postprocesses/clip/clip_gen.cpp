@@ -4,7 +4,6 @@
  **/
 #include <algorithm>
 #include <cmath>
-#include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -12,6 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #include "clip_gen.hpp"
+#include "hailo_postprocess_tools/logger/hailo_postprocess_logger.hpp"
 #include "hailo_postprocess_tools/objects/hailo_common.hpp"
 #include "hailo_postprocess_tools/objects/hailo_objects.hpp"
 #include "hailo_postprocess_tools/tracking/hailo_tracker.hpp"
@@ -60,13 +60,14 @@ void handle_clip_post_process(HailoROIPtr roi, int vector_embedding_size, std::s
     roi->add_object(user_meta);
 
     /*
-    std::cout << function_name << " total tensor: " << tensors.size() << std::endl;
+    HAILO_POSTPROCESS_LOG_DEBUG("{} total tensor: {}",
+                                   function_name, tensors.size());
+
     for (auto tensor : tensors)
     {
-        std::cout << "Tensor name: " << tensor->name() << ", width: " << tensor->width() <<
-                     ", height: " << tensor->height() << ", features: " << tensor->features() <<
-                     ", size: " << tensor->size() << std::endl;
-
+        HAILO_POSTPROCESS_LOG_DEBUG("Tensor name: {}, width: {}, height: {}, features: {}, size: {}",
+                                    tensor->name(), tensor->width(), tensor->height(), tensor->features(),
+    tensor->size());
     }
     */
 }
@@ -81,8 +82,8 @@ void clip_resnet_50x4(HailoROIPtr roi)
     auto tensors = roi->get_tensors();
     if (tensors.size() > CLIP_RESNET_50X4_EXPECTED_NUM_OUTPUT)
     {
-        std::cout << "WARNING: clip_resnet_50x4 total tensor: " << tensors.size() << ", but expecting "
-                  << CLIP_RESNET_50X4_EXPECTED_NUM_OUTPUT << std::endl;
+        HAILO_POSTPROCESS_LOG_WARN("clip_resnet_50x4 total tensor: {}, but expecting {}", tensors.size(),
+                                   CLIP_RESNET_50X4_EXPECTED_NUM_OUTPUT);
         return;
     }
 
@@ -94,8 +95,8 @@ void clip_vit_b_32(HailoROIPtr roi)
     auto tensors = roi->get_tensors();
     if (tensors.size() > CLIP_VIT_B_32_EXPECTED_NUM_OUTPUT)
     {
-        std::cout << "WARNING: clip_vit_b_32 total tensor: " << tensors.size() << ", but expecting "
-                  << CLIP_VIT_B_32_EXPECTED_NUM_OUTPUT << std::endl;
+        HAILO_POSTPROCESS_LOG_WARN("clip_vit_b_32 total tensor: {}, but expecting {}", tensors.size(),
+                                   CLIP_VIT_B_32_EXPECTED_NUM_OUTPUT);
         return;
     }
 
@@ -107,8 +108,8 @@ void clip_vit_l_14_laion2B(HailoROIPtr roi)
     auto tensors = roi->get_tensors();
     if (tensors.size() > CLIP_VIT_L_14_LAION2B_EXPECTED_NUM_OUTPUT)
     {
-        std::cout << "WARNING: clip_vit_l_14_laion2B total tensor: " << tensors.size() << ", but expecting "
-                  << CLIP_VIT_L_14_LAION2B_EXPECTED_NUM_OUTPUT << std::endl;
+        HAILO_POSTPROCESS_LOG_WARN("clip_vit_l_14_laion2B total tensor: {}, but expecting {}", tensors.size(),
+                                   CLIP_VIT_L_14_LAION2B_EXPECTED_NUM_OUTPUT);
         return;
     }
 

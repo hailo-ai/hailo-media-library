@@ -239,11 +239,6 @@ class PrivacyMask
     media_library_return update_dynamic_mask(const config_encoded_output_stream_t &masking_config,
                                              uint64_t isp_timestamp_ns);
     // Helper methods for different analytics types
-    media_library_return process_instance_segmentation_masks(const AnalyticsQueryOptions &opts,
-                                                             const application_analytics_config_t &analytics_config,
-                                                             const std::string &analytics_data_id,
-                                                             const std::vector<std::string> &masked_labels,
-                                                             const size_t dilation_size);
     media_library_return process_semantic_segmentation_masks(const AnalyticsQueryOptions &opts,
                                                              const application_analytics_config_t &analytics_config,
                                                              const std::string &analytics_data_id,

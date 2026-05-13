@@ -1,9 +1,14 @@
 #include "files_utils.hpp"
-#include "media_library_logger.hpp"
+
+#include <unistd.h>
 #include <fstream>
-#include <sstream>
 #include <string>
 #include <filesystem>
+#include <chrono>
+#include <system_error>
+
+#include "media_library_logger.hpp"
+
 #define MODULE_NAME LoggerType::Default
 
 namespace fs = std::filesystem;

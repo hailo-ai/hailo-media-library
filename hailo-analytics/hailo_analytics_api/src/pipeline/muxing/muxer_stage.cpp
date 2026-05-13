@@ -27,10 +27,9 @@ MuxerStage::MuxerStage(std::string name, std::string main_inlet_name, size_t mai
  * MuxerStage creates its two fixed queues (main and sub) in the constructor,
  * so additional queue creation is not supported.
  */
-void MuxerStage::add_queue(std::string name)
+void MuxerStage::add_queue(std::string /*name*/)
 {
     // Muxer has fixed queues - main and sub
-    (void)name;
 }
 
 /**

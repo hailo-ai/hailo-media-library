@@ -21,17 +21,21 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include "isp_utils.hpp"
-#include "logger_macros.hpp"
+
+#include <nlohmann/json.hpp>
+#include <tl/expected.hpp>
+#include <fstream>
+#include <optional>
+#include <regex>
+#include <initializer_list>
+#include <iomanip>
+#include <map>
+
 #include "sensor_registry.hpp"
 #include "media_library_types.hpp"
 #include "v4l2_ctrl.hpp"
 #include "media_library_logger.hpp"
-#include <cstdint>
-#include <nlohmann/json.hpp>
-#include <fstream>
-#include <optional>
-#include <regex>
-#include <tl/expected.hpp>
+#include "dsp_utils.hpp"
 
 #define MODULE_NAME LoggerType::Isp
 

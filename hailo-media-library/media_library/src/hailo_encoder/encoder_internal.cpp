@@ -20,6 +20,7 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+#include <algorithm>
 #include <atomic>
 #include <fstream>
 #include <memory>
@@ -27,8 +28,10 @@
 #include <thread>
 #include <unistd.h>
 #include <unordered_map>
+#include <unordered_set>
 #include <variant>
 
+#include "analytics_db.hpp"
 #include "encoder_class.hpp"
 #include "encoder_config_types.hpp"
 #include "encoder_internal.hpp"
@@ -41,6 +44,12 @@
 
 #define BITS_IN_BYTE 8
 
+/* TODO: Temporarly Hardcoded. Should be removed as part of MSW-???? */
+static constexpr const char *SMART_ENCODER_ANALYTICS_DATA_ID = "detections";
+static constexpr AnalyticsQueryType SMART_ENCODER_QUERY_TYPE = AnalyticsQueryType::Exact;
+static constexpr std::chrono::milliseconds SMART_ENCODER_QUERY_DELTA{0};
+static constexpr std::chrono::milliseconds SMART_ENCODER_QUERY_TIMEOUT{10000};
+
 std::unordered_map<void *, std::string> encoder_names = {};
 
 // Static member definitions - shared hardware and timeout coordination
@@ -52,7 +61,7 @@ std::atomic<bool> Encoder::Impl::m_vc_hw_timeout(false);
 class DmabufShareGuard
 {
   public:
-    DmabufShareGuard(HailoMediaLibraryBufferPtr buf, void *ewl, VCEncIn &enc_in, bool is_output_buffer)
+    DmabufShareGuard(const HailoMediaLibraryBufferPtr &buf, void *ewl, VCEncIn &enc_in, bool is_output_buffer)
         : m_buf(buf), m_ewl(ewl), m_shared_planes(0)
     {
         if (m_buf == nullptr || !m_buf->is_dmabuf())
@@ -169,7 +178,7 @@ Encoder::Impl::~Impl()
     encoder_names.erase(this);
 }
 
-media_library_return Encoder::Impl::acquire_output_memory(HailoMediaLibraryBufferPtr buffer_ptr,
+media_library_return Encoder::Impl::acquire_output_memory(const HailoMediaLibraryBufferPtr &buffer_ptr,
                                                           std::vector<DmabufShareGuard> &dmabuf_release_guards)
 {
     std::shared_lock<std::shared_mutex> lock(m_vc_api_mutex);
@@ -255,7 +264,7 @@ tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::encode_ex
         // Acquire the static hardware mutex for all hardware operations
         std::shared_lock<std::shared_mutex> api_lock(m_vc_api_mutex);
 
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "[{}] Performing Strm Encode on frame number {}", encoder_names[this],
+        LOGGER__MODULE__TRACE(MODULE_NAME, "[{}] Performing Strm Encode on frame number {}", encoder_names[this],
                               m_enc_in.poc);
 
         encoder_ret_code = VCEncStrmEncode(m_inst, &m_enc_in, &m_enc_out, NULL, NULL);
@@ -332,8 +341,7 @@ Encoder::Impl::Impl()
     m_previous_optical_zoom_magnification = 1.0f;
     m_zooming_boost_enabled = false;
 
-    hailo_encoder_config_t empty_config = {};
-    m_config.configure(empty_config);
+    m_config = hailo_encoder_config_t{};
 
     init();
 }
@@ -448,37 +456,93 @@ media_library_return Encoder::Impl::config_init()
         return ret;
     }
 
-    // Pass smart encoder parameters via VCEncIn for vc8000e-side QP map generation
-    apply_smart_encoder_config(m_config.get_hailo_config().smart_encoder);
-
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-void Encoder::Impl::apply_smart_encoder_config(const smart_encoder_config_t &smart_encoder)
+void Encoder::Impl::append_analytics_rois(const std::vector<std::string> &analytics_labels, uint64_t isp_timestamp_ns)
 {
-    if (smart_encoder.enabled)
+    auto &analytics_db = AnalyticsDB::instance();
+    auto application_analytics_config = analytics_db.get_application_analytics_config();
+    auto detection_config_iter =
+        application_analytics_config.detection_analytics_config.find(SMART_ENCODER_ANALYTICS_DATA_ID);
+    if (detection_config_iter == application_analytics_config.detection_analytics_config.end())
     {
-        m_enc_in.backgroundQpDelta = smart_encoder.background_qp_delta;
-        m_rois.resize(smart_encoder.rois.size());
-        for (size_t i = 0; i < m_rois.size(); i++)
-        {
-            m_rois[i].x = smart_encoder.rois[i].x;
-            m_rois[i].y = smart_encoder.rois[i].y;
-            m_rois[i].width = smart_encoder.rois[i].width;
-            m_rois[i].height = smart_encoder.rois[i].height;
-        }
-        m_enc_in.roiCount = m_rois.size();
-        m_enc_in.rois = m_rois.data();
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "[{}] Smart encoder: background_qp_delta={}, {} ROIs", encoder_names[this],
-                              (int)smart_encoder.background_qp_delta, m_enc_in.roiCount);
+        LOGGER__MODULE__WARNING(MODULE_NAME, "[{}] Smart encoder: analytics_data_id '{}' not found in DB config",
+                                encoder_names[this], SMART_ENCODER_ANALYTICS_DATA_ID);
+        return;
     }
-    else
+    const auto &detection_config = detection_config_iter->second;
+
+    // Resolve label names to class_ids using the DB's configured label table.
+    std::unordered_set<uint16_t> allowed_class_ids;
+    for (const auto &label_name : analytics_labels)
+    {
+        auto label_iter = std::find_if(detection_config.labels.begin(), detection_config.labels.end(),
+                                       [&](const label_t &label) { return label.label == label_name; });
+        if (label_iter != detection_config.labels.end())
+            allowed_class_ids.insert(static_cast<uint16_t>(label_iter->id));
+    }
+    if (allowed_class_ids.empty())
+        return;
+
+    AnalyticsQueryOptions query_options{
+        .m_type = SMART_ENCODER_QUERY_TYPE,
+        .m_ts = std::chrono::time_point<std::chrono::steady_clock>{std::chrono::nanoseconds(isp_timestamp_ns)},
+        .m_delta = SMART_ENCODER_QUERY_DELTA,
+        .m_timeout = SMART_ENCODER_QUERY_TIMEOUT,
+    };
+    auto query_result = analytics_db.query_detection_entry(SMART_ENCODER_ANALYTICS_DATA_ID, query_options);
+    if (!query_result.has_value())
+        return;
+
+    const float ai_width = static_cast<float>(detection_config.width);
+    const float ai_height = static_cast<float>(detection_config.height);
+    const auto &detections = query_result.value().analytics_buffer;
+    m_rois.reserve(m_rois.size() + detections.size());
+    for (const auto &detection : detections)
+    {
+        if (allowed_class_ids.find(detection.class_id) == allowed_class_ids.end())
+            continue;
+        VCEncIn::VCEncRoi roi;
+        roi.x = std::clamp(detection.x_min / ai_width, 0.0f, 1.0f);
+        roi.y = std::clamp(detection.y_min / ai_height, 0.0f, 1.0f);
+        roi.width = std::clamp((detection.x_max - detection.x_min) / ai_width, 0.0f, 1.0f);
+        roi.height = std::clamp((detection.y_max - detection.y_min) / ai_height, 0.0f, 1.0f);
+        m_rois.push_back(roi);
+    }
+}
+
+void Encoder::Impl::apply_smart_encoder_config(uint64_t isp_timestamp_ns)
+{
+    const auto &smart_encoder = m_config.smart_encoder;
+
+    if (!smart_encoder.enabled)
     {
         m_enc_in.backgroundQpDelta = 0;
         m_enc_in.roiCount = 0;
         m_enc_in.rois = nullptr;
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "[{}] Smart encoder: disabled, clearing params", encoder_names[this]);
+        return;
     }
+
+    m_rois.clear();
+    m_rois.reserve(smart_encoder.rois.size());
+    for (const auto &static_roi : smart_encoder.rois)
+    {
+        m_rois.push_back({static_roi.x, static_roi.y, static_roi.width, static_roi.height});
+    }
+
+    if (!smart_encoder.analytics_labels.empty())
+    {
+        append_analytics_rois(smart_encoder.analytics_labels, isp_timestamp_ns);
+    }
+
+    m_enc_in.backgroundQpDelta = smart_encoder.background_qp_delta;
+    m_enc_in.roiCount = m_rois.size();
+    m_enc_in.rois = m_rois.empty() ? nullptr : m_rois.data();
+
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "[{}] Smart encoder: background_qp_delta={}, {} ROIs ({} static, {} from DB)",
+                          encoder_names[this], (int)smart_encoder.background_qp_delta, m_enc_in.roiCount,
+                          smart_encoder.rois.size(), m_enc_in.roiCount - smart_encoder.rois.size());
 }
 
 media_library_return Encoder::Impl::init()
@@ -509,54 +573,53 @@ EncoderOutputBuffer Encoder::Impl::get_encoder_header_output_buffer()
 
 media_library_return Encoder::Impl::configure_on_new_config(const encoder_config_t &config)
 {
-    auto enc_conf = std::get<hailo_encoder_config_t>(config);
+    auto incoming = std::get<hailo_encoder_config_t>(config);
+
     if (m_state == ENCODER_STATE_INITIALIZED)
     {
-        if (m_config.configure(config) != MEDIA_LIBRARY_SUCCESS)
+        if (resolve_hailo_encoder_config(incoming) != MEDIA_LIBRARY_SUCCESS)
         {
             LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to configure encoder", encoder_names[this]);
             return MEDIA_LIBRARY_CONFIGURATION_ERROR;
         }
+        m_config = incoming;
         config_init();
         start();
     }
-    if (m_config.config_struct_equal(m_config.get_user_config(), enc_conf))
+
+    if (resolve_hailo_encoder_config(incoming) != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to configure encoder", encoder_names[this]);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    if (m_config == incoming)
     {
         LOGGER__MODULE__TRACE(MODULE_NAME, "[{}] No configuration change detected, skipping configuration",
                               encoder_names[this]);
         return MEDIA_LIBRARY_SUCCESS;
     }
 
-    auto old_config = m_config.get_hailo_config();
-    if (m_config.configure(config) != MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to configure encoder", encoder_names[this]);
-        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-    }
+    auto old_config = m_config;
+    m_config = incoming;
 
-    // Read the configuration again after the configuration is done
-    auto new_config = m_config.get_hailo_config();
-
-    apply_smart_encoder_config(new_config.smart_encoder);
-
-    if (old_config.equal_excluding_smart_encoder(new_config))
+    if (old_config.equal_excluding_smart_encoder(m_config))
     {
         // Only Smart encoder was changed and it was already updated
         return MEDIA_LIBRARY_SUCCESS;
     }
 
-    auto monitors_conf = &enc_conf.monitors_control;
-    m_bitrate_monitor.enabled = monitors_conf->bitrate_monitor.enable;
-    m_bitrate_monitor.period = monitors_conf->bitrate_monitor.period;
-    m_cycle_monitor.enabled = monitors_conf->cycle_monitor.enable;
-    m_cycle_monitor.start_delay = monitors_conf->cycle_monitor.start_delay;
-    m_cycle_monitor.deviation_threshold = monitors_conf->cycle_monitor.deviation_threshold;
+    m_bitrate_monitor.enabled = m_config.monitors_control.bitrate_monitor.enable;
+    m_bitrate_monitor.period = m_config.monitors_control.bitrate_monitor.period;
+    m_cycle_monitor.enabled = m_config.monitors_control.cycle_monitor.enable;
+    m_cycle_monitor.start_delay = m_config.monitors_control.cycle_monitor.start_delay;
+    m_cycle_monitor.deviation_threshold = m_config.monitors_control.cycle_monitor.deviation_threshold;
 
     m_update_required = {ENCODER_CONFIG_CODING_CONTROL, ENCODER_CONFIG_PRE_PROCESSING, ENCODER_CONFIG_RATE_CONTROL};
-    bool gop_update = gop_config_update_required(old_config, new_config);
-    bool instance_restart = instance_restart_required(old_config, new_config, gop_update);
+    bool gop_update = gop_config_update_required(old_config, m_config);
+    bool instance_restart = instance_restart_required(old_config, m_config, gop_update);
 
-    if (new_config.rate_control.bitrate.target_bitrate != old_config.rate_control.bitrate.target_bitrate)
+    if (m_config.rate_control.bitrate.target_bitrate != old_config.rate_control.bitrate.target_bitrate)
     {
         m_is_user_set_bitrate = true;
     }
@@ -825,7 +888,8 @@ void Encoder::Impl::force_keyframe()
     }
 }
 
-media_library_return Encoder::Impl::inject_sei_user_metadata(HailoMediaLibraryBufferPtr buf, bool is_forced_keyframe)
+media_library_return Encoder::Impl::inject_sei_user_metadata(const HailoMediaLibraryBufferPtr &buf,
+                                                             bool is_forced_keyframe)
 {
     (void)is_forced_keyframe;
 
@@ -872,16 +936,6 @@ media_library_return Encoder::Impl::inject_sei_user_metadata(HailoMediaLibraryBu
     }
 
     return MEDIA_LIBRARY_SUCCESS;
-}
-
-encoder_config_t Encoder::Impl::get_config()
-{
-    return m_config.get_config();
-}
-
-encoder_config_t Encoder::Impl::get_user_config()
-{
-    return m_config.get_user_config();
 }
 
 tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::start()
@@ -961,7 +1015,7 @@ tl::expected<EncoderOutputBuffer, media_library_return> Encoder::Impl::finish()
     return m_header;
 }
 
-media_library_return Encoder::Impl::update_input_buffer(HailoMediaLibraryBufferPtr buf,
+media_library_return Encoder::Impl::update_input_buffer(const HailoMediaLibraryBufferPtr &buf,
                                                         std::vector<DmabufShareGuard> &dmabuf_release_guards)
 {
     int ret;
@@ -1085,7 +1139,7 @@ media_library_return Encoder::Impl::encode_multiple_frames(std::vector<EncoderOu
     m_is_encoding_multiple_frames = false;
     lck.unlock();
     m_is_encoding_multiple_frames_cv.notify_all();
-    LOGGER__MODULE__DEBUG(
+    LOGGER__MODULE__TRACE(
         MODULE_NAME,
         "[{}] encode_multiple_frames - completed encoding of {} frames, got {} outputs. next coding type {}",
         encoder_names[this], gop_size, outputs.size(), m_next_coding_type);
@@ -1112,7 +1166,7 @@ media_library_return Encoder::Impl::prepare_empty_output_buffer(EncoderOutputBuf
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
+media_library_return Encoder::Impl::encode_frame(const HailoMediaLibraryBufferPtr &buf,
                                                  std::vector<EncoderOutputBuffer> &outputs, uint32_t frame_number,
                                                  std::vector<DmabufShareGuard> &dmabuf_release_guards)
 {
@@ -1145,10 +1199,12 @@ media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
         m_enc_in.resendVPS = 0;
     }
 
-    if (m_config.get_hailo_config().coding_control.sei_messages.user_metadata_sei)
+    if (m_config.coding_control.sei_messages.user_metadata_sei)
     {
         inject_sei_user_metadata(buf, is_forced_keyframe);
     }
+
+    apply_smart_encoder_config(buf->isp_timestamp_ns);
 
     clock_gettime(CLOCK_MONOTONIC, &start_encode);
     auto expected_encoded_frame = encode_executer(encoder_operation_t::ENCODER_OPERATION_ENCODE, dmabuf_release_guards);
@@ -1290,7 +1346,7 @@ media_library_return Encoder::Impl::encode_frame(HailoMediaLibraryBufferPtr buf,
 
 void Encoder::Impl::boost_settings_for_optical_zoom()
 {
-    const auto &hailo_config = m_config.get_hailo_config();
+    const auto &hailo_config = m_config;
     const auto &rate_control = hailo_config.rate_control;
 
     // Check if zooming process mode is enabled
@@ -1377,7 +1433,7 @@ void Encoder::Impl::check_and_restore_settings(float current_optical_zoom)
     if (m_zooming_boost_enabled)
     {
         // Get current boost configuration from rate_control
-        auto hailo_config = m_config.get_hailo_config();
+        auto hailo_config = m_config;
         auto &rate_control = hailo_config.rate_control;
 
         uint32_t zoom_bitrate_adjuster_timeout_ms =
@@ -1411,7 +1467,7 @@ void Encoder::Impl::check_and_restore_settings(float current_optical_zoom)
                                           encoder_names[this], ret);
                 }
 
-                auto hailo_config = m_config.get_hailo_config();
+                auto hailo_config = m_config;
             }
             bool zoom_bitrate_adjuster_force_keyframe =
                 hailo_config.rate_control.zoom_bitrate_adjuster.zooming_process_force_keyframe.value_or(
@@ -1427,7 +1483,7 @@ void Encoder::Impl::check_and_restore_settings(float current_optical_zoom)
     }
 }
 
-media_library_return Encoder::Impl::handle_bitrate_adjustment_hooks(HailoMediaLibraryBufferPtr buf,
+media_library_return Encoder::Impl::handle_bitrate_adjustment_hooks(const HailoMediaLibraryBufferPtr &buf,
                                                                     uint32_t frame_number)
 {
     if (m_is_user_set_bitrate)
@@ -1435,7 +1491,7 @@ media_library_return Encoder::Impl::handle_bitrate_adjustment_hooks(HailoMediaLi
         LOGGER__MODULE__DEBUG(
             MODULE_NAME,
             "[{}] Delaying handle_bitrate_adjustment_hooks - due to bitrate update to {}, requested by user",
-            encoder_names[this], m_config.get_hailo_config().rate_control.bitrate.target_bitrate);
+            encoder_names[this], m_config.rate_control.bitrate.target_bitrate);
         return MEDIA_LIBRARY_SUCCESS;
     }
 
@@ -1463,14 +1519,18 @@ media_library_return Encoder::Impl::handle_bitrate_adjustment_hooks(HailoMediaLi
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-std::vector<EncoderOutputBuffer> Encoder::Impl::handle_frame(HailoMediaLibraryBufferPtr buf, uint32_t frame_number)
+std::vector<EncoderOutputBuffer> Encoder::Impl::handle_frame(const HailoMediaLibraryBufferPtr &buf,
+                                                             uint32_t frame_number)
 {
     media_library_return ret = MEDIA_LIBRARY_UNINITIALIZED;
     LOGGER__MODULE__TRACE(MODULE_NAME, "[{}] Start Handling Frame with plane 0 of size {} for buffer id {}",
                           encoder_names[this], buf->get_plane_size(0), buf->buffer_index);
 
-    std::string name = "encoder_" + std::to_string(m_vc_cfg.width) + "x" + std::to_string(m_vc_cfg.height);
-    SnapshotManager::get_instance().take_snapshot(name, buf);
+    if (m_state == ENCODER_STATE_START)
+    {
+        std::string name = "encoder_" + std::to_string(m_vc_cfg.width) + "x" + std::to_string(m_vc_cfg.height);
+        SnapshotManager::get_instance().take_snapshot(name, buf);
+    }
 
     auto attached_encoder_config = buf->get_attached_profile()->encoded_output_streams.at(m_stream_id).encoding;
     if (configure_on_new_config(attached_encoder_config) != MEDIA_LIBRARY_SUCCESS)
@@ -1508,17 +1568,17 @@ std::vector<EncoderOutputBuffer> Encoder::Impl::handle_frame(HailoMediaLibraryBu
     switch (m_next_coding_type)
     {
     case VCENC_INTRA_FRAME: {
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "[{}] Encodes frame {} as I frame", encoder_names[this], frame_number);
+        LOGGER__MODULE__TRACE(MODULE_NAME, "[{}] Encodes frame {} as I frame", encoder_names[this], frame_number);
         ret = encode_frame(buf, outputs, frame_number, dmabuf_release_guards);
         break;
     }
     case VCENC_PREDICTED_FRAME: {
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "[{}] Encodes frame {} as P frame", encoder_names[this], frame_number);
+        LOGGER__MODULE__TRACE(MODULE_NAME, "[{}] Encodes frame {} as P frame", encoder_names[this], frame_number);
         if (m_inputs.size() == (size_t)m_enc_in.gopSize - 1)
         {
             m_inputs.emplace_back(frame_number, buf);
             ret = encode_multiple_frames(outputs, dmabuf_release_guards);
-            LOGGER__MODULE__DEBUG(
+            LOGGER__MODULE__TRACE(
                 MODULE_NAME,
                 "[{}] Encoder completed GOP of size {} for frame {} clearing inputs of size {}, got {} outputs",
                 encoder_names[this], m_enc_in.gopSize, frame_number, m_inputs.size(), outputs.size());
@@ -1527,7 +1587,7 @@ std::vector<EncoderOutputBuffer> Encoder::Impl::handle_frame(HailoMediaLibraryBu
         else if (m_inputs.size() < (size_t)m_enc_in.gopSize - 1)
         {
             m_inputs.emplace_back(frame_number, buf);
-            LOGGER__MODULE__DEBUG(MODULE_NAME,
+            LOGGER__MODULE__TRACE(MODULE_NAME,
                                   "[{}] Encoder waiting for more inputs - current inputs {}/{} for frame {}",
                                   encoder_names[this], m_inputs.size() + 1, m_enc_in.gopSize, frame_number);
             ret = MEDIA_LIBRARY_SUCCESS;
@@ -1556,7 +1616,7 @@ std::vector<EncoderOutputBuffer> Encoder::Impl::handle_frame(HailoMediaLibraryBu
 
     for (auto &output : outputs)
     {
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "[{}] Returning frame {} from encoder", encoder_names[this],
+        LOGGER__MODULE__TRACE(MODULE_NAME, "[{}] Returning frame {} from encoder", encoder_names[this],
                               output.frame_number);
     }
     return outputs;
@@ -1796,7 +1856,7 @@ encoder_monitors Encoder::Impl::get_monitors()
 
 u32 Encoder::Impl::get_constant_optical_zoom_boost(float optical_zoom_magnification, u32 current_bitrate)
 {
-    const auto &hailo_config = m_config.get_hailo_config();
+    const auto &hailo_config = m_config;
     const auto &rate_control = hailo_config.rate_control;
 
     // Check if zoom level mode is enabled and includes ZOOM_LEVEL or BOTH
@@ -1827,7 +1887,7 @@ u32 Encoder::Impl::get_constant_optical_zoom_boost(float optical_zoom_magnificat
 
 void Encoder::Impl::apply_constant_optical_zoom_boost(float optical_zoom_magnification)
 {
-    const auto &hailo_config = m_config.get_hailo_config();
+    const auto &hailo_config = m_config;
     const auto &rate_control = hailo_config.rate_control;
 
     // Check if zoom level mode is enabled and includes ZOOM_LEVEL or BOTH
@@ -1944,5 +2004,5 @@ std::string Encoder::Impl::set_hailo_metadata(const std::string &hailo_json)
 
 void Encoder::Impl::set_start_callback(EncoderStartCallback callback)
 {
-    m_start_callback = callback;
+    m_start_callback = std::move(callback);
 }

@@ -34,7 +34,7 @@ using hailo_analytics::pipeline::SizeMetadataPtr;
 
 #define THUMB_STORAGE_QUEUE_SIZE_DEFAULT 10
 
-#define THUMB_DB_FLASH_INTERVAL_MS 1500
+#define THUMB_DB_FLASH_INTERVAL_MS 4000
 #define THUMB_DB_FLASH_MIN_SIZE 50
 
 constexpr const char *THUMB_TEMP_PATH = "clip_cache_storage/thumbnail";

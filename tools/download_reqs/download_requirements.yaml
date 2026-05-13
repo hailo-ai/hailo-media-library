@@ -11,21 +11,21 @@ targets:
         requirements:
             - name: linknet_mbv1_ss_dpm_128.hef
               source:
-                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15h/hefs/linknet_mbv1_ss_dpm_128.hef
-                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15l/hefs/linknet_mbv1_ss_dpm_128.hef
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15h/hefs/linknet_mbv1_ss_dpm_128.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15l/hefs/linknet_mbv1_ss_dpm_128.hef
               destination: dynamic_privacy_mask/resources
               checksum:
-                  hailo15h: ddd900fa4f883d7dd8b895ce41a2ef9e
-                  hailo15l: 222d314d8c9d1e6bf0559dfc16332e19
+                  hailo15h: dc9967d0eacd966f500b823363f091f7
+                  hailo15l: 808be9421b49ccceab9078a95f4d3955
 
             - name: linknet_mbv1_ss_dpm_256.hef
               source:
-                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15h/hefs/linknet_mbv1_ss_dpm_256.hef
-                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15l/hefs/linknet_mbv1_ss_dpm_256.hef
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15h/hefs/linknet_mbv1_ss_dpm_256.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15l/hefs/linknet_mbv1_ss_dpm_256.hef
               destination: dynamic_privacy_mask/resources
               checksum:
-                  hailo15h: 76efa36290e0c018b7bb2e5ab1d2d280
-                  hailo15l: 4158c5e2ad5676e498b747204b83e83c
+                  hailo15h: 868635dc1799d680a247f2b5c6333f2b
+                  hailo15l: 9f3441bf47eb29876849451ae1e86a8e
 
     webserver:
         enabled: true
@@ -34,8 +34,8 @@ targets:
         requirements:
             - name: yolov5s_seg_1class_nv12.hef
               source:
-                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15h/hefs/yolov5s_seg_1class_nv12.hef
-                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15l/hefs/yolov5s_seg_1class_nv12.hef
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15h/hefs/yolov5s_seg_1class_nv12.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15l/hefs/yolov5s_seg_1class_nv12.hef
               destination: webserver/resources
               checksum:
                   hailo15h: 8afe7dfece6f3b1b67fdf1e2c6b3e232
@@ -48,35 +48,35 @@ targets:
         requirements:
             - name: hailo_yolov8s_384_640.hef
               source:
-                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15h/hefs/hailo_yolov8s_384_640.hef
-                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15l/hefs/hailo_yolov8s_384_640.hef
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15h/hefs/hailo_yolov8s_384_640.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15l/hefs/hailo_yolov8s_384_640.hef
               destination: face_landmarks/resources
               checksum:
-                  hailo15h: 1af63c9a0cd4e5816268be7a0ac966c4
-                  hailo15l: c84a21ea00b22cd2399c9ae136816286
+                  hailo15h: 3a6cdc6a0d903eb94c018955385a2ad2
+                  hailo15l: 4f54cec9e66a134eb2cbdf3a7a4e6f4c
 
             - name: hailo_yolov8n_384_640.hef
               source:
-                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15h/hefs/hailo_yolov8n_384_640.hef
-                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15l/hefs/hailo_yolov8n_384_640.hef
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15h/hefs/hailo_yolov8n_384_640.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15l/hefs/hailo_yolov8n_384_640.hef
               destination: face_landmarks/resources
               checksum:
-                  hailo15h: c10aa597eecadeb6ea20c8a2b864929c
-                  hailo15l: 3fecd94a64ada245c7439d38e81a3cdd
+                  hailo15h: 0ad1fad8868d8635d8a36f38bdd4dca0
+                  hailo15l: 06930b8439c26332def0c1bea728c8ad
 
             - name: face_landmarks_lite.hef
               source:
-                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15h/hefs/face_landmarks_lite.hef
-                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15l/hefs/face_landmarks_lite.hef
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15h/hefs/face_landmarks_lite.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15l/hefs/face_landmarks_lite.hef
               destination: face_landmarks/resources
               checksum:
-                  hailo15h: 5b9af62897d14151455f35f1e5881188
-                  hailo15l: 92f03696d83d198238069a183fc53d91
+                  hailo15h: 06465f7ae87038b1e746d0e5ec6be0dd
+                  hailo15l: 023cd1a1dbae729912ab9d5966d6c1b3
 
             - name: clip_resnet_50x4_image_encoder_nv12.hef
               source:
-                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15h/hefs/clip_resnet_50x4_image_encoder_nv12.hef
-                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15l/hefs/clip_resnet_50x4_image_encoder_nv12.hef
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15h/hefs/clip_resnet_50x4_image_encoder_nv12.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15l/hefs/clip_resnet_50x4_image_encoder_nv12.hef
               destination: face_landmarks/resources
               checksum:
                   hailo15h: b10023101b164be16a3ec12a89377dbd
@@ -89,8 +89,8 @@ targets:
         requirements:
             - name: clip_vit_b_32_image_encoder_nv12.hef
               source:
-                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15h/hefs/clip_vit_b_32_image_encoder_nv12.hef
-                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15l/hefs/clip_vit_b_32_image_encoder_nv12.hef
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15h/hefs/clip_vit_b_32_image_encoder_nv12.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15l/hefs/clip_vit_b_32_image_encoder_nv12.hef
               destination: clip/resources
               checksum:
                   hailo15h: a4cde9e2660bbd9bc7d47cd244fd82ed
@@ -98,8 +98,8 @@ targets:
 
             - name: clip_vit_b_32_text_encoder.hef
               source:
-                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15h/hefs/clip_vit_b_32_text_encoder.hef
-                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15l/hefs/clip_vit_b_32_text_encoder.hef
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15h/hefs/clip_vit_b_32_text_encoder.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15l/hefs/clip_vit_b_32_text_encoder.hef
               destination: clip/resources
               checksum:
                   hailo15h: 07957b2b556a2d4cfee95241aca57cf3
@@ -107,8 +107,8 @@ targets:
 
             - name: clip_vit_b32_embedding_lookup.bin
               source:
-                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15h/hefs/clip_vit_b32_embedding_lookup.bin
-                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15l/hefs/clip_vit_b32_embedding_lookup.bin
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15h/hefs/clip_vit_b32_embedding_lookup.bin
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15l/hefs/clip_vit_b32_embedding_lookup.bin
               destination: clip/resources
               checksum:
                   hailo15h: 83e2e79d7391ecf5a8fdbf0fa576beac
@@ -116,8 +116,8 @@ targets:
 
             - name: clip_vit_b32_text_projection_bias.bin
               source:
-                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15h/hefs/clip_vit_b32_text_projection_bias.bin
-                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15l/hefs/clip_vit_b32_text_projection_bias.bin
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15h/hefs/clip_vit_b32_text_projection_bias.bin
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15l/hefs/clip_vit_b32_text_projection_bias.bin
               destination: clip/resources
               checksum:
                   hailo15h: 60ef8774e09836b54facfe4fd9e57279
@@ -125,8 +125,8 @@ targets:
 
             - name: clip_vit_b32_text_projection_weights.bin
               source:
-                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15h/hefs/clip_vit_b32_text_projection_weights.bin
-                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15l/hefs/clip_vit_b32_text_projection_weights.bin
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15h/hefs/clip_vit_b32_text_projection_weights.bin
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15l/hefs/clip_vit_b32_text_projection_weights.bin
               destination: clip/resources
               checksum:
                   hailo15h: 70d2c89ded6b39ba962bf90366da642b
@@ -134,8 +134,8 @@ targets:
 
             - name: tokenizer.json
               source:
-                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15h/hefs/tokenizer.json
-                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15l/hefs/tokenizer.json
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15h/hefs/tokenizer.json
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15l/hefs/tokenizer.json
               destination: clip/resources
               checksum:
                   hailo15h: 30d20c581ebf1d80626083ca95e9f883
@@ -148,9 +148,9 @@ targets:
         requirements:
             - name: paddle_ocr_v5_mobile_recognition.hef
               source:
-                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15h/hefs/paddle_ocr_v5_mobile_recognition.hef
-                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/1.11.0/hailo15l/hefs/paddle_ocr_v5_mobile_recognition.hef
+                  hailo15h: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15h/hefs/paddle_ocr_v5_mobile_recognition.hef
+                  hailo15l: https://hailo-tappas.s3.eu-west-2.amazonaws.com/8.8.8-dv-SCM_01/hailo15l/hefs/paddle_ocr_v5_mobile_recognition.hef
               destination: license_plate_recognition/resources
               checksum:
-                  hailo15h: 1be55d8dfa5e32d9d93789c2e52c7158
-                  hailo15l: b49df4e85a3028f258a3ee7427217867
+                  hailo15h: a21f1db745909d05283e8d09b2f37811
+                  hailo15l: 6ddb700405cd0de6c41c946c7b4e1891

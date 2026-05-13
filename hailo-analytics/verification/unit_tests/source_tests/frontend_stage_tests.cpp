@@ -175,6 +175,11 @@ class FrontendStageTest : public ::testing::Test
     {
         return media_lib_helper->get_frontend();
     }
+
+    MediaLibraryPtr get_media_library()
+    {
+        return media_lib_helper->media_lib;
+    }
 };
 
 // ============================================================================
@@ -210,7 +215,7 @@ TEST_F(FrontendStageTest, BuilderThrowsWhenNameNotSet)
 TEST_F(FrontendStageTest, ConfigureSucceedsWithValidFrontend)
 {
     auto stage = std::make_shared<FrontendStage>("test_frontend");
-    auto status = stage->configure(get_frontend());
+    auto status = stage->configure(get_media_library());
     EXPECT_EQ(status, AppStatus::SUCCESS);
     // Frontend should be configured - verify by checking we can get streams
     auto streams = stage->get_outputs_streams();
@@ -220,7 +225,7 @@ TEST_F(FrontendStageTest, ConfigureSucceedsWithValidFrontend)
 TEST_F(FrontendStageTest, ConfigureSubscribesToAllOutputStreams)
 {
     auto stage = std::make_shared<FrontendStage>("test_frontend");
-    auto status = stage->configure(get_frontend());
+    auto status = stage->configure(get_media_library());
     EXPECT_EQ(status, AppStatus::SUCCESS);
 
     auto streams = stage->get_outputs_streams();
@@ -233,7 +238,7 @@ TEST_F(FrontendStageTest, ConfigureSubscribesToAllOutputStreams)
 TEST_F(FrontendStageTest, CreateSubscribesToFrontend)
 {
     auto stage = std::make_shared<FrontendStage>("test_frontend");
-    auto status = stage->create(get_frontend());
+    auto status = stage->create(get_media_library());
     EXPECT_EQ(status, AppStatus::SUCCESS);
     auto streams = stage->get_outputs_streams();
     ASSERT_TRUE(streams.has_value());
@@ -243,7 +248,7 @@ TEST_F(FrontendStageTest, CreateSubscribesToFrontend)
 TEST_F(FrontendStageTest, SubscribeToStreamSucceedsWithValidStreamId)
 {
     auto stage = std::make_shared<FrontendStage>("test_frontend");
-    stage->configure(get_frontend());
+    stage->configure(get_media_library());
 
     auto streams = stage->get_outputs_streams();
     ASSERT_TRUE(streams.has_value() && !streams.value().empty());
@@ -260,7 +265,7 @@ TEST_F(FrontendStageTest, SubscribeToStreamSucceedsWithValidStreamId)
 TEST_F(FrontendStageTest, SubscribeToStreamFailsWithInvalidStreamId)
 {
     auto stage = std::make_shared<FrontendStage>("test_frontend");
-    stage->configure(get_frontend());
+    stage->configure(get_media_library());
 
     auto subscriber = std::make_shared<SimpleStage>("subscriber_1");
     auto status = stage->subscribe_to_stream("invalid_stream_that_does_not_exist", subscriber);
@@ -280,7 +285,7 @@ TEST_F(FrontendStageTest, SubscribeToStreamFailsWhenFrontendNotConfigured)
 TEST_F(FrontendStageTest, MultipleSubscribersCanSubscribeToSameStream)
 {
     auto stage = std::make_shared<FrontendStage>("test_frontend");
-    stage->configure(get_frontend());
+    stage->configure(get_media_library());
 
     auto streams = stage->get_outputs_streams();
     ASSERT_TRUE(streams.has_value() && !streams.value().empty());
@@ -299,7 +304,7 @@ TEST_F(FrontendStageTest, MultipleSubscribersCanSubscribeToSameStream)
 TEST_F(FrontendStageTest, SubscriberCanSubscribeToMultipleStreams)
 {
     auto stage = std::make_shared<FrontendStage>("test_frontend");
-    stage->configure(get_frontend());
+    stage->configure(get_media_library());
 
     auto streams = stage->get_outputs_streams();
     ASSERT_TRUE(streams.has_value() && streams.value().size() >= 2);
@@ -327,7 +332,7 @@ TEST_F(FrontendStageTest, SubscriberCanSubscribeToMultipleStreams)
 TEST_F(FrontendStageTest, BuffersForwardedToSubscriber)
 {
     auto stage = std::make_shared<FrontendStage>("test_frontend");
-    stage->configure(get_frontend());
+    stage->configure(get_media_library());
 
     // Get first available stream ID from configuration
     auto streams = stage->get_outputs_streams();
@@ -360,7 +365,7 @@ TEST_F(FrontendStageTest, BuffersForwardedToSubscriber)
 TEST_F(FrontendStageTest, BuffersForwardedToMultipleSubscribers)
 {
     auto stage = std::make_shared<FrontendStage>("test_frontend");
-    stage->configure(get_frontend());
+    stage->configure(get_media_library());
 
     auto streams = stage->get_outputs_streams();
     ASSERT_TRUE(streams.has_value() && !streams.value().empty());
@@ -397,7 +402,7 @@ TEST_F(FrontendStageTest, BuffersForwardedToMultipleSubscribers)
 TEST_F(FrontendStageTest, BuffersForwardedToCorrectStreamSubscribers)
 {
     auto stage = std::make_shared<FrontendStage>("test_frontend");
-    stage->configure(get_frontend());
+    stage->configure(get_media_library());
 
     auto streams = stage->get_outputs_streams();
     ASSERT_TRUE(streams.has_value() && streams.value().size() >= 2);
@@ -436,7 +441,7 @@ TEST_F(FrontendStageTest, BuffersForwardedToCorrectStreamSubscribers)
 TEST_F(FrontendStageTest, InitStartsFrontend)
 {
     auto stage = std::make_shared<FrontendStage>("test_frontend");
-    stage->configure(get_frontend());
+    stage->configure(get_media_library());
 
     auto status = stage->init();
     EXPECT_EQ(status, AppStatus::SUCCESS);
@@ -453,7 +458,7 @@ TEST_F(FrontendStageTest, InitFailsWhenFrontendNotConfigured)
 TEST_F(FrontendStageTest, DeinitStopsFrontend)
 {
     auto stage = std::make_shared<FrontendStage>("test_frontend");
-    stage->configure(get_frontend());
+    stage->configure(get_media_library());
     stage->init();
 
     auto status = stage->deinit();
@@ -465,7 +470,7 @@ TEST_F(FrontendStageTest, DeinitStopsFrontend)
 TEST_F(FrontendStageTest, StartStopLifecycle)
 {
     auto stage = std::make_shared<FrontendStage>("test_frontend");
-    stage->configure(get_frontend());
+    stage->configure(get_media_library());
 
     auto streams = stage->get_outputs_streams();
     ASSERT_TRUE(streams.has_value() && !streams.value().empty());
@@ -496,7 +501,7 @@ TEST_F(FrontendStageTest, DestructorUnsubscribesAll)
     // auto local_helper = MediaLibraryTestHelper::create();
     {
         auto stage = std::make_shared<FrontendStage>("test_frontend");
-        stage->configure(get_frontend());
+        stage->configure(get_media_library());
     } // stage goes out of scope
 
     // Destructor should call unsubscribe_all - frontend should still be functional
@@ -508,7 +513,7 @@ TEST_F(FrontendStageTest, DestructorUnsubscribesAll)
 TEST_F(FrontendStageTest, StageCanBeStoppedAndRestarted)
 {
     auto stage = std::make_shared<FrontendStage>("test_frontend");
-    stage->configure(get_frontend());
+    stage->configure(get_media_library());
 
     auto streams = stage->get_outputs_streams();
     ASSERT_TRUE(streams.has_value() && !streams.value().empty());
@@ -544,7 +549,7 @@ TEST_F(FrontendStageTest, StageCanBeStoppedAndRestarted)
 TEST_F(FrontendStageTest, GetOutputStreamsReturnsCorrectStreams)
 {
     auto stage = std::make_shared<FrontendStage>("test_frontend");
-    stage->configure(get_frontend());
+    stage->configure(get_media_library());
 
     auto streams = stage->get_outputs_streams();
     ASSERT_TRUE(streams.has_value());
@@ -563,7 +568,7 @@ TEST_F(FrontendStageTest, GetOutputStreamsReturnsCorrectStreams)
 TEST_F(FrontendStageTest, ContinuousBufferFlowFromFrontend)
 {
     auto stage = std::make_shared<FrontendStage>("test_frontend");
-    stage->configure(get_frontend());
+    stage->configure(get_media_library());
 
     auto streams = stage->get_outputs_streams();
     ASSERT_TRUE(streams.has_value() && !streams.value().empty());
@@ -604,7 +609,7 @@ TEST_F(FrontendStageTest, BuilderWithAllOptions)
     ASSERT_NE(stage, nullptr);
 
     // Configure and verify it works
-    auto status = stage->configure(get_frontend());
+    auto status = stage->configure(get_media_library());
     EXPECT_EQ(status, AppStatus::SUCCESS);
 }
 
@@ -612,7 +617,7 @@ TEST_F(FrontendStageTest, BuilderWithAllOptions)
 TEST_F(FrontendStageTest, ThreadSafetyWithMultipleConcurrentSubscribers)
 {
     auto stage = std::make_shared<FrontendStage>("test_frontend");
-    stage->configure(get_frontend());
+    stage->configure(get_media_library());
 
     auto streams = stage->get_outputs_streams();
     ASSERT_TRUE(streams.has_value() && !streams.value().empty());

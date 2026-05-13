@@ -39,6 +39,7 @@ webserver::resources::EncoderResource::encoder_control_t webserver::resources::E
                 .fixed_intra_qp = encoder_config.rate_control.quantization.fixed_intra_qp,
                 .qp_hdr = encoder_config.rate_control.quantization.qp_hdr,
             },
+        .smart_encoder = std::nullopt,
     };
 
     // Extract smart encoder configuration
@@ -143,7 +144,7 @@ webserver::resources::ResourceType webserver::resources::EncoderResource::get_ty
 }
 
 webserver::resources::EncoderResource::EncoderResource(
-    std::shared_ptr<EventBus> event_bus, std::shared_ptr<webserver::resources::ConfigResourceBase> configs)
+    std::shared_ptr<EventBus> event_bus, std::shared_ptr<webserver::resources::ConfigResourceBase> /*configs*/)
     : Resource(event_bus)
 {
 }

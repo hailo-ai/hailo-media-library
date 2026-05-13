@@ -5,7 +5,7 @@
 #include <vector>
 #include <tl/expected.hpp>
 #include "clip_pipeline_ai_defines.hpp"
-#include "clip_app_config_parser.hpp"
+#include "clip_app_config.hpp"
 #include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
 
 // Forward declarations
@@ -16,7 +16,6 @@ class Response;
 } // namespace httplib
 
 // Forward declarations for local types
-struct ClipAppConfig;
 class ClipVideoPipeline;
 class WebRTCStreamerExt;
 class ClipQueryServiceExt;

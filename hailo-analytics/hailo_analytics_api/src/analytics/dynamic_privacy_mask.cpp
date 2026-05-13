@@ -50,6 +50,8 @@ void bbox_crop_config_t::merge_from(const bbox_crop_config_t &other)
         letterbox_alignment = *other.letterbox_alignment;
     if (other.letterbox_color)
         letterbox_color = *other.letterbox_color;
+    if (other.max_crops)
+        max_crops = *other.max_crops;
 }
 
 void bbox_crop_config_t::apply_to(cropping_stages::BBoxCropStageBuild::Builder &b) const
@@ -88,6 +90,8 @@ void bbox_crop_config_t::apply_to(cropping_stages::BBoxCropStageBuild::Builder &
         dsp_color_t color = letterbox_color.value_or(dsp_color_t{.y = 0, .u = 128, .v = 128});
         b.set_letterbox_opt(alignment, color);
     }
+    if (max_crops)
+        b.set_max_crops(*max_crops);
 }
 
 // ============================================================================
@@ -204,8 +208,7 @@ bbox_crop_segmentation_config_t base_config()
 {
     bbox_crop_segmentation_config_t config;
 
-    // Set default bbox crop stage configs
-    config.bbox_crop_config.stage_name = std::string(BBOX_CROP_STAGE);
+    config.bbox_crop_config.stage_name = std::string(SEGMENTOR_STAGE);
     config.bbox_crop_config.output_pool_size = 160;
     config.bbox_crop_config.input_width = 1920; // Default FHD input
     config.bbox_crop_config.input_height = 1080;
@@ -215,20 +218,21 @@ bbox_crop_segmentation_config_t base_config()
     config.bbox_crop_config.sub_sub_name = std::string(SEGMENTATION_SUBPIPELINE);
     config.bbox_crop_config.labels = std::vector<std::string>{"person", "face"};
     config.bbox_crop_config.queue_size = 5;
-    config.bbox_crop_config.leaky = true;
+    config.bbox_crop_config.leaky = false;
     config.bbox_crop_config.trace = true;
     config.bbox_crop_config.pool_mode = hailo_analytics::pipeline::StagePoolMode::BLOCKING;
     config.bbox_crop_config.crop_every_x_frames = 1;
     config.bbox_crop_config.use_letterbox = true;
     config.bbox_crop_config.letterbox_alignment = DSP_LETTERBOX_MIDDLE;
     config.bbox_crop_config.letterbox_color = dsp_color_t{.y = 0, .u = 128, .v = 128};
+    config.bbox_crop_config.max_crops = 35;
 
     // Set default segmentation configs
     config.segmentation_config = segmentation_base_config();
 
     // Set default aggregator configs
     config.aggregator_config.stage_name = std::string(SEGMENTATION_AGGREGATOR_STAGE);
-    config.aggregator_config.main_inlet_name = std::string(BBOX_CROP_STAGE);
+    config.aggregator_config.main_inlet_name = std::string(SEGMENTOR_STAGE);
     config.aggregator_config.main_queue_size = 3;
     config.aggregator_config.main_queue_leaky = false;
     config.aggregator_config.sub_inlet_name = std::string(SEGMENTATION_POST_STAGE);
@@ -283,10 +287,9 @@ generate_dynamic_privacy_mask_pipeline(const std::string &pipeline_name,
     // Create pipeline builder
     hailo_analytics::pipeline::PipelineBuilder pip_builder;
 
-    // Create bbox crop stage
-    cropping_stages::BBoxCropStageBuild::Builder bbox_crop_builder = cropping_stages::BBoxCropStageBuild::create();
-    cfg.apply_to(bbox_crop_builder);
-    std::shared_ptr<cropping_stages::BBoxCropStage> bbox_crop_stage = bbox_crop_builder.buildptr();
+    cropping_stages::BBoxCropStageBuild::Builder segmentor_builder = cropping_stages::BBoxCropStageBuild::create();
+    cfg.apply_to(segmentor_builder);
+    std::shared_ptr<cropping_stages::BBoxCropStage> segmentor = segmentor_builder.buildptr();
 
     // Generate segmentation sub-pipeline using the segmentation generator
     auto segmentation_pipeline_result =
@@ -305,23 +308,17 @@ generate_dynamic_privacy_mask_pipeline(const std::string &pipeline_name,
     std::shared_ptr<cropping_stages::AggregatorStage> aggregator_stage = aggregator_builder.buildptr();
 
     // Add stages to pipeline builder
-    pip_builder.add_stage(bbox_crop_stage).add_stage(segmentation_pipeline).add_stage(aggregator_stage);
+    pip_builder.add_stage(segmentor).add_stage(segmentation_pipeline).add_stage(aggregator_stage);
 
-    // Connect the stages within the pipeline
-    // BBox crop main output -> Aggregator main input
     pip_builder.connect(cfg.bbox_crop_config.stage_name.value(), cfg.aggregator_config.stage_name.value());
-
-    // BBox crops -> Segmentation Pipeline
     pip_builder.connect(cfg.bbox_crop_config.stage_name.value(), segmentation_pipeline->get_name());
-
-    // Segmentation Pipeline -> Aggregator sub input
     pip_builder.connect(segmentation_pipeline->get_name(), cfg.aggregator_config.stage_name.value());
 
     // Create the pipeline
     hailo_analytics::pipeline::PipelinePtr pipeline = pip_builder.build(pipeline_name, true);
 
     // Set the input and output stages
-    pipeline->set_in_stage(bbox_crop_stage);
+    pipeline->set_in_stage(segmentor);
     pipeline->set_out_stage(aggregator_stage);
 
     return pipeline;

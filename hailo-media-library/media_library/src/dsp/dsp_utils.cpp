@@ -21,6 +21,10 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include "dsp_utils.hpp"
+
+#include <hailo/hailodsp.h>
+#include <sys/types.h>
+
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
 #include "dma_memory_allocator.hpp"

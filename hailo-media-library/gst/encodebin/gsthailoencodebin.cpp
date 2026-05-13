@@ -28,12 +28,12 @@
 #include <unistd.h>
 
 #include "common/gstmedialibcommon.hpp"
-#include "config_manager.hpp"
+#include "media_library/config_manager.hpp"
 #include "gsthailoencodebin.hpp"
-#include "encoder_config_types.hpp"
+#include "media_library/encoder_config_types.hpp"
 #include "gst/gstobject.h"
 #include "media_library/media_library_types.hpp"
-#include "media_library_logger.hpp"
+#include "media_library/media_library_logger.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailoencodebin_debug_category);
 #define GST_CAT_DEFAULT gst_hailoencodebin_debug_category
