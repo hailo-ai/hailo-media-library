@@ -23,11 +23,13 @@
 
 #pragma once
 
-#include "encoder_config_types.hpp"
-#include "media_library_types.hpp"
+#include <tl/expected.hpp>
 #include <cstdint>
 #include <vector>
-#include <tl/expected.hpp>
+#include <string>
+
+#include "encoder_config_types.hpp"
+#include "media_library_types.hpp"
 
 #define ENCODER_PRESET_FILE ("/etc/medialib/encoder_presets.csv")
 #define AUTO_VALUE ("auto")

@@ -34,7 +34,7 @@ PrivacyMaskResource::PrivacyMaskResource(std::shared_ptr<EventBus> event_bus,
     m_default_config = "{}";
     m_config = nlohmann::json::parse(m_default_config);
     subscribe_callback(EventType::PIPELINE_READY, EventPriority::EVENT_PRIORITY_HIGH,
-                       [this, configs](ResourceStateChangeNotification notification) {
+                       [this, configs](ResourceStateChangeNotification /*notification*/) {
                            WEBSERVER_LOG_INFO("Received PIPELINE_READY notification");
                            this->initialize_from_config(configs);
                        });

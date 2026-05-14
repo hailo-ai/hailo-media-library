@@ -117,9 +117,14 @@ class GStreamerMkvSegmenter
     GstBus *m_bus;
 
     // Segment management
-    uint64_t m_last_segment_end_running_time;           // Running time when last segment ended
-    uint64_t m_current_segment_start_running_time;      // Running time when current segment started
-    std::map<uint32_t, uint64_t> m_segment_start_times; // Map to store segment running time information
+    uint64_t m_last_segment_end_running_time;                 // Running time when last segment ended
+    uint64_t m_current_segment_start_running_time;            // Running time when current segment started
+    std::map<uint32_t, uint64_t> m_segment_start_times;       // Map to store segment running time information
+    std::map<uint32_t, uint64_t> m_segment_start_epoch_times; // Map to store wall-clock epoch ms at segment open
+
+    // PTS-to-epoch calibration (calculated once at pipeline start when latency ≈ 0)
+    int64_t m_pts_to_epoch_offset_ms; // epoch_ms - (running_time_ns / 1,000,000) at first segment
+    bool m_pts_epoch_offset_initialized;
 
     // Frame processing
     std::queue<FrameData> m_frame_queue;

@@ -11,7 +11,7 @@ namespace pipeline
 class DetectionPipeline : public BasePipeline
 {
   public:
-    DetectionPipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
+    DetectionPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
                       RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H);
 
     virtual std::string pipeline_name() const override;
@@ -27,6 +27,7 @@ class DetectionPipeline : public BasePipeline
 
   private:
     size_t get_crop_every_x_frames() const;
+    bool is_single_tile_mode() const;
     std::shared_ptr<hailo_analytics::pipeline::routing::ValveStage> m_ws_sender_valve;
     bool m_ws_sender_enabled = false;
 };

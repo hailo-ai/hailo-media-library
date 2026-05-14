@@ -5,8 +5,11 @@
  * @brief Stage base class that performs bounding box cropping on video frames.
  **/
 
-// Infra includes
 #include "hailo_analytics/pipeline/cropping/dsp_cropping.hpp"
+
+#include <atomic>
+#include <limits>
+#include <memory>
 
 namespace hailo_analytics::pipeline::cropping
 {
@@ -17,9 +20,10 @@ namespace hailo_analytics::pipeline::cropping
 class BBoxCropStage : public DspBaseCropStage
 {
   private:
-    std::vector<HailoBBox> m_detection_crops_bbox;   /**< Bounding boxes for detected crops */
-    std::vector<HailoROIPtr> m_detection_rois;       /**< ROI pointers for detections */
-    std::vector<std::string> m_target_labels;        /**< Target labels for filtering detections */
+    std::vector<HailoBBox> m_detection_crops_bbox; /**< Bounding boxes for detected crops */
+    std::vector<HailoROIPtr> m_detection_rois;     /**< ROI pointers for detections */
+    std::shared_ptr<const std::vector<std::string>> m_target_labels;
+    std::atomic<size_t> m_max_crops;                 /**< Cap on detections cropped per frame; SIZE_MAX = no cap. */
     bool m_use_letterbox;                            /**< Enable letterbox support */
     dsp_letterbox_alignment_t m_letterbox_alignment; /**< Letterbox alignment */
     dsp_color_t m_letterbox_color;                   /**< Letterbox padding color */
@@ -34,7 +38,7 @@ class BBoxCropStage : public DspBaseCropStage
      * @param output_height Height of the output data.
      * @param main_sub_name Name of the main subscriber.
      * @param sub_sub_name Name of the sub-subscriber.
-     * @param labels Target labels for filtering detections.
+     * @param labels Initial target labels for filtering detections.
      * @param queue_size Size of the queue.
      * @param leaky Boolean flag for leaky behavior.
      * @param trace_processing_operations Boolean flag for tracing processing operations.
@@ -43,6 +47,7 @@ class BBoxCropStage : public DspBaseCropStage
      * @param use_letterbox Enable letterbox support.
      * @param letterbox_alignment Letterbox alignment (only used if use_letterbox=true).
      * @param letterbox_color Letterbox color (only used if use_letterbox=true).
+     * @param max_crops Cap on number of detections cropped per frame (SIZE_MAX disables the cap).
      */
     BBoxCropStage(std::string name, int output_pool_size, int input_width, int input_height, int output_width,
                   int output_height, std::string main_sub_name, std::string sub_sub_name,
@@ -50,7 +55,8 @@ class BBoxCropStage : public DspBaseCropStage
                   bool trace_processing_operations = true, StagePoolMode pool_mode = StagePoolMode::FAIL_ON_EMPTY_POOL,
                   size_t crop_every_x_frames = 1, bool use_letterbox = false,
                   dsp_letterbox_alignment_t letterbox_alignment = DSP_LETTERBOX_MIDDLE,
-                  dsp_color_t letterbox_color = DEFAULT_LETTERBOX_COLOR);
+                  dsp_color_t letterbox_color = DEFAULT_LETTERBOX_COLOR,
+                  size_t max_crops = std::numeric_limits<size_t>::max());
 
     /**
      * @brief Initializes the buffer pool.
@@ -97,19 +103,25 @@ class BBoxCropStage : public DspBaseCropStage
      * @return Status of the operation.
      */
     AppStatus process(BufferPtr data) override;
+
+    void set_labels(std::vector<std::string> labels);
+    std::shared_ptr<const std::vector<std::string>> get_labels() const;
+
+    void set_max_crops(size_t max_crops);
+    size_t get_max_crops() const;
 };
 
 /**
- * @brief Builder pattern implementation for BBoxCropStage
+ * @brief Builder pattern implementation for BBoxCropStage.
  *
- * Provides a fluent interface for constructing BBoxCropStage instances
- * with configurable parameters.
+ * Provides a fluent interface for constructing BBoxCropStage instances with configurable
+ * parameters.
  */
 class BBoxCropStageBuild : public BBoxCropStage
 {
   public:
     /**
-     * @brief Builder class for constructing BBoxCropStage instances
+     * @brief Builder class for constructing BBoxCropStage instances.
      */
     class Builder
     {
@@ -133,6 +145,7 @@ class BBoxCropStageBuild : public BBoxCropStage
         bool m_use_letterbox = false;
         dsp_letterbox_alignment_t m_letterbox_alignment = DSP_LETTERBOX_MIDDLE;
         dsp_color_t m_letterbox_color = DEFAULT_LETTERBOX_COLOR;
+        size_t m_max_crops = std::numeric_limits<size_t>::max();
 
       public:
         /**
@@ -192,7 +205,7 @@ class BBoxCropStageBuild : public BBoxCropStage
         Builder &set_sub_sub_name(std::string name);
 
         /**
-         * @brief Set the target labels for filtering detections
+         * @brief Set the initial target labels for filtering detections
          * @param labels Vector of label strings
          * @return Builder reference for chaining
          */
@@ -241,6 +254,13 @@ class BBoxCropStageBuild : public BBoxCropStage
          */
         Builder &set_letterbox_opt(dsp_letterbox_alignment_t alignment = DSP_LETTERBOX_MIDDLE,
                                    dsp_color_t color = DEFAULT_LETTERBOX_COLOR);
+
+        /**
+         * @brief Set the maximum number of detections to crop per frame
+         * @param max_crops Cap on detections to crop (SIZE_MAX disables the cap)
+         * @return Builder reference for chaining
+         */
+        Builder &set_max_crops(size_t max_crops);
 
         /**
          * @brief Build and return shared pointer to BBoxCropStage

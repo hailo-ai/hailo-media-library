@@ -11,6 +11,7 @@
 #include "hailo_analytics/analytics/common_configs.hpp"
 #include "hailo_analytics/pipeline/cropping/tiling_stage.hpp"
 #include "hailo_analytics/pipeline/cropping/aggregator_stage.hpp"
+#include "hailo_analytics/pipeline/ai/detection_tracker_stage.hpp"
 #include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
 #include "hailo_postprocess_tools/objects/hailo_common.hpp"
 
@@ -25,10 +26,45 @@ inline constexpr std::string_view TILING_DETECTION_PIPELINE = "tiling_detection_
 inline constexpr std::string_view TILING_STAGE = "tiling_stage";
 inline constexpr std::string_view TILING_AGGREGATOR_STAGE = "tiling_aggregator";
 inline constexpr std::string_view DETECTION_SUBPIPELINE = "detection_subpipeline";
+inline constexpr std::string_view TRACKER_STAGE = "detection_tracker";
 
 // Default tiles configuration
 inline const std::vector<HailoBBox> DEFAULT_TILES = {
     {0.0, 0.0, 0.6, 0.6}, {0.4, 0, 0.6, 0.6}, {0, 0.4, 0.6, 0.6}, {0.4, 0.4, 0.6, 0.6}, {0.0, 0.0, 1.0, 1.0}};
+
+/**
+ * @brief Configuration for the optional detection tracker stage.
+ *
+ * When enabled, a DetectionTrackerStage is appended after the aggregator
+ * inside the tiling detection pipeline. All tracker parameters are optional
+ * and default to HAILO_TRACKER_CONFIG_DEFAULT values.
+ */
+struct tracker_config_t
+{
+    std::optional<bool> enabled;
+    std::optional<std::string> stage_name;
+    std::optional<size_t> queue_size;
+    std::optional<bool> leaky;
+    std::optional<bool> trace;
+    std::optional<std::map<uint8_t, std::string>> labels_map;
+
+    // hailo_tracker_config_t parameter overrides
+    std::optional<uint16_t> max_tracklets;
+    std::optional<uint8_t> max_missed_frames;
+    std::optional<uint8_t> min_confirmed_frames;
+    std::optional<uint8_t> aging_threshold;
+    std::optional<float> add_threshold;
+    std::optional<float> association_threshold;
+    std::optional<float> iou_weight;
+    std::optional<bool> class_aware_tracking;
+    std::optional<bool> enable_kalman_filter;
+    std::optional<float> position_std_weight;
+    std::optional<float> velocity_std_weight;
+    std::optional<float> smoothing_alpha;
+
+    void merge_from(const tracker_config_t &other);
+    void apply_to(hailo_analytics::pipeline::ai::DetectionTrackerStageBuild::Builder &b) const;
+};
 
 /**
  * @brief Configuration structure for tiling stages.
@@ -81,6 +117,7 @@ struct tiling_detection_config_t
     tiling_config_t tiling_config;
     detection::detection_config_t detection_config;
     aggregator_config_t aggregator_config;
+    tracker_config_t tracker_config;
 
     /**
      * @brief Merge configuration from another tiling_detection_config_t.

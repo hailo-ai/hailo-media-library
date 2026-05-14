@@ -13,8 +13,6 @@ void analytic_metadata_config_t::merge_from(const analytic_metadata_config_t &ot
         leaky = *other.leaky;
     if (other.trace)
         trace = *other.trace;
-    if (other.format)
-        format = *other.format;
 }
 
 void analytic_metadata_config_t::apply_to(codecs_stage::AnalyticMetadataPackagerStageBuild::Builder &b) const
@@ -27,8 +25,6 @@ void analytic_metadata_config_t::apply_to(codecs_stage::AnalyticMetadataPackager
         b.set_leaky_opt(*leaky);
     if (trace)
         b.set_trace_opt(*trace);
-    if (format)
-        b.set_format_opt(*format);
 }
 
 analytic_metadata_config_t base_analytic_metadata_packager_config()
@@ -109,7 +105,6 @@ analytic_metadata_ws_sender_config_t base_analytic_metadata_ws_sender_config()
     analytic_metadata_ws_sender_config_t config;
 
     config.analytic_metadata_config = base_analytic_metadata_packager_config();
-    config.analytic_metadata_config.format = codecs_stage::Format::JSON;
     config.websocket_config = base_websocket_sender_config();
 
     return config;

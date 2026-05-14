@@ -128,7 +128,8 @@
         "isp_config_files_path": "/usr/bin"
     },
     "hailort": {
-        "device-id": "device0"
+        "device-id": "device0",
+        "use-hailort-service": false
     },
     "hdr": {
         "enabled": false,

@@ -1,13 +1,20 @@
 #pragma once
 
-#include "hailo/expected.hpp"
-#include "hailo/infer_model.hpp"
-#include "hailo/vdevice.hpp"
-
-#include "buffer_pool.hpp"
+#include <hailo/hailort.h>
+#include <stddef.h>
 #include <chrono>
 #include <cstdint>
-#include <optional>
+#include <atomic>
+#include <functional>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include "hailo/infer_model.hpp"
+#include "hailo/vdevice.hpp"
+#include "buffer_pool.hpp"
+#include "media_library_types.hpp"
 
 struct hailort_configured_device_t
 {

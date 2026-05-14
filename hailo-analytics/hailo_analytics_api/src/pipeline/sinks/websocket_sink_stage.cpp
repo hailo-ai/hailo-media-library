@@ -84,19 +84,23 @@ AppStatus WebSocketSinkStage::process(BufferPtr data)
     return AppStatus::SUCCESS;
 }
 
-void WebSocketSinkStage::broadcast(const std::string &json_str)
+void WebSocketSinkStage::broadcast(const std::string &payload)
 {
     std::vector<std::pair<int, std::shared_ptr<rtc::WebSocket>>> snapshot;
     {
         std::shared_lock lock(m_clients_mutex);
         snapshot.assign(m_clients.begin(), m_clients.end());
     }
-    HAILO_ANALYTICS_LOG_TRACE("WebSocket sink broadcast to {} client(s), {} bytes", snapshot.size(), json_str.size());
+    HAILO_ANALYTICS_LOG_TRACE("WebSocket sink broadcast to {} client(s), {} bytes", snapshot.size(), payload.size());
+
+    // Send as a binary WebSocket frame: payload is opaque bytes (currently serialized protobuf)
+    // and may contain nulls / non-UTF-8 sequences, which would violate RFC 6455 text frames.
+    const auto *data_ptr = reinterpret_cast<const std::byte *>(payload.data());
     for (auto &[id, client_ws] : snapshot)
     {
         try
         {
-            client_ws->send(json_str);
+            client_ws->send(data_ptr, payload.size());
         }
         catch (const std::exception &e)
         {

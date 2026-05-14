@@ -54,7 +54,7 @@ int main()
 
     std::shared_ptr<IntegratedWebServer> server = server_result.value();
 
-    g_signal_callback = [&server]([[maybe_unused]] int sig) {
+    g_signal_callback = [&server](int /*sig*/) {
         HAILO_ANALYTICS_LOG_INFO("Stopping Pipeline...");
         // Stop Application
         server->stop();

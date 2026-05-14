@@ -1,9 +1,29 @@
+#include <stdint.h>
+#include <throttling_manager.h>
+#include <throttling_manager_types.h>
+#include <time.h>
+#include <tl/expected.hpp>
+#include <iostream>
+#include <map>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <functional>
+#include <future>
+#include <memory>
+#include <mutex>
+#include <set>
+#include <string>
+#include <thread>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
 #include "media_library_logger.hpp"
 #include "throttling_state_monitor.hpp"
 #include "common.hpp"
 #include "env_vars.hpp"
-#include <iostream>
-#include <map>
+#include "media_library_types.hpp"
 
 #define MODULE_NAME LoggerType::ThrottlingMonitor
 

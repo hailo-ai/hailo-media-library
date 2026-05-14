@@ -1,12 +1,16 @@
 #include "sensor_registry.hpp"
-#include "media_library_logger.hpp"
-
-#include "sensor_capabilities.hpp"
 
 #include <filesystem>
 #include <optional>
 #include <fstream>
 #include <regex>
+#include <map>
+#include <set>
+#include <vector>
+
+#include "media_library_logger.hpp"
+#include "sensor_capabilities.hpp"
+#include "dsp_utils.hpp"
 
 #define MODULE_NAME LoggerType::Isp
 

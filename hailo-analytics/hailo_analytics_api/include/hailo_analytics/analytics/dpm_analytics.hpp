@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <optional>
@@ -13,7 +14,8 @@
 #include "hailo_analytics/analytics/dynamic_privacy_mask.hpp"
 #include "hailo_analytics/analytics/analytic_metadata_zmq_sender.hpp"
 #include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
-#include "hailo_analytics/pipeline/ai/lightweight_tracker_stage.hpp"
+#include "hailo_analytics/pipeline/cropping/bbox_crop_stage.hpp"
+#include "hailo_analytics/pipeline/routing/callback_stage.hpp"
 #include "hailo_postprocess_tools/labels/hailo_yolov8n.hpp"
 
 namespace hailo_analytics::analytics::dpm_analytics
@@ -37,71 +39,37 @@ inline constexpr int DEFAULT_MAX_DETECTIONS_15L_LOWLIGHT_BAYER = 1;
 
 // Full DPM analytics pipeline parameters
 inline constexpr std::string_view FULL_DPM_ANALYTICS_PIPELINE = "full_dpm_analytics_pipeline";
-inline constexpr std::string_view DETECTION_LIMITER_STAGE = "detection_limiter";
-inline constexpr std::string_view DETECTION_LIMITER_PIPELINE = "detection_limiter_pipeline";
+inline constexpr std::string_view DETECTOR_LABEL_FILTER_STAGE = "detector_label_filter";
 inline constexpr std::string_view DPM_ANALYTICS_DB_STAGE = "analytics_db_stage";
 inline constexpr std::string_view DPM_ANALYTICS_DATA_ID = "semantic_segmentation";
 inline constexpr std::string_view DPM_OVERFLOW_DETECTION_DATA_ID = "dpm_overflow_detection";
-inline constexpr std::string_view TRACKER_STAGE = "dpm_tracker";
-inline constexpr std::string_view TRACKER_PIPELINE = "dpm_tracker_pipeline";
 
-/// Thread-safe container for dynamically-updated label lists.
-/// Writer calls store() to publish a new label set; reader calls load() to get a snapshot.
-struct SharedLabels
+class DetectorLabelFilter : public hailo_analytics::pipeline::routing::CallbackStage
 {
-    void store(std::vector<std::string> labels)
-    {
-        std::atomic_store(&m_labels, std::make_shared<const std::vector<std::string>>(std::move(labels)));
-    }
+  public:
+    DetectorLabelFilter(std::string name, size_t queue_size, bool leaky, std::vector<std::string> initial_labels);
 
-    std::shared_ptr<const std::vector<std::string>> load() const
-    {
-        return std::atomic_load(&m_labels);
-    }
+    void set_labels(std::vector<std::string> labels);
+    std::shared_ptr<const std::vector<std::string>> get_labels() const;
 
   private:
-    std::shared_ptr<const std::vector<std::string>> m_labels = std::make_shared<const std::vector<std::string>>();
+    std::shared_ptr<const std::vector<std::string>> m_labels;
 };
 
-struct tracker_config_t
+struct detector_label_filter_config_t
 {
-    std::optional<bool> enabled;
-    std::optional<std::vector<int>> class_ids;
+    std::optional<std::vector<std::string>> labels;
     std::optional<size_t> queue_size;
     std::optional<bool> leaky;
-    std::optional<int> grace_period;
-    std::optional<float> iou_threshold;
-    std::optional<size_t> history_size;
 
-    void merge_from(const tracker_config_t &other);
-};
-
-struct detection_limiter_config_t
-{
-    std::optional<int> max_detections;
-    std::optional<std::vector<std::string>> segment_labels;
-    /// Labels that bypass segmentation but are always reported to overflow for bbox drawing
-    /// (e.g. license_plate). Unlike segment_labels, these are not dynamically toggled.
-    std::optional<std::vector<std::string>> overflow_only_labels;
-    /// Enables runtime label updates from an external control plane (e.g. webserver PATCH endpoint).
-    /// The limiter callback calls load() each frame; the webserver calls store() on PATCH.
-    /// Takes priority over the static segment_labels field when set.
-    std::shared_ptr<SharedLabels> shared_segment_labels;
-    /// Enables runtime max_detections updates (e.g. on vision mode change).
-    /// When set, the limiter reads from this atomic on every frame instead of the static max_detections.
-    std::shared_ptr<std::atomic<int>> shared_max_detections;
-    std::optional<size_t> queue_size;
-    std::optional<bool> leaky;
-    std::optional<bool> report_overflow_detections;
-    std::optional<std::string> overflow_detection_analytics_data_id;
-
-    void merge_from(const detection_limiter_config_t &other);
+    void merge_from(const detector_label_filter_config_t &other);
 };
 
 struct analytics_db_config_t
 {
     std::optional<std::string> stage_name;
     std::optional<std::string> analytics_data_id;
+    std::optional<std::string> overflow_analytics_data_id;
     std::optional<size_t> queue_size;
     std::optional<bool> leaky;
 
@@ -111,8 +79,7 @@ struct analytics_db_config_t
 struct full_dpm_analytics_config_t
 {
     tiling::tiling_detection_config_t tiling_config;
-    tracker_config_t tracker_config;
-    detection_limiter_config_t limiter_config;
+    detector_label_filter_config_t detector_label_filter_config;
     dynamic_privacy_mask::bbox_crop_segmentation_config_t dpm_config;
     analytics_db_config_t analytics_db_config;
     std::optional<analytic_metadata_zmq_sender::analytic_metadata_zmq_sender_config_t> metadata_sender_config;

@@ -1,7 +1,8 @@
 #pragma once
 
-#include <linux/v4l2-subdev.h>
-#include <linux/types.h>
+#include <linux/videodev2.h>
+#include <stddef.h>
+#include <vector>
 
 #include "dma_buffer.hpp"
 #include "media_library_logger.hpp"

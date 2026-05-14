@@ -62,7 +62,7 @@
 #define UDP_PORT 5000
 #define STREAM_ID_0 "sink0"
 #define STREAM_ID_1 "sink1"
-#define MEDIALIB_CONFIG_PATH "/etc/imaging/cfg/medialib_configs/ai_example_medialib_config.json"
+#define MEDIALIB_CONFIG_PATH "/etc/imaging/cfg/medialib_configs/face_landmarks_medialib_config.json"
 #define NO_PROFILE_SELECTED ""
 #define TILING_PIPELINE "tiling_detection_pipeline"
 

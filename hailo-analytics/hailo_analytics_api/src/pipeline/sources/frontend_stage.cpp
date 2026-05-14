@@ -8,22 +8,21 @@ namespace hailo_analytics::pipeline::sources
 FrontendStage::FrontendStage(std::string name, size_t queue_size, bool leaky, bool trace_processing_operations)
     : hailo_analytics::pipeline::ThreadedStage(name, queue_size, leaky, trace_processing_operations), m_started(false)
 {
-    m_frontend = nullptr;
     m_stream_subscribers.clear();
 }
 
 FrontendStage::~FrontendStage()
 {
-    if (m_frontend)
+    if (m_media_library)
     {
-        m_frontend->unsubscribe_all();
+        m_media_library->unsubscribe_all_from_frontend();
     }
     m_stream_subscribers.clear();
 }
 
-AppStatus FrontendStage::create(MediaLibraryFrontend &frontend)
+AppStatus FrontendStage::create(MediaLibraryInterfacePtr media_library)
 {
-    m_frontend = &frontend;
+    m_media_library = media_library;
     return subscribe_output_streams();
 }
 
@@ -42,16 +41,16 @@ void FrontendStage::add_subscriber(StagePtr subscriber, std::optional<std::strin
     }
 }
 
-// Note subscription is done by stream id as forntend has multiple output streams
+// Note subscription is done by stream id as frontend has multiple output streams
 AppStatus FrontendStage::subscribe_to_stream(output_stream_id_t stream_id,
                                              hailo_analytics::pipeline::StagePtr subscriber)
 {
-    if (!m_frontend)
+    if (!m_media_library)
     {
         HAILO_ANALYTICS_LOG_ERROR("Frontend {} not configured. Call configure()", m_stage_name);
         return AppStatus::UNINITIALIZED;
     }
-    auto streams = m_frontend->get_outputs_streams();
+    auto streams = m_media_library->get_frontend_output_streams();
     if (!streams.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to get stream ids");
@@ -71,13 +70,13 @@ AppStatus FrontendStage::subscribe_to_stream(output_stream_id_t stream_id,
 
 AppStatus FrontendStage::subscribe_output_streams()
 {
-    if (m_frontend == nullptr)
+    if (!m_media_library)
     {
         HAILO_ANALYTICS_LOG_ERROR("Frontend {} not configured. Call configure()", m_stage_name);
         return AppStatus::UNINITIALIZED;
     }
     // Get frontend output streams
-    auto streams = m_frontend->get_outputs_streams();
+    auto streams = m_media_library->get_frontend_output_streams();
     // Subscribe to frontend
     FrontendCallbacksMap fe_callbacks;
     if (!streams.has_value())
@@ -88,7 +87,7 @@ AppStatus FrontendStage::subscribe_output_streams()
     for (auto s : streams.value())
     {
         HAILO_ANALYTICS_LOG_INFO("subscribing to frontend for '{}'", s.id);
-        fe_callbacks[s.id] = [s, this](HailoMediaLibraryBufferPtr buffer, [[maybe_unused]] size_t size) {
+        fe_callbacks[s.id] = [s, this](HailoMediaLibraryBufferPtr buffer, size_t /*size*/) {
             // Only push buffers if the stage has been started
             if (!m_started.load())
             {
@@ -105,7 +104,7 @@ AppStatus FrontendStage::subscribe_output_streams()
             }
         };
     }
-    m_frontend->subscribe(fe_callbacks);
+    m_media_library->subscribe_to_frontend_output(fe_callbacks);
     return AppStatus::SUCCESS;
 }
 
@@ -122,19 +121,19 @@ AppStatus FrontendStage::stop()
 
 AppStatus FrontendStage::init()
 {
-    if (m_frontend == nullptr)
+    if (!m_media_library)
     {
         HAILO_ANALYTICS_LOG_ERROR("Frontend {} not configured. Call configure()");
         return AppStatus::UNINITIALIZED;
     }
 
-    // Set started flag before starting the frontend
+    // Set started flag before starting the pipeline
     m_started.store(true);
 
-    auto status = m_frontend->start();
+    auto status = m_media_library->start_pipeline();
     if (status != MEDIA_LIBRARY_SUCCESS)
     {
-        HAILO_ANALYTICS_LOG_ERROR("Failed to start frontend");
+        HAILO_ANALYTICS_LOG_ERROR("Failed to start media library pipeline");
         m_started.store(false);
         return AppStatus::MEDIA_LIBRARY_ERROR;
     }
@@ -145,27 +144,27 @@ AppStatus FrontendStage::init()
 
 AppStatus FrontendStage::deinit()
 {
-    // Clear started flag before stopping the frontend
+    // Clear started flag before stopping the pipeline
     m_started.store(false);
     HAILO_ANALYTICS_LOG_INFO("FrontendStage '{}' stopping - no longer accepting buffers", m_stage_name);
 
-    auto status = m_frontend->stop();
+    auto status = m_media_library->stop_pipeline();
     if (status != MEDIA_LIBRARY_SUCCESS)
     {
-        HAILO_ANALYTICS_LOG_ERROR("Failed to stop frontend");
+        HAILO_ANALYTICS_LOG_ERROR("Failed to stop media library pipeline");
         return AppStatus::MEDIA_LIBRARY_ERROR;
     }
     return AppStatus::SUCCESS;
 }
 
-AppStatus FrontendStage::configure(MediaLibraryFrontend &frontend)
+AppStatus FrontendStage::configure(MediaLibraryInterfacePtr media_library)
 {
-    if (m_frontend != nullptr)
+    if (m_media_library)
     {
-        m_frontend->stop();
-        m_frontend = nullptr;
+        m_media_library->stop_pipeline();
+        m_media_library.reset();
     }
-    return create(frontend);
+    return create(media_library);
 }
 
 void FrontendStage::loop()
@@ -176,7 +175,7 @@ void FrontendStage::loop()
 
 tl::expected<std::vector<frontend_output_stream_t>, media_library_return> FrontendStage::get_outputs_streams()
 {
-    return m_frontend->get_outputs_streams();
+    return m_media_library->get_frontend_output_streams();
 }
 
 FrontendStageBuild::Builder &FrontendStageBuild::Builder::set_stage_name(std::string name)

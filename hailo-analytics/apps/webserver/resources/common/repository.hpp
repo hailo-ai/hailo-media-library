@@ -1,13 +1,6 @@
 #pragma once
 #include "common/httplib/httplib_utils.hpp"
 #include "resources.hpp"
-#include "resources/webrtc.hpp"
-#include "resources/osd.hpp"
-#include "resources/isp.hpp"
-#include "resources/encoder.hpp"
-#include "resources/privacy_mask.hpp"
-#include "resources/webpage.hpp"
-#include "resources/configs.hpp"
 #include <map>
 
 namespace webserver

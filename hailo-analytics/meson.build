@@ -1,17 +1,12 @@
 # Project Declaration
 project('hailo-analytics', 'c', 'cpp',
-    version : '1.11.0',
-    default_options : [ 'warning_level=2', 'werror=false',
+    version : '8.8.8',
+    default_options : [ 'warning_level=2', 'werror=true',
                         'buildtype=' + get_option('buildtype'),
                         'c_std=c11', 'cpp_std=c++20']
 )
 
 # Compiler Arguments
-# Keep -Werror enabled, but don't fail the build on specific warnings (e.g., -Wunused-parameter).
-add_global_arguments('-Wno-unused-parameter', language : 'c')
-add_global_arguments('-Wno-unused-parameter', language : 'cpp')
-add_global_arguments('-Wno-deprecated-copy', language : 'cpp')
-add_global_arguments('-Wno-missing-field-initializers', language : 'cpp')
 compiler = meson.get_compiler('cpp')
 
 # Pkgconfig

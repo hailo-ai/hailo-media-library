@@ -23,7 +23,7 @@
 #include "gsthailoconfigattacher.hpp"
 #include "buffer_utils.hpp"
 #include "common/gstmedialibcommon.hpp"
-#include "config_manager.hpp"
+#include "media_library/config_manager.hpp"
 #include "gst/gstquery.h"
 #include "gstmedialibptrs.hpp"
 #include <glib-object.h>

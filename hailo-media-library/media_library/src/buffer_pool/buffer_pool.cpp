@@ -20,10 +20,27 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-#include <thread>
+#include <stddef.h>
+#include <stdint.h>
+#include <sys/types.h>
+#include <algorithm>
+#include <chrono>
+#include <condition_variable>
+#include <deque>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
 #include "buffer_pool.hpp"
 #include "media_library_logger.hpp"
 #include "hailo_media_library_perfetto.hpp"
+#include "dma_memory_allocator.hpp"
+#include "media_library_buffer.hpp"
+#include "media_library_types.hpp"
 
 #define MODULE_NAME LoggerType::BufferPool
 
@@ -41,6 +58,7 @@ class HailoBucket
     std::unordered_set<intptr_t> m_used_buffers;
     std::deque<intptr_t> m_available_buffers;
     std::shared_ptr<std::mutex> m_bucket_mutex;
+    std::condition_variable m_bucket_cv;
 
     media_library_return allocate();
     media_library_return free(bool fail_on_used_buffers = true);
@@ -61,6 +79,7 @@ class HailoBucket
     friend class MediaLibraryBufferPool;
     int available_buffers_count();
     int used_buffers_count();
+    media_library_return wait_for_used_buffers(const std::chrono::milliseconds &timeout_ms);
 };
 
 HailoBucket::HailoBucket(size_t buffer_size, size_t num_buffers, HailoMemoryType memory_type, std::string name)
@@ -213,6 +232,29 @@ media_library_return HailoBucket::release(intptr_t buffer_ptr)
         MODULE_NAME, "{}: After release buffer {}, total_buffers={}  available_buffers={} used_buffers={}, removed={}",
         m_name, buffer_ptr, m_num_buffers, m_available_buffers.size(), m_used_buffers.size(), num_erased);
 
+    if (m_used_buffers.empty())
+    {
+        m_bucket_cv.notify_all();
+    }
+
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return HailoBucket::wait_for_used_buffers(const std::chrono::milliseconds &timeout_ms)
+{
+    std::unique_lock<std::mutex> lock(*m_bucket_mutex);
+    if (m_used_buffers.empty())
+    {
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: Waiting for bucket of size {} num of buffers {}", m_name, m_buffer_size,
+                          m_num_buffers);
+
+    if (!m_bucket_cv.wait_for(lock, timeout_ms, [this]() { return m_used_buffers.empty(); }))
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "{}: Timeout waiting for used buffers to be released", m_name);
+        return MEDIA_LIBRARY_ERROR;
+    }
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -302,13 +344,9 @@ media_library_return MediaLibraryBufferPool::wait_for_used_buffers(const std::ch
     std::unique_lock<std::mutex> lock(*m_buffer_pool_mutex);
     for (uint8_t i = 0; i < m_buckets.size(); i++)
     {
-        HailoBucketPtr &bucket = m_buckets[i];
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: Waiting for bucket {} of size {} num of buffers {}", m_name, i,
-                              bucket->m_buffer_size, bucket->m_num_buffers);
-
-        if (!m_pool_cv.wait_for(lock, timeout_ms, [&bucket]() { return bucket->used_buffers_count() == 0; }))
+        if (m_buckets[i]->wait_for_used_buffers(timeout_ms) != MEDIA_LIBRARY_SUCCESS)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "{}: Timeout waiting for used buffers to be released", m_name);
+            LOGGER__MODULE__ERROR(MODULE_NAME, "{}: Timeout waiting for bucket {} to release buffers", m_name, i);
             return MEDIA_LIBRARY_ERROR;
         }
     }
@@ -449,6 +487,7 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
         else
         {
             LOGGER__MODULE__ERROR(MODULE_NAME, "CMA memory not supported");
+            m_buckets[0]->release(y_channel_ptr);
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
 
@@ -457,7 +496,7 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
         ret = m_buckets[1]->acquire(&uv_channel_ptr);
         if (ret != MEDIA_LIBRARY_SUCCESS)
         {
-            // log Failed to create buffer with status code
+            m_buckets[0]->release(y_channel_ptr);
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
 
@@ -479,6 +518,8 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
         {
             memory_type = HAILO_MEMORY_TYPE_CMA;
             LOGGER__MODULE__ERROR(MODULE_NAME, "CMA memory not supported");
+            m_buckets[0]->release(y_channel_ptr);
+            m_buckets[1]->release(uv_channel_ptr);
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
 
@@ -494,7 +535,11 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
 
         ret = buffer->create(shared_from_this(), buffer_data, m_on_release_callback, nullptr);
         if (ret != MEDIA_LIBRARY_SUCCESS)
+        {
+            m_buckets[0]->release(y_channel_ptr);
+            m_buckets[1]->release(uv_channel_ptr);
             return ret;
+        }
         buffer->set_buffer_index(m_buffer_index);
         LOGGER__MODULE__TRACE(MODULE_NAME, "{}: NV12 Buffer width {} height {} acquired", m_name,
                               buffer->buffer_data->width, buffer->buffer_data->height);
@@ -529,6 +574,7 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
         {
             memory_type = HAILO_MEMORY_TYPE_CMA;
             LOGGER__MODULE__ERROR(MODULE_NAME, "CMA memory not supported");
+            m_buckets[0]->release(rgb_ptr);
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
 
@@ -539,7 +585,10 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
 
         ret = buffer->create(shared_from_this(), buffer_data, m_on_release_callback, nullptr);
         if (ret != MEDIA_LIBRARY_SUCCESS)
+        {
+            m_buckets[0]->release(rgb_ptr);
             return ret;
+        }
         buffer->set_buffer_index(m_buffer_index);
 
         LOGGER__MODULE__TRACE(MODULE_NAME, "{}: RGB Buffer width {} height {} acquired", m_name,
@@ -589,6 +638,7 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
         {
             memory_type = HAILO_MEMORY_TYPE_CMA;
             LOGGER__MODULE__ERROR(MODULE_NAME, "CMA memory not supported");
+            m_buckets[0]->release(data_ptr);
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
 
@@ -615,7 +665,10 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
 
         ret = buffer->create(shared_from_this(), buffer_data, m_on_release_callback, nullptr);
         if (ret != MEDIA_LIBRARY_SUCCESS)
+        {
+            m_buckets[0]->release(data_ptr);
             return ret;
+        }
 
         if (m_format == HAILO_FORMAT_GRAY8)
         {

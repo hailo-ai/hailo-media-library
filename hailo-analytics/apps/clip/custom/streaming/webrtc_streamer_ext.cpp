@@ -120,7 +120,7 @@ void WebRTCStreamerExt::handle_answer(const std::string &answerSdp)
 }
 
 void WebRTCStreamerExt::handle_ice_candidate(const std::string &candidate, const std::string &sdpMid,
-                                             [[maybe_unused]] int sdpMLineIndex)
+                                             int /*sdpMLineIndex*/)
 {
     rtc::Candidate rtcCandidate(candidate, sdpMid);
     m_peer_connection->addRemoteCandidate(rtcCandidate);

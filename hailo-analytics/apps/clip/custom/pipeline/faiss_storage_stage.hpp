@@ -33,7 +33,7 @@ using hailo_analytics::pipeline::BufferPtr;
 
 #define FAISS_STORAGE_QUEUE_SIZE_DEFAULT 15
 
-#define FAISS_DB_FLASH_INTERVAL_MS 1000
+#define FAISS_DB_FLASH_INTERVAL_MS 3000
 #define FAISS_DB_FLASH_MIN_SIZE 50
 
 class FaissStorageStage : public hailo_analytics::pipeline::ThreadedStage

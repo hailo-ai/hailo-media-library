@@ -2,7 +2,7 @@
 #include <tl/expected.hpp>
 #include <unordered_map>
 #include "media_library/frontend.hpp"
-#include "config_manager.hpp"
+#include "media_library/config_manager.hpp"
 #include "glib.h"
 #include "gst/gstelement.h"
 #include "gst/gstpipeline.h"
@@ -13,6 +13,8 @@
 #include "gsthailobuffermeta.hpp"
 #include "gstmedialibcommon.hpp"
 #include "buffer_utils.hpp"
+#include "media_library/common.hpp"
+#include "media_library/env_vars.hpp"
 #include "media_library/media_library_types.hpp"
 #include <nlohmann/json.hpp>
 
@@ -21,7 +23,6 @@ static constexpr std::chrono::milliseconds PAUSE_WAIT_DURATION{100};
 
 #define OUTPUT_SINK_ID(idx) ("sink" + std::to_string(idx))
 #define OUTPUT_FPS_SINK_ID(idx) ("fpsdisplaysink" + std::to_string(idx))
-#define PRINT_FPS false
 #define MODULE_NAME LoggerType::Api
 
 static GstState pipeline_state_to_gst_state(PipelineState state)
@@ -109,7 +110,6 @@ media_library_return MediaLibraryFrontend::unsubscribe(const std::string &id)
 media_library_return MediaLibraryFrontend::add_buffer(HailoMediaLibraryBufferPtr ptr)
 {
     return m_impl->add_buffer(ptr);
-    return MEDIA_LIBRARY_ERROR;
 }
 
 tl::expected<std::vector<frontend_output_stream_t>, media_library_return> MediaLibraryFrontend::get_outputs_streams()
@@ -1196,7 +1196,7 @@ void MediaLibraryFrontend::Impl::fps_measurement(GstElement *fpsdisplaysink, gdo
     // Extract stream ID from fpsdisplaysink name (format: "fpsdisplay<stream_id>")
     auto name = glib_cpp::get_name(fpsdisplaysink);
 
-    if (PRINT_FPS)
+    if (is_env_variable_on(MEDIALIB_FRONTEND_PRINT_FPS_ENV_VAR))
     {
         std::cout << name << ", DROP RATE: " << droprate << " FPS: " << fps << " AVG_FPS: " << avgfps << std::endl;
     }

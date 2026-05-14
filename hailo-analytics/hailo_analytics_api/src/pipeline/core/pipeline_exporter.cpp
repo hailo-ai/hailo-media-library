@@ -59,13 +59,19 @@ void PipelineExporter::collect_stage_subscribers(const StagePtr &stage, const st
         return;
     }
 
-    // Regular ThreadedStage with single subscriber list (no stream label)
+    // Regular ThreadedStage — preserve per-subscriber stream-id labels when present (e.g. for
+    // SplitStreamsStage, which dispatches to subscribers by stream id).
     auto threaded_stage = std::dynamic_pointer_cast<ThreadedStage>(stage);
     if (threaded_stage)
     {
-        for (const auto &subscriber : threaded_stage->get_subscribers())
+        const auto &subscribers = threaded_stage->get_subscribers();
+        const auto &subscriber_stream_ids = threaded_stage->get_subscriber_stream_ids();
+        for (size_t i = 0; i < subscribers.size(); ++i)
         {
-            context.discovered_internal_connections.push_back(std::make_tuple(full_stage_name, subscriber, ""));
+            const std::string label = (i < subscriber_stream_ids.size() && subscriber_stream_ids[i].has_value())
+                                          ? *subscriber_stream_ids[i]
+                                          : std::string();
+            context.discovered_internal_connections.push_back(std::make_tuple(full_stage_name, subscribers[i], label));
         }
     }
 }

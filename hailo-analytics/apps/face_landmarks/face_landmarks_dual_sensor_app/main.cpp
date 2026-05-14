@@ -218,8 +218,8 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     // ================================================================
     // SENSOR 0: Face landmarks AI pipeline
     // ================================================================
-    auto &sensor0_media_library = *app_resources->instances[0].media_library;
-    auto sensor0_streams = sensor0_media_library.m_frontend->get_outputs_streams();
+    auto sensor0_media_library = app_resources->instances[0].media_library;
+    auto sensor0_streams = sensor0_media_library->get_frontend_output_streams();
     if (!sensor0_streams.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to get output streams for sensor 0");
@@ -244,7 +244,9 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     }
 
     // Tiling pipeline (YOLO person/face detection)
-    auto tiling_pipeline = face_landmarks_app::build_tiling_pipeline(TILING_PIPELINE);
+    auto tiling_cfg = face_landmarks_app::default_tiling_config();
+    auto tiling_pipeline =
+        hailo_analytics::analytics::tiling::generate_tiling_detection_pipeline(TILING_PIPELINE, tiling_cfg);
     if (!tiling_pipeline.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create tiling pipeline");
@@ -252,7 +254,9 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     }
 
     // Face landmarks pipeline
-    auto landmarks_pipeline = face_landmarks_app::build_landmarks_pipeline(LANDMARKS_PIPELINE);
+    auto landmarks_cfg = face_landmarks_app::default_landmarks_config();
+    auto landmarks_pipeline =
+        hailo_analytics::analytics::face_landmarks::generate_bbox_landmarks_pipeline(LANDMARKS_PIPELINE, landmarks_cfg);
     if (!landmarks_pipeline.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create landmarks pipeline");
@@ -290,8 +294,8 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     // ================================================================
     // SENSOR 1: Simple vision pipeline (all streams encoded to UDP)
     // ================================================================
-    auto &sensor1_media_library = *app_resources->instances[1].media_library;
-    auto sensor1_streams = sensor1_media_library.m_frontend->get_outputs_streams();
+    auto sensor1_media_library = app_resources->instances[1].media_library;
+    auto sensor1_streams = sensor1_media_library->get_frontend_output_streams();
     if (!sensor1_streams.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to get output streams for sensor 1");

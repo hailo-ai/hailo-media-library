@@ -185,7 +185,7 @@ std::pair<float, float> TinyYolov4OL::get_shape(uint row, uint col, uint anchor,
     return std::pair<float, float>(w, h);
 }
 
-float YoloXOL::get_confidence(uint row, uint col, uint anchor)
+float YoloXOL::get_confidence(uint row, uint col, uint /*anchor*/)
 {
     float confidence = _obj->get_full_percision(row, col, 0, _is_uint16);
     if (_perform_sigmoid)
@@ -193,7 +193,7 @@ float YoloXOL::get_confidence(uint row, uint col, uint anchor)
     return confidence;
 }
 
-uint YoloXOL::get_class_prob(uint row, uint col, uint anchor, uint class_id)
+uint YoloXOL::get_class_prob(uint row, uint col, uint /*anchor*/, uint class_id)
 {
     return _cls->get(row, col, class_id - 1);
 }
@@ -206,7 +206,7 @@ float YoloXOL::get_class_conf(uint prob_max)
     return conf;
 }
 
-std::pair<float, float> YoloXOL::get_center(uint row, uint col, uint anchor)
+std::pair<float, float> YoloXOL::get_center(uint row, uint col, uint /*anchor*/)
 {
     float x, y = 0.0f;
     x = (_bbox->get_full_percision(row, col, 0, _is_uint16) + col) / _width;
@@ -214,7 +214,8 @@ std::pair<float, float> YoloXOL::get_center(uint row, uint col, uint anchor)
     return std::pair<float, float>(x, y);
 }
 
-std::pair<float, float> YoloXOL::get_shape(uint row, uint col, uint anchor, uint image_width, uint image_height)
+std::pair<float, float> YoloXOL::get_shape(uint row, uint col, uint /*anchor*/, uint /*image_width*/,
+                                           uint /*image_height*/)
 {
     float w, h = 0.0f;
     w = expf(_bbox->get_full_percision(row, col, 2, _is_uint16)) / _width;

@@ -4,13 +4,13 @@
  **/
 #include <algorithm>
 #include <cmath>
-#include <iostream>
 #include <string>
 #include <vector>
 #include <sys/stat.h>
 #include <nlohmann/json.hpp>
 
 #include "clip.hpp"
+#include "hailo_postprocess_tools/logger/hailo_postprocess_logger.hpp"
 #include <zmq.hpp>
 #include <queue>
 #include <mutex>
@@ -48,7 +48,7 @@ void decode_zmq_messages(const std::string &message_str)
     json received_json = json::parse(message_str, /*cb=*/nullptr, /*allow_exceptions=*/false);
     if (received_json.is_discarded())
     {
-        std::cerr << "[CLIP] bad json, skip\n";
+        HAILO_POSTPROCESS_LOG_WARN("[CLIP] bad json, skip");
         return;
     }
 

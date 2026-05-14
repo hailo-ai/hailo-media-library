@@ -7,9 +7,9 @@ Hailo Media Library
    :width: 150
    :height: 20
 
-.. |hailort| image:: https://img.shields.io/badge/HailoRT-5.2.0-green
+.. |hailort| image:: https://img.shields.io/badge/HailoRT-5.3.0-green
    :target: https://github.com/hailo-ai/hailort
-   :alt: HailoRT 5.2.0
+   :alt: HailoRT 5.3.0
    :height: 20
 
 

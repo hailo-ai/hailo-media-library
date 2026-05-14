@@ -202,7 +202,7 @@ class Encoder::Impl final
     u32 m_intra_pic_rate;
     std::vector<std::pair<uint32_t, HailoMediaLibraryBufferPtr>> m_inputs;
     EncoderOutputBuffer m_header;
-    EncoderConfig m_config;
+    hailo_encoder_config_t m_config;
     class gopConfig;
     std::unique_ptr<gopConfig> m_gop_cfg;
     MediaLibraryBufferPoolPtr m_buffer_pool;
@@ -241,8 +241,8 @@ class Encoder::Impl final
   public:
     Impl();
     ~Impl();
-    std::vector<EncoderOutputBuffer> handle_frame(HailoMediaLibraryBufferPtr buf, uint32_t frame_number);
-    media_library_return handle_bitrate_adjustment_hooks(HailoMediaLibraryBufferPtr buf, uint32_t frame_number);
+    std::vector<EncoderOutputBuffer> handle_frame(const HailoMediaLibraryBufferPtr &buf, uint32_t frame_number);
+    media_library_return handle_bitrate_adjustment_hooks(const HailoMediaLibraryBufferPtr &buf, uint32_t frame_number);
     void boost_settings_for_optical_zoom();
     u32 get_constant_optical_zoom_boost(float optical_zoom_magnification, u32 current_bitrate);
     void apply_constant_optical_zoom_boost(float optical_zoom_magnification);
@@ -252,8 +252,6 @@ class Encoder::Impl final
     int get_gop_size();
     EncoderOutputBuffer get_encoder_header_output_buffer();
     media_library_return configure_on_new_config(const encoder_config_t &config);
-    encoder_config_t get_config();
-    encoder_config_t get_user_config();
     tl::expected<EncoderOutputBuffer, media_library_return> start();
     void stop();
     tl::expected<EncoderOutputBuffer, media_library_return> finish();
@@ -277,18 +275,19 @@ class Encoder::Impl final
     media_library_return init_preprocessing_config();
     media_library_return init_encoder_config();
     media_library_return init_monitors_config();
-    void apply_smart_encoder_config(const smart_encoder_config_t &smart_encoder);
+    void apply_smart_encoder_config(uint64_t isp_timestamp_ns);
+    void append_analytics_rois(const std::vector<std::string> &analytics_labels, uint64_t isp_timestamp_ns);
     void stamp_time_and_log_fps(timespec &start_handle, timespec &end_handle);
-    media_library_return get_level(std::string level, bool codecH264, u32 width, u32 height, u32 framerate,
+    media_library_return get_level(const std::string &level, bool codecH264, u32 width, u32 height, u32 framerate,
                                    u32 framerate_denom, VCEncLevel &vc_level_out);
-    media_library_return validate_level_limitations(std::string level, bool codecH264, u32 width, u32 height,
+    media_library_return validate_level_limitations(const std::string &level, bool codecH264, u32 width, u32 height,
                                                     u32 framerate, u32 framerate_denom);
     media_library_return validate_bitrate_limitations(rate_control_config_t rate_control_config);
-    VCEncPictureType get_input_format(std::string format);
+    VCEncPictureType get_input_format(const std::string &format);
     VCEncPictureCodingType find_next_pic();
-    media_library_return update_input_buffer(HailoMediaLibraryBufferPtr buf,
+    media_library_return update_input_buffer(const HailoMediaLibraryBufferPtr &buf,
                                              std::vector<DmabufShareGuard> &dmabuf_release_guards);
-    media_library_return acquire_output_memory(HailoMediaLibraryBufferPtr buffer_ptr,
+    media_library_return acquire_output_memory(const HailoMediaLibraryBufferPtr &buffer_ptr,
                                                std::vector<DmabufShareGuard> &dmabuf_release_guards);
     tl::expected<EncoderOutputBuffer, media_library_return> encode_executer(
         encoder_operation_t op, std::vector<DmabufShareGuard> &dmabuf_release_guards);
@@ -296,12 +295,12 @@ class Encoder::Impl final
     media_library_return update_gop_configurations();
     media_library_return stream_restart();
     media_library_return encode_header();
-    media_library_return encode_frame(HailoMediaLibraryBufferPtr buf, std::vector<EncoderOutputBuffer> &outputs,
+    media_library_return encode_frame(const HailoMediaLibraryBufferPtr &buf, std::vector<EncoderOutputBuffer> &outputs,
                                       uint32_t frame_number, std::vector<DmabufShareGuard> &dmabuf_release_guards);
     media_library_return encode_multiple_frames(std::vector<EncoderOutputBuffer> &outputs,
                                                 std::vector<DmabufShareGuard> &dmabuf_release_guards);
     media_library_return prepare_empty_output_buffer(EncoderOutputBuffer &output, uint32_t frame_number);
-    media_library_return inject_sei_user_metadata(HailoMediaLibraryBufferPtr buf, bool is_forced_keyframe);
+    media_library_return inject_sei_user_metadata(const HailoMediaLibraryBufferPtr &buf, bool is_forced_keyframe);
     uint32_t get_codec();
     bool instance_restart_required(const hailo_encoder_config_t &old_config, const hailo_encoder_config_t &new_config,
                                    bool gop_update_required);
@@ -320,7 +319,6 @@ class Encoder::Impl::gopConfig
     VCEncGopConfig *m_gop_cfg;
     VCEncGopPicConfig m_gop_pic_cfg[MAX_GOP_PIC_CONFIG_NUM];
     int m_gop_size;
-    char *m_gop_cfg_name;
     uint8_t m_gop_cfg_offset[MAX_GOP_SIZE + 1];
     int m_b_frame_qp_delta;
     bool m_codec_h264;

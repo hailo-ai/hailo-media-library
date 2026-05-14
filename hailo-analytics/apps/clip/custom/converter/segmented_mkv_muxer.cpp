@@ -20,8 +20,8 @@ GStreamerMkvSegmenter::GStreamerMkvSegmenter(CodecType codec, const std::string 
     : m_codec_type(codec), m_output_path(output_path), m_file_prefix(file_prefix),
       m_segment_duration_sec(segment_duration_sec), m_epoch_naming_data(nullptr), m_notification_callback(nullptr),
       m_callback_user_data(nullptr), m_pipeline(nullptr), m_appsrc(nullptr), m_parser(nullptr), m_bus(nullptr),
-      m_last_segment_end_running_time(0), m_current_segment_start_running_time(0), m_processing_active(false),
-      m_initialized(false), m_running(false)
+      m_last_segment_end_running_time(0), m_current_segment_start_running_time(0), m_pts_to_epoch_offset_ms(0),
+      m_pts_epoch_offset_initialized(false), m_processing_active(false), m_initialized(false), m_running(false)
 {
 
     m_epoch_naming_data = new EpochNamingData(output_path, file_prefix);
@@ -122,7 +122,7 @@ bool GStreamerMkvSegmenter::create_pipeline()
                                    G_TYPE_STRING, "nal", nullptr);
     }
 
-    g_object_set(G_OBJECT(m_appsrc), "caps", caps, "format", GST_FORMAT_TIME, "is-live", TRUE, "do-timestamp", FALSE,
+    g_object_set(G_OBJECT(m_appsrc), "caps", caps, "format", GST_FORMAT_TIME, "is-live", FALSE, "do-timestamp", FALSE,
                  nullptr);
     gst_caps_unref(caps);
 
@@ -481,8 +481,7 @@ uint64_t GStreamerMkvSegmenter::get_current_epoch_time_ms() const
     return static_cast<uint64_t>(millis);
 }
 
-GstBusSyncReply GStreamerMkvSegmenter::on_bus_message([[maybe_unused]] GstBus *bus, GstMessage *message,
-                                                      gpointer user_data)
+GstBusSyncReply GStreamerMkvSegmenter::on_bus_message(GstBus * /*bus*/, GstMessage *message, gpointer user_data)
 {
     GStreamerMkvSegmenter *segmenter = static_cast<GStreamerMkvSegmenter *>(user_data);
 
@@ -535,11 +534,25 @@ GstBusSyncReply GStreamerMkvSegmenter::on_bus_message([[maybe_unused]] GstBus *b
             // Track the start of this segment
             segmenter->m_current_segment_start_running_time = running_time;
 
+            // Calibrate PTS-to-epoch offset on the first segment (pipeline latency ≈ 0 at start)
+            uint64_t now_epoch_ms = segmenter->get_current_epoch_time_ms();
+            if (!segmenter->m_pts_epoch_offset_initialized)
+            {
+                segmenter->m_pts_to_epoch_offset_ms =
+                    static_cast<int64_t>(now_epoch_ms) - static_cast<int64_t>(running_time / 1000000);
+                segmenter->m_pts_epoch_offset_initialized = true;
+            }
+
+            // Calculate segment start epoch from PTS (immune to pipeline latency accumulation)
+            uint64_t pts_based_epoch_ms = static_cast<uint64_t>(static_cast<int64_t>(running_time / 1000000) +
+                                                                segmenter->m_pts_to_epoch_offset_ms);
+
             // Extract segment index and store start time
             if (filename)
             {
                 uint32_t segment_index = segmenter->extract_segment_index(filename);
                 segmenter->m_segment_start_times[segment_index] = running_time;
+                segmenter->m_segment_start_epoch_times[segment_index] = pts_based_epoch_ms;
             }
         }
         // Handle fragment closed (segment complete)
@@ -567,9 +580,8 @@ GstBusSyncReply GStreamerMkvSegmenter::on_bus_message([[maybe_unused]] GstBus *b
     }
 }
 
-gchar *GStreamerMkvSegmenter::on_epoch_format_location_safe([[maybe_unused]] GstElement *splitmux, guint fragment_id,
-                                                            [[maybe_unused]] GstSample *first_sample,
-                                                            gpointer user_data)
+gchar *GStreamerMkvSegmenter::on_epoch_format_location_safe(GstElement * /*splitmux*/, guint fragment_id,
+                                                            GstSample * /*first_sample*/, gpointer user_data)
 {
 
     // Check if user_data is valid
@@ -652,16 +664,46 @@ void GStreamerMkvSegmenter::handle_split_mux_segment_with_running_time(const cha
 
     uint32_t duration_ms = static_cast<uint32_t>(duration_ns / 1000000);
 
-    /*
-    HAILO_ANALYTICS_LOG_INFO("*** CALCULATED ACTUAL DURATION ***");
-    HAILO_ANALYTICS_LOG_INFO("  Start running time: {} ns ({:.3f} sec)", start_running_time, start_running_time /
-    (double)GST_SECOND); HAILO_ANALYTICS_LOG_INFO("  End running time:   {} ns ({:.3f} sec)", end_running_time,
-    end_running_time / (double)GST_SECOND); HAILO_ANALYTICS_LOG_INFO("  Duration:           {} ns ({:.3f} sec = {}
-    ms)", duration_ns, duration_ns / (double)GST_SECOND, duration_ms);
-    */
+    // Use PTS-based epoch recorded at segment open (immune to pipeline latency accumulation)
+    uint64_t start_time_epoch_ms;
+    uint64_t now_epoch_ms = get_current_epoch_time_ms();
+    auto epoch_it = m_segment_start_epoch_times.find(segment_index);
+    if (epoch_it != m_segment_start_epoch_times.end())
+    {
+        start_time_epoch_ms = epoch_it->second;
+        m_segment_start_epoch_times.erase(epoch_it);
+    }
+    else if (m_pts_epoch_offset_initialized)
+    {
+        // Fallback: compute from running-time + calibrated offset
+        start_time_epoch_ms =
+            static_cast<uint64_t>(static_cast<int64_t>(start_running_time / 1000000) + m_pts_to_epoch_offset_ms);
+        HAILO_ANALYTICS_LOG_WARN("WARNING: No cached epoch for segment {}, computed from running-time", segment_index);
+    }
+    else
+    {
+        // Last resort: backwards calculation (legacy behavior)
+        start_time_epoch_ms = now_epoch_ms - duration_ms;
+        HAILO_ANALYTICS_LOG_WARN("WARNING: No epoch calibration for segment {}, using legacy fallback", segment_index);
+    }
 
-    // Calculate start time epoch (approximate)
-    uint64_t start_time_epoch_ms = get_current_epoch_time_ms() - (duration_ms);
+    // Also compute end_epoch from PTS (not start + gstreamer_duration)
+    uint64_t end_time_epoch_ms;
+    if (m_pts_epoch_offset_initialized)
+    {
+        end_time_epoch_ms =
+            static_cast<uint64_t>(static_cast<int64_t>(end_running_time / 1000000) + m_pts_to_epoch_offset_ms);
+    }
+    else
+    {
+        end_time_epoch_ms = start_time_epoch_ms + duration_ms;
+    }
+
+    int64_t pipeline_latency_ms = static_cast<int64_t>(now_epoch_ms) - static_cast<int64_t>(end_time_epoch_ms);
+    HAILO_ANALYTICS_LOG_INFO("SEGMENT_CLOSE idx={} file={} start_epoch={} end_epoch={} duration_ms={} "
+                             "pipeline_latency={}ms",
+                             segment_index, filename, start_time_epoch_ms, end_time_epoch_ms, duration_ms,
+                             pipeline_latency_ms);
 
     // Create segment info
     SegmentInfo info;
@@ -696,5 +738,10 @@ void GStreamerMkvSegmenter::handle_split_mux_segment_with_running_time(const cha
     {
         auto oldest = m_segment_start_times.begin();
         m_segment_start_times.erase(oldest);
+    }
+    if (m_segment_start_epoch_times.size() > 10)
+    {
+        auto oldest = m_segment_start_epoch_times.begin();
+        m_segment_start_epoch_times.erase(oldest);
     }
 }

@@ -28,7 +28,8 @@ static constexpr const char *HOST_IP = "10.0.0.2";
 static constexpr const char *VISION_SINK = "sink0";
 static constexpr const char *AI_SINK = "sink2";
 static constexpr const char *NO_PROFILE_SELECTED = "";
-static constexpr const char *MEDIALIB_CONFIG_PATH = "/etc/imaging/cfg/medialib_configs/ai_example_medialib_config.json";
+static constexpr const char *MEDIALIB_CONFIG_PATH =
+    "/etc/imaging/cfg/medialib_configs/face_landmarks_medialib_config.json";
 
 enum class ArgumentType
 {
@@ -294,7 +295,7 @@ hailo_analytics::pipeline::PipelinePtr create_vision_pipeline_from_file(std::sha
                                   .buildptr();
 
     hailo_analytics::pipeline::AppStatus frontend_config_status =
-        frontend_from_file->configure(*app_resources->media_library->m_frontend);
+        frontend_from_file->configure(app_resources->media_library);
     if (frontend_config_status != hailo_analytics::pipeline::AppStatus::SUCCESS)
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to configure frontend from file");
@@ -320,9 +321,9 @@ hailo_analytics::pipeline::PipelinePtr create_vision_pipeline_from_file(std::sha
 
     for (const auto &[stream_id, output_config] : vision_config.outputs)
     {
-        MediaLibraryEncoderPtr encoder = app_resources->media_library->m_encoders[stream_id];
         std::string output_pipeline_name = std::string(VISION_PIPELINE) + "_output_" + stream_id;
-        auto output_result = vision::generate_vision_output_pipeline(encoder, output_pipeline_name, output_config);
+        auto output_result = vision::generate_vision_output_pipeline(app_resources->media_library, stream_id,
+                                                                     output_pipeline_name, output_config);
         if (!output_result.has_value())
         {
             HAILO_ANALYTICS_LOG_ERROR("Failed to create vision output pipeline for {}", stream_id);
@@ -363,7 +364,7 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
         vision_config.outputs.erase(AI_SINK);
         vision_config.outputs[VISION_SINK].udp_config.host = app_resources->host_ip;
         auto vision_pipeline_status = hailo_analytics::analytics::vision::generate_vision_pipeline(
-            *app_resources->media_library, VISION_PIPELINE, vision_config);
+            app_resources->media_library, VISION_PIPELINE, vision_config);
         if (!vision_pipeline_status.has_value())
         {
             HAILO_ANALYTICS_LOG_ERROR("Failed to create vision pipeline");
@@ -434,7 +435,7 @@ int main(int argc, char *argv[])
 
     // register signal SIGINT and signal handler
     signal_utils::SignalHandler signal_handler(false);
-    signal_handler.register_signal_handler([]([[maybe_unused]] int signal) {
+    signal_handler.register_signal_handler([](int /*signal*/) {
         std::cout << "Stopping Pipeline..." << std::endl;
         HAILO_ANALYTICS_LOG_INFO("Stopping Pipeline...");
         g_stop_cv.notify_all();

@@ -34,7 +34,7 @@
 #include <mutex>
 #include <gst/gst.h>
 #include <tl/expected.hpp>
-#include "config_manager.hpp"
+#include "media_library/config_manager.hpp"
 #include "media_library/isp_utils.hpp"
 #include "media_library/media_library_types.hpp"
 #include "media_library/config_parser.hpp"

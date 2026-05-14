@@ -36,7 +36,7 @@ HailortServiceStatus HailortService::initialize()
     }
 
     // Initialize HailoRT to use the same device group id.
-    hailo_vdevice_params_t vdevice_params = {0};
+    hailo_vdevice_params_t vdevice_params{};
     hailo_init_vdevice_params(&vdevice_params);
     vdevice_params.group_id = m_hailort_device_id.c_str();
 

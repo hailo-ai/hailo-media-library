@@ -25,8 +25,7 @@
  * @brief MediaLibrary type implementations
  **/
 
-#include "media_library/media_library_types.hpp"
-#include "media_library/dis_common.h"
+#include "media_library_types.hpp"
 
 bool dis_config_t::operator==(const dis_config_t &other) const = default;
 

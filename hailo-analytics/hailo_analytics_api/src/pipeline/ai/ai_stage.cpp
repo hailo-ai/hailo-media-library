@@ -26,7 +26,7 @@ HailortAsyncStage::HailortAsyncStage(std::string name, std::string hef_path, siz
 
 AppStatus HailortAsyncStage::init()
 {
-    hailo_vdevice_params_t vdevice_params = {0};
+    hailo_vdevice_params_t vdevice_params{};
     hailo_init_vdevice_params(&vdevice_params);
     vdevice_params.group_id = m_group_id.c_str();
     vdevice_params.multi_process_service = m_use_hailort_service;
@@ -131,7 +131,7 @@ void HailortAsyncStage::setup_pool_notifications()
     {
         for (auto &[tensor_name, pool] : m_tensor_buffer_pools)
         {
-            pool->set_on_release_callback([this](void *) { m_available_buffers_cv.notify_all(); });
+            pool->set_on_release_callback([this](void * /*unused*/) { m_available_buffers_cv.notify_all(); });
         }
     }
 }

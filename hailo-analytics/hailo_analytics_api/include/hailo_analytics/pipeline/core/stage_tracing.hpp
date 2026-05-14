@@ -7,7 +7,6 @@
 #include <unordered_set>
 
 // Infra includes
-#include "hailo_analytics/perfetto/hailo_analytics_perfetto.hpp"
 #include "hailo_analytics/pipeline/core/buffer.hpp"
 
 namespace hailo_analytics::pipeline
@@ -26,17 +25,14 @@ class StageTracing
     std::string m_trace_processing_string;
     std::string m_fps_counter_name;
 
-#ifdef HAVE_PERFETTO
-    perfetto::DynamicString m_trace_processing_name;
-    perfetto::NamedTrack m_stage_track;
-#else
-    std::string m_trace_processing_name;
-    std::string m_stage_track;
-#endif
+    // Opaque wrapper for Perfetto types (perfetto::DynamicString, perfetto::NamedTrack).
+    // Keeps <hailo_perfetto.h> (~300K preprocessor lines) out of this header.
+    struct PerfettoImpl;
+    std::unique_ptr<PerfettoImpl> m_perfetto;
 
   public:
     explicit StageTracing(const std::string &name);
-    virtual ~StageTracing() = default;
+    virtual ~StageTracing();
 
     virtual void trace_fps();
 
@@ -44,28 +40,14 @@ class StageTracing
     // Usage: trace_processing_start(buffer)  // basic usage
     //        trace_processing_start(buffer, "param_name1", value1, "param_name2", value2, ...)  // with debug params
     // Automatically includes isp_timestamp_ms and concurrent_streams when data is provided
-    template <typename... Args> void trace_processing_start(BufferPtr data = nullptr, Args &&...args)
-    {
-        if (data && data->get_buffer())
-        {
-            std::string concurrent_streams = concurrent_streams_to_string(data->get_buffer()->concurrent_stream_ids);
+    //
+    // The 0-args overload is a non-template defined in stage_tracing.cpp (most common case).
+    // The variadic overload is defined in stage_tracing_perfetto.hpp — include that header
+    // in .cpp files that pass extra debug parameters.
+    void trace_processing_start(BufferPtr data = nullptr);
 
-#ifdef HAVE_PERFETTO
-            HAILO_ANALYTICS_TRACE_EVENT_BEGIN(m_trace_processing_name, m_stage_track, HAILO_ANALYTICS_DETAILED_CATEGORY,
-                                              "isp_timestamp_ms", data->get_buffer()->isp_timestamp_ns / 1000000,
-                                              "concurrent_streams", perfetto::DynamicString(concurrent_streams),
-                                              std::forward<Args>(args)...);
-#else
-            HAILO_ANALYTICS_TRACE_EVENT_BEGIN(m_trace_processing_name, m_stage_track, HAILO_ANALYTICS_DETAILED_CATEGORY,
-                                              std::forward<Args>(args)...);
-#endif
-        }
-        else
-        {
-            HAILO_ANALYTICS_TRACE_EVENT_BEGIN(m_trace_processing_name, m_stage_track, HAILO_ANALYTICS_DETAILED_CATEGORY,
-                                              std::forward<Args>(args)...);
-        }
-    }
+    template <typename First, typename... Rest>
+    void trace_processing_start(BufferPtr data, First &&first, Rest &&...rest);
 
     virtual void trace_processing_end(BufferPtr data = nullptr);
     virtual void trace_async_event_begin(uint64_t unique_id);

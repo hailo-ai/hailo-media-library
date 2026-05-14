@@ -3,6 +3,7 @@
  * Distributed under the LGPL license (https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt)
  **/
 #include "hailo_postprocess_tools/objects/json_config.hpp"
+#include "hailo_postprocess_tools/logger/hailo_postprocess_logger.hpp"
 
 namespace common
 {
@@ -17,8 +18,8 @@ bool validate_json_with_schema(rapidjson::FileReadStream stream, const char *jso
     rapidjson::Reader reader;
     if (!reader.Parse(stream, validator) && reader.GetParseErrorCode() != rapidjson::kParseErrorTermination)
     {
-        std::cerr << "JSON error (offset " << static_cast<unsigned>(reader.GetErrorOffset())
-                  << "): " << GetParseError_En(reader.GetParseErrorCode()) << std::endl;
+        HAILO_POSTPROCESS_LOG_ERROR("JSON error (offset {}): {}", static_cast<unsigned>(reader.GetErrorOffset()),
+                                    GetParseError_En(reader.GetParseErrorCode()));
         throw std::runtime_error("Input is not a valid JSON");
     }
 
@@ -28,14 +29,14 @@ bool validate_json_with_schema(rapidjson::FileReadStream stream, const char *jso
     }
     else
     {
-        std::cerr << "Input JSON is invalid" << std::endl;
+        HAILO_POSTPROCESS_LOG_ERROR("Input JSON is invalid");
         rapidjson::StringBuffer sb;
         validator.GetInvalidSchemaPointer().StringifyUriFragment(sb);
-        std::cerr << "Invalid schema: " << sb.GetString() << std::endl;
-        std::cerr << "Invalid keyword: " << validator.GetInvalidSchemaKeyword() << std::endl;
+        HAILO_POSTPROCESS_LOG_ERROR("Invalid schema: {}", sb.GetString());
+        HAILO_POSTPROCESS_LOG_ERROR("Invalid keyword: {}", validator.GetInvalidSchemaKeyword());
         sb.Clear();
         validator.GetInvalidDocumentPointer().StringifyUriFragment(sb);
-        std::cerr << "Invalid document: " << sb.GetString() << std::endl;
+        HAILO_POSTPROCESS_LOG_ERROR("Invalid document: {}", sb.GetString());
         throw std::runtime_error("json config file doesn't follow schema rules");
     }
     return false;

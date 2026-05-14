@@ -26,18 +26,29 @@
  **/
 
 #pragma once
-#include "dis_common.h"
-#include "dsp_utils.hpp"
-#include "encoder_config_types.hpp"
-#include "imaging/aaa_config_types.hpp"
-#include <cstdint>
 #include <tl/expected.hpp>
-#include <functional>
+#include <nlohmann/json.hpp>
+#include <hailo/hailodsp.h>
+#include <hailo/hailodsp_base.h>
+#include <limits.h>
+#include <sys/types.h>
+#include <cstdint>
 #include <string>
 #include <ctime>
 #include <optional>
 #include <map>
-#include <nlohmann/json.hpp>
+#include <algorithm>
+#include <memory>
+#include <unordered_map>
+#include <utility>
+#include <variant>
+#include <vector>
+
+#include "dis_common.h"
+#include "dsp_utils.hpp"
+#include "encoder_config_types.hpp"
+#include "imaging/aaa_config_types.hpp"
+#include "media_library_buffer.hpp"
 
 /** @defgroup media_library_types_definitions MediaLibrary Types CPP API definitions
  *  @{
@@ -61,6 +72,7 @@ enum media_library_return
     MEDIA_LIBRARY_FREETYPE_ERROR,
     MEDIA_LIBRARY_PROFILE_IS_RESTRICTED,
     MEDIA_LIBRARY_PROFILE_VALIDATION_FAILED,
+    MEDIA_LIBRARY_SENSOR_BUSY,
 
     /** Max enum value to maintain ABI Integrity */
     MEDIA_LIBRARY_MAX = INT_MAX
@@ -207,6 +219,7 @@ struct isp_t
 struct hailort_t
 {
     std::string device_id;
+    bool use_hailort_service = false;
 };
 
 enum hdr_dol_t
@@ -985,7 +998,6 @@ typedef struct
 enum class AnalyticsType
 {
     DETECTION,
-    INSTANCE_SEGMENTATION,
     SEMANTIC_SEGMENTATION,
 
     /** Max enum value to maintain ABI Integrity */
@@ -1014,18 +1026,6 @@ struct detection_analytics_config_t
     size_t max_entries;
 };
 
-struct instance_segmentation_analytics_config_t
-{
-    std::string analytics_data_id;
-    ScalingMode scaling_mode;
-    uint32_t width;
-    uint32_t height;
-    uint32_t original_width_ratio;
-    uint32_t original_height_ratio;
-    std::vector<label_t> labels;
-    size_t max_entries;
-};
-
 struct semantic_segmentation_analytics_config_t
 {
     std::string analytics_data_id;
@@ -1043,7 +1043,6 @@ struct application_analytics_config_t
 {
     static bool is_persistent;
     std::unordered_map<std::string, detection_analytics_config_t> detection_analytics_config;
-    std::unordered_map<std::string, instance_segmentation_analytics_config_t> instance_segmentation_analytics_config;
     std::unordered_map<std::string, semantic_segmentation_analytics_config_t> semantic_segmentation_analytics_config;
 
     void override(const application_analytics_config_t &other)
@@ -1051,7 +1050,6 @@ struct application_analytics_config_t
         if (is_persistent)
         {
             detection_analytics_config = other.detection_analytics_config;
-            instance_segmentation_analytics_config = other.instance_segmentation_analytics_config;
             semantic_segmentation_analytics_config = other.semantic_segmentation_analytics_config;
         }
     }

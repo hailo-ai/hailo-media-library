@@ -10,16 +10,9 @@ Usage:
     python3 app_analytic_draw_client.py --metadata-transport ws --output-resolution 1080p
 """
 
-import json
-import threading
 import argparse
-import time
 
-from viewer_common import (
-    BaseVideoPlayer, DrawTimer, FrameMetadata,
-    OUTPUT_SIZE_PRESETS, DEFAULT_ANALYTIC_DATA_IP, DEFAULT_WS_PORT,
-    TIMESTAMP_KEY,
-)
+from viewer_common import BaseVideoPlayer, OUTPUT_SIZE_PRESETS
 
 # ============================================================================
 # Face Landmark Constants
@@ -55,34 +48,6 @@ class AnalyticVideoPlayer(BaseVideoPlayer):
     def __init__(self, face_landmark_filter=2, **kwargs):
         self.face_landmark_filter = face_landmark_filter  # 0=maximum (all), 1=standard, 2=minimum
         super().__init__(**kwargs)
-
-    def _start_listeners(self):
-        """Start metadata listener — ZMQ or WebSocket based on transport setting."""
-        if self.metadata_transport == "ws":
-            self.ws_url = f"ws://{self.analytic_data_ip}:{self.analytic_data_port}"
-            self.listener_thread = threading.Thread(target=self._ws_listener, daemon=True)
-        else:
-            self.listener_thread = threading.Thread(target=self._zmq_listener, daemon=True)
-        self.listener_thread.start()
-
-    def _ws_listener(self):
-        """WebSocket metadata listener with auto-reconnect."""
-        import websocket
-        while True:
-            try:
-                ws = websocket.WebSocket()
-                ws.connect(self.ws_url)
-                print(f"WebSocket connected to: {self.ws_url}")
-                while True:
-                    message = ws.recv()
-                    metadata = json.loads(message)
-                    ts = metadata.get(TIMESTAMP_KEY)
-                    if ts:
-                        with self.metadata_lock:
-                            self.metadata_buffer.append((ts, metadata))
-            except Exception as e:
-                print(f"WebSocket Error: {e}, reconnecting...")
-                time.sleep(1)
 
     def draw_frame(self, metadata, context, scale_x, scale_y, draw_scale):
         """Draw detections with green boxes and face landmarks."""
@@ -153,8 +118,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description='Analytic viewer client for drawing AI metadata on video stream')
     BaseVideoPlayer.add_common_argparse_args(parser)
-    parser.add_argument('--metadata-transport', type=str, default='zmq', choices=['zmq', 'ws'],
-                        help='Metadata transport protocol: zmq (default) or ws (websocket)')
     parser.add_argument('--face-landmark-filter', type=int, default=2, choices=[0, 1, 2],
                         help='Face landmark filter level: 0=maximum (all points), 1=standard, 2=minimum (default: 2)')
     args = parser.parse_args()
@@ -170,5 +133,7 @@ if __name__ == "__main__":
         analytic_data_port=args.analytic_data_port,
         output_size=output_size,
         metadata_transport=args.metadata_transport,
+        save_mkv=args.save_mkv,
+        record_bitrate=args.record_bitrate,
     )
     app.run()

@@ -8,7 +8,7 @@
 #include <signal.h>
 #include <tl/expected.hpp>
 #include "eis_types.hpp"
-#include "media_library/media_library_types.hpp"
+#include "media_library_types.hpp"
 #include "common/concurrent_queue.hpp"
 
 #define FIFO_BUF_SIZE (10)

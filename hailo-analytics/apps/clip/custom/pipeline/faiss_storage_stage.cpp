@@ -248,8 +248,8 @@ void FaissStorageStage::database_access()
                 std::chrono::high_resolution_clock::now() - start);
             if (duration.count() > 30)
             {
-                std::cout << "Time taken FAISS table batch insert: " << duration.count() << " ms"
-                          << ", total insert items: " << operations_to_process.size() << std::endl;
+                HAILO_ANALYTICS_LOG_INFO("Time taken FAISS table batch insert: {} ms, total insert items: {}",
+                                         duration.count(), operations_to_process.size());
             }
         }
 

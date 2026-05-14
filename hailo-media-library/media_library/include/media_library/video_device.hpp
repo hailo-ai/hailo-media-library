@@ -1,7 +1,11 @@
 #pragma once
 
+#include <linux/videodev2.h>
+#include <stddef.h>
 #include <string>
 #include <vector>
+#include <atomic>
+
 #include "sensor_types.hpp"
 #include "video_buffer.hpp"
 #include "dma_buffer.hpp"

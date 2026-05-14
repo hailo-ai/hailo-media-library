@@ -1,7 +1,9 @@
 #pragma once
-#include <nlohmann/json-schema.hpp>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <unordered_map>
+#include <vector>
+
 #include "media_library_types.hpp"
 #include "config_parser.hpp"
 

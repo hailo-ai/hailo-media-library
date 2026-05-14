@@ -1,9 +1,9 @@
 #include "gsthailojpeg.hpp"
 
-#include "buffer_pool.hpp"
+#include "media_library/buffer_pool.hpp"
 #include "common/gstmedialibcommon.hpp"
 #include "buffer_utils.hpp"
-#include "encoder_config_types.hpp"
+#include "media_library/encoder_config_types.hpp"
 #include <algorithm>
 #include <gst/video/video.h>
 #include <iostream>

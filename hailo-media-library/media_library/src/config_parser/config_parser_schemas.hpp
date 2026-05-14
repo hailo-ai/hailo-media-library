@@ -215,7 +215,7 @@ static const nlohmann::json encoding_config_schema_internal = R"(
             "properties": {
               "gop_size": {
                 "type": "integer",
-                "minimum": 0
+                "minimum": 1
               },
               "b_frame_qp_delta": {
                 "type": "integer"
@@ -553,12 +553,19 @@ static const nlohmann::json encoding_config_schema_internal = R"(
                 "items": {
                   "$ref": "normalized_roi_t"
                 }
+              },
+              "analytics_labels": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "required": [
               "enabled",
               "background_qp_delta",
-              "rois"
+              "rois",
+              "analytics_labels"
             ],
             "additionalProperties": false
           }
@@ -597,40 +604,21 @@ static const nlohmann::json encoding_config_schema_internal = R"(
     "properties": {
       "encoding": {
         "type": "object",
-        "oneOf": [
-          {
-            "type": "object",
-            "properties": {
-              "hailo_encoder": {
-                "$ref": "hailo_encoder"
-              },
-              "input_stream": {
-                "$ref": "input_stream"
-              }
-            },
-            "required": [
-              "input_stream",
-              "hailo_encoder"
-            ],
-            "additionalProperties": false
+        "properties": {
+          "hailo_encoder": {
+            "$ref": "hailo_encoder"
           },
-          {
-            "type": "object",
-            "properties": {
-              "jpeg_encoder": {
-                "$ref": "jpeg_encoder"
-              },
-              "input_stream": {
-                "$ref": "input_stream"
-              }
-            },
-            "required": [
-              "input_stream",
-              "jpeg_encoder"
-            ],
-            "additionalProperties": false
+          "jpeg_encoder": {
+            "$ref": "jpeg_encoder"
+          },
+          "input_stream": {
+            "$ref": "input_stream"
           }
-        ]
+        },
+        "required": [
+          "input_stream"
+        ],
+        "additionalProperties": false
       }
     },
     "required" : [
@@ -1594,6 +1582,9 @@ static const nlohmann::json hailort_config_schema = R"(
         "properties": {
           "device-id": {
             "type": "string"
+          },
+          "use-hailort-service": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false,
@@ -1925,37 +1916,6 @@ static const nlohmann::json application_analytics_config_schema = R"(
         "type": "object",
         "properties": {
           "detection": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "analytics_data_id": { "type": "string" },
-                "scaling_mode": { 
-                  "type": "string",
-                  "enum": ["STRETCH", "LETTERBOX_MIDDLE", "LETTERBOX_UP_LEFT"]
-                },
-                "width": { "type": "integer" },
-                "height": { "type": "integer" },
-                "original_width_ratio": { "type": "integer" },
-                "original_height_ratio": { "type": "integer" },
-                "max_entries": { "type": "integer" },
-                "labels": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "label": { "type": "string" },
-                      "id": { "type": "integer" }
-                    },
-                    "required": ["label", "id"]
-                  }
-                }
-              },
-              "required": ["analytics_data_id", "scaling_mode", "width", "height", "original_width_ratio", "original_height_ratio", "labels", "max_entries"],
-              "additionalProperties": false
-            }
-          },
-          "instance_segmentation": {
             "type": "array",
             "items": {
               "type": "object",

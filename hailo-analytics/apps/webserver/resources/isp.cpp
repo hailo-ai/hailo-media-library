@@ -39,11 +39,11 @@ IspResource::IspResource(std::shared_ptr<EventBus> event_bus, std::shared_ptr<Co
       m_config_res(config_res)
 {
 
-    subscribe_callback(EventType::RESET_ISP, [this](ResourceStateChangeNotification notification) {
+    subscribe_callback(EventType::RESET_ISP, [this](ResourceStateChangeNotification /*notification*/) {
         WEBSERVER_LOG_INFO("Received configure isp notification");
         this->init();
     });
-    subscribe_callback(EventType::SWITCH_PROFILE, [this, config_res](ResourceStateChangeNotification notification) {
+    subscribe_callback(EventType::SWITCH_PROFILE, [this, config_res](ResourceStateChangeNotification /*notification*/) {
         m_isp_filters_manual_state = config_res->get_denoise_default_config()["enabled"].get<bool>()
                                          ? IspResource::FiltersManualState::FILTER_STATE_FORCE_AUTO
                                          : IspResource::FiltersManualState::FILTER_STATE_AUTO;

@@ -1,7 +1,11 @@
+#include <imaging/aaa_config_types.hpp>
+#include <string>
+
 #include "media_library_types.hpp"
 #include "json_flattener.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_rule_checker.hpp"
+#include "dis_common.h"
 
 #define MODULE_NAME LoggerType::Config
 

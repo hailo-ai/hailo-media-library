@@ -1,5 +1,21 @@
 #include "clip_pipeline_ai.hpp"
 
+#include "pipeline/thumb_storage_stage.hpp"
+#include "pipeline/faiss_storage_stage.hpp"
+#include "pipeline/cache_stage.hpp"
+#include "pipeline/clip_image_preprocess.hpp"
+#include "pipeline/video_storage_stage.hpp"
+#include "pipeline/full_frame_bbox_injector_stage.hpp"
+#include "database_manager.hpp"
+#include "service/query_service/query_service_ext.hpp"
+#include "service/query_service/clip_text_encoder.hpp"
+#include "streaming/webrtc_streamer_ext.hpp"
+#include "service/player_service_ext.hpp"
+#include "service/storage_monitor_service_ext.hpp"
+#include "service/storage_cleanup_service_ext.hpp"
+#include "service/storage_cleanup_strategy.hpp"
+#include "service/app_control_service_ext.hpp"
+
 ClipAppCustomData::ClipAppCustomData(
     const ClipAppConfig::ImageEncoders &encoders, const ClipAppConfig::PipelineConfig &pipeline_config,
     const ClipAppConfig::HailortDeviceConfig &hailort_device_config,
@@ -121,11 +137,31 @@ hailo_analytics::analytics::app_constructor::CamAppReturnCode ClipVideoPipeline:
     register_extension(std::make_shared<StorageCleanupServiceExt>());
     auto storage_cleanup_service_ext = get_extension<StorageCleanupServiceExt>();
 
-    // Initialize Storage CleanupService
-    auto cleanup_db_config = StorageCleanupServiceExt::DatabaseConfig(
-        DatabaseManagerHelper::get_faiss_table_factory_name(Database::SQLITE_ACCESS_OPEN_CREATE_READ_WRITE).value(),
-        DatabaseManagerHelper::get_thumbnail_table_factory_name(Database::SQLITE_ACCESS_OPEN_CREATE_READ_WRITE).value(),
-        DatabaseManagerHelper::get_video_table_factory_name(Database::SQLITE_ACCESS_OPEN_CREATE_READ_WRITE).value());
+    // Create dedicated cleanup database connections so the cleanup thread
+    // doesn't share sqlite3 connections with pipeline stage threads to improve concurrency access
+    static const std::string FAISS_CLEANUP_RW = "faiss_cleanup_rw";
+    static const std::string THUMBNAIL_CLEANUP_RW = "thumbnail_cleanup_rw";
+    static const std::string VIDEO_CLEANUP_RW = "video_cleanup_rw";
+
+    auto faiss_cleanup_result = SqlDatabaseQuickAccess::get_or_create_database(
+        FAISS_CLEANUP_RW,
+        DatabaseConfig(DatabaseConfig::FAISS_TABLE, sql_db_file_path, Database::SQLITE_ACCESS_OPEN_CREATE_READ_WRITE));
+    auto thumb_cleanup_result = SqlDatabaseQuickAccess::get_or_create_database(
+        THUMBNAIL_CLEANUP_RW, DatabaseConfig(DatabaseConfig::THUMBNAIL_TABLE, sql_db_file_path,
+                                             Database::SQLITE_ACCESS_OPEN_CREATE_READ_WRITE));
+    auto video_cleanup_result = SqlDatabaseQuickAccess::get_or_create_database(
+        VIDEO_CLEANUP_RW,
+        DatabaseConfig(DatabaseConfig::VIDEO_TABLE, sql_db_file_path, Database::SQLITE_ACCESS_OPEN_CREATE_READ_WRITE));
+
+    if (!faiss_cleanup_result || !thumb_cleanup_result || !video_cleanup_result)
+    {
+        HAILO_ANALYTICS_LOG_ERROR("{} failed: Failed to create dedicated cleanup database connections", __func__);
+        return CamAppReturnCode::APP_EXTENSION_REGITRATION_FAILED;
+    }
+
+    // Initialize Storage CleanupService with dedicated cleanup connections
+    auto cleanup_db_config =
+        StorageCleanupServiceExt::DatabaseConfig(FAISS_CLEANUP_RW, THUMBNAIL_CLEANUP_RW, VIDEO_CLEANUP_RW);
 
     auto storage_cleanup_result = storage_cleanup_service_ext->initialize(
         std::make_unique<FaissShardFirstCleanupStrategy>(10.0f), cleanup_db_config);

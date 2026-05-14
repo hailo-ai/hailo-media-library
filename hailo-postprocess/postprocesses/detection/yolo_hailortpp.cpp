@@ -28,7 +28,7 @@ namespace fs = std::filesystem;
 namespace fs = std::experimental::filesystem;
 #endif
 
-YoloParamsNMS *init(const std::string config_path, const std::string function_name)
+YoloParamsNMS *init(const std::string config_path, const std::string /*function_name*/)
 {
     YoloParamsNMS *params;
     if (!fs::exists(config_path))

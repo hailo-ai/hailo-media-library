@@ -25,10 +25,10 @@
  * @brief MediaLibrary Encoder + OSD CPP API module
  **/
 #pragma once
-#include "media_library/buffer_pool.hpp"
-#include "media_library/media_library_types.hpp"
-#include "media_library/encoder_config.hpp"
-#include "media_library/privacy_mask.hpp"
+#include "buffer_pool.hpp"
+#include "media_library_types.hpp"
+#include "encoder_config.hpp"
+#include "privacy_mask.hpp"
 #include "osd.hpp"
 #include <functional>
 #include <memory>

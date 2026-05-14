@@ -214,7 +214,7 @@ inline int_t _carr_dense(const uint_t n, cost_t *cost[], const uint_t n_free_row
 /*
     Find columns with minimum d[j] and put them on the SCAN list.
  */
-inline uint_t _find_dense(const uint_t n, uint_t lo, cost_t *d, int_t *cols, int_t *y)
+inline uint_t _find_dense(const uint_t n, uint_t lo, cost_t *d, int_t *cols, int_t * /*y*/)
 {
     uint_t hi = lo + 1;
     cost_t mind = d[cols[lo]];

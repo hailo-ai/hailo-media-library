@@ -825,8 +825,8 @@ media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp
 
             if (euler_angles != clamped_euler_angles)
             {
-                LOGGER__MODULE__INFO(MODULE_NAME, "EIS correction angles have been clamped. (prev={}, current={})",
-                                     euler_angles, clamped_euler_angles);
+                LOGGER__MODULE__DEBUG(MODULE_NAME, "EIS correction angles have been clamped. (prev={}, current={})",
+                                      euler_angles, clamped_euler_angles);
             }
         }
     }
