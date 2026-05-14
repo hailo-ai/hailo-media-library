@@ -1,10 +1,12 @@
 ---
 name: measure-latency
-description: Measure pipeline latency on H15 from a Perfetto trace recorded by `hailo-soc-profiler applications` — vision latency (ISP → first analytics stage), per-stage latency, and E2E latency (ISP → ZMQ/sink). Use when the user asks "how long does a frame take", "what's the analytics latency", "why is FPS fine but feels laggy", or hands over a `.trace` file. Reads the trace locally with Perfetto's `trace_processor`; no board interaction needed once the trace is captured.
+description: Measure **post-ISP** pipeline latency on H15 from a Perfetto trace recorded by `hailo-soc-profiler applications` — vision latency (ISP → first analytics stage), per-stage latency, and E2E latency (ISP → ZMQ/sink). **Does NOT cover sensor → ISP (pre-ISP) latency — that's planned for the next version of this skill.** Use when the user asks "how long does a frame take", "what's the analytics latency", "why is FPS fine but feels laggy", or hands over a `.trace` file. Reads the trace locally with Perfetto's `trace_processor`; no board interaction needed once the trace is captured.
 tools: Bash, Read, Agent
 ---
 
 # /measure-latency — extract per-stage and end-to-end latency from a SoC-profiler trace
+
+**Scope (current version): post-ISP only.** Every number this skill reports is anchored to `isp_timestamp_ms`, the moment the ISP delivers a buffer to memory. Anything that happens *before* that point — sensor exposure, sensor readout, ISP front-end, AI-ISP denoise pipelining, buffering — is invisible to the trace and is **not** included in the headline metrics. Make this explicit when you report results; the user-visible "sensor → screen" latency is larger than what's shown here. A future version of this skill will extend measurement back through the pre-ISP path; for now, see the "Full-pipeline composition" section for the honest approximations the trace can support.
 
 The H15 SoC Profiler is a Hailo fork of Perfetto. `hailo-soc-profiler applications -t Ns -o /tmp/soc.trace` records every hailo-analytics stage as a `processing_<stage_name>` slice on the `Hailo Analytics > Processing` track, with the buffer's `isp_timestamp_ms` (millisecond ISP capture time) attached as a debug arg. Latency = `slice.ts - isp_timestamp_ms` for whichever stage you pick as the endpoint.
 
@@ -155,13 +157,57 @@ Then combine with the analytics number from the per-stage query:
 
 For `pluto_678_4k_ll_r50_5_faces.trace` (lowlight 4K r50, 5 faces): denoise NN = 45 ms avg, ISP→ZMQ = 1851 ms avg → trace lower bound = ~1896 ms, customer-quoted = ~2252 ms.
 
+### 5. (Optional) Let the user pick custom start / end stages
+
+The canonical metrics above assume the face-recognition / face-landmarks shape (tiling → … → zmq_sender). Real pipelines vary: **single_stream / file_source_to_udp / dual_sensor_single_stream** have no analytics at all — only `processing_udp_sink<N>` and `processing_enc_sink<N>`. **custom_stage** skips tiling entirely (vision → detection). **clip** uses renamed stages (`detection_tiling_stage`, `detection_infer_stage`, …). **LPR** swaps the 2nd-stage from landmarks to OCR (`lp_bbox_crops`, `ocr_stage`, `ocr_post`). **DPM** has a segmentation chain (`segmentation_stage`, `analytics_db_stage`, `dpm_tracker`).
+
+For any non-face-recognition trace, **first run the per-stage diagnostic** (the second query in step 3) so the user sees the actual `processing_*` names, then offer:
+
+> "I see these processing_* stages: [list]. Want me to measure ISP → some specific stage, or stage A → stage B? If you skip, I'll default to ISP → first stage as 'Vision' and ISP → last stage as 'E2E'."
+
+If the user picks a custom window, run this:
+
+```bash
+/tmp/trace_processor <trace_path> -q /dev/stdin <<'EOF'
+WITH per_frame AS (
+  SELECT a.int_value AS isp_ms, s.name AS stage,
+         MIN(s.ts)/1e6 AS first_ms,
+         MAX(s.ts+s.dur)/1e6 AS last_ms
+  FROM slice s JOIN args a ON s.arg_set_id=a.arg_set_id
+  WHERE a.key='debug.isp_timestamp_ms' AND s.name LIKE 'processing_%'
+  GROUP BY a.int_value, s.name
+)
+SELECT
+  ROUND(AVG(b.first_ms - a.last_ms),1)  AS span_avg_ms,
+  ROUND(PERCENTILE(b.first_ms - a.last_ms, 95),1) AS span_p95_ms,
+  COUNT(*) AS frames
+FROM per_frame a JOIN per_frame b USING (isp_ms)
+WHERE a.stage='<start_stage>' AND b.stage='<end_stage>';
+EOF
+```
+
+Set `<start_stage>` to the literal string `__ISP__` and substitute `a.last_ms` with `0` (i.e. drop the join on `a` and use `b.first_ms - isp_ms`) when the start is "ISP" rather than a named stage. Default endpoints by app type when the user just says "measure latency":
+- analytics apps → `processing_tiling_stage` (or first analytics stage) → `processing_zmq_sender_stage`
+- vision-only apps → ISP → `processing_udp_sink0`
+- detection (no 2nd stage) → ISP → `processing_detection_post`
+- DPM → ISP → `processing_dpm_tracker` (or `processing_analytics_db_stage`)
+
+Always echo back **which start and end stages you used** in the output banner, so the user can sanity-check.
+
 ## Output format
 
-Three short blocks. Keep numbers — drop everything else from the raw query output:
+Three short blocks. Keep numbers — drop everything else from the raw query output. **The header MUST carry the scope banner verbatim** so the user is never confused about what was measured:
 
 ```
 Trace: <file> (<duration> s, <frame_count> frames)
 Pipeline endpoint: <last processing_* stage>
+
+⚠ Scope: POST-ISP ONLY. Numbers below are anchored to isp_timestamp_ms
+  (the moment the ISP delivers the buffer to memory). They do NOT include
+  sensor exposure, sensor readout, ISP front-end, AI-ISP denoise pipelining,
+  or buffering ahead of the ISP DMA stamp. Pre-ISP coverage is planned for
+  the next version of this skill — for now, see "Full pipeline" below for
+  the honest sensor→sink approximations.
 
 Latency (avg / p95):
   Denoise NN inference          <a> / <b> ms     [Inference slice on MediaLibrary→Denoise]
@@ -172,12 +218,12 @@ Latency (avg / p95):
   Analytics (tiling → ZMQ)      <a> / <b> ms     ← matches wiki "Measured latency" column
   E2E (ISP → ZMQ end)           <a> / <b> ms
 
-Full pipeline (sensor → ZMQ):
+Full pipeline (sensor → ZMQ) — approximations, NOT directly measured:
   Trace lower bound  (denoise NN + E2E)              ~<E2E + denoise_nn> ms
   Customer-quoted    (wiki +400 ms AI-ISP envelope)  ~<E2E + 400> ms
 ```
 
-If anything looks abnormal — Vision > 30 ms, E2E p95 > 2× avg (jitter), a stage with zero frames — call it out as the **first** line.
+If anything looks abnormal — Vision > 30 ms, E2E p95 > 2× avg (jitter), a stage with zero frames — call it out as the **first** line, *above* the scope banner.
 
 ## Gotchas
 
