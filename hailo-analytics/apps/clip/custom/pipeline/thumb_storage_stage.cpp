@@ -177,8 +177,8 @@ void ThumStorageStage::database_access()
                 std::chrono::high_resolution_clock::now() - start);
             if (duration.count() > 30)
             {
-                std::cout << "Time taken THUMB table insert: " << duration.count() << " ms"
-                          << ", total insert item: " << thumbnails_to_process.size() << std::endl;
+                HAILO_ANALYTICS_LOG_INFO("Time taken THUMB table insert: {} ms, total insert items: {}",
+                                         duration.count(), thumbnails_to_process.size());
             }
         }
 
@@ -210,8 +210,8 @@ void ThumStorageStage::database_access()
                 std::chrono::high_resolution_clock::now() - start);
             if (duration.count() > 30)
             {
-                std::cout << "Time taken THUMB image move from cache to storage: " << duration.count() << " ms"
-                          << std::endl;
+                HAILO_ANALYTICS_LOG_INFO("Time taken THUMB image move from cache to storage: {} ms, items: {}",
+                                         duration.count(), thumbnails_to_process.size());
             }
         }
 

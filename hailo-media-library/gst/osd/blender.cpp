@@ -93,12 +93,13 @@ void OsdBlender::set_stream_id(const std::string &stream_id)
 media_library_return OsdBlender::blend(HailoMediaLibraryBufferPtr &input_buffer)
 {
     auto &encoded_output_streams_config = input_buffer->get_attached_profile()->encoded_output_streams;
-    if (encoded_output_streams_config.find(m_stream_id) == encoded_output_streams_config.end())
+    auto stream_it = encoded_output_streams_config.find(m_stream_id);
+    if (stream_it == encoded_output_streams_config.end())
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Stream id {} not found in attached profile", m_stream_id);
-        return MEDIA_LIBRARY_ERROR;
+        LOGGER__MODULE__WARN(MODULE_NAME, "Stream id {} not found in attached profile, skipping frame", m_stream_id);
+        return MEDIA_LIBRARY_SUCCESS;
     }
-    auto &osd_config = encoded_output_streams_config.at(m_stream_id).osd;
+    auto &osd_config = stream_it->second.osd;
 
     m_osd_repository->update_overlays_if_needed(osd_config);
 

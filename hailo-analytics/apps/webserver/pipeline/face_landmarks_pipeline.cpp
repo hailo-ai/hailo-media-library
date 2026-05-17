@@ -1,5 +1,6 @@
 #include "face_landmarks_pipeline.hpp"
 #include "common/common.hpp"
+#include "resources/configs.hpp"
 #include "hailo_analytics/analytics/analytic_metadata_ws_sender.hpp"
 #include "face_landmarks_pipeline_builder.hpp"
 #include "hailo_analytics/pipeline/sinks/app_sink_stage.hpp"
@@ -24,7 +25,7 @@ using namespace webserver::resources;
     {ProfileType::Daylight, ProfileType::Lowlight, ProfileType::HighDynamicRange, ProfileType::LowlightBayer}
 
 FaceLandmarksPipeline::FaceLandmarksPipeline(webserver::resources::ResourceRepository &resources,
-                                             MediaLibrary &media_library, RTPConverterStage &webrtc_stage,
+                                             MediaLibraryPtr media_library, RTPConverterStage &webrtc_stage,
                                              Architecture platform)
     : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight,
                    FACE_LANDMARKS_PIPELINE_SUPPORTED_PROFILES)
@@ -86,8 +87,14 @@ void FaceLandmarksPipeline::build_pipeline()
     WEBSERVER_LOG_INFO("Building face landmarks pipeline");
 
     // AI sub-pipelines
-    auto tiling_pipeline = face_landmarks_app::build_tiling_pipeline(TILING_PIPELINE).value();
-    auto landmarks_pipeline = face_landmarks_app::build_landmarks_pipeline(LANDMARKS_PIPELINE).value();
+    auto tiling_cfg = face_landmarks_app::default_tiling_config();
+    auto tiling_pipeline =
+        hailo_analytics::analytics::tiling::generate_tiling_detection_pipeline(TILING_PIPELINE, tiling_cfg).value();
+
+    auto landmarks_cfg = face_landmarks_app::default_landmarks_config();
+    auto landmarks_pipeline =
+        hailo_analytics::analytics::face_landmarks::generate_bbox_landmarks_pipeline(LANDMARKS_PIPELINE, landmarks_cfg)
+            .value();
 
     namespace ws_sender = hailo_analytics::analytics::analytic_metadata_ws_sender;
     auto ws_sender_pipeline = ws_sender::generate_analytic_metadata_ws_sender_pipeline().value();

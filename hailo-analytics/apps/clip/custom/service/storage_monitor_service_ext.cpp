@@ -1,6 +1,73 @@
 #include "storage_monitor_service_ext.hpp"
 #include "common_utils.hpp"
 
+#include <fstream>
+#include <string>
+
+// Read memory stats from /proc for diagnostic monitoring
+namespace
+{
+struct MemoryStats
+{
+    int64_t mem_available_kb = -1; // from /proc/meminfo (includes CmaFree — inflated)
+    int64_t cma_free_kb = -1;      // from /proc/meminfo
+    int64_t vm_rss_kb = -1;        // from /proc/self/status
+
+    // Actual memory usable by application heap = MemAvailable - CmaFree
+    // CMA is reserved for media-library DMA (768MB) and HailoRT (512MB),
+    // not available for generic heap allocations
+    int64_t app_available_kb() const
+    {
+        if (mem_available_kb < 0 || cma_free_kb < 0)
+            return -1;
+        return mem_available_kb - cma_free_kb;
+    }
+};
+
+MemoryStats read_memory_stats()
+{
+    MemoryStats stats;
+
+    // Read MemAvailable and CmaFree from /proc/meminfo
+    std::ifstream meminfo("/proc/meminfo");
+    if (meminfo.is_open())
+    {
+        std::string line;
+        int found = 0;
+        while (std::getline(meminfo, line) && found < 2)
+        {
+            if (line.compare(0, 13, "MemAvailable:") == 0)
+            {
+                stats.mem_available_kb = std::stoll(line.substr(13));
+                found++;
+            }
+            else if (line.compare(0, 8, "CmaFree:") == 0)
+            {
+                stats.cma_free_kb = std::stoll(line.substr(8));
+                found++;
+            }
+        }
+    }
+
+    // Read VmRSS from /proc/self/status
+    std::ifstream status("/proc/self/status");
+    if (status.is_open())
+    {
+        std::string line;
+        while (std::getline(status, line))
+        {
+            if (line.compare(0, 6, "VmRSS:") == 0)
+            {
+                stats.vm_rss_kb = std::stoll(line.substr(6));
+                break;
+            }
+        }
+    }
+
+    return stats;
+}
+} // namespace
+
 StorageMonitorServiceExt::~StorageMonitorServiceExt()
 {
     stop();
@@ -418,6 +485,29 @@ tl::expected<void, StorageMonitorServiceExt::Error> StorageMonitorServiceExt::up
     {
         std::lock_guard<std::mutex> lock(m_data_mutex);
         m_current_storage_info = new_info;
+    }
+
+    // Log storage status and memory usage trends not more that once per minutes
+    static auto last_mem_read = std::chrono::steady_clock::time_point{};
+    auto now = std::chrono::steady_clock::now();
+    if (now - last_mem_read > std::chrono::seconds(60))
+    {
+        float free_mb = static_cast<float>(new_info.mount_free_space) / (1024.0f * 1024.0f);
+        float total_mb = static_cast<float>(new_info.mount_total_space) / (1024.0f * 1024.0f);
+        float root_mb = static_cast<float>(new_info.root_directory_size) / (1024.0f * 1024.0f);
+        float video_mb = static_cast<float>(new_info.video_directory_size) / (1024.0f * 1024.0f);
+        float thumb_mb = static_cast<float>(new_info.thumbnail_directory_size) / (1024.0f * 1024.0f);
+        float faiss_mb = static_cast<float>(new_info.faissdb_directory_size) / (1024.0f * 1024.0f);
+        static MemoryStats cached_mem;
+        cached_mem = read_memory_stats();
+        last_mem_read = now;
+        HAILO_ANALYTICS_LOG_INFO("StorageMonitor: free={:.0f}MB/{:.0f}MB ({:.1f}%), low_disk={}, "
+                                 "clip={:.0f}MB (video={:.0f}MB thumb={:.0f}MB faiss={:.0f}MB), listeners={}, "
+                                 "AppMemAvail={}MB (MemAvail={}MB - CmaFree={}MB), VmRSS={}MB",
+                                 free_mb, total_mb, new_info.disk_usage_percent, new_info.is_low_disk_space, root_mb,
+                                 video_mb, thumb_mb, faiss_mb, m_listeners.size(), cached_mem.app_available_kb() / 1024,
+                                 cached_mem.mem_available_kb / 1024, cached_mem.cma_free_kb / 1024,
+                                 cached_mem.vm_rss_kb / 1024);
     }
 
     notify_listeners(new_info);

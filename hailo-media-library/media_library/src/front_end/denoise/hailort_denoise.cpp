@@ -1,9 +1,17 @@
 #include "hailort_denoise.hpp"
 
-#include "logger_macros.hpp"
-#include "media_library_logger.hpp"
+#include <hailo/expected.hpp>
+#include <hailo/infer_model.hpp>
+#include <hailo/vdevice.hpp>
 #include <chrono>
+#include <ratio>
+#include <type_traits>
+#include <utility>
+
+#include "media_library_logger.hpp"
 #include "hailo_media_library_perfetto.hpp"
+
+#include "snapshot.hpp"
 
 #define MODULE_NAME LoggerType::Denoise
 
@@ -526,6 +534,10 @@ media_library_return HailortAsyncDenoisePreISPHdm::bind_loopback_buffers(Network
         return media_library_return::MEDIA_LIBRARY_BUFFER_NOT_FOUND;
     }
     bindings->inputs[InputIndex::GAMMA_CHANNEL].buffer = loopback_buffers[OutputIndex::OUTPUT_GAMMA_CHANNEL].buffer;
+    SnapshotManager::get_instance().take_snapshot("pre_isp_feedback_fusion_input",
+                                                  bindings->inputs[InputIndex::FUSION_CHANNEL].buffer, true);
+    SnapshotManager::get_instance().take_snapshot("pre_isp_feedback_gamma_input",
+                                                  bindings->inputs[InputIndex::GAMMA_CHANNEL].buffer, true);
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 

@@ -90,6 +90,8 @@ class DspBaseCropStage : public hailo_analytics::pipeline::ThreadedStage
                      dsp_scaling_mode_t scaling_mode = DSP_SCALING_MODE_STRETCH,
                      dsp_color_t letterbox_color = DEFAULT_LETTERBOX_COLOR);
 
+    AppStatus init() override;
+
     /**
      * @brief Sets the crop frequency (how often frames are cropped).
      *

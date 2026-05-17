@@ -1,7 +1,7 @@
 #pragma once
 #include "pipeline/isp_blender.hpp"
 #include "resources/common/repository.hpp"
-#include "media_library/frontend.hpp"
+#include "media_library/media_library.hpp"
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "hailo_analytics/pipeline/codecs/encoder_stage.hpp"
 #include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
@@ -10,11 +10,6 @@
 #include "hailo_analytics/pipeline/routing/valve_stage.hpp"
 #include "hailo_analytics/pipeline/routing/freeze_stage.hpp"
 #include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
-
-namespace hailo_analytics::analytics::dpm_analytics
-{
-struct SharedLabels;
-}
 
 #define DEFAULT_STREAM_4K_NAME "sink0"
 
@@ -54,7 +49,7 @@ namespace pipeline
 
 struct AppResources
 {
-    MediaLibrary &media_library;
+    MediaLibraryPtr media_library;
     std::shared_ptr<FrontendStage> frontend;
     std::shared_ptr<ValveStage> valve_stage;
     std::shared_ptr<FreezeStage> freeze_stage;
@@ -63,13 +58,12 @@ struct AppResources
     hailo_analytics::pipeline::PipelinePtr pipeline;
     Architecture platform;
     std::shared_ptr<IspBlender> m_isp_blender;
-    std::shared_ptr<hailo_analytics::analytics::dpm_analytics::SharedLabels> segment_labels;
 };
 
 class BasePipeline
 {
   public:
-    BasePipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
+    BasePipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
                  RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H,
                  ProfileType default_profile = ProfileType::Daylight, std::vector<ProfileType> supported_profiles = {});
     virtual ~BasePipeline();

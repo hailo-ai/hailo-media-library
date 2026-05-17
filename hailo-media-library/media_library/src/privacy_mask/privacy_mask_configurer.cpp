@@ -21,16 +21,26 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include <sys/types.h>
+#include <nlohmann/json.hpp>
+#include <tl/expected.hpp>
+#include <algorithm>
+#include <initializer_list>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <utility>
+#include <variant>
+#include <vector>
+
 #include "config_parser.hpp"
-#include "encoder_config_types.hpp"
 #include "media_library_types.hpp"
 #include "privacy_mask.hpp"
 #include "config_manager.hpp"
-#include "logger_macros.hpp"
 #include "media_library_logger.hpp"
-#include <sys/types.h>
-#include <tl/expected.hpp>
-#include <sys/mman.h>
+#include "privacy_mask_types.hpp"
+#include "encoder_config_types.hpp"
 
 #define MODULE_NAME LoggerType::PrivacyMask
 
@@ -69,18 +79,17 @@ media_library_return PrivacyMaskConfigurer::add_static_privacy_mask(const polygo
         return MEDIA_LIBRARY_ERROR;
     }
     config_profile_t current_profile = *current_profile_opt.value();
-    if (current_profile.encoded_output_streams.find(m_stream_id) == current_profile.encoded_output_streams.end())
+    auto stream_it = current_profile.encoded_output_streams.find(m_stream_id);
+    if (stream_it == current_profile.encoded_output_streams.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Stream id {} not found in current profile", m_stream_id);
         return MEDIA_LIBRARY_ERROR;
     }
-    auto &static_privacy_mask_config =
-        current_profile.encoded_output_streams.at(m_stream_id).masking.static_privacy_mask_config;
+    auto &static_privacy_mask_config = stream_it->second.masking.static_privacy_mask_config;
     if (!static_privacy_mask_config.has_value())
     {
         const bool is_enabled = true;
-        current_profile.encoded_output_streams.at(m_stream_id).masking.static_privacy_mask_config =
-            static_privacy_mask_config_t{is_enabled, {}};
+        stream_it->second.masking.static_privacy_mask_config = static_privacy_mask_config_t{is_enabled, {}};
     }
 
     if (static_privacy_mask_config->masks.size() >= MAX_NUM_OF_STATIC_PRIVACY_MASKS)
@@ -116,13 +125,13 @@ media_library_return PrivacyMaskConfigurer::set_static_privacy_mask(const polygo
         return MEDIA_LIBRARY_ERROR;
     }
     config_profile_t current_profile = *current_profile_opt.value();
-    if (current_profile.encoded_output_streams.find(m_stream_id) == current_profile.encoded_output_streams.end())
+    auto stream_it = current_profile.encoded_output_streams.find(m_stream_id);
+    if (stream_it == current_profile.encoded_output_streams.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Stream id {} not found in current profile", m_stream_id);
         return MEDIA_LIBRARY_ERROR;
     }
-    auto &static_privacy_mask_config =
-        current_profile.encoded_output_streams.at(m_stream_id).masking.static_privacy_mask_config;
+    auto &static_privacy_mask_config = stream_it->second.masking.static_privacy_mask_config;
     if (!static_privacy_mask_config.has_value())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Static privacy mask config not found for stream id {}", m_stream_id);
@@ -161,13 +170,13 @@ media_library_return PrivacyMaskConfigurer::remove_static_privacy_mask(const std
         return MEDIA_LIBRARY_ERROR;
     }
     config_profile_t current_profile = *current_profile_opt.value();
-    if (current_profile.encoded_output_streams.find(m_stream_id) == current_profile.encoded_output_streams.end())
+    auto stream_it = current_profile.encoded_output_streams.find(m_stream_id);
+    if (stream_it == current_profile.encoded_output_streams.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Stream id {} not found in current profile", m_stream_id);
         return MEDIA_LIBRARY_ERROR;
     }
-    auto &static_privacy_mask_config =
-        current_profile.encoded_output_streams.at(m_stream_id).masking.static_privacy_mask_config;
+    auto &static_privacy_mask_config = stream_it->second.masking.static_privacy_mask_config;
     if (!static_privacy_mask_config.has_value())
     {
         LOGGER__MODULE__WARN(MODULE_NAME, "Static privacy mask config not found for stream id {}", m_stream_id);
@@ -201,13 +210,14 @@ media_library_return PrivacyMaskConfigurer::set_color(const rgb_color_t &color)
         return MEDIA_LIBRARY_ERROR;
     }
     config_profile_t current_profile = *current_profile_opt.value();
-    if (current_profile.encoded_output_streams.find(m_stream_id) == current_profile.encoded_output_streams.end())
+    auto stream_it = current_profile.encoded_output_streams.find(m_stream_id);
+    if (stream_it == current_profile.encoded_output_streams.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Stream id {} not found in current profile", m_stream_id);
         return MEDIA_LIBRARY_ERROR;
     }
-    current_profile.encoded_output_streams.at(m_stream_id).masking.mask_type = PrivacyMaskType::COLOR;
-    current_profile.encoded_output_streams.at(m_stream_id).masking.color_value = color;
+    stream_it->second.masking.mask_type = PrivacyMaskType::COLOR;
+    stream_it->second.masking.color_value = color;
     m_config_manager_interactor->set_profile(current_profile);
 
     return MEDIA_LIBRARY_SUCCESS;
@@ -232,13 +242,14 @@ media_library_return PrivacyMaskConfigurer::set_pixelization_size(PixelizationSi
         return MEDIA_LIBRARY_ERROR;
     }
     config_profile_t current_profile = *current_profile_opt.value();
-    if (current_profile.encoded_output_streams.find(m_stream_id) == current_profile.encoded_output_streams.end())
+    auto stream_it = current_profile.encoded_output_streams.find(m_stream_id);
+    if (stream_it == current_profile.encoded_output_streams.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Stream id {} not found in current profile", m_stream_id);
         return MEDIA_LIBRARY_ERROR;
     }
-    current_profile.encoded_output_streams.at(m_stream_id).masking.mask_type = PrivacyMaskType::PIXELIZATION;
-    current_profile.encoded_output_streams.at(m_stream_id).masking.pixelization_size = size;
+    stream_it->second.masking.mask_type = PrivacyMaskType::PIXELIZATION;
+    stream_it->second.masking.pixelization_size = size;
     m_config_manager_interactor->set_profile(current_profile);
 
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
@@ -258,18 +269,19 @@ tl::expected<rgb_color_t, media_library_return> PrivacyMaskConfigurer::get_color
         return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
     }
     config_profile_t current_profile = *current_profile_opt.value();
-    if (current_profile.encoded_output_streams.find(m_stream_id) == current_profile.encoded_output_streams.end())
+    auto stream_it = current_profile.encoded_output_streams.find(m_stream_id);
+    if (stream_it == current_profile.encoded_output_streams.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Stream id {} not found in current profile", m_stream_id);
         return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
     }
-    auto privacy_mask_type = current_profile.encoded_output_streams.at(m_stream_id).masking.mask_type;
+    auto privacy_mask_type = stream_it->second.masking.mask_type;
     if (privacy_mask_type != PrivacyMaskType::COLOR)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Privacy mask type is not set to COLOR");
         return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
     }
-    return current_profile.encoded_output_streams.at(m_stream_id).masking.color_value;
+    return stream_it->second.masking.color_value;
 }
 
 tl::expected<PixelizationSize, media_library_return> PrivacyMaskConfigurer::get_pixelization_size()
@@ -286,18 +298,19 @@ tl::expected<PixelizationSize, media_library_return> PrivacyMaskConfigurer::get_
         return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
     }
     config_profile_t current_profile = *current_profile_opt.value();
-    if (current_profile.encoded_output_streams.find(m_stream_id) == current_profile.encoded_output_streams.end())
+    auto stream_it = current_profile.encoded_output_streams.find(m_stream_id);
+    if (stream_it == current_profile.encoded_output_streams.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Stream id {} not found in current profile", m_stream_id);
         return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
     }
-    auto privacy_mask_type = current_profile.encoded_output_streams.at(m_stream_id).masking.mask_type;
+    auto privacy_mask_type = stream_it->second.masking.mask_type;
     if (privacy_mask_type != PrivacyMaskType::PIXELIZATION)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Privacy mask type is not set to PIXELIZATION");
         return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
     }
-    return current_profile.encoded_output_streams.at(m_stream_id).masking.pixelization_size;
+    return stream_it->second.masking.pixelization_size;
 }
 
 tl::expected<polygon, media_library_return> PrivacyMaskConfigurer::get_static_privacy_mask(const std::string &id)
@@ -314,13 +327,13 @@ tl::expected<polygon, media_library_return> PrivacyMaskConfigurer::get_static_pr
         return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
     }
     config_profile_t current_profile = *current_profile_opt.value();
-    if (current_profile.encoded_output_streams.find(m_stream_id) == current_profile.encoded_output_streams.end())
+    auto stream_it = current_profile.encoded_output_streams.find(m_stream_id);
+    if (stream_it == current_profile.encoded_output_streams.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Stream id {} not found in current profile", m_stream_id);
         return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
     }
-    auto &static_privacy_mask_config =
-        current_profile.encoded_output_streams.at(m_stream_id).masking.static_privacy_mask_config;
+    auto &static_privacy_mask_config = stream_it->second.masking.static_privacy_mask_config;
     if (!static_privacy_mask_config.has_value())
     {
         LOGGER__MODULE__WARN(MODULE_NAME, "Static privacy mask config not found for stream id {}", m_stream_id);
@@ -350,12 +363,13 @@ tl::expected<std::pair<uint, uint>, media_library_return> PrivacyMaskConfigurer:
         return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
     }
     config_profile_t current_profile = *current_profile_opt.value();
-    if (current_profile.encoded_output_streams.find(m_stream_id) == current_profile.encoded_output_streams.end())
+    auto stream_it = current_profile.encoded_output_streams.find(m_stream_id);
+    if (stream_it == current_profile.encoded_output_streams.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Stream id {} not found in current profile", m_stream_id);
         return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
     }
-    encoder_config_t &stream_config = current_profile.encoded_output_streams.at(m_stream_id).encoding;
+    encoder_config_t &stream_config = stream_it->second.encoding;
     if (std::holds_alternative<hailo_encoder_config_t>(stream_config))
     {
         return std::make_pair(std::get<hailo_encoder_config_t>(stream_config).input_stream.width,
@@ -392,13 +406,13 @@ media_library_return PrivacyMaskConfigurer::clear_all_static_privacy_masks()
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
     config_profile_t current_profile = *current_profile_opt.value();
-    if (current_profile.encoded_output_streams.find(m_stream_id) == current_profile.encoded_output_streams.end())
+    auto stream_it = current_profile.encoded_output_streams.find(m_stream_id);
+    if (stream_it == current_profile.encoded_output_streams.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Stream id {} not found in current profile", m_stream_id);
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
-    auto &static_privacy_mask_config =
-        current_profile.encoded_output_streams.at(m_stream_id).masking.static_privacy_mask_config;
+    auto &static_privacy_mask_config = stream_it->second.masking.static_privacy_mask_config;
     if (!static_privacy_mask_config.has_value())
     {
         LOGGER__MODULE__WARN(MODULE_NAME, "Static privacy mask config not found for stream id {}", m_stream_id);
@@ -424,13 +438,13 @@ tl::expected<std::vector<polygon>, media_library_return> PrivacyMaskConfigurer::
         return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
     }
     config_profile_t current_profile = *current_profile_opt.value();
-    if (current_profile.encoded_output_streams.find(m_stream_id) == current_profile.encoded_output_streams.end())
+    auto stream_it = current_profile.encoded_output_streams.find(m_stream_id);
+    if (stream_it == current_profile.encoded_output_streams.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Stream id {} not found in current profile", m_stream_id);
         return tl::make_unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
     }
-    auto &static_privacy_mask_config =
-        current_profile.encoded_output_streams.at(m_stream_id).masking.static_privacy_mask_config;
+    auto &static_privacy_mask_config = stream_it->second.masking.static_privacy_mask_config;
     if (!static_privacy_mask_config.has_value())
     {
         LOGGER__MODULE__WARN(MODULE_NAME, "Static privacy mask config not found for stream id {}", m_stream_id);
@@ -453,12 +467,13 @@ media_library_return PrivacyMaskConfigurer::set_static_mask_enabled(bool enable)
         return MEDIA_LIBRARY_ERROR;
     }
     config_profile_t current_profile = *current_profile_opt.value();
-    if (current_profile.encoded_output_streams.find(m_stream_id) == current_profile.encoded_output_streams.end())
+    auto stream_it = current_profile.encoded_output_streams.find(m_stream_id);
+    if (stream_it == current_profile.encoded_output_streams.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Stream id {} not found in current profile", m_stream_id);
         return MEDIA_LIBRARY_ERROR;
     }
-    auto &stream_privacy_mask_config = current_profile.encoded_output_streams.at(m_stream_id).masking;
+    auto &stream_privacy_mask_config = stream_it->second.masking;
     if (!stream_privacy_mask_config.static_privacy_mask_config.has_value())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Static privacy mask config not found for stream id {}", m_stream_id);
@@ -488,13 +503,13 @@ bool PrivacyMaskConfigurer::is_static_mask_enabled()
         return false;
     }
     config_profile_t current_profile = *current_profile_opt.value();
-    if (current_profile.encoded_output_streams.find(m_stream_id) == current_profile.encoded_output_streams.end())
+    auto stream_it = current_profile.encoded_output_streams.find(m_stream_id);
+    if (stream_it == current_profile.encoded_output_streams.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Stream id {} not found in current profile", m_stream_id);
         return false;
     }
-    auto &static_privacy_mask_config =
-        current_profile.encoded_output_streams.at(m_stream_id).masking.static_privacy_mask_config;
+    auto &static_privacy_mask_config = stream_it->second.masking.static_privacy_mask_config;
     if (!static_privacy_mask_config.has_value())
     {
         LOGGER__MODULE__WARN(MODULE_NAME, "Static privacy mask config not found for stream id {}", m_stream_id);
@@ -517,16 +532,17 @@ media_library_return PrivacyMaskConfigurer::set_dynamic_mask_enabled(bool enable
         return MEDIA_LIBRARY_ERROR;
     }
     config_profile_t current_profile = *current_profile_opt.value();
-    if (current_profile.encoded_output_streams.find(m_stream_id) == current_profile.encoded_output_streams.end())
+    auto stream_it = current_profile.encoded_output_streams.find(m_stream_id);
+    if (stream_it == current_profile.encoded_output_streams.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Stream id {} not found in current profile", m_stream_id);
         return MEDIA_LIBRARY_ERROR;
     }
-    auto &stream_privacy_mask_config = current_profile.encoded_output_streams.at(m_stream_id).masking;
+    auto &stream_privacy_mask_config = stream_it->second.masking;
     if (!stream_privacy_mask_config.dynamic_privacy_mask_config.has_value())
     {
         const bool is_enabled = true;
-        current_profile.encoded_output_streams.at(m_stream_id).masking.dynamic_privacy_mask_config =
+        stream_it->second.masking.dynamic_privacy_mask_config =
             dynamic_privacy_mask_config_t{is_enabled, {}, 0, 10000, 34, AnalyticsQueryType::WithinDelta};
     }
     auto &dynamic_config = stream_privacy_mask_config.dynamic_privacy_mask_config.value();
@@ -550,13 +566,13 @@ bool PrivacyMaskConfigurer::is_dynamic_mask_enabled()
         return false;
     }
     config_profile_t current_profile = *current_profile_opt.value();
-    if (current_profile.encoded_output_streams.find(m_stream_id) == current_profile.encoded_output_streams.end())
+    auto stream_it = current_profile.encoded_output_streams.find(m_stream_id);
+    if (stream_it == current_profile.encoded_output_streams.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Stream id {} not found in current profile", m_stream_id);
         return false;
     }
-    auto &dynamic_privacy_mask_config =
-        current_profile.encoded_output_streams.at(m_stream_id).masking.dynamic_privacy_mask_config;
+    auto &dynamic_privacy_mask_config = stream_it->second.masking.dynamic_privacy_mask_config;
     if (!dynamic_privacy_mask_config.has_value())
     {
         LOGGER__MODULE__WARN(MODULE_NAME, "dynamic privacy mask config not found for stream id {}", m_stream_id);
@@ -608,12 +624,13 @@ media_library_return PrivacyMaskConfigurer::configure(const std::unique_ptr<priv
         return MEDIA_LIBRARY_ERROR;
     }
     config_profile_t current_profile = *current_profile_opt.value();
-    if (current_profile.encoded_output_streams.find(m_stream_id) == current_profile.encoded_output_streams.end())
+    auto stream_it = current_profile.encoded_output_streams.find(m_stream_id);
+    if (stream_it == current_profile.encoded_output_streams.end())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Stream id {} not found in current profile", m_stream_id);
         return MEDIA_LIBRARY_ERROR;
     }
-    current_profile.encoded_output_streams.at(m_stream_id).masking = *config;
+    stream_it->second.masking = *config;
     m_config_manager_interactor->set_profile(current_profile);
 
     return MEDIA_LIBRARY_SUCCESS;

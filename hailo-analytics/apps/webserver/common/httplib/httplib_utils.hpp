@@ -3,7 +3,14 @@
 #include <memory>
 #include <functional>
 #include <nlohmann/json.hpp>
-#include <httplib.h>
+
+// Forward declarations — avoid pulling in <httplib.h> (~141K preprocessor lines)
+namespace httplib
+{
+struct Request;
+struct Response;
+class DataSink;
+} // namespace httplib
 
 class HTTPServer
 {
@@ -34,6 +41,7 @@ class HTTPServer
         std::function<
             std::pair<size_t, std::function<size_t(size_t, size_t, httplib::DataSink &)>>(const nlohmann::json &)>
             callback);
+    void Get(const std::string &pattern, std::function<void(const httplib::Request &, httplib::Response &)> callback);
     void Redirect(const std::string &pattern, const std::string &target);
     void Delete(const std::string &pattern, std::function<nlohmann::json(const nlohmann::json &)> callback);
     void set_exception_handler(const ExceptionHandler &exception_handler);

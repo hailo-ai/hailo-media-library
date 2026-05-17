@@ -1,19 +1,24 @@
 #pragma once
 
+#include <asm/ioctl.h>
+#include <linux/videodev2.h>
+#include <stddef.h>
+#include <atomic>
+#include <chrono>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <vector>
+
 #include "buffer_pool.hpp"
 #include "hdr_manager.hpp"
-
 #include "dma_buffer.hpp"
 #include "isp_manager.hpp"
 #include "sensor_types.hpp"
-#include "files_utils.hpp"
 #include "hrt_stitcher/hrt_stitcher.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
-#include "video_buffer.hpp"
-#include "video_device.hpp"
-#include "v4l2_ctrl.hpp"
-#include "perfetto_fps_tracer.hpp"
 
 class HdrManager::Impl
 {

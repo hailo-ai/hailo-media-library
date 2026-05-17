@@ -20,11 +20,16 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+#include <stdint.h>
+#include <tl/expected.hpp>
 #include <memory>
-#include <unordered_map>
+#include <string>
+#include <vector>
 
 #include "encoder_class.hpp"
 #include "encoder_internal.hpp"
+#include "buffer_pool.hpp"
+#include "media_library_types.hpp"
 
 Encoder::Encoder()
 {
@@ -68,16 +73,6 @@ void Encoder::force_keyframe()
     m_impl->force_keyframe();
 }
 
-encoder_config_t Encoder::get_config()
-{
-    return m_impl->get_config();
-}
-
-encoder_config_t Encoder::get_user_config()
-{
-    return m_impl->get_user_config();
-}
-
 tl::expected<EncoderOutputBuffer, media_library_return> Encoder::start()
 {
     return m_impl->start();
@@ -93,7 +88,7 @@ tl::expected<EncoderOutputBuffer, media_library_return> Encoder::finish()
     return m_impl->finish();
 }
 
-std::vector<EncoderOutputBuffer> Encoder::handle_frame(HailoMediaLibraryBufferPtr buf, uint32_t frame_number)
+std::vector<EncoderOutputBuffer> Encoder::handle_frame(const HailoMediaLibraryBufferPtr &buf, uint32_t frame_number)
 {
     return m_impl->handle_frame(buf, frame_number);
 }
@@ -110,5 +105,5 @@ encoder_monitors Encoder::get_monitors()
 
 void Encoder::set_start_callback(EncoderStartCallback callback)
 {
-    m_impl->set_start_callback(callback);
+    m_impl->set_start_callback(std::move(callback));
 }

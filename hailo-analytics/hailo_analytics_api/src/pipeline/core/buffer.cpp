@@ -8,6 +8,10 @@ Metadata::Metadata(MetadataType type) : m_type(type)
 {
 }
 
+Metadata::~Metadata() = default;
+Metadata::Metadata(const Metadata &) = default;
+Metadata &Metadata::operator=(const Metadata &) = default;
+
 MetadataType Metadata::get_type() const
 {
     return m_type;
@@ -123,6 +127,11 @@ HailoMediaLibraryBufferPtr Buffer::get_buffer() const
 HailoROIPtr Buffer::get_roi() const
 {
     return m_roi;
+}
+
+void Buffer::set_roi(HailoROIPtr roi)
+{
+    m_roi = std::move(roi);
 }
 
 void Buffer::add_metadata(MetadataPtr metadata)

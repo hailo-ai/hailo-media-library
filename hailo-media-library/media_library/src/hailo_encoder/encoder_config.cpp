@@ -21,13 +21,24 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include <fcntl.h>
+#include <nlohmann/json.hpp>
+#include <stdint.h>
+#include <string.h>
+#include <tl/expected.hpp>
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
 #include <array>
 #include <span>
-#include <nlohmann/json.hpp>
-#include <variant>
+#include <algorithm>
+#include <initializer_list>
+#include <iterator>
+#include <map>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "config_parser.hpp"
 #include "encoder_class.hpp"
 #include "encoder_config.hpp"
@@ -35,7 +46,8 @@
 #include "files_utils.hpp"
 #include "media_library_logger.hpp"
 #include "encoder_config_presets.hpp"
-#include <tl/expected.hpp>
+#include "media_library_types.hpp"
+#include "encoder_config_types.hpp"
 
 extern std::unordered_map<void *, std::string> encoder_names;
 
@@ -66,11 +78,8 @@ inline void strip_string_syntax(std::string &pipeline_input)
     }
 }
 
-EncoderConfig::EncoderConfig() = default;
-
-media_library_return EncoderConfig::fill_missing_profile_and_level()
+static media_library_return fill_missing_profile_and_level(hailo_encoder_config_t &config)
 {
-    auto &config = std::get<hailo_encoder_config_t>(m_config);
     auto &output_stream = config.output_stream;
     auto resolution = config.input_stream.width * config.input_stream.height;
 
@@ -106,10 +115,8 @@ media_library_return EncoderConfig::fill_missing_profile_and_level()
     return MEDIA_LIBRARY_CONFIGURATION_ERROR;
 }
 
-media_library_return EncoderConfig::fill_missing_fields_rate_control_disabled()
+static media_library_return fill_missing_fields_rate_control_disabled(hailo_encoder_config_t &config)
 {
-    auto &config = std::get<hailo_encoder_config_t>(m_config);
-
     // Set picture_rc to 0 in case it was not set
     config.rate_control.picture_rc = 0;
 
@@ -132,10 +139,8 @@ media_library_return EncoderConfig::fill_missing_fields_rate_control_disabled()
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return EncoderConfig::fill_missing_fields_rate_control_enabled()
+static media_library_return fill_missing_fields_rate_control_enabled(hailo_encoder_config_t &config)
 {
-    auto &config = std::get<hailo_encoder_config_t>(m_config);
-
     if (EncoderConfigPresets::get_instance().apply_preset(config) != MEDIA_LIBRARY_SUCCESS)
     {
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
@@ -210,7 +215,7 @@ media_library_return EncoderConfig::fill_missing_fields_rate_control_enabled()
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return EncoderConfig::configure(const std::string &json_string)
+tl::expected<encoder_config_t, media_library_return> parse_encoder_config(const std::string &json_string)
 {
     std::string strapped_json = json_string;
     strip_string_syntax(strapped_json);
@@ -221,102 +226,56 @@ media_library_return EncoderConfig::configure(const std::string &json_string)
     encoding_only_json["encoding"] = unified_json["encoding"];
     std::string encoding_only_string = encoding_only_json.dump();
 
-    m_config_parser = std::make_shared<ConfigParser>(ConfigSchema::CONFIG_SCHEMA_ENCODER);
+    auto config_parser = std::make_shared<ConfigParser>(ConfigSchema::CONFIG_SCHEMA_ENCODER);
+    encoder_config_t config;
     media_library_return config_ret =
-        m_config_parser->config_string_to_struct<encoder_config_t>(encoding_only_string, m_config);
+        config_parser->config_string_to_struct<encoder_config_t>(encoding_only_string, config);
     if (config_ret != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "encoder's JSON config conversion failed: {}", strapped_json);
-        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+        return tl::unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
     }
 
-    nlohmann::json parsed_json = nlohmann::json::parse(encoding_only_string);
-    std::string encoder_name;
-
-    auto type = ConfigParser::get_encoder_type(parsed_json);
-    switch (type)
-    {
-    case EncoderType::Jpeg:
-        encoder_name = "jpeg_encoder";
-        break;
-    case EncoderType::Hailo:
-        encoder_name = "hailo_encoder";
-        break;
-    case EncoderType::None:
-        // Should not get here, config_string_to_struct would have returned an error in this case
-        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-    }
-
-    m_doc = parsed_json["encoding"][encoder_name];
-    return configure(m_config);
+    return config;
 }
 
-media_library_return EncoderConfig::configure(const encoder_config_t &encoder_config)
+media_library_return resolve_hailo_encoder_config(hailo_encoder_config_t &config)
 {
-    m_user_config = m_config = encoder_config;
+    media_library_return ret = MEDIA_LIBRARY_SUCCESS;
 
-    if (std::holds_alternative<hailo_encoder_config_t>(m_config))
+    if ((config.rate_control.rc_mode == CBR) || (config.rate_control.rc_mode == CVBR) ||
+        (config.rate_control.rc_mode == VBR && config.rate_control.picture_rc.value_or(0) == 1))
     {
-        auto &config = std::get<hailo_encoder_config_t>(m_config);
-        media_library_return ret = MEDIA_LIBRARY_SUCCESS;
-
-        if ((config.rate_control.rc_mode == CBR) || (config.rate_control.rc_mode == CVBR) ||
-            (config.rate_control.rc_mode == VBR && config.rate_control.picture_rc.value_or(0) == 1))
-        {
-            // CBR/CVBR or VBR with picture_rc enabled
-            ret = fill_missing_fields_rate_control_enabled();
-            if (ret != MEDIA_LIBRARY_SUCCESS)
-            {
-                return ret;
-            }
-        }
-        else if (config.rate_control.rc_mode == VBR)
-        {
-            ret = fill_missing_fields_rate_control_disabled();
-            if (ret != MEDIA_LIBRARY_SUCCESS)
-            {
-                return ret;
-            }
-        }
-        else
-        {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Unknown rate control mode: {}", config.rate_control.rc_mode);
-            return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-        }
-        ret = fill_missing_profile_and_level();
+        // CBR/CVBR or VBR with picture_rc enabled
+        ret = fill_missing_fields_rate_control_enabled(config);
         if (ret != MEDIA_LIBRARY_SUCCESS)
         {
             return ret;
         }
     }
+    else if (config.rate_control.rc_mode == VBR)
+    {
+        ret = fill_missing_fields_rate_control_disabled(config);
+        if (ret != MEDIA_LIBRARY_SUCCESS)
+        {
+            return ret;
+        }
+    }
+    else
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Unknown rate control mode: {}", config.rate_control.rc_mode);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    ret = fill_missing_profile_and_level(config);
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+    {
+        return ret;
+    }
 
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-encoder_config_t EncoderConfig::get_config()
-{
-    return m_config;
-}
-
-encoder_config_t EncoderConfig::get_user_config()
-{
-    return m_user_config;
-}
-
-hailo_encoder_config_t EncoderConfig::get_hailo_config()
-{
-    return std::get<hailo_encoder_config_t>(m_config);
-}
-
-jpeg_encoder_config_t EncoderConfig::get_jpeg_config()
-{
-    return std::get<jpeg_encoder_config_t>(m_config);
-}
-
-const nlohmann::json &EncoderConfig::get_doc() const
-{
-    return m_doc;
-}
+// ---- Encoder::Impl methods ----
 
 bool Encoder::Impl::gop_config_update_required(const hailo_encoder_config_t &old_config,
                                                const hailo_encoder_config_t &new_config)
@@ -359,7 +318,7 @@ bool Encoder::Impl::instance_restart_required(const hailo_encoder_config_t &old_
 
 uint32_t Encoder::Impl::get_codec()
 {
-    auto output_stream = m_config.get_hailo_config().output_stream;
+    auto output_stream = m_config.output_stream;
     if (output_stream.codec == CODEC_TYPE_H264)
         return 1;
     else if (output_stream.codec == CODEC_TYPE_HEVC)
@@ -370,7 +329,7 @@ uint32_t Encoder::Impl::get_codec()
 
 tl::expected<VCEncProfile, media_library_return> Encoder::Impl::get_profile()
 {
-    auto output_stream = m_config.get_hailo_config().output_stream;
+    auto output_stream = m_config.output_stream;
     if (!output_stream.profile.has_value())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Profile value is missing in encoder configuration");
@@ -402,7 +361,7 @@ tl::expected<VCEncProfile, media_library_return> Encoder::Impl::get_profile()
     }
 }
 
-VCEncPictureType Encoder::Impl::get_input_format(std::string format)
+VCEncPictureType Encoder::Impl::get_input_format(const std::string &format)
 {
     if (input_formats.find(format) != input_formats.end())
         return input_formats.find(format)->second;
@@ -434,8 +393,8 @@ media_library_return Encoder::Impl::validate_bitrate_limitations(rate_control_co
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return Encoder::Impl::validate_level_limitations(std::string level, bool codecH264, u32 width, u32 height,
-                                                               u32 framerate, u32 framerate_denom)
+media_library_return Encoder::Impl::validate_level_limitations(const std::string &level, bool codecH264, u32 width,
+                                                               u32 height, u32 framerate, u32 framerate_denom)
 {
     if (codecH264)
         return MEDIA_LIBRARY_SUCCESS;
@@ -487,8 +446,8 @@ media_library_return Encoder::Impl::validate_level_limitations(std::string level
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return Encoder::Impl::get_level(std::string level, bool codecH264, u32 width, u32 height, u32 framerate,
-                                              u32 framerate_denom, VCEncLevel &vc_level_out)
+media_library_return Encoder::Impl::get_level(const std::string &level, bool codecH264, u32 width, u32 height,
+                                              u32 framerate, u32 framerate_denom, VCEncLevel &vc_level_out)
 {
 
     if (validate_level_limitations(level, codecH264, width, height, framerate, framerate_denom) !=
@@ -544,7 +503,7 @@ void Encoder::Impl::create_gop_config()
 {
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoder - init_gop_config");
     auto codec = get_codec();
-    auto gop_config_json = m_config.get_hailo_config().gop;
+    auto gop_config_json = m_config.gop;
     int32_t bframe_qp_delta = gop_config_json.b_frame_qp_delta;
     int32_t gop_size = gop_config_json.gop_size;
     memset(&m_enc_in.gopConfig, 0, sizeof(VCEncGopConfig));
@@ -553,7 +512,7 @@ void Encoder::Impl::create_gop_config()
 
 media_library_return Encoder::Impl::init_gop_config()
 {
-    auto gop_config = m_config.get_hailo_config().gop;
+    auto gop_config = m_config.gop;
     auto codec = get_codec();
 
     memset(&m_enc_in.gopConfig, 0, sizeof(VCEncGopConfig));
@@ -576,7 +535,7 @@ media_library_return Encoder::Impl::init_rate_control_config()
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoder - init_rate_control_config");
     VCEncRet ret = VCENC_OK;
 
-    auto rate_control = m_config.get_hailo_config().rate_control;
+    auto rate_control = m_config.rate_control;
     /* Encoder setup: rate control */
     if ((ret = VCEncGetRateCtrl(m_inst, &m_vc_rate_cfg)) != VCENC_OK)
     {
@@ -702,8 +661,8 @@ media_library_return Encoder::Impl::init_coding_control_config()
 {
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoder - init_coding_control_config");
     VCEncRet ret = VCENC_OK;
-    auto coding_control = m_config.get_hailo_config().coding_control;
-    auto smart_encoder = m_config.get_hailo_config().smart_encoder;
+    auto coding_control = m_config.coding_control;
+    auto smart_encoder = m_config.smart_encoder;
 
     /* Encoder setup: coding control */
     if ((ret = VCEncGetCodingCtrl(m_inst, &m_vc_coding_cfg)) != VCENC_OK)
@@ -720,7 +679,8 @@ media_library_return Encoder::Impl::init_coding_control_config()
     m_vc_coding_cfg.enableSao = 1;
     m_vc_coding_cfg.enableDeblockOverride = coding_control.deblocking_filter.deblock_override ? 1 : 0;
     m_vc_coding_cfg.deblockOverride = coding_control.deblocking_filter.deblock_override ? 1 : 0;
-    m_vc_coding_cfg.enableCabac = 1;
+    // H.264 Baseline profile only supports CAVLC entropy coding, not CABAC
+    m_vc_coding_cfg.enableCabac = (m_vc_cfg.profile == VCENC_H264_BASE_PROFILE) ? 0 : 1;
     m_vc_coding_cfg.cabacInitFlag = 0;
     m_vc_coding_cfg.vuiVideoFullRange = 1;
     m_vc_coding_cfg.seiMessages = coding_control.sei_messages.encoder_timing_sei ? 1 : 0;
@@ -780,7 +740,7 @@ media_library_return Encoder::Impl::init_preprocessing_config()
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get pre processing configuration on VCEnc error code {}", ret);
         return MEDIA_LIBRARY_ERROR;
     }
-    auto input_stream = m_config.get_hailo_config().input_stream;
+    auto input_stream = m_config.input_stream;
 
     m_vc_pre_proc_cfg.inputType = get_input_format(std::string(input_stream.format));
     // No Rotation
@@ -847,8 +807,8 @@ media_library_return Encoder::Impl::init_encoder_config()
     memset(&m_vc_cfg, 0, sizeof(m_vc_cfg));
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoder - init_encoder_config");
     VCEncRet ret = VCENC_OK;
-    auto input_stream = m_config.get_hailo_config().input_stream;
-    auto output_stream = m_config.get_hailo_config().output_stream;
+    auto input_stream = m_config.input_stream;
+    auto output_stream = m_config.output_stream;
 
     m_input_stride = input_stream.width;
 
@@ -918,7 +878,7 @@ media_library_return Encoder::Impl::init_monitors_config()
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoder - init_monitors_config");
     VCEncRet ret = VCENC_OK;
 
-    auto monitors_control = m_config.get_hailo_config().monitors_control;
+    auto monitors_control = m_config.monitors_control;
     m_bitrate_monitor.enabled = monitors_control.bitrate_monitor.enable;
     m_bitrate_monitor.period = monitors_control.bitrate_monitor.period;
 
@@ -956,41 +916,4 @@ media_library_return Encoder::Impl::init_monitors_config()
     }
 
     return MEDIA_LIBRARY_SUCCESS;
-}
-
-bool EncoderConfig::config_struct_equal(const encoder_config_t &old_config, const encoder_config_t &new_config)
-{
-    // Use std::visit with type-safe comparison
-    return std::visit(
-        [](const auto &old_val, const auto &new_val) -> bool {
-            using T = std::decay_t<decltype(old_val)>;
-            using U = std::decay_t<decltype(new_val)>;
-
-            // Check if both variants hold the same type
-            if constexpr (std::is_same_v<T, U>)
-            {
-                if constexpr (std::is_same_v<T, hailo_encoder_config_t>)
-                {
-                    // For hailo_encoder_config_t, use tie-based comparison
-                    return old_val == new_val;
-                }
-                else if constexpr (std::is_same_v<T, jpeg_encoder_config_t>)
-                {
-                    // For jpeg_encoder_config_t, use tie-based comparison
-                    return std::tie(old_val.config_path, old_val.input_stream, old_val.n_threads, old_val.quality) ==
-                           std::tie(new_val.config_path, new_val.input_stream, new_val.n_threads, new_val.quality);
-                }
-                else
-                {
-                    // Fallback for unknown types
-                    return false;
-                }
-            }
-            else
-            {
-                // Different types, cannot be equal
-                return false;
-            }
-        },
-        old_config, new_config);
 }

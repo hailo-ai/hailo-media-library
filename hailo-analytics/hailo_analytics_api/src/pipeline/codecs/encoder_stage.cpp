@@ -8,62 +8,67 @@ namespace hailo_analytics::pipeline::codecs
 EncoderStage::EncoderStage(std::string name, size_t queue_size, bool leaky, bool trace_processing_operations)
     : hailo_analytics::pipeline::ThreadedStage(name, queue_size, leaky, trace_processing_operations)
 {
-    m_encoder = nullptr;
 }
 
-AppStatus EncoderStage::create(MediaLibraryEncoder &encoder)
+AppStatus EncoderStage::create(MediaLibraryInterfacePtr media_library, const output_stream_id_t &stream_id)
 {
-    m_encoder = &encoder; // TODO because the encoder not created in the stage i cant control its name
-    m_encoder->subscribe([this](HailoMediaLibraryBufferPtr buffer, size_t size) {
-        // Keep in mind, this does not pass Buffer metadata from encoder input to the next stage
-        // It is generally assumed that this is near the end of pipeline.
-        hailo_analytics::pipeline::BufferPtr wrapped_buffer =
-            std::make_shared<hailo_analytics::pipeline::Buffer>(buffer);
-        SizeMetadataPtr size_meta = std::make_shared<SizeMetadata>(this->m_stage_name, size);
-        wrapped_buffer->add_metadata(size_meta);
-        this->send_to_subscribers(wrapped_buffer);
-    });
+    m_media_library = media_library;
+    m_stream_id = stream_id;
+    auto status = m_media_library->subscribe_to_encoder_output(
+        m_stream_id, [this](HailoMediaLibraryBufferPtr buffer, size_t size) {
+            hailo_analytics::pipeline::BufferPtr wrapped_buffer =
+                std::make_shared<hailo_analytics::pipeline::Buffer>(buffer);
+            SizeMetadataPtr size_meta = std::make_shared<SizeMetadata>(this->m_stage_name, size);
+            wrapped_buffer->add_metadata(size_meta);
+            this->send_to_subscribers(wrapped_buffer);
+        });
+    if (status != MEDIA_LIBRARY_SUCCESS)
+    {
+        HAILO_ANALYTICS_LOG_ERROR("Failed to subscribe to encoder output for stream '{}'", stream_id);
+        m_media_library.reset();
+        return AppStatus::INVALID_ARGUMENT;
+    }
     return AppStatus::SUCCESS;
 }
 
 AppStatus EncoderStage::init()
 {
-    if (m_encoder == nullptr)
+    if (!m_media_library)
     {
         HAILO_ANALYTICS_LOG_ERROR("Encoder {} not configured. Call configure()", m_stage_name);
         return AppStatus::UNINITIALIZED;
     }
-    m_encoder->start();
+    // Pipeline start/stop is handled by FrontendStage — encoder does nothing here
     return AppStatus::SUCCESS;
 }
 
 AppStatus EncoderStage::deinit()
 {
-    if (m_encoder == nullptr)
-        return AppStatus::SUCCESS;
-    m_encoder->stop();
-    m_encoder->unsubscribe();
-    m_encoder = nullptr;
+    if (m_media_library)
+    {
+        m_media_library->unsubscribe_from_encoder_output(m_stream_id);
+        m_media_library.reset();
+    }
     return AppStatus::SUCCESS;
 }
 
-AppStatus EncoderStage::configure(MediaLibraryEncoder &encoder)
+AppStatus EncoderStage::configure(MediaLibraryInterfacePtr media_library, const output_stream_id_t &stream_id)
 {
-    if (m_encoder != nullptr)
+    if (m_media_library)
     {
-        this->deinit();
+        m_media_library.reset();
     }
-    return create(encoder);
+    return create(media_library, stream_id);
 }
 
 AppStatus EncoderStage::process(hailo_analytics::pipeline::BufferPtr data)
 {
-    if (m_encoder == nullptr)
+    if (!m_media_library)
     {
         HAILO_ANALYTICS_LOG_ERROR("Encoder {} not initialized", m_stage_name);
         return AppStatus::UNINITIALIZED;
     }
-    m_encoder->add_buffer(data->get_buffer());
+    m_media_library->add_buffer_to_encoder(m_stream_id, data->get_buffer());
     return AppStatus::SUCCESS;
 }
 

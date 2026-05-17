@@ -1,4 +1,24 @@
+#include <stdlib.h>
+#include <tl/expected.hpp>
+#include <chrono>
+#include <fstream>
+#include <iostream>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
+
 #include "common/common.hpp"
+#include "media_library/media_library_types.hpp"
+#include "media_library/signal_utils.hpp"
+#include "media_library/encoder.hpp"
+#include "media_library/frontend.hpp"
+#include "media_library/media_library.hpp"
+#include "media_library/media_library_api_types.hpp"
+#include "media_library/utils.hpp"
 
 int main()
 {
@@ -34,6 +54,8 @@ int main()
         std::cout << "Failed to initialize media library" << std::endl;
         return 1;
     }
+
+    examples::scale_osd_to_output_resolution(m_media_lib);
 
     m_media_lib->subscribe_to_pipeline_state_change([](media_library_pipeline_state_t state) {
         switch (state)

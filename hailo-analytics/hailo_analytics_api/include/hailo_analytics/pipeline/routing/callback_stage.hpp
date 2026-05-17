@@ -5,6 +5,9 @@
  * @brief Stage that executes a user-defined callback function on the input data.
  **/
 
+// General includes
+#include <functional>
+
 // Infra includes
 #include "hailo_analytics/pipeline/core/stage.hpp"
 

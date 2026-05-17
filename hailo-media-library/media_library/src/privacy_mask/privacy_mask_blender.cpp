@@ -1,34 +1,56 @@
-#include "privacy_mask.hpp"
-
+#include <bits/std_abs.h>
+#include <hailo/hailodsp.h>
+#include <hailo/hailodsp_base.h>
+#include <hailo/hailort.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <sys/types.h>
+#include <tl/expected.hpp>
 #include <chrono>
+#include <algorithm>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <unordered_map>
+#include <variant>
+#include <vector>
 
+#include "privacy_mask.hpp"
 #include "analytics_db.hpp"
 #include "buffer_pool.hpp"
-#include "encoder_config_types.hpp"
-#include "logger_macros.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
 #include "polygon_math.hpp"
 #include "privacy_mask_types.hpp"
+#include "media_library_buffer.hpp"
+#include "dsp_utils.hpp"
+#include "encoder_config_types.hpp"
 
 #define MODULE_NAME LoggerType::PrivacyMask
 
+// @param fit_to_box  When true (detection-only masking), the output ROI matches the actual detection
+//                     bbox dimensions. The mask is a constant fill so no letterbox scaling is needed.
+//                     When false (segmentation masking), the output ROI is a square mask_size x mask_size
+//                     to match the segmentation model's square mask output with letterbox padding.
 static void scale_detection_coordinates(float detection_roi_x1, float detection_roi_y1, float detection_roi_x2,
                                         float detection_roi_y2, size_t &scaled_x1, size_t &scaled_y1, size_t &scaled_x2,
                                         size_t &scaled_y2, size_t &network_width, size_t &network_height,
-                                        size_t network_frame_width, size_t network_frame_height)
+                                        size_t network_frame_width, size_t network_frame_height, size_t mask_size,
+                                        bool fit_to_box = false)
 {
+    float mask_size_f = static_cast<float>(mask_size);
     size_t detection_roi_width = static_cast<size_t>(detection_roi_x2 - detection_roi_x1);
     size_t detection_roi_height = static_cast<size_t>(detection_roi_y2 - detection_roi_y1);
     float max_dimension = (std::max)(static_cast<float>(detection_roi_width), static_cast<float>(detection_roi_height));
-    float scale = MASK_SIZE / max_dimension;
+    float scale = mask_size_f / max_dimension;
 
     float scaled_width = static_cast<float>(detection_roi_width) * scale;
     float scaled_height = static_cast<float>(detection_roi_height) * scale;
 
     // Calculate padding within the mask (letterbox padding on each side)
-    float pad_x = (static_cast<float>(MASK_SIZE) - scaled_width) / 2.0f;
-    float pad_y = (static_cast<float>(MASK_SIZE) - scaled_height) / 2.0f;
+    float pad_x = (mask_size_f - scaled_width) / 2.0f;
+    float pad_y = (mask_size_f - scaled_height) / 2.0f;
 
     float adjusted_roi_x1 = detection_roi_x1 * scale - pad_x;
     float adjusted_roi_y1 = detection_roi_y1 * scale - pad_y;
@@ -39,19 +61,32 @@ static void scale_detection_coordinates(float detection_roi_x1, float detection_
 
     if (max_dimension == detection_roi_height)
     {
-        scaled_frame_width += 2 * MASK_SIZE;
-        adjusted_roi_x1 += MASK_SIZE;
+        scaled_frame_width += 2 * mask_size_f;
+        adjusted_roi_x1 += mask_size_f;
     }
     else if (max_dimension == detection_roi_width)
     {
-        scaled_frame_height += 2 * MASK_SIZE;
-        adjusted_roi_y1 += MASK_SIZE;
+        scaled_frame_height += 2 * mask_size_f;
+        adjusted_roi_y1 += mask_size_f;
     }
 
     scaled_x1 = static_cast<size_t>(adjusted_roi_x1);
     scaled_y1 = static_cast<size_t>(adjusted_roi_y1);
-    scaled_x2 = scaled_x1 + MASK_SIZE;
-    scaled_y2 = scaled_y1 + MASK_SIZE;
+
+    if (fit_to_box)
+    {
+        // Remove letterbox padding — position ROI at the actual detection location
+        scaled_x1 += static_cast<size_t>(pad_x);
+        scaled_y1 += static_cast<size_t>(pad_y);
+        scaled_x2 = scaled_x1 + static_cast<size_t>(scaled_width);
+        scaled_y2 = scaled_y1 + static_cast<size_t>(scaled_height);
+    }
+    else
+    {
+        // ROI is square mask_size x mask_size (for segmentation masks)
+        scaled_x2 = scaled_x1 + mask_size;
+        scaled_y2 = scaled_y1 + mask_size;
+    }
 
     network_width = static_cast<size_t>(scaled_frame_width);
     network_height = static_cast<size_t>(scaled_frame_height);
@@ -66,21 +101,6 @@ static void scale_detection_coordinates(float detection_roi_x1, float detection_
     LOGGER__MODULE__TRACE(MODULE_NAME,
                           "Scaled coordinates: x1={}, y1={}, x2={}, y2={}, network_width={}, network_height={}",
                           scaled_x1, scaled_y1, scaled_x2, scaled_y2, network_width, network_height);
-}
-
-static dsp_letterbox_alignment_t scaling_mode_to_dsp_letterbox(ScalingMode scaling_mode)
-{
-    switch (scaling_mode)
-    {
-    case ScalingMode::STRETCH:
-        return DSP_NO_LETTERBOX;
-    case ScalingMode::LETTERBOX_MIDDLE:
-        return DSP_LETTERBOX_MIDDLE;
-    case ScalingMode::LETTERBOX_UP_LEFT:
-        return DSP_LETTERBOX_UP_LEFT;
-    default:
-        return DSP_NO_LETTERBOX;
-    }
 }
 
 size_t PrivacyMask::get_adjusted_frame_width(size_t width)
@@ -136,6 +156,16 @@ media_library_return PrivacyMask::blend(HailoMediaLibraryBufferPtr input_buffer)
 {
     LOGGER__MODULE__TRACE(MODULE_NAME, "Blending privacy mask");
 
+    auto &encoded_streams = input_buffer->get_attached_profile()->encoded_output_streams;
+    auto stream_it = encoded_streams.find(m_stream_id);
+    if (stream_it == encoded_streams.end())
+    {
+        LOGGER__MODULE__WARN(MODULE_NAME, "Stream id {} not found in profile during blend, skipping frame",
+                             m_stream_id);
+        return media_library_return::MEDIA_LIBRARY_SUCCESS;
+    }
+    auto &input_frame_encoded_stream_config = stream_it->second;
+
     if (should_adjust_buffer_pool(input_buffer))
     {
         media_library_return ret = adjust_buffer_pool(input_buffer);
@@ -147,9 +177,6 @@ media_library_return PrivacyMask::blend(HailoMediaLibraryBufferPtr input_buffer)
     }
 
     std::chrono::time_point<std::chrono::steady_clock> start_blend = std::chrono::steady_clock::now();
-
-    auto &input_frame_encoded_stream_config =
-        input_buffer->get_attached_profile()->encoded_output_streams.at(m_stream_id);
 
     auto updated_masks_expected =
         get_updated_privacy_masks(input_frame_encoded_stream_config, input_buffer->isp_timestamp_ns);
@@ -360,15 +387,8 @@ media_library_return PrivacyMask::update_dynamic_mask(
         bool found_config = false;
         AnalyticsType analytics_type;
 
-        if (analytics_config.instance_segmentation_analytics_config.find(analytics_data_id) !=
-            analytics_config.instance_segmentation_analytics_config.end())
-        {
-            analytics_type = AnalyticsType::INSTANCE_SEGMENTATION;
-            found_config = true;
-            LOGGER__MODULE__TRACE(MODULE_NAME, "Using instance segmentation analytics for ID: {}", analytics_data_id);
-        }
-        else if (analytics_config.semantic_segmentation_analytics_config.find(analytics_data_id) !=
-                 analytics_config.semantic_segmentation_analytics_config.end())
+        if (analytics_config.semantic_segmentation_analytics_config.find(analytics_data_id) !=
+            analytics_config.semantic_segmentation_analytics_config.end())
         {
             analytics_type = AnalyticsType::SEMANTIC_SEGMENTATION;
             found_config = true;
@@ -393,11 +413,6 @@ media_library_return PrivacyMask::update_dynamic_mask(
         media_library_return result;
         switch (analytics_type)
         {
-        case AnalyticsType::INSTANCE_SEGMENTATION:
-            result = process_instance_segmentation_masks(opts, analytics_config, analytics_data_id, masked_labels,
-                                                         dilation_size);
-            break;
-
         case AnalyticsType::SEMANTIC_SEGMENTATION:
             result = process_semantic_segmentation_masks(opts, analytics_config, analytics_data_id, masked_labels,
                                                          dilation_size);
@@ -456,120 +471,6 @@ tl::expected<PrivacyMasksPtr, media_library_return> PrivacyMask::get_updated_pri
 
     m_masking_config = encoded_stream_config.masking;
     return m_latest_privacy_masks;
-}
-
-media_library_return PrivacyMask::process_instance_segmentation_masks(
-    const AnalyticsQueryOptions &opts, const application_analytics_config_t &analytics_config,
-    const std::string &analytics_data_id, const std::vector<std::string> &masked_labels, const size_t dilation_size)
-{
-    auto &db = AnalyticsDB::instance();
-    auto closet_instance_segmentation_entry_expected = db.query_instance_segmentation_entry(analytics_data_id, opts);
-    if (!closet_instance_segmentation_entry_expected.has_value())
-    {
-        // No analytics data available - this is normal when there are no detections
-        LOGGER__MODULE__TRACE(MODULE_NAME, "No instance segmentation entry found in DB - no detections to mask");
-        return media_library_return::MEDIA_LIBRARY_SUCCESS;
-    }
-    auto closet_instance_segmentation_entry = closet_instance_segmentation_entry_expected.value();
-    auto delta_ns = std::abs((closet_instance_segmentation_entry.ts - opts.m_ts).count());
-    LOGGER__MODULE__TRACE(MODULE_NAME, "Instance segmentation entry found with delta: {} ns ({} ms)", delta_ns,
-                          delta_ns / 1000000);
-    for (const auto &segmentation_data : closet_instance_segmentation_entry.analytics_buffer)
-    {
-        if (m_dynamic_masks_rois.size() >= MAX_NUM_OF_DYNAMIC_PRIVACY_MASKS)
-        {
-            LOGGER__MODULE__WARNING(MODULE_NAME,
-                                    "Reached MAX_NUM_OF_DYNAMIC_PRIVACY_MASKS ({}), skipping remaining ROIs.",
-                                    MAX_NUM_OF_DYNAMIC_PRIVACY_MASKS);
-            break;
-        }
-
-        // Verify that the dynamic analytics data ID exists in the config
-        if (analytics_config.instance_segmentation_analytics_config.find(analytics_data_id) ==
-            analytics_config.instance_segmentation_analytics_config.end())
-        {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "Analytics config for ID {} not found", analytics_data_id);
-            return media_library_return::MEDIA_LIBRARY_ERROR;
-        }
-
-        if (std::find_if(analytics_config.instance_segmentation_analytics_config.at(analytics_data_id).labels.begin(),
-                         analytics_config.instance_segmentation_analytics_config.at(analytics_data_id).labels.end(),
-                         [&](const label_t &label) { return label.id == segmentation_data.class_id; }) ==
-            analytics_config.instance_segmentation_analytics_config.at(analytics_data_id).labels.end())
-        {
-            LOGGER__MODULE__DEBUG(MODULE_NAME, "Skipping segmentation data for unknown class_id {}",
-                                  segmentation_data.class_id);
-            continue;
-        }
-
-        // Find the label name for this class_id
-        auto &labels = analytics_config.instance_segmentation_analytics_config.at(analytics_data_id).labels;
-        auto label_it = std::find_if(labels.begin(), labels.end(),
-                                     [&](const label_t &label) { return label.id == segmentation_data.class_id; });
-
-        if (label_it == labels.end())
-        {
-            LOGGER__MODULE__DEBUG(MODULE_NAME, "Skipping segmentation data for unknown class_id {}",
-                                  segmentation_data.class_id);
-            continue;
-        }
-
-        // Check if the label name is in the masked labels
-        if (std::find(masked_labels.begin(), masked_labels.end(), label_it->label) == masked_labels.end())
-        {
-            LOGGER__MODULE__DEBUG(MODULE_NAME,
-                                  "Skipping segmentation data for label '{}' (class_id {}) not in masked labels",
-                                  label_it->label, segmentation_data.class_id);
-            continue;
-        }
-
-        // Execute the dynamic mask
-        auto input_frame_net_width =
-            analytics_config.instance_segmentation_analytics_config.at(analytics_data_id).width;
-        auto input_frame_net_height =
-            analytics_config.instance_segmentation_analytics_config.at(analytics_data_id).height;
-        auto scaling_mode = analytics_config.instance_segmentation_analytics_config.at(analytics_data_id).scaling_mode;
-        LOGGER__MODULE__TRACE(
-            MODULE_NAME,
-            "Processing segmentation data for class_id {}, box: ({}, {}), ({}, {}), "
-            "input_frame_net_width: {}, input_frame_net_height: {}, scaling_mode: {}, mask_size: {}, ",
-            segmentation_data.class_id, segmentation_data.box.x_min, segmentation_data.box.y_min,
-            segmentation_data.box.x_max, segmentation_data.box.y_max, input_frame_net_width, input_frame_net_height,
-            static_cast<int>(scaling_mode), segmentation_data.mask_size);
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-        m_dynamic_masks_rois.push_back(dsp_dynamic_privacy_mask_roi_t{
-            .bytemask = segmentation_data.mask,
-            .input_frame_net_width = input_frame_net_width,
-            .input_frame_net_height = input_frame_net_height,
-            .letterbox = scaling_mode_to_dsp_letterbox(scaling_mode),
-            .roi =
-                {
-                    .start_x = static_cast<size_t>(segmentation_data.box.x_min),
-                    .start_y = static_cast<size_t>(segmentation_data.box.y_min),
-                    .end_x = static_cast<size_t>(segmentation_data.box.x_max),
-                    .end_y = static_cast<size_t>(segmentation_data.box.y_max),
-                },
-            .dilation_size = dilation_size,
-        });
-#pragma GCC diagnostic pop
-    }
-
-    m_latest_privacy_masks->dynamic_data.dynamic_mask_group.masks = m_dynamic_masks_rois.data();
-    m_latest_privacy_masks->dynamic_data.dynamic_mask_group.masks_count = m_dynamic_masks_rois.size();
-
-    auto original_width_ratio =
-        analytics_config.instance_segmentation_analytics_config.at(analytics_data_id).original_width_ratio;
-    auto original_height_ratio =
-        analytics_config.instance_segmentation_analytics_config.at(analytics_data_id).original_height_ratio;
-    m_latest_privacy_masks->dynamic_data.dynamic_mask_group.original_aspect_ratio =
-        static_cast<float>(original_width_ratio) / original_height_ratio;
-
-    // TODO : add support for aspect ratio preservation
-    m_latest_privacy_masks->dynamic_data.dynamic_mask_group.scaling_mode = DSP_SCALING_MODE_STRETCH;
-
-    return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
 media_library_return PrivacyMask::process_semantic_segmentation_masks(
@@ -681,8 +582,10 @@ media_library_return PrivacyMask::process_semantic_segmentation_masks(
                               "input_frame_net_width: {}, input_frame_net_height: {} ",
                               segmentation_mask.class_id, x1, y1, x2, y2, network_frame_width, network_frame_height);
 
+        size_t config_mask_size =
+            analytics_config.semantic_segmentation_analytics_config.at(analytics_data_id).mask_size;
         scale_detection_coordinates(x1, y1, x2, y2, scaled_x1, scaled_y1, scaled_x2, scaled_y2, scaled_fnetwwork_width,
-                                    scaled_frame_height, network_frame_width, network_frame_height);
+                                    scaled_frame_height, network_frame_width, network_frame_height, config_mask_size);
 
         // log m_dynamic_masks_rois info
         LOGGER__MODULE__TRACE(MODULE_NAME,
@@ -781,7 +684,7 @@ media_library_return PrivacyMask::process_detection_masks(const AnalyticsQueryOp
 
         scale_detection_coordinates(detection.x_min, detection.y_min, detection.x_max, detection.y_max, scaled_x1,
                                     scaled_y1, scaled_x2, scaled_y2, scaled_fnetwwork_width, scaled_frame_height,
-                                    network_frame_width, network_frame_height);
+                                    network_frame_width, network_frame_height, MASK_SIZE, true);
 
         // log m_dynamic_masks_rois info
         LOGGER__MODULE__TRACE(MODULE_NAME,

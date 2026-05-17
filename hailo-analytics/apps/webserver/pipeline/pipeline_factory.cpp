@@ -2,6 +2,8 @@
 #include "common/common.hpp"
 #include "hailo_analytics/pipeline/core/stage.hpp"
 #include "media_library/analytics_db.hpp"
+#include "resources/configs.hpp"
+#include "resources/webrtc.hpp"
 #include "pipeline/basic_pipeline.hpp"
 #include "pipeline/clip_pipeline.hpp"
 #include "pipeline/detection_pipeline.hpp"
@@ -54,7 +56,7 @@ PipelineFactory::PipelineFactory(webserver::resources::ResourceRepository &resou
 
     m_resources.m_event_bus->subscribe(
         EVENT_SUBSCRIBER_ID, EventType::PROFILE_UPDATE_REQUEST, EventPriority::EVENT_PRIORITY_MEDIUM,
-        [this](ResourceStateChangeNotification notification) {
+        [this](ResourceStateChangeNotification /*notification*/) {
             WEBSERVER_LOG_INFO("Received PROFILE_UPDATE_REQUEST notification");
             if (!m_current_pipeline)
             {
@@ -79,7 +81,7 @@ PipelineFactory::PipelineFactory(webserver::resources::ResourceRepository &resou
 
     m_resources.m_event_bus->subscribe(EVENT_SUBSCRIBER_ID, EventType::RESET_CONFIG,
                                        EventPriority::EVENT_PRIORITY_VERY_HIGH,
-                                       [this, initial_pipeline_type](ResourceStateChangeNotification notification) {
+                                       [this, initial_pipeline_type](ResourceStateChangeNotification /*notification*/) {
                                            WEBSERVER_LOG_INFO("Received RESET_CONFIG notification");
                                            std::lock_guard<std::mutex> lock(m_pipeline_mutex);
                                            if (switch_pipeline(initial_pipeline_type) != AppStatus::SUCCESS)
@@ -152,27 +154,27 @@ std::unique_ptr<BasePipeline> PipelineFactory::create_pipeline(const pipeline_t 
 
     if (pipeline_type == pipeline_t::Basic)
     {
-        return std::make_unique<BasicPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<BasicPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
     }
     else if (pipeline_type == pipeline_t::Detection)
     {
-        return std::make_unique<DetectionPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<DetectionPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
     }
     else if (pipeline_type == pipeline_t::CLIP)
     {
-        return std::make_unique<ClipPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<ClipPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
     }
     else if (pipeline_type == pipeline_t::ProfileManager)
     {
-        return std::make_unique<ProfileManagerPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<ProfileManagerPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
     }
     else if (pipeline_type == pipeline_t::FaceLandmarks)
     {
-        return std::make_unique<FaceLandmarksPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<FaceLandmarksPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
     }
     else if (pipeline_type == pipeline_t::DynamicPrivacyMask)
     {
-        return std::make_unique<DynamicPrivacyMaskPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<DynamicPrivacyMaskPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
     }
     else
     {
@@ -221,7 +223,7 @@ AppStatus PipelineFactory::switch_pipeline(const pipeline_t &pipeline_type, bool
 
         m_current_pipeline->uninitialize();
         m_current_pipeline->stop();
-        m_media_library->m_frontend->unsubscribe_all();
+        m_media_library->unsubscribe_all_from_frontend();
         m_current_pipeline = nullptr;
 
         // Reset analytics DB (entries + configuration) so stale config IDs from

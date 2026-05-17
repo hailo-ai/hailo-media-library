@@ -93,7 +93,7 @@ class VideoStorageStage : public hailo_analytics::pipeline::ThreadedStage
 
   private:
     static void segment_mkv_callback(const char *filename, uint32_t duration_ms, uint64_t start_time_epoch_ms,
-                                     [[maybe_unused]] uint32_t segment_index, void *user_data);
+                                     uint32_t /*segment_index*/, void *user_data);
 
     static void mkv_callback_debug(const char *filename, uint32_t duration_ms, uint64_t start_time_epoch_ms,
                                    uint32_t segment_index);

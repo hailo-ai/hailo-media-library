@@ -394,7 +394,7 @@ nlohmann::json ConfigResourceMedialib::build_profile_response() const
 
 void ConfigResourceMedialib::http_register(HTTPServer &srv)
 {
-    srv.Post("/reset_all", [this](const nlohmann::json &req) {
+    srv.Post("/reset_all", [this](const nlohmann::json & /*req*/) {
         WEBSERVER_LOG_INFO("POST /reset_all called");
         try
         {

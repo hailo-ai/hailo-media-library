@@ -23,9 +23,10 @@
 
 #pragma once
 
-#include "fps_tracer.hpp"
-
 #include <string>
+#include <chrono>
+
+#include "fps_tracer.hpp"
 
 #ifdef HAVE_PERFETTO
 #include <perfetto.h>

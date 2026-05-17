@@ -88,7 +88,7 @@ void webserver::common::to_json(nlohmann::json &json, const webserver::common::t
     json = nlohmann::json{{"value", params.value}};
 }
 
-void webserver::common::from_json(const nlohmann::json &json, ae_ranges_t &params)
+void webserver::common::from_json(const nlohmann::json & /*json*/, ae_ranges_t & /*params*/)
 {
     throw std::runtime_error("ae ranges cant be defined by frontend");
 }

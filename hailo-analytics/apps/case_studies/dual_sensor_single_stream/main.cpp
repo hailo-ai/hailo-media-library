@@ -232,7 +232,7 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
         }
 
         auto sensor_pipeline = hailo_analytics::analytics::vision::generate_vision_pipeline(
-            *app_resources->instances[i].media_library, "sensor_" + std::to_string(i) + "_pipeline", custom_config);
+            app_resources->instances[i].media_library, "sensor_" + std::to_string(i) + "_pipeline", custom_config);
         if (!sensor_pipeline.has_value())
         {
             HAILO_ANALYTICS_LOG_ERROR("Failed to create vision pipeline for sensor {}", i);
@@ -266,7 +266,7 @@ int main(int argc, char *argv[])
 
     // register signal SIGINT and signal handler
     signal_utils::SignalHandler signal_handler(false);
-    signal_handler.register_signal_handler([]([[maybe_unused]] int signal) {
+    signal_handler.register_signal_handler([](int /*signal*/) {
         std::cout << "Stopping Pipeline..." << std::endl;
         HAILO_ANALYTICS_LOG_INFO("Stopping Pipeline...");
         g_stop_cv.notify_all();

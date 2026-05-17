@@ -1,6 +1,4 @@
 #pragma once
-#include <iostream>
-#include <filesystem>
 #include <nlohmann/json.hpp>
 #include "media_library/media_library_api_types.hpp"
 

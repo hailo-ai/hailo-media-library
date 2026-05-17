@@ -28,6 +28,13 @@
 #pragma once
 
 #include <tl/expected.hpp>
+#include <stddef.h>
+#include <stdint.h>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
 #include "media_library_types.hpp"
 #include "sensor_types.hpp"
 #include "v4l2_ctrl.hpp"

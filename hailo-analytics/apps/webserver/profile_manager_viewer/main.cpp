@@ -1,3 +1,4 @@
+#include <httplib.h>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <cxxopts/cxxopts.hpp>
@@ -93,7 +94,7 @@ int main(int argc, char *argv[])
     std::unique_ptr<HTTPServer> svr = HTTPServer::create();
 
     // Set up exception handler for HTTP server
-    svr->set_exception_handler([](const auto &req, auto &res, std::exception_ptr ep) {
+    svr->set_exception_handler([](const auto & /*req*/, auto &res, std::exception_ptr ep) {
         auto fmt = "<h1>Error 500</h1><p>%s</p>";
         char buf[BUFSIZ];
         try

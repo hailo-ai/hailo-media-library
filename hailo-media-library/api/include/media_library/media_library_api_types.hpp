@@ -1,21 +1,16 @@
 #pragma once
-#include "media_library/media_library_types.hpp"
-#include "media_library/encoder.hpp"
-#include "media_library/frontend.hpp"
-#include "media_library/config_parser.hpp"
-#include "media_library/utils.hpp"
+#include "media_library_types.hpp" // IWYU pragma: export
+#include "encoder.hpp"             // IWYU pragma: export
+#include "frontend.hpp"            // IWYU pragma: export
+#include "config_parser.hpp"       // IWYU pragma: export
+#include "utils.hpp"               // IWYU pragma: export
 
 #include <hailo/hailort.h>
-#include <string>
-#include <vector>
-#include <map>
-#include <variant>
-
-#include <fstream>
-#include <stdexcept>
-#include <iostream>
-#include <iterator>
 #include <nlohmann/json.hpp>
+#include <map>
+#include <string>
+#include <variant>
+#include <vector>
 
 enum class media_library_pipeline_state_t
 {

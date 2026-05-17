@@ -4,7 +4,6 @@ subdir('single_stream')
 subdir('detection')
 subdir('custom_stage')
 subdir('dual_sensor_single_stream')
-subdir('file_source_to_udp')
 subdir('dynamic_privacy_mask')
 
 subdir('gst_vision_encoder')

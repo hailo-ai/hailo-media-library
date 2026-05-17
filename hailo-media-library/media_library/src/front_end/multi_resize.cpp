@@ -265,7 +265,7 @@ bool MediaLibraryMultiResize::Impl::should_adjust_buffer_pools(HailoMediaLibrary
             return true;
         }
     }
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "multi-resize holding {} buffer pools", m_buffer_pools.size());
+    LOGGER__MODULE__TRACE(MODULE_NAME, "multi-resize holding {} buffer pools", m_buffer_pools.size());
     return false;
 }
 
@@ -282,6 +282,24 @@ media_library_return MediaLibraryMultiResize::Impl::adjust_buffer_pools(HailoMed
     for (size_t i = 0; i < num_of_outputs; ++i)
     {
         m_timestamps.push_back({0, 0.0f});
+    }
+
+    // Free buffer pools that will be removed when output count decreases,
+    // so their DMA memory is released before new pools are allocated.
+    for (size_t i = num_of_outputs; i < m_buffer_pools.size(); i++)
+    {
+        if (m_buffer_pools[i] != nullptr)
+        {
+            LOGGER__MODULE__INFO(MODULE_NAME, "Freeing removed buffer pool {} before reconfiguration",
+                                 m_buffer_pools[i]->get_name());
+            if (m_buffer_pools[i]->wait_for_used_buffers(wait_for_pools_timeout) != MEDIA_LIBRARY_SUCCESS)
+            {
+                LOGGER__MODULE__ERROR(MODULE_NAME,
+                                      "Buffer pool {} timed out waiting for used buffers during reconfiguration",
+                                      m_buffer_pools[i]->get_name());
+            }
+            m_buffer_pools[i].reset();
+        }
     }
 
     m_buffer_pools.resize(num_of_outputs, nullptr);
@@ -321,11 +339,17 @@ media_library_return MediaLibraryMultiResize::Impl::adjust_buffer_pools(HailoMed
             "and bytes per line {}",
             name, width, height, output_res.pool_max_buffers, bytes_per_line);
 
-        if (m_buffer_pools.size() > i && m_buffer_pools[i] != nullptr)
+        if (m_buffer_pools[i] != nullptr)
         {
-            LOGGER__MODULE__DEBUG(MODULE_NAME,
-                                  "Replacing buffer pool {}, old pool kept alive until its buffers are released",
-                                  m_buffer_pools[i]->get_name());
+            LOGGER__MODULE__INFO(MODULE_NAME, "Freeing old buffer pool {} before creating replacement",
+                                 m_buffer_pools[i]->get_name());
+            if (m_buffer_pools[i]->wait_for_used_buffers(wait_for_pools_timeout) != MEDIA_LIBRARY_SUCCESS)
+            {
+                LOGGER__MODULE__ERROR(MODULE_NAME,
+                                      "Buffer pool {} timed out waiting for used buffers during reconfiguration",
+                                      m_buffer_pools[i]->get_name());
+            }
+            m_buffer_pools[i].reset();
         }
 
         MediaLibraryBufferPoolPtr buffer_pool = std::make_shared<MediaLibraryBufferPool>(
@@ -339,7 +363,7 @@ media_library_return MediaLibraryMultiResize::Impl::adjust_buffer_pools(HailoMed
 
         m_buffer_pools[i] = buffer_pool;
     }
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "multi-resize holding {} buffer pools", m_buffer_pools.size());
+    LOGGER__MODULE__TRACE(MODULE_NAME, "multi-resize holding {} buffer pools", m_buffer_pools.size());
 
     // Initialize FPS tracers for each output stream
     m_fps_tracers.clear();
@@ -382,7 +406,7 @@ bool MediaLibraryMultiResize::Impl::should_push_frame_dividable_logic(uint32_t i
     bool should_push = (input_framerate == output_framerate) || (frame_counter % divisor == 1);
     if (should_push)
     {
-        LOGGER__MODULE__DEBUG(MODULE_NAME,
+        LOGGER__MODULE__TRACE(MODULE_NAME,
                               "Pushing frame for output {} (dividable case). Frame counter: {}, Input fps: {}, "
                               "Output fps: {}, Divisor: {}",
                               output_index, frame_counter, input_framerate, output_framerate, divisor);
@@ -390,7 +414,7 @@ bool MediaLibraryMultiResize::Impl::should_push_frame_dividable_logic(uint32_t i
     }
     else
     {
-        LOGGER__MODULE__DEBUG(MODULE_NAME,
+        LOGGER__MODULE__TRACE(MODULE_NAME,
                               "Dropping frame for output {} (dividable case). Frame counter: {}, Input fps: {}, "
                               "Output fps: {}, Divisor: {}",
                               output_index, frame_counter, input_framerate, output_framerate, divisor);
@@ -555,7 +579,7 @@ media_library_return MediaLibraryMultiResize::Impl::acquire_output_buffers(Hailo
 
         if (!should_acquire_buffer)
         {
-            LOGGER__MODULE__DEBUG(MODULE_NAME,
+            LOGGER__MODULE__TRACE(MODULE_NAME,
                                   "Skipping current frame [framerate {}], no need to acquire buffer {}, counter is {}",
                                   output_res.framerate, i, m_frame_counter);
             buffers[stream_id] = buffer;
@@ -849,7 +873,7 @@ media_library_return MediaLibraryMultiResize::Impl::perform_multi_resize(HailoMe
         // TODO: Handle cases where its nullptr
         if (output_frames[output_res.stream_id]->buffer_data == nullptr)
         {
-            LOGGER__MODULE__DEBUG(MODULE_NAME, "Skipping resize for output frame {} to match target framerate ({})", i,
+            LOGGER__MODULE__TRACE(MODULE_NAME, "Skipping resize for output frame {} to match target framerate ({})", i,
                                   output_res.framerate);
             continue;
         }
@@ -1124,7 +1148,10 @@ media_library_return MediaLibraryMultiResize::Impl::handle_frame(HailoMediaLibra
             fps_tracer_it->second.record_frame();
         }
 
-        SnapshotManager::get_instance().take_snapshot("multiresize_" + stream_id, frame);
+        if (!stream_id.empty())
+        {
+            SnapshotManager::get_instance().take_snapshot("multiresize_" + stream_id, frame);
+        }
     }
 
     increase_frame_counter();

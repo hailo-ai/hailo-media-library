@@ -98,7 +98,6 @@ class MediaLibraryBufferPool : public std::enable_shared_from_this<MediaLibraryB
     std::shared_ptr<std::mutex> m_buffer_pool_mutex;
     size_t m_max_buffers;
     uint32_t m_buffer_index;
-    std::condition_variable m_pool_cv;
     std::function<void(void *)> m_on_release_callback;
 
   public:
@@ -328,6 +327,7 @@ struct hailo_media_library_buffer
     bool motion_detected;
     float optical_zoom_magnification;
     std::unordered_set<std::string> concurrent_stream_ids;
+    uint64_t service_buffer_id = 0;
 
     std::shared_ptr<const config_profile_t> get_attached_profile() const
     {

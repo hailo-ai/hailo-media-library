@@ -264,8 +264,8 @@ bool PartitionedFaissDB::remove_partition(const std::string &filename)
     // Atomically rebuild the search index to reflect the removal
     rebuild_search_index();
 
-    std::cout << "Successfully removed partition: " << filename << ". It contained " << ids_to_remove.size()
-              << " vectors." << std::endl;
+    HAILO_ANALYTICS_LOG_INFO("Successfully removed partition: {}. It contained {} vectors.", filename,
+                             ids_to_remove.size());
     return true;
 }
 

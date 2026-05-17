@@ -1,5 +1,5 @@
 #pragma once
-#include "config_manager.hpp"
+#include "media_library/config_manager.hpp"
 #include "media_library/config_parser.hpp"
 #include "media_library/frontend.hpp"
 #include "media_library/media_library_types.hpp"

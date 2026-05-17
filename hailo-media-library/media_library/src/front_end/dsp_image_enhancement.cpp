@@ -1,10 +1,20 @@
 #include "dsp_image_enhancement.hpp"
-#include "buffer_pool.hpp"
+
+#include <errno.h>
+#include <fcntl.h>
+#include <string.h>
+#include <time.h>
 #include <algorithm>
 #include <numeric>
 #include <cmath>
-#include <tuple>
+#include <iterator>
+#include <mutex>
+
+#include "buffer_pool.hpp"
 #include "media_library_logger.hpp"
+#include "dma_memory_allocator.hpp"
+#include "media_library_buffer.hpp"
+#include "media_library_types.hpp"
 
 #define MODULE_NAME LoggerType::Dsp
 

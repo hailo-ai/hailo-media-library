@@ -61,8 +61,7 @@ class WebRTCStreamerExt : public hailo_analytics::analytics::app_constructor::Ca
 
     void handle_answer(const std::string &answerSdp);
 
-    void handle_ice_candidate(const std::string &candidate, const std::string &sdpMid,
-                              [[maybe_unused]] int sdpMLineIndex);
+    void handle_ice_candidate(const std::string &candidate, const std::string &sdpMid, int /*sdpMLineIndex*/);
 
     // Get connection info for debugging if needed
     std::string get_connection_info() const;

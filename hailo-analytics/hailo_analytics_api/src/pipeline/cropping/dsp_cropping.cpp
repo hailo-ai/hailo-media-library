@@ -1,6 +1,7 @@
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/cropping/dsp_cropping.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "media_library/dsp_utils.hpp"
 
 namespace hailo_analytics::pipeline::cropping
 {
@@ -19,6 +20,17 @@ DspBaseCropStage::DspBaseCropStage(std::string name, int output_pool_size, int i
 {
 }
 
+AppStatus DspBaseCropStage::init()
+{
+    dsp_status status = dsp_utils::acquire_device();
+    if (status != DSP_SUCCESS)
+    {
+        HAILO_ANALYTICS_LOG_ERROR("DspBaseCropStage: Failed to acquire DSP device, status={}", status);
+        return AppStatus::CONFIGURATION_ERROR;
+    }
+    return AppStatus::SUCCESS;
+}
+
 void DspBaseCropStage::set_crop_every_x_frames(int crop_every_x_frames)
 {
     HAILO_ANALYTICS_LOG_INFO("Stage {}: updating crop_every_x_frames from {} to {}", get_name(), m_crop_every_x_frames,
@@ -31,7 +43,7 @@ void DspBaseCropStage::setup_pool_notification()
 {
     if (m_buffer_pool && m_pool_mode == StagePoolMode::BLOCKING)
     {
-        m_buffer_pool->set_on_release_callback([this](void *) { m_available_buffers_cv.notify_all(); });
+        m_buffer_pool->set_on_release_callback([this](void * /*unused*/) { m_available_buffers_cv.notify_all(); });
     }
 }
 
@@ -141,10 +153,8 @@ AppStatus DspBaseCropStage::process(BufferPtr data)
         cropped_buffer->copy_metadata_from(data->get_buffer());
 
         output_dsp_buffers.emplace_back(std::move(cropped_buffer->buffer_data->As<hailo_dsp_buffer_data_t>()));
-        dsp_crop_resize_params_t crop_resize_params = {
-            .crop = &dims,
-        };
-
+        dsp_crop_resize_params_t crop_resize_params{};
+        crop_resize_params.crop = &dims;
         crop_resize_params.dst[0] = &output_dsp_buffers[i].properties;
 
         // Configure scaling mode (letterbox or stretch) for batched operation

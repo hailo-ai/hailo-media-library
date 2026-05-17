@@ -25,7 +25,7 @@ CameraAppConstructor::InitializerParams::InitializerParams()
     initialize_media_library_profile = true;
 }
 
-void CameraAppExtension::on_registered([[maybe_unused]] CameraAppConstructor &app)
+void CameraAppExtension::on_registered(CameraAppConstructor & /*app*/)
 {
 }
 
@@ -85,7 +85,7 @@ void CameraAppConstructor::register_extension(std::shared_ptr<CameraAppExtension
     m_app_extensions.push_back(std::move(ext));
 }
 
-CamAppReturnCode CameraAppConstructor::register_app_extensions([[maybe_unused]] std::shared_ptr<UserDataBase> user_data)
+CamAppReturnCode CameraAppConstructor::register_app_extensions(std::shared_ptr<UserDataBase> /*user_data*/)
 {
     return CamAppReturnCode::SUCCESS;
 }
@@ -223,8 +223,7 @@ tl::expected<bool, CamAppReturnCode> CameraAppConstructor::initialize(CameraAppC
                                       .set_buffer_pool_size(20)
                                       .buildptr();
         m_components.m_frontend_stage = std::static_pointer_cast<FrontendStage>(frontend_from_file);
-        hailo_analytics::pipeline::AppStatus frontend_config_status =
-            frontend_from_file->configure(*m_media_library->m_frontend);
+        hailo_analytics::pipeline::AppStatus frontend_config_status = frontend_from_file->configure(m_media_library);
         if (frontend_config_status != hailo_analytics::pipeline::AppStatus::SUCCESS)
         {
             HAILO_ANALYTICS_LOG_ERROR("Failed to configure frontend from file at {}", __FUNCTION__);
@@ -250,7 +249,7 @@ tl::expected<bool, CamAppReturnCode> CameraAppConstructor::initialize(CameraAppC
                                             .set_stage_name(StageNames::frontend)
                                             .buildptr();
         hailo_analytics::pipeline::AppStatus frontend_config_status =
-            m_components.m_frontend_stage->configure(*m_media_library->m_frontend);
+            m_components.m_frontend_stage->configure(m_media_library);
         if (frontend_config_status != hailo_analytics::pipeline::AppStatus::SUCCESS)
         {
             HAILO_ANALYTICS_LOG_ERROR("Failed to configure frontend at {}", __FUNCTION__);
@@ -266,19 +265,26 @@ tl::expected<bool, CamAppReturnCode> CameraAppConstructor::initialize(CameraAppC
         return tl::unexpected(CamAppReturnCode::FRONTEND_FAILED_TO_GET_STREAM_ID);
     }
 
-    // Create and configure encoders
-    for (const auto &entry : m_media_library->m_encoders)
+    // Get encoder configuration from profile
+    auto expected_profile = m_media_library->get_current_profile();
+    if (!expected_profile.has_value())
     {
-        output_stream_id_t stream_id = entry.first;
+        HAILO_ANALYTICS_LOG_ERROR("Failed to get current profile at {}", __FUNCTION__);
+        return tl::unexpected(CamAppReturnCode::ENCODER_STAGE_CONFIG_FAILED);
+    }
+    profile = expected_profile.value();
+    auto encoder_config_map = profile.to_encoder_config_map();
+
+    // Create and configure encoders
+    for (const auto &[stream_id, encoder_config] : encoder_config_map)
+    {
         std::cout << "Configuring encoder for stream id: " << stream_id << std::endl;
-        MediaLibraryEncoderPtr encoder = entry.second;
         // Create and configure encoder
         std::shared_ptr<EncoderStage> encoder_stage =
             hailo_analytics::pipeline::codecs::EncoderStageBuild::create().set_stage_name(stream_id).buildptr();
         m_components.m_encoder_stages[stream_id].encoder_stage_ptr = encoder_stage;
 
-        hailo_analytics::pipeline::AppStatus enc_config_status =
-            encoder_stage->configure(*m_media_library->m_encoders[stream_id]);
+        hailo_analytics::pipeline::AppStatus enc_config_status = encoder_stage->configure(m_media_library, stream_id);
         if (enc_config_status != hailo_analytics::pipeline::AppStatus::SUCCESS)
         {
             HAILO_ANALYTICS_LOG_ERROR("Failed to configure encoder at {}", __FUNCTION__);
@@ -286,11 +292,8 @@ tl::expected<bool, CamAppReturnCode> CameraAppConstructor::initialize(CameraAppC
         }
 
         // Get the input size
-        auto expected_profile = m_media_library->get_current_profile();
-        config_profile_t profile = expected_profile.value();
         input_config_t input_stream;
-        auto encoder_config_map = profile.to_encoder_config_map();
-        encoder_config_t config = encoder_config_map[stream_id];
+        encoder_config_t config = encoder_config;
         if (auto jpeg_cfg = std::get_if<jpeg_encoder_config_t>(&config))
         {
             input_stream = jpeg_cfg->input_stream;

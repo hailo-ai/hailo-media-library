@@ -22,7 +22,7 @@
  */
 #include "gsthailoosd.hpp"
 #include "buffer_utils/buffer_utils.hpp"
-#include "config_manager.hpp"
+#include "media_library/config_manager.hpp"
 #include "osd_repository.hpp"
 #include "gstmedialibcommon.hpp"
 #include <fstream>

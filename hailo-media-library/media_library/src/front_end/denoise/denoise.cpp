@@ -81,7 +81,8 @@ media_library_return MediaLibraryDenoise::init(const denoise_config_t &denoise_c
     m_should_queue_dummy_loopback_buffer = true;
     prepare_hailort_instance(denoise_configs);
     if (!m_hailort_denoise->set_config(denoise_configs, hailort_configs.device_id, HAILORT_SCHEDULER_THRESHOLD,
-                                       HAILORT_SCHEDULER_TIMEOUT, HAILORT_SCHEDULER_BATCH_SIZE))
+                                       HAILORT_SCHEDULER_TIMEOUT, HAILORT_SCHEDULER_BATCH_SIZE,
+                                       hailort_configs.use_hailort_service))
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init hailort with device_id: {}", hailort_configs.device_id);
         return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
@@ -359,6 +360,33 @@ void MediaLibraryDenoise::inference_callback_thread()
         if (output_buffer && output_buffer->owner && output_buffer->owner->get_format() == HAILO_FORMAT_NV12)
         {
             SnapshotManager::get_instance().take_snapshot("denoise", output_buffer);
+        }
+
+        if (m_hailort_denoise->type() == HailortAsyncDenoiseType::PreISPVd)
+        {
+            auto feedback = get_output_buffer(bindings, HailortAsyncDenoisePreISPVd::OUTPUT_BAYER_CHANNEL);
+            if (feedback)
+            {
+                SnapshotManager::get_instance().take_snapshot("pre_isp_feedback_bayer", feedback, true);
+            }
+        }
+        else if (m_hailort_denoise->type() == HailortAsyncDenoiseType::PreISPHdm)
+        {
+            auto feedback_bayer = get_output_buffer(bindings, HailortAsyncDenoisePreISPHdm::OUTPUT_BAYER_CHANNEL);
+            if (feedback_bayer)
+            {
+                SnapshotManager::get_instance().take_snapshot("pre_isp_feedback_bayer", feedback_bayer, true);
+            }
+            auto feedback_fusion = get_output_buffer(bindings, HailortAsyncDenoisePreISPHdm::OUTPUT_FUSION_CHANNEL);
+            if (feedback_fusion)
+            {
+                SnapshotManager::get_instance().take_snapshot("pre_isp_feedback_fusion_output", feedback_fusion, true);
+            }
+            auto feedback_gamma = get_output_buffer(bindings, HailortAsyncDenoisePreISPHdm::OUTPUT_GAMMA_CHANNEL);
+            if (feedback_gamma)
+            {
+                SnapshotManager::get_instance().take_snapshot("pre_isp_feedback_gamma_output", feedback_gamma, true);
+            }
         }
 
         LOGGER__MODULE__TRACE(MODULE_NAME, "Inference callback processed successfully");

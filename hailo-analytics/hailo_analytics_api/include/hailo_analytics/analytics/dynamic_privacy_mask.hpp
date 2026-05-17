@@ -34,8 +34,7 @@ inline constexpr std::string_view SEGMENTATION_POST_SO = "/usr/lib/hailo-post-pr
 inline constexpr std::string_view SEGMENTATION_POST_FUNCTION = "linknet_post";
 inline constexpr std::string_view SEGMENTATION_POST_CONF = "";
 
-// BBox Crop Stage parameters
-inline constexpr std::string_view BBOX_CROP_STAGE = "bbox_crops";
+inline constexpr std::string_view SEGMENTOR_STAGE = "segmentor";
 inline constexpr std::string_view SEGMENTATION_AGGREGATOR_STAGE = "segmentation_aggregator";
 
 /**
@@ -63,6 +62,7 @@ struct bbox_crop_config_t
     std::optional<bool> use_letterbox;
     std::optional<dsp_letterbox_alignment_t> letterbox_alignment;
     std::optional<dsp_color_t> letterbox_color;
+    std::optional<size_t> max_crops;
 
     /**
      * @brief Merge configuration from another bbox_crop_config_t.

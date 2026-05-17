@@ -27,7 +27,8 @@ class WebSocketSinkStage : public hailo_analytics::pipeline::ThreadedStage
     AppStatus deinit() override;
 
   private:
-    void broadcast(const std::string &json_str);
+    // Broadcasts an opaque payload (e.g. serialized protobuf bytes) as a binary WebSocket frame.
+    void broadcast(const std::string &payload);
 
     uint16_t m_port;
     std::string m_host;

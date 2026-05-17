@@ -18,7 +18,7 @@ using namespace webserver::resources;
     {ProfileType::Daylight, ProfileType::Lowlight, ProfileType::HighDynamicRange, ProfileType::LowlightBayer,          \
      ProfileType::DenoiseHdr}
 
-BasicPipeline::BasicPipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
+BasicPipeline::BasicPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
                              RTPConverterStage &webrtc_stage, Architecture platform)
     : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight,
                    BASIC_PIPELINE_SUPPORTED_PROFILES)

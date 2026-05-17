@@ -1,8 +1,8 @@
 #include "media_library/media_library.hpp"
-#include "analytics_db.hpp"
-#include "config_manager.hpp"
-#include "dma_memory_allocator.hpp"
-#include "isp_manager.hpp"
+#include "media_library/analytics_db.hpp"
+#include "media_library/config_manager.hpp"
+#include "media_library/dma_memory_allocator.hpp"
+#include "media_library/isp_manager.hpp"
 #include "media_library/config_parser.hpp"
 #include "media_library/media_library_logger.hpp"
 #include "media_library/utils.hpp"
@@ -10,8 +10,10 @@
 #include "media_library/media_library_types.hpp"
 #include "media_library/sensor_registry.hpp"
 #include "media_library/isp_utils.hpp"
-#include "files_utils.hpp"
-#include "snapshot.hpp"
+#include "media_library/profile_utils.hpp"
+#include "media_library/media_library_instance_lock.hpp"
+#include "media_library/files_utils.hpp"
+#include "media_library/snapshot.hpp"
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <string>
@@ -29,8 +31,35 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <map>
+#include <mutex>
 
 #define MODULE_NAME LoggerType::Api
+
+namespace instance_lock
+{
+// Process-lifetime instance lock keyed by sensor_id. Held outside the MediaLibrary
+// class so the public header doesn't need to know about MediaLibraryInstanceLock.
+// Map (rather than a single optional) supports the dual-sensor case where one
+// process legitimately drives both sensors via two MediaLibrary instances.
+std::map<sensor_id_t, MediaLibraryInstanceLock> g_instance_locks;
+std::mutex g_instance_locks_mutex;
+
+bool try_acquire_instance_lock(sensor_id_t sensor_id)
+{
+    std::lock_guard<std::mutex> lock(g_instance_locks_mutex);
+    auto [it, inserted] = g_instance_locks.try_emplace(sensor_id, sensor_id);
+    if (!it->second.try_acquire())
+    {
+        if (inserted)
+        {
+            g_instance_locks.erase(it);
+        }
+        return false;
+    }
+    return true;
+}
+} // namespace instance_lock
 
 MediaLibrary::MediaLibrary()
 {
@@ -421,6 +450,33 @@ media_library_return MediaLibrary::initialize_internal(std::string medialib_conf
     }
 
     m_config_manager_interactor = std::move(config_manager_interactor_res.value());
+
+    // Acquire a cross-process exclusivity guard before touching sensor hardware.
+    // The lock is keyed by the active profile's sensor_id so that the dual-sensor
+    // use case (two MediaLibrary instances — one per sensor) still works: sensor 0
+    // and sensor 1 have independent locks.
+    //
+    // The lock is held in a process-lifetime static so that:
+    //   1. The header (media_library.hpp) needs no changes — no member, no fwd-decl.
+    //   2. The kernel auto-releases the advisory flock on process exit (including
+    //      crashes), so no explicit cleanup is needed.
+    //   3. Re-init within the same process is idempotent for the same sensor_id.
+    auto active_profile_opt = m_config_manager_interactor->get_current_profile();
+    if (!active_profile_opt.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "No current profile is set; cannot determine sensor for instance lock");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+    const sensor_id_t sensor_id = active_profile_opt.value()->sensor_config.input_video.sensor_id;
+    if (!instance_lock::try_acquire_instance_lock(sensor_id))
+    {
+        LOGGER__MODULE__ERROR(
+            MODULE_NAME,
+            "Another media library instance is already running for sensor {}. Refusing to initialize. (init.d service "
+            "might be active, try running 'sudo systemctl stop media-library')",
+            static_cast<int>(sensor_id));
+        return MEDIA_LIBRARY_SENSOR_BUSY;
+    }
 
     auto frontend_result = create_frontend(m_config_manager_interactor->get_frontend_config_as_string());
     if (frontend_result != MEDIA_LIBRARY_SUCCESS)
@@ -1125,67 +1181,13 @@ bool MediaLibrary::validate_profile_thermal_restrictions(const config_profile_t 
 
 EncoderType MediaLibrary::get_encoder_type(const encoder_config_t &config_variant)
 {
-    return std::visit(
-        [](const auto &config) -> EncoderType {
-            using T = std::decay_t<decltype(config)>;
-            if constexpr (std::is_same_v<T, hailo_encoder_config_t>)
-            {
-                return EncoderType::Hailo;
-            }
-            else if constexpr (std::is_same_v<T, jpeg_encoder_config_t>)
-            {
-                return EncoderType::Jpeg;
-            }
-            return EncoderType::Hailo;
-        },
-        config_variant);
+    return get_encoder_type_from_config(config_variant);
 }
 
-bool MediaLibrary::stream_restart_required(config_profile_t previous_profile, config_profile_t new_profile)
+bool MediaLibrary::stream_restart_required(const config_profile_t &previous_profile,
+                                           const config_profile_t &new_profile)
 {
-    // ISP changes
-    bool restart_required = false;
-
-    // Res changes
-    for (const auto &resolution : previous_profile.application_settings.application_input_streams.resolutions)
-    {
-        if (std::find_if(new_profile.application_settings.application_input_streams.resolutions.begin(),
-                         new_profile.application_settings.application_input_streams.resolutions.end(),
-                         [&resolution](const auto &res) {
-                             return resolution.dimensions_and_aspect_ratio_equal(res);
-                         }) == new_profile.application_settings.application_input_streams.resolutions.end())
-        {
-            restart_required |= true;
-            break;
-        }
-    }
-    // if rotation is 90 or 180 restart is required
-    restart_required |= previous_profile.application_settings.rotation.effective_value() !=
-                        new_profile.application_settings.rotation.effective_value();
-
-    // Check if any encoder type changed (H.26x ↔ JPEG)
-    auto prev_encoder_map = previous_profile.to_encoder_config_map();
-    auto new_encoder_map = new_profile.to_encoder_config_map();
-
-    for (const auto &entry : new_encoder_map)
-    {
-        const auto &stream_id = entry.first;
-
-        // Check if stream exists in both profiles
-        if (prev_encoder_map.find(stream_id) != prev_encoder_map.end())
-        {
-            EncoderType prev_type = get_encoder_type(prev_encoder_map[stream_id]);
-            EncoderType new_type = get_encoder_type(new_encoder_map[stream_id]);
-
-            if (prev_type != new_type)
-            {
-                LOGGER__MODULE__INFO(MODULE_NAME, "Encoder type changed for stream {} - restart required", stream_id);
-                restart_required |= true;
-                break;
-            }
-        }
-    }
-    return restart_required;
+    return ::stream_restart_required(previous_profile, new_profile);
 }
 
 bool MediaLibrary::frontend_pause_required(config_profile_t previous_profile, config_profile_t new_profile,
@@ -1356,6 +1358,18 @@ media_library_return MediaLibrary::subscribe_to_encoder_output(output_stream_id_
     return m_encoders[streamId]->subscribe(callback);
 }
 
+media_library_return MediaLibrary::unsubscribe_from_encoder_output(output_stream_id_t streamId)
+{
+    auto it = m_encoders.find(streamId);
+    if (it == m_encoders.end())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Encoder for stream '{}' does not exist", streamId);
+        return MEDIA_LIBRARY_INVALID_ARGUMENT;
+    }
+
+    return m_encoders[streamId]->unsubscribe();
+}
+
 tl::expected<std::vector<frontend_output_stream_t>, media_library_return> MediaLibrary::get_frontend_output_streams()
 {
     if (!m_frontend)
@@ -1386,6 +1400,16 @@ media_library_return MediaLibrary::add_buffer_to_encoder(output_stream_id_t stre
         return MEDIA_LIBRARY_INVALID_ARGUMENT;
     }
     return it->second->add_buffer(buffer);
+}
+
+media_library_return MediaLibrary::add_buffer_to_frontend(HailoMediaLibraryBufferPtr buffer)
+{
+    if (!m_frontend)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Frontend is not initialized");
+        return MEDIA_LIBRARY_UNINITIALIZED;
+    }
+    return m_frontend->add_buffer(buffer);
 }
 
 media_library_return MediaLibrary::start_pipeline()

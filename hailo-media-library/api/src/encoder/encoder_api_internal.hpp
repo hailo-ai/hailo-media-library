@@ -25,7 +25,7 @@
 #include "media_library/encoder.hpp"
 #include "gstmedialibcommon.hpp"
 #include "media_library/privacy_mask.hpp"
-#include "media_library_types.hpp"
+#include "media_library/media_library_types.hpp"
 #include <gst/gst.h>
 #include <gst/app/gstappsink.h>
 #include <gst/app/gstappsrc.h>

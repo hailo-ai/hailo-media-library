@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include "yolo_postprocess.hpp"
+#include "hailo_postprocess_tools/logger/hailo_postprocess_logger.hpp"
 #include "common/nms.hpp"
 #include "hailo_postprocess_tools/objects/json_config.hpp"
 
@@ -437,7 +438,7 @@ YoloParams *init(const std::string config_path, const std::string function_name)
     YoloParams *params;
     if (!fs::exists(config_path))
     {
-        std::cerr << "Config file doesn't exist, using default parameters" << std::endl;
+        HAILO_POSTPROCESS_LOG_WARN("Config file doesn't exist, using default parameters");
         if (function_name.std::string::compare("yolov5") == 0)
         {
             params = new Yolov5Params;
@@ -452,7 +453,7 @@ YoloParams *init(const std::string config_path, const std::string function_name)
         }
         else
         {
-            std::cerr << function_name << " network doesn't have default parameters, run might fail" << std::endl;
+            HAILO_POSTPROCESS_LOG_WARN("{} network doesn't have default parameters, run might fail", function_name);
             params = new YoloParams;
         }
         return params;

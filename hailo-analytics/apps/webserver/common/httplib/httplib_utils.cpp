@@ -70,6 +70,7 @@ class HTTPServer::Impl
         std::function<
             std::pair<size_t, std::function<size_t(size_t, size_t, httplib::DataSink &)>>(const nlohmann::json &)>
             callback);
+    void Get(const std::string &pattern, std::function<void(const httplib::Request &, httplib::Response &)> callback);
     void Redirect(const std::string &pattern, const std::string &target);
     void Delete(const std::string &pattern, std::function<nlohmann::json(const nlohmann::json &)> callback);
     void set_cors();
@@ -153,6 +154,12 @@ void HTTPServer::Post_Content_Provider(
     m_impl->Post_Content_Provider(pattern, callback);
 }
 
+void HTTPServer::Get(const std::string &pattern,
+                     std::function<void(const httplib::Request &, httplib::Response &)> callback)
+{
+    m_impl->Get(pattern, callback);
+}
+
 void HTTPServer::Redirect(const std::string &pattern, const std::string &target)
 {
     m_impl->Redirect(pattern, target);
@@ -224,7 +231,7 @@ void HTTPServer::Impl::unregister_route(const std::string &pattern)
     }
 }
 
-void HTTPServer::Impl::handle_request(HTTPMethod method, const httplib::Request &req, httplib::Response &res)
+void HTTPServer::Impl::handle_request(HTTPMethod /*method*/, const httplib::Request &req, httplib::Response &res)
 {
     RouteHandlerFunc handler;
     // use scope to unlock mutex before calling handler
@@ -264,14 +271,21 @@ void HTTPServer::Impl::set_mount_point(const std::string &mount_point, const std
 void HTTPServer::Impl::Get(const std::string &pattern, std::function<void()> callback)
 {
     register_route(HTTPMethod::METHOD_GET, pattern,
-                   [callback](const httplib::Request &req, httplib::Response &res) { callback(); });
+                   [callback](const httplib::Request & /*req*/, httplib::Response & /*res*/) { callback(); });
 }
 
 void HTTPServer::Impl::Get(const std::string &pattern, std::function<nlohmann::json()> callback)
 {
-    register_route(HTTPMethod::METHOD_GET, pattern, [callback](const httplib::Request &req, httplib::Response &res) {
-        res.set_content(callback().dump(), "application/json");
-    });
+    register_route(HTTPMethod::METHOD_GET, pattern,
+                   [callback](const httplib::Request & /*req*/, httplib::Response &res) {
+                       res.set_content(callback().dump(), "application/json");
+                   });
+}
+
+void HTTPServer::Impl::Get(const std::string &pattern,
+                           std::function<void(const httplib::Request &, httplib::Response &)> callback)
+{
+    register_route(HTTPMethod::METHOD_GET, pattern, callback);
 }
 
 void HTTPServer::Impl::Put(const std::string &pattern, std::function<nlohmann::json(const nlohmann::json &)> callback)
@@ -294,10 +308,11 @@ void HTTPServer::Impl::Patch(const std::string &pattern, std::function<nlohmann:
 
 void HTTPServer::Impl::Post(const std::string &pattern, std::function<void(const nlohmann::json &)> callback)
 {
-    register_route(HTTPMethod::METHOD_POST, pattern, [callback](const httplib::Request &req, httplib::Response &res) {
-        nlohmann::json json = req.body.empty() ? nlohmann::json::object() : nlohmann::json::parse(req.body);
-        callback(json);
-    });
+    register_route(
+        HTTPMethod::METHOD_POST, pattern, [callback](const httplib::Request &req, httplib::Response & /*res*/) {
+            nlohmann::json json = req.body.empty() ? nlohmann::json::object() : nlohmann::json::parse(req.body);
+            callback(json);
+        });
 }
 
 void HTTPServer::Impl::Post(const std::string &pattern, std::function<nlohmann::json(const nlohmann::json &)> callback)
@@ -359,8 +374,9 @@ void HTTPServer::Impl::Post_Content_Provider(
 
 void HTTPServer::Impl::Redirect(const std::string &pattern, const std::string &target)
 {
-    register_route(HTTPMethod::METHOD_GET, pattern,
-                   [target](const httplib::Request &req, httplib::Response &res) { res.set_redirect(target.c_str()); });
+    register_route(HTTPMethod::METHOD_GET, pattern, [target](const httplib::Request & /*req*/, httplib::Response &res) {
+        res.set_redirect(target.c_str());
+    });
 }
 
 void HTTPServer::Impl::Delete(const std::string &pattern,

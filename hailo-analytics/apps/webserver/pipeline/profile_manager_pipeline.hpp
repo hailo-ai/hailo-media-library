@@ -9,7 +9,7 @@ namespace pipeline
 class ProfileManagerPipeline : public BasePipeline
 {
   public:
-    ProfileManagerPipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
+    ProfileManagerPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
                            RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H);
 
     virtual std::string pipeline_name() const override;

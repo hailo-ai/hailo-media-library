@@ -1,4 +1,8 @@
 #include <filesystem>
+#include <algorithm>
+#include <initializer_list>
+#include <optional>
+
 #include "json_flattener.hpp"
 #include "media_library_logger.hpp"
 #include "files_utils.hpp"

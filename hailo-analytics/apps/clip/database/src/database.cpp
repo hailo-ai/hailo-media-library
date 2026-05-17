@@ -104,7 +104,7 @@ bool Database::flush()
 
     if (m_db_access_type != SQLITE_ACCESS_OPEN_CREATE_READ_WRITE)
     {
-        HAILO_ANALYTICS_LOG_ERROR("Database flush is only applicable for read-write databases.");
+        HAILO_ANALYTICS_LOG_WARN("Database flush is only applicable for read-write databases.");
         return false;
     }
 

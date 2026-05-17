@@ -1,17 +1,22 @@
 #include "video_device.hpp"
-#include "logger_macros.hpp"
-#include "hailo_media_library_perfetto.hpp"
-#include "sensor_registry.hpp"
 
 #include <string.h>
-#include <thread>
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <limits.h>
 #include <sys/epoll.h>
+#include <errno.h>
+#include <sys/time.h>
+#include <thread>
+#include <chrono>
+#include <compare>
+#include <optional>
+#include <utility>
+
+#include "hailo_media_library_perfetto.hpp"
+#include "sensor_registry.hpp"
+#include "media_library_types.hpp"
 
 namespace HDR
 {

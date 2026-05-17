@@ -193,7 +193,7 @@ void OutputModule::set_gst_callbacks(std::string appsrc_name)
     gst_object_unref(appsrc);
 }
 
-gboolean OutputModule::on_bus_call([[maybe_unused]] GstBus *bus, GstMessage *msg)
+gboolean OutputModule::on_bus_call(GstBus * /*bus*/, GstMessage *msg)
 {
     switch (GST_MESSAGE_TYPE(msg))
     {

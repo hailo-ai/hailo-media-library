@@ -35,8 +35,6 @@
 #include <string>
 
 #define ENCODER_QUEUE_NAME "encoder_q"
-#define PRINT_FPS true
-
 #define MODULE_NAME LoggerType::Api
 
 static uint32_t get_fps_update_interval_from_env()
@@ -575,7 +573,7 @@ EncoderType MediaLibraryEncoder::Impl::extract_encoder_type(const encoder_config
 void MediaLibraryEncoder::Impl::on_fps_measurement(GstElement *fpsdisplaysink, gdouble fps, gdouble droprate,
                                                    gdouble avgfps)
 {
-    if (PRINT_FPS)
+    if (is_env_variable_on(MEDIALIB_ENCODER_PRINT_FPS_ENV_VAR))
     {
         auto name = glib_cpp::get_name(fpsdisplaysink);
         std::cout << name << ", DROP RATE: " << droprate << " FPS: " << fps << " AVG_FPS: " << avgfps << std::endl;
@@ -584,24 +582,27 @@ void MediaLibraryEncoder::Impl::on_fps_measurement(GstElement *fpsdisplaysink, g
 
 GstFlowReturn MediaLibraryEncoder::Impl::on_new_sample(GstAppSink *appsink)
 {
-    {
-        std::shared_lock<std::shared_mutex> lock(m_callbacks_mutex);
-        if (m_callbacks.empty())
-        {
-            return GST_FLOW_OK;
-        }
-    }
-    GstSamplePtr sample;
-    GstBufferPtr buffer;
-    GstHailoBufferMeta *buffer_meta;
-    HailoMediaLibraryBufferPtr buffer_ptr;
-    uint32_t used_size;
-    sample = gst_app_sink_pull_sample(appsink);
+    // Always pull first so the appsink slot is released even when no
+    // subscriber is registered
+    GstSamplePtr sample = gst_app_sink_pull_sample(appsink);
     if (!sample)
     {
         GST_ERROR("Failed to get sample from appsink May be EOS!");
         return GST_FLOW_OK;
     }
+
+    {
+        std::shared_lock<std::shared_mutex> lock(m_callbacks_mutex);
+        if (m_callbacks.empty())
+        {
+            return GST_FLOW_OK; // sample dropped on scope exit -> slot freed
+        }
+    }
+
+    GstBufferPtr buffer;
+    GstHailoBufferMeta *buffer_meta;
+    HailoMediaLibraryBufferPtr buffer_ptr;
+    uint32_t used_size;
     buffer = glib_cpp::ptrs::get_buffer_from_sample(sample);
     if (!buffer)
     {

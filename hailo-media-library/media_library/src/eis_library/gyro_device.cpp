@@ -1,18 +1,28 @@
-#include "logger_macros.hpp"
-#include "media_library_logger.hpp"
-#include "gyro_device.hpp"
-#include "arguments_parser.hpp"
-#include <algorithm>
-#include <chrono>
-#include <ctime>
-#include <fstream>
-#include <thread>
-#include <iomanip>
 #include <common.hpp>
 #include <env_vars.hpp>
-#include "media_library/v4l2_ctrl.hpp"
-#include "media_library/isp_utils.hpp"
+#include <errno.h>
+#include <iio.h>
+#include <stdint.h>
+#include <string.h>
+#include <unistd.h>
+#include <tl/expected.hpp>
+#include <algorithm>
+#include <ctime>
+#include <fstream>
+#include <iomanip>
 #include <limits>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include "media_library_logger.hpp"
+#include "gyro_device.hpp"
+#include "common/concurrent_queue.hpp"
+#include "eis_types.hpp"
 
 #define MODULE_NAME LoggerType::Eis
 #define DEVICE_CLK_TIMESTAMP "monotonic_raw"

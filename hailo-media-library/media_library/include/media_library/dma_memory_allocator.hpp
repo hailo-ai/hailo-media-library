@@ -27,11 +27,10 @@
 
 #pragma once
 
+#include <sys/types.h>
 #include <mutex>
 #include <memory>
-#include <stdint.h>
 #include <unordered_map>
-#include <string_view>
 #include <linux/dma-heap.h>
 #include <linux/dma-buf.h>
 #include "media_library_types.hpp"

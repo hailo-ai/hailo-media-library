@@ -208,7 +208,7 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     // we apply a fresh vision_config_t, which by default has no outputs set, to override the vision pipeline
     // automatically connecting frontend outputs to encoders
     auto vision_pipeline_status = hailo_analytics::analytics::vision::generate_vision_pipeline(
-        *app_resources->media_library, VISION_PIPELINE, vision_config);
+        app_resources->media_library, VISION_PIPELINE, vision_config);
     if (!vision_pipeline_status.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create vision pipeline");
@@ -231,7 +231,7 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
 
     // Analytics Output Pipeline
     auto overlay_pipeline_status = hailo_analytics::analytics::overlay::generate_overlay_pipeline(
-        app_resources->media_library->m_encoders[VISION_SINK], OVERLAY_PIPELINE);
+        app_resources->media_library, VISION_SINK, OVERLAY_PIPELINE);
     if (!overlay_pipeline_status.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create overlay pipeline");
@@ -275,7 +275,7 @@ int main(int argc, char *argv[])
 
     // register signal SIGINT and signal handler
     signal_utils::SignalHandler signal_handler(false);
-    signal_handler.register_signal_handler([]([[maybe_unused]] int signal) {
+    signal_handler.register_signal_handler([](int /*signal*/) {
         std::cout << "Stopping Pipeline..." << std::endl;
         HAILO_ANALYTICS_LOG_INFO("Stopping Pipeline...");
         g_stop_cv.notify_all();

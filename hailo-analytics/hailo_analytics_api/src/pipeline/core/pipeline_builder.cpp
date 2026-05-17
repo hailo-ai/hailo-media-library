@@ -52,6 +52,25 @@ PipelineBuilder &PipelineBuilder::connect(const std::string &sourceName, const s
     return *this;
 }
 
+PipelineBuilder &PipelineBuilder::connect(const std::string &sourceName, const std::string &streamId,
+                                          const std::string &targetName)
+{
+    if (m_allStages.find(sourceName) == m_allStages.end())
+    {
+        HAILO_ANALYTICS_LOG_ERROR("Source stage not found in all stages: {}", sourceName);
+        throw std::invalid_argument("Source stage not found in all stages: " + sourceName);
+    }
+    if (m_allStages.find(targetName) == m_allStages.end())
+    {
+        HAILO_ANALYTICS_LOG_ERROR("Target stage not found in all stages: {}", targetName);
+        throw std::invalid_argument("Target stage not found in all stages: " + targetName);
+    }
+    m_streamIdConnections.emplace_back(sourceName, streamId, targetName);
+    HAILO_ANALYTICS_LOG_INFO("Established stream-id connection: {} (stream: {}) -> {}", sourceName, streamId,
+                             targetName);
+    return *this;
+}
+
 PipelineBuilder &PipelineBuilder::connect_frontend(const std::string &frontendName, const std::string &streamId,
                                                    const std::string &targetName)
 {
@@ -93,6 +112,19 @@ void PipelineBuilder::log_diagnostics() const
             {
                 used = true;
                 break;
+            }
+        }
+
+        // If not found in generic connections, check stream-id connections
+        if (!used)
+        {
+            for (const auto &conn : m_streamIdConnections)
+            {
+                if (std::get<0>(conn) == stageName || std::get<2>(conn) == stageName)
+                {
+                    used = true;
+                    break;
+                }
             }
         }
 
@@ -181,6 +213,18 @@ std::shared_ptr<Pipeline> PipelineBuilder::build(std::string name, bool trace_pr
         HAILO_ANALYTICS_LOG_INFO("Established generic connection: {} -> {}", srcName, tgtName);
     }
 
+    // Establish stream-id-keyed connections.
+    for (const auto &entry : m_streamIdConnections)
+    {
+        const std::string &srcName = std::get<0>(entry);
+        const std::string &streamId = std::get<1>(entry);
+        const std::string &tgtName = std::get<2>(entry);
+        auto source = m_allStages.at(srcName);
+        auto target = m_allStages.at(tgtName);
+        source->add_subscriber(target, streamId);
+        HAILO_ANALYTICS_LOG_INFO("Established stream-id connection: {} (stream: {}) -> {}", srcName, streamId, tgtName);
+    }
+
     // Establish frontend subscriptions.
     for (const auto &entry : m_frontendSubscriptions)
     {
@@ -205,7 +249,9 @@ std::shared_ptr<Pipeline> PipelineBuilder::build(std::string name, bool trace_pr
 
 PipelineBuilder &PipelineBuilder::export_to_dot(const std::string &filename)
 {
-    PipelineExporter::export_to_dot(filename, m_allStages, m_connections, m_frontendSubscriptions, m_stageTypes);
+    auto labeled_connections = m_frontendSubscriptions;
+    labeled_connections.insert(labeled_connections.end(), m_streamIdConnections.begin(), m_streamIdConnections.end());
+    PipelineExporter::export_to_dot(filename, m_allStages, m_connections, labeled_connections, m_stageTypes);
     return *this;
 }
 

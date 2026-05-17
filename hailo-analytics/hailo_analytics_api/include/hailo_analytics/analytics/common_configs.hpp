@@ -40,6 +40,7 @@ struct ai_stage_config_t
     std::optional<float32_t> nms_score_threshold;
     std::optional<std::vector<bool>> nms_classes_filter_mask;
     std::optional<size_t> nms_max_accumulated_mask_size_multiplier;
+    std::optional<bool> use_hailort_service;
     std::optional<bool> trace;
 
     /**

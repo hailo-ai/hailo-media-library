@@ -1,0 +1,98 @@
+# IWYU mapping file for hailo media-library
+#
+# Tells IWYU which headers are "public" umbrella headers so it does not
+# suggest replacing them with internal detail headers.
+#
+# Syntax reference: https://github.com/include-what-you-use/include-what-you-use/blob/master/docs/IWYUMappings.md
+
+[
+  # Pull in the default GCC STL / libc mappings shipped with IWYU.
+  # IWYU does not search its install dir for refs, so use absolute paths.
+  { ref: "/usr/share/include-what-you-use/iwyu.gcc.imp" },
+
+  # ---------------------------------------------------------------------------
+  # GStreamer — gst/gst.h is the canonical public header
+  # ---------------------------------------------------------------------------
+  { include: ["@\"gst/gstconfig\\.h\"",        private, "\"gst/gst.h\"", public] },
+  { include: ["@\"gst/gstenumtypes\\.h\"",     private, "\"gst/gst.h\"", public] },
+  { include: ["@\"gst/gstversion\\.h\"",       private, "\"gst/gst.h\"", public] },
+  { include: ["@<gst/gstconfig\\.h>",          private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstenumtypes\\.h>",       private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstversion\\.h>",         private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstobject\\.h>",          private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstelementfactory\\.h>",  private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstpadtemplate\\.h>",     private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstminiobject\\.h>",      private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstmemory\\.h>",          private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstallocator\\.h>",       private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstbuffer\\.h>",          private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstcaps\\.h>",            private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstelement\\.h>",         private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstpad\\.h>",             private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstpipeline\\.h>",        private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstbin\\.h>",             private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstbus\\.h>",             private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstmessage\\.h>",         private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstevent\\.h>",           private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstquery\\.h>",           private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstinfo\\.h>",            private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gststructure\\.h>",       private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstvalue\\.h>",           private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstsample\\.h>",          private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstsegment\\.h>",         private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gsttaglist\\.h>",         private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gsttask\\.h>",            private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstclock\\.h>",           private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstutils\\.h>",           private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstplugin\\.h>",          private, "<gst/gst.h>",   public] },
+  { include: ["@<gst/gstregistry\\.h>",        private, "<gst/gst.h>",   public] },
+
+  # GLib — included transitively via GStreamer
+  { include: ["@<glib/.*\\.h>",    private, "<glib.h>",    public] },
+  { include: ["@<gobject/.*\\.h>", private, "<glib-object.h>", public] },
+
+  # ---------------------------------------------------------------------------
+  # spdlog — spdlog/spdlog.h is the umbrella
+  # ---------------------------------------------------------------------------
+  { include: ["@<spdlog/common\\.h>",      private, "<spdlog/spdlog.h>", public] },
+  { include: ["@<spdlog/details/.*>",      private, "<spdlog/spdlog.h>", public] },
+  { include: ["@<spdlog/fmt/.*>",          private, "<spdlog/spdlog.h>", public] },
+
+  # ---------------------------------------------------------------------------
+  # fmt — fmt/format.h is the umbrella
+  # ---------------------------------------------------------------------------
+  { include: ["@<fmt/core\\.h>",     private, "<fmt/format.h>", public] },
+  { include: ["@<fmt/args\\.h>",     private, "<fmt/format.h>", public] },
+
+  # ---------------------------------------------------------------------------
+  # OpenCV — opencv2/core.hpp is the minimal public header
+  # ---------------------------------------------------------------------------
+  { include: ["@<opencv2/core/.*>",     private, "<opencv2/core.hpp>",    public] },
+  { include: ["@<opencv2/imgproc/.*>",  private, "<opencv2/imgproc.hpp>", public] },
+
+  # ---------------------------------------------------------------------------
+  # RapidJSON
+  # ---------------------------------------------------------------------------
+  { include: ["@<rapidjson/internal/.*>", private, "<rapidjson/document.h>", public] },
+
+  # ---------------------------------------------------------------------------
+  # tl::expected
+  # ---------------------------------------------------------------------------
+  { include: ["@<tl/detail/.*>", private, "<tl/expected.hpp>", public] },
+
+  # ---------------------------------------------------------------------------
+  # CLI11 — header-only library, must use the umbrella header
+  # ---------------------------------------------------------------------------
+  { include: ["@<CLI/.*>", private, "<CLI/CLI.hpp>", public] },
+
+  # ---------------------------------------------------------------------------
+  # Hantro video encoder — C headers need extern "C" wrapping provided by
+  # encoder_internal.hpp. Prevent IWYU from suggesting bare includes.
+  # ---------------------------------------------------------------------------
+  { include: ["@<video_encoder/.*>", private, "\"encoder_internal.hpp\"", public] },
+
+  # ---------------------------------------------------------------------------
+  # GCC internals — IWYU falsely suggests cxxabi.h for __forced_unwind
+  # ---------------------------------------------------------------------------
+  { include: ["<cxxabi.h>", private, "<exception>", public] },
+]

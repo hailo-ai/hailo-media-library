@@ -626,7 +626,7 @@ std::string MKVStreamer::create_pipeline_string(const std::string &file_path, Rt
     return result;
 }
 
-gboolean MKVStreamer::bus_callback([[maybe_unused]] GstBus *bus, GstMessage *msg, gpointer user_data)
+gboolean MKVStreamer::bus_callback(GstBus * /*bus*/, GstMessage *msg, gpointer user_data)
 {
     FileContext *context = static_cast<FileContext *>(user_data);
 
