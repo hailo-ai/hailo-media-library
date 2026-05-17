@@ -1,0 +1,85 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Coredump",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${input:executablePath}",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "${workspaceFolder}/tools/cross_compiler/toolchain/sysroots/x86_64-pokysdk-linux/usr/bin/aarch64-poky-linux/aarch64-poky-linux-gdb",
+            "coreDumpPath": "${input:coreDumpPath}",
+            "setupCommands": [
+                {
+                    "description": "Allow auto-load from NFS",
+                    "text": "set auto-load safe-path /",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Set sysroot for symbols",
+                    "text": "set sysroot /mnt/hailo15_nfs",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Set debug file directory",
+                    "text": "set debug-file-directory /mnt/hailo15_nfs/usr/lib/debug",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Set solib search path",
+                    "text": "set solib-search-path /mnt/hailo15_nfs/usr/lib:/mnt/hailo15_nfs/lib",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Set solib absolute prefix",
+                    "text": "set solib-absolute-prefix /mnt/hailo15_nfs",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set print pretty on",
+                    "text": "set print pretty on",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Show all frame arguments",
+                    "text": "set print frame-arguments all",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Print object on",
+                    "text": "set print object on",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Print static members",
+                    "text": "set print static-members on",
+                    "ignoreFailures": false
+                }
+            ]
+        }
+    ],
+    "inputs": [
+        {
+            "id": "coreDumpPath",
+            "type": "promptString",
+            "description": "Path to the core dump file",
+            "default": "/mnt/hailo15_nfs/home/root/core"
+        },
+        {
+            "id": "executablePath",
+            "type": "promptString",
+            "description": "Path to the executable (on NFS, e.g., /mnt/hailo15_nfs/usr/bin/...)",
+            "default": "/mnt/hailo15_nfs/usr/bin/camera-viewer-server"
+        }
+    ]
+}

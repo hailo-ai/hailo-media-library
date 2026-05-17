@@ -88,7 +88,7 @@ class AnalyticsDBStage : public hailo_analytics::pipeline::ThreadedStage
      * @param reason Reason string for logging
      * @return AppStatus indicating success or failure
      */
-    AppStatus add_empty_semantic_segmentation_entry(BufferPtr data, const std::string &reason);
+    AppStatus add_cached_or_empty_semantic_segmentation_entry(BufferPtr data, const std::string &reason);
 
     /**
      * @brief Convert bounding box from normalized to pixel coordinates

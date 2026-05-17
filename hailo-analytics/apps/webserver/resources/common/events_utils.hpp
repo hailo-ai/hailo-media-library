@@ -9,6 +9,7 @@
 #include "media_library/media_library_types.hpp"
 #include "media_library/media_library_api_types.hpp"
 #include "common/common.hpp"
+#include "common/logger_macros.hpp"
 
 namespace webserver
 {
@@ -205,17 +206,9 @@ class PipelineTypeState : public ValueState<std::string>
 class ProfileDigitalZoomState : public ValuesState<bool, uint32_t>
 {
   public:
-    ProfileDigitalZoomState(bool enable, uint32_t magnification) : ValuesState<bool, uint32_t>(enable, magnification)
-    {
-    }
-    bool getEnable() const
-    {
-        return std::get<0>(values);
-    }
-    uint32_t getMagnification() const
-    {
-        return std::get<1>(values);
-    }
+    ProfileDigitalZoomState(bool enable, uint32_t magnification);
+    bool getEnable() const;
+    uint32_t getMagnification() const;
 };
 
 struct ProfileStateData
@@ -239,34 +232,13 @@ class EmptyState : public ResourceState
 class ProfileDigitalZoomRoiState : public ValuesState<bool, uint32_t, double, double, double, double>
 {
   public:
-    ProfileDigitalZoomRoiState(bool enable, uint32_t magnification, double x, double y, double width, double height)
-        : ValuesState<bool, uint32_t, double, double, double, double>(enable, magnification, x, y, width, height)
-    {
-    }
-    bool getEnable() const
-    {
-        return std::get<0>(values);
-    }
-    uint32_t getMagnification() const
-    {
-        return std::get<1>(values);
-    }
-    double getX() const
-    {
-        return std::get<2>(values);
-    }
-    double getY() const
-    {
-        return std::get<3>(values);
-    }
-    double getWidth() const
-    {
-        return std::get<4>(values);
-    }
-    double getHeight() const
-    {
-        return std::get<5>(values);
-    }
+    ProfileDigitalZoomRoiState(bool enable, uint32_t magnification, double x, double y, double width, double height);
+    bool getEnable() const;
+    uint32_t getMagnification() const;
+    double getX() const;
+    double getY() const;
+    double getWidth() const;
+    double getHeight() const;
 };
 
 class ProfileGrayscaleState : public ValueState<bool>

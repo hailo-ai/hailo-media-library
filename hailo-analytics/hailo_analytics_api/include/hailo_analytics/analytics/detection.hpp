@@ -15,7 +15,7 @@ inline constexpr std::string_view DETECTION_PIPELINE = "detection_pipeline";
 // Detection AI Stage parameters
 inline constexpr std::string_view DETECTION_STAGE = "detection_stage";
 inline constexpr std::string_view DETECTION_BASE_HEF =
-    "/home/root/apps/ai_example_app/resources/hailo_yolov8s_384_640.hef";
+    "/home/root/apps/face_landmarks/resources/hailo_yolov8s_384_640.hef";
 inline constexpr std::string_view DETECTION_GROUP_ID = "device0";
 
 // Detection Postprocess parameters
