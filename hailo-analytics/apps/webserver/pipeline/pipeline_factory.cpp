@@ -1,5 +1,13 @@
 #include "pipeline_factory.hpp"
 #include "common/common.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "media_library/analytics_db.hpp"
+#include "pipeline/basic_pipeline.hpp"
+#include "pipeline/clip_pipeline.hpp"
+#include "pipeline/detection_pipeline.hpp"
+#include "pipeline/dynamic_privacy_mask_pipeline.hpp"
+#include "pipeline/face_landmarks_pipeline.hpp"
+#include "pipeline/profile_manager_pipeline.hpp"
 #include "resources/common/events_utils.hpp"
 #include <iostream>
 #include <stdexcept>
@@ -7,17 +15,18 @@
 
 using namespace webserver::pipeline;
 using namespace webserver::resources;
+using namespace hailo_analytics::pipeline;
 
 #define EVENT_SUBSCRIBER_ID "pipeline_factory_subscriber"
 
-PipelineFactory::PipelineFactory(WebserverResourceRepository resources, Architecture platform,
+PipelineFactory::PipelineFactory(webserver::resources::ResourceRepository &resources, Architecture platform,
                                  const pipeline_t &initial_pipeline_type)
-    : m_resources(std::move(resources)), m_platform(platform)
+    : m_resources(resources), m_platform(platform)
 {
     WEBSERVER_LOG_INFO("Initializing PipelineFactory with initial type: {}", static_cast<int>(initial_pipeline_type));
     register_endpoints();
     m_current_pipeline_type = initial_pipeline_type;
-    auto config = std::static_pointer_cast<ConfigResourceMedialib>(m_resources->get(RESOURCE_CONFIG_MANAGER));
+    auto config = std::static_pointer_cast<ConfigResourceMedialib>(m_resources.get(RESOURCE_CONFIG_MANAGER));
     std::string medialib_config_string = config->get_current_medialib_config().dump();
     tl::expected<std::shared_ptr<MediaLibrary>, media_library_return> media_lib_expected = MediaLibrary::create();
     if (!media_lib_expected.has_value())
@@ -26,7 +35,6 @@ PipelineFactory::PipelineFactory(WebserverResourceRepository resources, Architec
         return;
     }
     m_media_library = media_lib_expected.value();
-    m_media_library->set_override_persistent_settings(true);
     if (m_media_library->initialize(medialib_config_string) != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         std::cout << "Failed to initialize media library" << std::endl;
@@ -34,7 +42,7 @@ PipelineFactory::PipelineFactory(WebserverResourceRepository resources, Architec
     }
 
     std::shared_ptr<webserver::resources::WebRtcResource> webrtc_resource =
-        std::static_pointer_cast<WebRtcResource>(m_resources->get(RESOURCE_WEBRTC));
+        std::static_pointer_cast<WebRtcResource>(m_resources.get(RESOURCE_WEBRTC));
     m_webrtc_stage = RTPConverterStageBuild::create()
                          .set_stage_name("webrtc_stage")
                          .set_session_name("main")
@@ -44,7 +52,7 @@ PipelineFactory::PipelineFactory(WebserverResourceRepository resources, Architec
                          .buildptr();
     m_webrtc_stage->init();
 
-    m_resources->m_event_bus->subscribe(
+    m_resources.m_event_bus->subscribe(
         EVENT_SUBSCRIBER_ID, EventType::PROFILE_UPDATE_REQUEST, EventPriority::EVENT_PRIORITY_MEDIUM,
         [this](ResourceStateChangeNotification notification) {
             WEBSERVER_LOG_INFO("Received PROFILE_UPDATE_REQUEST notification");
@@ -61,27 +69,28 @@ PipelineFactory::PipelineFactory(WebserverResourceRepository resources, Architec
                 throw std::runtime_error("Failed to get current profile");
             }
             config_profile_t current_profile = expected_profile.value();
-            ProfileType profile_type = m_current_pipeline->get_profile_type_by_name(current_profile.name);
-            m_resources->m_event_bus->notify(
+            ProfileType profile_type = m_current_pipeline->get_current_profile();
+            std::string profile_name = m_current_pipeline->get_profile_name_by_type(profile_type);
+            m_resources.m_event_bus->notify(
                 EventType::PROFILE_UPDATE,
-                std::make_shared<ProfileState>(ProfileStateData{current_profile, profile_type, current_profile.name,
+                std::make_shared<ProfileState>(ProfileStateData{current_profile, profile_type, profile_name,
                                                                 m_current_pipeline->get_supported_profiles()}));
         });
 
-    m_resources->m_event_bus->subscribe(EVENT_SUBSCRIBER_ID, EventType::RESET_CONFIG,
-                                        EventPriority::EVENT_PRIORITY_VERY_HIGH,
-                                        [this, initial_pipeline_type](ResourceStateChangeNotification notification) {
-                                            WEBSERVER_LOG_INFO("Received RESET_CONFIG notification");
-                                            std::lock_guard<std::mutex> lock(m_pipeline_mutex);
-                                            if (switch_pipeline(initial_pipeline_type) != AppStatus::SUCCESS)
-                                            {
-                                                WEBSERVER_LOG_ERROR("Failed to reset current pipeline of type: {}",
-                                                                    static_cast<int>(initial_pipeline_type));
-                                                throw std::runtime_error("Failed to reset current pipeline");
-                                            }
-                                        });
+    m_resources.m_event_bus->subscribe(EVENT_SUBSCRIBER_ID, EventType::RESET_CONFIG,
+                                       EventPriority::EVENT_PRIORITY_VERY_HIGH,
+                                       [this, initial_pipeline_type](ResourceStateChangeNotification notification) {
+                                           WEBSERVER_LOG_INFO("Received RESET_CONFIG notification");
+                                           std::lock_guard<std::mutex> lock(m_pipeline_mutex);
+                                           if (switch_pipeline(initial_pipeline_type) != AppStatus::SUCCESS)
+                                           {
+                                               WEBSERVER_LOG_ERROR("Failed to reset current pipeline of type: {}",
+                                                                   static_cast<int>(initial_pipeline_type));
+                                               throw std::runtime_error("Failed to reset current pipeline");
+                                           }
+                                       });
 
-    m_supported_pipelines = {pipeline_t::Basic, pipeline_t::Detection};
+    m_supported_pipelines = {pipeline_t::Basic, pipeline_t::Detection, pipeline_t::DynamicPrivacyMask};
     if (ClipPipeline::is_supported(m_resources))
     {
         m_supported_pipelines.push_back(pipeline_t::CLIP);
@@ -106,10 +115,16 @@ PipelineFactory::~PipelineFactory()
     {
         m_current_pipeline->stop();
     }
+    // Stop the shared WebRTC stage on full shutdown (not during pipeline switches).
+    // The webrtc stage is shared across pipelines and must only be stopped here.
+    if (m_webrtc_stage)
+    {
+        m_webrtc_stage->stop();
+    }
     WEBSERVER_LOG_DEBUG("PipelineFactory destroyed");
 }
 
-std::shared_ptr<BasePipeline> PipelineFactory::get_current_pipeline()
+BasePipeline *PipelineFactory::get_current_pipeline()
 {
     std::lock_guard<std::mutex> lock(m_pipeline_mutex);
     if (!m_current_pipeline)
@@ -122,7 +137,7 @@ std::shared_ptr<BasePipeline> PipelineFactory::get_current_pipeline()
         }
     }
 
-    return m_current_pipeline;
+    return m_current_pipeline.get();
 }
 
 pipeline_t PipelineFactory::get_current_pipeline_type()
@@ -131,29 +146,33 @@ pipeline_t PipelineFactory::get_current_pipeline_type()
     return m_current_pipeline_type;
 }
 
-std::shared_ptr<BasePipeline> PipelineFactory::create_pipeline(const pipeline_t &pipeline_type)
+std::unique_ptr<BasePipeline> PipelineFactory::create_pipeline(const pipeline_t &pipeline_type)
 {
     WEBSERVER_LOG_INFO("Creating pipeline of type: {}", static_cast<int>(pipeline_type));
 
     if (pipeline_type == pipeline_t::Basic)
     {
-        return std::make_shared<BasicPipeline>(m_resources, m_media_library, m_webrtc_stage, m_platform);
+        return std::make_unique<BasicPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
     }
     else if (pipeline_type == pipeline_t::Detection)
     {
-        return std::make_shared<DetectionPipeline>(m_resources, m_media_library, m_webrtc_stage, m_platform);
+        return std::make_unique<DetectionPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
     }
     else if (pipeline_type == pipeline_t::CLIP)
     {
-        return std::make_shared<ClipPipeline>(m_resources, m_media_library, m_webrtc_stage, m_platform);
+        return std::make_unique<ClipPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
     }
     else if (pipeline_type == pipeline_t::ProfileManager)
     {
-        return std::make_shared<ProfileManagerPipeline>(m_resources, m_media_library, m_webrtc_stage, m_platform);
+        return std::make_unique<ProfileManagerPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
     }
     else if (pipeline_type == pipeline_t::FaceLandmarks)
     {
-        return std::make_shared<FaceLandmarksPipeline>(m_resources, m_media_library, m_webrtc_stage, m_platform);
+        return std::make_unique<FaceLandmarksPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
+    }
+    else if (pipeline_type == pipeline_t::DynamicPrivacyMask)
+    {
+        return std::make_unique<DynamicPrivacyMaskPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
     }
     else
     {
@@ -165,6 +184,19 @@ std::shared_ptr<BasePipeline> PipelineFactory::create_pipeline(const pipeline_t 
 std::vector<pipeline_t> PipelineFactory::get_supported_pipeline_types() const
 {
     return m_supported_pipelines;
+}
+
+AppStatus PipelineFactory::set_override_persistent_settings(bool value)
+{
+    if (!m_media_library)
+    {
+        WEBSERVER_LOG_ERROR("Cannot set override_persistent_settings: media_library is null");
+        return AppStatus::UNINITIALIZED;
+    }
+
+    m_media_library->set_override_persistent_settings(value);
+    WEBSERVER_LOG_INFO("Set override_persistent_settings to: {}", value);
+    return AppStatus::SUCCESS;
 }
 
 AppStatus PipelineFactory::switch_pipeline(const pipeline_t &pipeline_type, bool start_pipeline)
@@ -191,6 +223,11 @@ AppStatus PipelineFactory::switch_pipeline(const pipeline_t &pipeline_type, bool
         m_current_pipeline->stop();
         m_media_library->m_frontend->unsubscribe_all();
         m_current_pipeline = nullptr;
+
+        // Reset analytics DB (entries + configuration) so stale config IDs from
+        // the previous pipeline don't cause the new pipeline's encoder to query
+        // analytics data that will never arrive.
+        AnalyticsDB::instance().reset_db();
     }
 
     m_current_pipeline_type = pipeline_type;
@@ -216,16 +253,16 @@ AppStatus PipelineFactory::switch_pipeline(const pipeline_t &pipeline_type, bool
 
 void PipelineFactory::register_endpoints()
 {
-    m_resources->m_srv->Get("/ai_pipeline", std::function<nlohmann::json()>([this]() {
-                                WEBSERVER_LOG_INFO("GET /ai_pipeline called");
-                                nlohmann::json ai_pipeline_json;
-                                ai_pipeline_json["active"] = this->get_current_pipeline_type();
-                                ai_pipeline_json["available"] = this->get_supported_pipeline_types();
-                                WEBSERVER_LOG_INFO("GET /ai_pipeline completed");
-                                return ai_pipeline_json;
-                            }));
+    m_resources.m_srv.Get("/ai_pipeline", std::function<nlohmann::json()>([this]() {
+                              WEBSERVER_LOG_INFO("GET /ai_pipeline called");
+                              nlohmann::json ai_pipeline_json;
+                              ai_pipeline_json["active"] = this->get_current_pipeline_type();
+                              ai_pipeline_json["available"] = this->get_supported_pipeline_types();
+                              WEBSERVER_LOG_INFO("GET /ai_pipeline completed");
+                              return ai_pipeline_json;
+                          }));
 
-    m_resources->m_srv->Patch("/ai_pipeline", [this](const nlohmann::json &j_body) {
+    m_resources.m_srv.Patch("/ai_pipeline", [this](const nlohmann::json &j_body) {
         WEBSERVER_LOG_INFO("PATCH /ai_pipeline called");
         if (!j_body.contains("active"))
         {
@@ -248,30 +285,6 @@ void PipelineFactory::register_endpoints()
             ai_pipeline_json["available"] = supported_pipelines;
             WEBSERVER_LOG_INFO("PATCH /ai_pipeline completed");
             return ai_pipeline_json;
-        }
-
-        // The CLIP pipeline manages the shared MediaLibrary through its own CameraAppConstructor,
-        // which calls stop_pipeline() + shutdown() independently. Switching directly to/from CLIP
-        // leaves the MediaLibrary in a state that other pipelines can't properly restart from.
-        // Transitioning through Basic first ensures the MediaLibrary is in a clean, consistent state.
-        // (Nitzan HACK)
-        if (pipeline_name == pipeline_t::CLIP && m_current_pipeline_type != pipeline_t::Basic)
-        {
-            WEBSERVER_LOG_INFO("Switching to Basic pipeline before switching to CLIP pipeline");
-            if (switch_pipeline(pipeline_t::Basic) != AppStatus::SUCCESS)
-            {
-                WEBSERVER_LOG_ERROR("Failed to switch to Basic pipeline before switching to CLIP");
-                throw std::runtime_error("Failed to switch pipeline");
-            }
-        }
-        else if (m_current_pipeline_type == pipeline_t::CLIP && pipeline_name != pipeline_t::Basic)
-        {
-            WEBSERVER_LOG_INFO("Switching to Basic pipeline before switching away from CLIP pipeline");
-            if (switch_pipeline(pipeline_t::Basic) != AppStatus::SUCCESS)
-            {
-                WEBSERVER_LOG_ERROR("Failed to switch to Basic pipeline before switching away from CLIP");
-                throw std::runtime_error("Failed to switch pipeline");
-            }
         }
 
         WEBSERVER_LOG_INFO("Switching to AI pipeline: {}", static_cast<int>(pipeline_name));

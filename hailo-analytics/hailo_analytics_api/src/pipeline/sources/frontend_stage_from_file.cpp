@@ -15,15 +15,16 @@ namespace hailo_analytics::pipeline::sources
 
 FrontendStageFromFile::FrontendStageFromFile(std::string name, const std::string &file_location, size_t width,
                                              size_t height, double fps, bool loop_enabled, size_t queue_size,
-                                             bool leaky, size_t buffer_pool_size, bool trace_processing_operations)
+                                             bool leaky, size_t buffer_pool_size, StagePoolMode pool_mode,
+                                             bool trace_processing_operations)
     : FrontendStage(name, queue_size, leaky, trace_processing_operations), m_feeding_thread_active(false),
       m_file_location(file_location), m_width(width), m_height(height), m_fps(fps), m_loop_enabled(loop_enabled),
-      m_buffer_pool_size(buffer_pool_size)
+      m_buffer_pool_size(buffer_pool_size), m_pool_mode(pool_mode)
 {
     m_file_reader = nullptr;
 }
 
-AppStatus FrontendStageFromFile::create(MediaLibraryFrontendPtr frontend)
+AppStatus FrontendStageFromFile::create(MediaLibraryFrontend &frontend)
 {
     // Create FileReader internally with the provided parameters
     m_file_reader = std::make_shared<FileReader>(m_stage_name + "_reader", m_file_location, m_width, m_height, m_fps,
@@ -35,6 +36,7 @@ AppStatus FrontendStageFromFile::create(MediaLibraryFrontendPtr frontend)
 AppStatus FrontendStageFromFile::stop()
 {
     m_feeding_thread_active = false;
+    m_available_buffers_cv.notify_all();
     if (m_feeding_thread.joinable())
     {
         m_feeding_thread.join();
@@ -78,6 +80,8 @@ AppStatus FrontendStageFromFile::init()
     HAILO_ANALYTICS_LOG_INFO("Created buffer pool for frontend stage '{}': {} buffers of size {}x{}", m_stage_name,
                              m_buffer_pool_size, m_width, m_height);
 
+    setup_pool_notifications();
+
     m_feeding_thread_active = true;
     m_feeding_thread = std::thread(&FrontendStageFromFile::feeding_thread_func, this);
 
@@ -87,6 +91,7 @@ AppStatus FrontendStageFromFile::init()
 AppStatus FrontendStageFromFile::deinit()
 {
     m_feeding_thread_active = false;
+    m_available_buffers_cv.notify_all();
     if (m_feeding_thread.joinable())
     {
         m_feeding_thread.join();
@@ -95,12 +100,28 @@ AppStatus FrontendStageFromFile::deinit()
     return FrontendStage::deinit();
 }
 
-AppStatus FrontendStageFromFile::configure(MediaLibraryFrontendPtr frontend)
+AppStatus FrontendStageFromFile::configure(MediaLibraryFrontend &frontend)
 {
+    auto config = frontend.get_config();
+    if (!config.has_value() || config.value().input_config.source_type != frontend_src_element_t::APPSRC)
+    {
+        HAILO_ANALYTICS_LOG_ERROR("FrontendStageFromFile requires frontend with APPSRC source type. "
+                                  "Reconfigure the frontend before calling configure().");
+        return AppStatus::INVALID_ARGUMENT;
+    }
+
     m_file_reader = std::make_shared<FileReader>(m_stage_name + "_reader", m_file_location, m_width, m_height, m_fps,
                                                  m_loop_enabled);
 
-    return FrontendStage::configure(std::move(frontend));
+    return FrontendStage::configure(frontend);
+}
+
+void FrontendStageFromFile::setup_pool_notifications()
+{
+    if (m_pool_mode == StagePoolMode::BLOCKING)
+    {
+        m_buffer_pool->set_on_release_callback([this](void *) { m_available_buffers_cv.notify_all(); });
+    }
 }
 
 void FrontendStageFromFile::feeding_thread_func()
@@ -115,6 +136,30 @@ void FrontendStageFromFile::feeding_thread_func()
         trace_processing_start();
 
         HailoMediaLibraryBufferPtr buffer = std::make_shared<hailo_media_library_buffer>();
+
+        // Check buffer availability before acquiring
+        if (m_buffer_pool->get_available_buffers_count() == 0)
+        {
+            if (m_pool_mode == StagePoolMode::BLOCKING)
+            {
+                HAILO_ANALYTICS_LOG_INFO("{} no available buffers in pool, waiting...", m_stage_name);
+                std::unique_lock<std::mutex> lock(m_buff_pool_mutex);
+                m_available_buffers_cv.wait(lock, [this]() {
+                    return m_buffer_pool->get_available_buffers_count() >= 1 || !m_feeding_thread_active;
+                });
+                if (!m_feeding_thread_active)
+                {
+                    trace_processing_end();
+                    break;
+                }
+            }
+            else
+            {
+                HAILO_ANALYTICS_LOG_WARN("{} no available buffers in pool, skipping frame", m_stage_name);
+                trace_processing_end();
+                continue;
+            }
+        }
 
         // Acquire buffer from pool - buffer pool is guaranteed to exist
         if (m_buffer_pool->acquire_buffer(buffer) != MEDIA_LIBRARY_SUCCESS)
@@ -236,6 +281,12 @@ FrontendStageFromFileBuild::Builder &FrontendStageFromFileBuild::Builder::set_bu
     return *this;
 }
 
+FrontendStageFromFileBuild::Builder &FrontendStageFromFileBuild::Builder::set_pool_mode_opt(StagePoolMode mode)
+{
+    m_pool_mode = mode;
+    return *this;
+}
+
 FrontendStageFromFileBuild::Builder &FrontendStageFromFileBuild::Builder::set_trace_opt(bool activate)
 {
     m_trace = activate;
@@ -259,7 +310,7 @@ std::shared_ptr<FrontendStageFromFile> FrontendStageFromFileBuild::Builder::buil
 
     return std::make_shared<FrontendStageFromFile>(m_stage_name.value(), m_file_location.value(), m_width.value(),
                                                    m_height.value(), m_fps.value(), m_loop_enabled, m_queue_size,
-                                                   m_leaky, m_buffer_pool_size.value(), m_trace);
+                                                   m_leaky, m_buffer_pool_size.value(), m_pool_mode, m_trace);
 }
 
 FrontendStageFromFileBuild::Builder FrontendStageFromFileBuild::create()

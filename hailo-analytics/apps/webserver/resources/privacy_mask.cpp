@@ -3,6 +3,30 @@
 #include <cmath> // For sin, cos
 
 using namespace webserver::resources;
+
+PrivacyMaskResource::normalized_vertex::normalized_vertex(double x, double y) : x(x), y(y)
+{
+}
+
+PrivacyMaskResource::normalized_vertex::normalized_vertex() : x(0), y(0)
+{
+}
+
+std::string PrivacyMaskResource::name()
+{
+    return "privacy_mask";
+}
+
+ResourceType PrivacyMaskResource::get_type()
+{
+    return ResourceType::RESOURCE_PRIVACY_MASK;
+}
+
+std::map<std::string, PrivacyMaskResource::normalized_polygon> PrivacyMaskResource::get_privacy_masks()
+{
+    return m_privacy_masks;
+}
+
 PrivacyMaskResource::PrivacyMaskResource(std::shared_ptr<EventBus> event_bus,
                                          std::shared_ptr<webserver::resources::ConfigResourceBase> configs)
     : Resource(event_bus), m_privacy_masks{}, m_original_privacy_masks{}
@@ -391,16 +415,16 @@ std::shared_ptr<PrivacyMaskResource::PrivacyMaskResourceState> PrivacyMaskResour
     return state;
 }
 
-void PrivacyMaskResource::http_register(std::shared_ptr<HTTPServer> srv)
+void PrivacyMaskResource::http_register(HTTPServer &srv)
 {
     WEBSERVER_LOG_INFO("Registering HTTP endpoints for PrivacyMaskResource");
 
-    srv->Get("/privacy_mask", std::function<nlohmann::json()>([this]() {
-                 WEBSERVER_LOG_INFO("GET /privacy_mask called");
-                 return this->m_config;
-             }));
+    srv.Get("/privacy_mask", std::function<nlohmann::json()>([this]() {
+                WEBSERVER_LOG_INFO("GET /privacy_mask called");
+                return this->m_config;
+            }));
 
-    srv->Patch("/privacy_mask", [this](const nlohmann::json &partial_config) {
+    srv.Patch("/privacy_mask", [this](const nlohmann::json &partial_config) {
         WEBSERVER_LOG_INFO("PATCH /privacy_mask called");
         auto prev_enabled = this->get_enabled_masks();
         nlohmann::json diff = nlohmann::json::diff(m_config, partial_config);
@@ -411,7 +435,7 @@ void PrivacyMaskResource::http_register(std::shared_ptr<HTTPServer> srv)
         return this->m_config;
     });
 
-    srv->Put("/privacy_mask", [this](const nlohmann::json &config) {
+    srv.Put("/privacy_mask", [this](const nlohmann::json &config) {
         WEBSERVER_LOG_INFO("PUT /privacy_mask called");
         auto prev_enabled = this->get_enabled_masks();
         auto partial_config = nlohmann::json::diff(m_config, config);
@@ -422,7 +446,7 @@ void PrivacyMaskResource::http_register(std::shared_ptr<HTTPServer> srv)
         return this->m_config;
     });
 
-    srv->Delete("/privacy_mask", [this](const nlohmann::json &config) {
+    srv.Delete("/privacy_mask", [this](const nlohmann::json &config) {
         WEBSERVER_LOG_INFO("DELETE /privacy_mask called");
         auto state = delete_masks_from_config(config);
         on_resource_change(EventType::CHANGED_RESOURCE_PRIVACY_MASK, state);

@@ -139,6 +139,16 @@ inline nlohmann::json from_medialib_config_to_osd_config(nlohmann::json config)
     return osd_config;
 }
 
+std::string OsdResource::name()
+{
+    return "osd";
+}
+
+ResourceType OsdResource::get_type()
+{
+    return ResourceType::RESOURCE_OSD;
+}
+
 OsdResource::OsdResource(std::shared_ptr<EventBus> event_bus, std::shared_ptr<ConfigResourceBase> configs)
     : Resource(event_bus)
 {
@@ -147,6 +157,8 @@ OsdResource::OsdResource(std::shared_ptr<EventBus> event_bus, std::shared_ptr<Co
                            WEBSERVER_LOG_INFO("Received PIPELINE_READY notification");
                            auto default_config = configs->get_osd_and_encoder_default_config();
                            this->m_default_config = default_config.dump();
+                           nlohmann::json frontend_conf = configs->get_frontend_default_config();
+                           m_default_rotation = rotation_string_map.at(frontend_conf["rotation"]["angle"]);
                            reset_config();
                        });
 
@@ -198,6 +210,7 @@ void OsdResource::reset_config()
     m_config = from_medialib_config_to_osd_config(config.at("osd"));
     m_resolution_conf.width = config["encoding"]["input_stream"]["width"];
     m_resolution_conf.height = config["encoding"]["input_stream"]["height"];
+    m_resolution_conf.rotation = m_default_rotation;
     on_resource_change(EventType::CHANGED_RESOURCE_OSD, std::make_shared<OsdResourceState>(m_config));
     WEBSERVER_LOG_INFO("OSD configuration reset to default");
 }
@@ -382,49 +395,68 @@ std::vector<std::string> OsdResource::get_all_overlays_ids()
     return overlays_ids;
 }
 
-void OsdResource::http_register(std::shared_ptr<HTTPServer> srv)
+void OsdResource::http_register(HTTPServer &srv)
 {
-    srv->Get("/osd", std::function<nlohmann::json()>([this]() {
-                 return map_overlays(m_config, [this](nlohmann::json entry) {
-                     return absolut_font_size_to_relative(unmap_paths(entry), m_resolution_conf.width);
-                 });
-             }));
+    register_get_osd_endpoint(srv);
+    register_get_formats_endpoint(srv);
+    register_get_images_endpoint(srv);
+    register_patch_osd_endpoint(srv);
+    register_put_osd_endpoint(srv);
+    register_upload_endpoint(srv);
+}
 
-    srv->Get("/osd/formats", std::function<nlohmann::json()>([this]() {
-                 std::vector<std::string> formats;
+void OsdResource::register_get_osd_endpoint(HTTPServer &srv)
+{
+    srv.Get("/osd", std::function<nlohmann::json()>([this]() {
+                return map_overlays(m_config, [this](nlohmann::json entry) {
+                    return absolut_font_size_to_relative(unmap_paths(entry), m_resolution_conf.width);
+                });
+            }));
+}
 
-                 for (const auto &entry : std::filesystem::directory_iterator(FONT_PATH))
-                 {
-                     if (entry.is_regular_file() && entry.path().extension() == ".ttf")
-                     {
-                         std::string format = entry.path().filename().string();
-                         formats.push_back(format);
-                     }
-                 }
-                 return formats;
-             }));
+void OsdResource::register_get_formats_endpoint(HTTPServer &srv)
+{
+    srv.Get("/osd/formats", std::function<nlohmann::json()>([this]() {
+                std::vector<std::string> formats;
 
-    srv->Get("/osd/images", std::function<nlohmann::json()>([this]() {
-                 std::vector<std::string> images;
+                for (const auto &entry : std::filesystem::directory_iterator(FONT_PATH))
+                {
+                    if (entry.is_regular_file() && entry.path().extension() == ".ttf")
+                    {
+                        std::string format = entry.path().filename().string();
+                        formats.push_back(format);
+                    }
+                }
+                return formats;
+            }));
+}
 
-                 for (const auto &entry : std::filesystem::directory_iterator(IMAGE_PATH))
-                 {
-                     if (!entry.is_regular_file())
-                     {
-                         continue;
-                     }
-                     std::string extension = entry.path().extension();
-                     if (std::find(std::begin(VALID_EXTENSIONS), std::end(VALID_EXTENSIONS), extension) !=
-                         std::end(VALID_EXTENSIONS))
-                     {
-                         std::string image = entry.path().filename().string();
-                         images.push_back(image);
-                     }
-                 }
-                 return images;
-             }));
+void OsdResource::register_get_images_endpoint(HTTPServer &srv)
+{
+    srv.Get("/osd/images", std::function<nlohmann::json()>([this]() {
+                std::vector<std::string> images;
 
-    srv->Patch("/osd", [this](const nlohmann::json &partial_config) {
+                for (const auto &entry : std::filesystem::directory_iterator(IMAGE_PATH))
+                {
+                    if (!entry.is_regular_file())
+                    {
+                        continue;
+                    }
+                    std::string extension = entry.path().extension();
+                    if (std::find(std::begin(VALID_EXTENSIONS), std::end(VALID_EXTENSIONS), extension) !=
+                        std::end(VALID_EXTENSIONS))
+                    {
+                        std::string image = entry.path().filename().string();
+                        images.push_back(image);
+                    }
+                }
+                return images;
+            }));
+}
+
+void OsdResource::register_patch_osd_endpoint(HTTPServer &srv)
+{
+    srv.Patch("/osd", [this](const nlohmann::json &partial_config) {
         nlohmann::json previouse_config = m_config;
         m_config.merge_patch(map_overlays(partial_config, [this](nlohmann::json entry) {
             return relative_font_size_to_absolut(map_paths(entry), m_resolution_conf.width);
@@ -436,8 +468,11 @@ void OsdResource::http_register(std::shared_ptr<HTTPServer> srv)
             return absolut_font_size_to_relative(unmap_paths(conf), m_resolution_conf.width);
         });
     });
+}
 
-    srv->Put("/osd", [this](const nlohmann::json &config) {
+void OsdResource::register_put_osd_endpoint(HTTPServer &srv)
+{
+    srv.Put("/osd", [this](const nlohmann::json &config) {
         nlohmann::json previouse_config = m_config;
         auto partial_config =
             nlohmann::json::diff(m_config, map_overlays(config, [this](nlohmann::json entry) {
@@ -451,8 +486,11 @@ void OsdResource::http_register(std::shared_ptr<HTTPServer> srv)
             return absolut_font_size_to_relative(unmap_paths(conf), m_resolution_conf.width);
         });
     });
+}
 
-    srv->Post("/osd/upload", [](const std::string &filename, const std::string &content) {
+void OsdResource::register_upload_endpoint(HTTPServer &srv)
+{
+    srv.Post("/osd/upload", [](const std::string &filename, const std::string &content) {
         std::string extension = filename.substr(filename.find_last_of("."));
         if (std::find(std::begin(VALID_EXTENSIONS), std::end(VALID_EXTENSIONS), extension) ==
             std::end(VALID_EXTENSIONS))

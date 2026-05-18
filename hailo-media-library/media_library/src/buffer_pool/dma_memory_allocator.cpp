@@ -415,7 +415,7 @@ media_library_return DmaMemoryAllocator::get_fd(void *buffer, int &fd, bool incl
 
     if (m_allocated_buffers.find(buffer) == m_allocated_buffers.end())
     {
-        // TOOD: Change to error once userptr is not supported anymore
+        // TODO: Change to error once userptr is not supported anymore
         if (include_external && m_external_buffers.find(buffer) != m_external_buffers.end())
         {
             fd = m_external_buffers[buffer].fd;

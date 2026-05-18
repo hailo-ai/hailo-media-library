@@ -77,6 +77,23 @@ class IntegratedWebServer
     void validateModelFiles();
     void setupCORS();
     void setupRoutes();
+    void setupRootRoute();
+    void setupStatusRoute();
+    void setupEmbeddedRefreshRoutes();
+    void setupVideoPlaybackTotalLengthRoutes();
+    void setupNetworksRoute();
+    void setupModelsRoute();
+    void setupEmbeddingRoute();
+    void setupVideoThumbnailClickedRoute();
+    void setupWebRtcSessionLiveMainRoute();
+    void setupWebRtcSessionVideoThumbnailRoute();
+    void setupWebRtcOfferRoute();
+    void setupWebRtcAnswerRoute();
+    void setupWebRtcIceCandidateRoute();
+    void setupWebRtcStatusRoute();
+    void setupWebRtcVideoThumbnailStopRoute();
+    void setupStorageStatusRoute();
+    void setupWebRtcCorsRoute();
     void serveIntegratedHTML(httplib::Response &res);
     bool processEmbedding(const app::EmbeddingInfo &embedding_info);
 

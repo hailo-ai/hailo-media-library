@@ -1,8 +1,6 @@
 #pragma once
 #include <mutex>
 #include "media_library/media_library.hpp"
-#include "media_library/media_library_api_types.hpp"
-#include "common/logger_macros.hpp"
 
 namespace webserver
 {
@@ -11,11 +9,9 @@ namespace pipeline
 class IspBlender
 {
   public:
-    IspBlender() : m_media_library(std::nullopt), pipeline_active(false)
-    {
-    }
+    IspBlender();
 
-    void set_media_library(std::shared_ptr<MediaLibrary> mediaLib);
+    void set_media_library(MediaLibrary &mediaLib);
     void unset_media_library();
     automatic_algorithms_config_t get_current_automatic_algorithms_config();
     void set_automatic_algorithms_config(const automatic_algorithms_config_t &config);
@@ -29,7 +25,7 @@ class IspBlender
     void applyProfile(const config_profile_t &cfg) const;
 
     mutable std::recursive_mutex mutex;
-    std::optional<std::shared_ptr<MediaLibrary>> m_media_library;
+    std::optional<MediaLibrary *> m_media_library;
     bool pipeline_active;
 };
 } // namespace pipeline

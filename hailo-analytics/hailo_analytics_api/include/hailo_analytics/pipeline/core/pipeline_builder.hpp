@@ -4,12 +4,9 @@
 #include <unordered_map>
 #include <vector>
 #include <memory>
-#include <stdexcept>
 #include <tuple>
-#include <type_traits>
 
 #include "pipeline.hpp"
-#include "hailo_analytics/pipeline/codecs/encoder_stage.hpp"
 #include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
 
 namespace hailo_analytics::pipeline
@@ -57,19 +54,7 @@ class PipelineBuilder
      * Stage names must be unique within a pipeline.
      * Can be called at any time before build().
      */
-    template <typename T>
-    PipelineBuilder &add_stage(const std::string &name, std::shared_ptr<T> stage, StageType type = StageType::GENERAL)
-    {
-        if (!stage)
-        {
-            throw std::invalid_argument("Stage is null for name: " + name);
-        }
-
-        static_assert(std::is_base_of_v<Stage, T>, "T must derive from Stage");
-        validate_and_add_stage(name, stage, type);
-
-        return *this;
-    }
+    PipelineBuilder &add_stage(const std::string &name, StagePtr stage, StageType type = StageType::GENERAL);
 
     /**
      * @brief Adds a stage to the pipeline using the stage's own name.
@@ -82,17 +67,7 @@ class PipelineBuilder
      * This is the preferred method when the stage already has a meaningful name.
      * Can be called at any time before build().
      */
-    PipelineBuilder &add_stage(StagePtr stage, StageType type = StageType::GENERAL)
-    {
-        if (!stage)
-        {
-            throw std::invalid_argument("Stage pointer is null.");
-        }
-
-        validate_and_add_stage(stage->get_name(), stage, type);
-
-        return *this;
-    }
+    PipelineBuilder &add_stage(StagePtr stage, StageType type = StageType::GENERAL);
 
     /**
      * @brief Connects a source stage's output to a target stage's input.

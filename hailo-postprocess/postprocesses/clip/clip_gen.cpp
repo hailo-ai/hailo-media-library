@@ -18,6 +18,7 @@
 
 #define CLIP_RESNET_50X4_EXPECTED_NUM_OUTPUT (1)
 #define CLIP_VIT_B_32_EXPECTED_NUM_OUTPUT (1)
+#define CLIP_VIT_L_14_LAION2B_EXPECTED_NUM_OUTPUT (1)
 
 void l2_normalize_inplace(std::vector<float> &vec)
 {
@@ -34,13 +35,14 @@ void handle_clip_post_process(HailoROIPtr roi, int vector_embedding_size, std::s
 {
     auto tensors = roi->get_tensors();
 
-    uint8_t *data_ptr = tensors[0]->data();
     size_t data_size = tensors[0]->size();
+    bool is_uint16 = tensors[0]->is_uint16();
     std::vector<float> dequantized_data(data_size);
-    // Dequantize the tensor data
+    // Dequantize the tensor data (supports both UINT8 and UINT16 quantization)
     for (size_t i = 0; i < data_size; ++i)
     {
-        dequantized_data[i] = tensors[0]->fix_scale(data_ptr[i]);
+        // Tensor is 1D (1 x 1 x features), so row=0, col=0, channel=i
+        dequantized_data[i] = tensors[0]->get_full_percision(0, 0, i, is_uint16);
     }
 
     l2_normalize_inplace(dequantized_data);
@@ -98,4 +100,20 @@ void clip_vit_b_32(HailoROIPtr roi)
     }
 
     handle_clip_post_process(roi, 512, std::string(__func__));
+}
+
+void clip_vit_l_14_laion2B(HailoROIPtr roi)
+{
+    auto tensors = roi->get_tensors();
+    if (tensors.size() > CLIP_VIT_L_14_LAION2B_EXPECTED_NUM_OUTPUT)
+    {
+        std::cout << "WARNING: clip_vit_l_14_laion2B total tensor: " << tensors.size() << ", but expecting "
+                  << CLIP_VIT_L_14_LAION2B_EXPECTED_NUM_OUTPUT << std::endl;
+        return;
+    }
+
+    // The post process for CLIP ViT L 14 Laion2B is the same as other CLIP post process, the only difference is the
+    // embedding size and the function name which will be used to identify the CLIP network used for later database
+    // indexing and searching
+    handle_clip_post_process(roi, 768, std::string(__func__));
 }

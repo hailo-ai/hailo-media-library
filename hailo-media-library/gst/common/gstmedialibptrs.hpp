@@ -90,6 +90,7 @@ void video_codec_frame_unreffer(GstVideoCodecFrame *video_codec_frame);
 void tag_list_unreffer(GstTagList *tag_list);
 void main_loop_unreffer(GMainLoop *main_loop);
 void appsrc_unreffer(GstAppSrc *appsrc);
+void object_unreffer(GstObject *object);
 } // namespace glib_cpp::ptrs
 
 using GstCapsPtr = GstPtr<GstCaps, &glib_cpp::ptrs::caps_unreffer>;
@@ -107,3 +108,4 @@ using GstVideoCodecFramePtr = GstPtr<GstVideoCodecFrame, &glib_cpp::ptrs::video_
 using GstTagListPtr = GstPtr<GstTagList, &glib_cpp::ptrs::tag_list_unreffer>;
 using GMainLoopPtr = GstPtr<GMainLoop, &glib_cpp::ptrs::main_loop_unreffer>;
 using GstAppSrcPtr = GstPtr<GstAppSrc, &glib_cpp::ptrs::appsrc_unreffer>;
+using GstObjectPtr = GstPtr<GstObject, &glib_cpp::ptrs::object_unreffer>;
