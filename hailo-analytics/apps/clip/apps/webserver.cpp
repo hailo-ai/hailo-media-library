@@ -15,6 +15,11 @@
 #include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
 #include "clip_pipeline_ai.hpp"
 #include "clip_pipeline_ai_defines.hpp"
+#include "service/app_control_service_ext.hpp"
+#include "service/player_service_ext.hpp"
+#include "service/query_service/query_service_ext.hpp"
+#include "service/storage_monitor_service_ext.hpp"
+#include "streaming/webrtc_streamer_ext.hpp"
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
@@ -258,13 +263,35 @@ void IntegratedWebServer::setupCORS()
 
 void IntegratedWebServer::setupRoutes()
 {
-    // Serve the main integrated HTML file
+    setupRootRoute();
+    setupStatusRoute();
+    setupEmbeddedRefreshRoutes();
+    setupVideoPlaybackTotalLengthRoutes();
+    setupNetworksRoute();
+    setupModelsRoute();
+    setupEmbeddingRoute();
+    setupVideoThumbnailClickedRoute();
+    setupWebRtcSessionLiveMainRoute();
+    setupWebRtcSessionVideoThumbnailRoute();
+    setupWebRtcOfferRoute();
+    setupWebRtcAnswerRoute();
+    setupWebRtcIceCandidateRoute();
+    setupWebRtcStatusRoute();
+    setupWebRtcVideoThumbnailStopRoute();
+    setupStorageStatusRoute();
+    setupWebRtcCorsRoute();
+}
+
+void IntegratedWebServer::setupRootRoute()
+{
     server->Get("/", [this]([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
         std::cout << "GET /" << std::endl;
         serveIntegratedHTML(res);
     });
+}
 
-    // CLIP API endpoints
+void IntegratedWebServer::setupStatusRoute()
+{
     server->Get("/api/status", []([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
         std::cout << "GET /api/status" << std::endl;
         json response;
@@ -274,7 +301,10 @@ void IntegratedWebServer::setupRoutes()
                 .count();
         res.set_content(response.dump(), "application/json");
     });
+}
 
+void IntegratedWebServer::setupEmbeddedRefreshRoutes()
+{
     server->Get("/api/config/embedded_refresh",
                 [this]([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
                     std::cout << "GET /api/config/embedded_refresh" << std::endl;
@@ -352,7 +382,10 @@ void IntegratedWebServer::setupRoutes()
             res.status = 400; // Bad Request
         }
     });
+}
 
+void IntegratedWebServer::setupVideoPlaybackTotalLengthRoutes()
+{
     server->Get("/api/config/video_playback_total_length",
                 [this]([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
                     std::cout << "GET /api/config/video_playback_total_length" << std::endl;
@@ -431,7 +464,10 @@ void IntegratedWebServer::setupRoutes()
                 res.status = 400; // Bad Request
             }
         });
+}
 
+void IntegratedWebServer::setupNetworksRoute()
+{
     server->Get("/api/networks", [this]([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
         std::cout << "GET /api/networks" << std::endl;
         json response = json::array();
@@ -448,7 +484,10 @@ void IntegratedWebServer::setupRoutes()
         }
         res.set_content(response.dump(), "application/json");
     });
+}
 
+void IntegratedWebServer::setupModelsRoute()
+{
     server->Get("/api/models/([^/]+)", [this](const httplib::Request &req, httplib::Response &res) {
         std::string model_id = req.matches[1];
         std::cout << "GET /api/models/" << model_id << std::endl;
@@ -527,7 +566,10 @@ void IntegratedWebServer::setupRoutes()
 
         std::cout << "Streaming ONNX model: " << model_path << " (" << file_size << " bytes) in chunks" << std::endl;
     });
+}
 
+void IntegratedWebServer::setupEmbeddingRoute()
+{
     server->Post("/api/embedding", [this](const httplib::Request &req, httplib::Response &res) {
         std::cout << "POST /api/embedding" << std::endl;
 
@@ -604,7 +646,10 @@ void IntegratedWebServer::setupRoutes()
             res.set_content(error_response.dump(), "application/json");
         }
     });
+}
 
+void IntegratedWebServer::setupVideoThumbnailClickedRoute()
+{
     server->Post("/api/video-thumbnail-clicked", [this](const httplib::Request &req, httplib::Response &res) {
         std::cout << "POST /api/video-thumbnail-clicked" << std::endl;
 
@@ -662,8 +707,10 @@ void IntegratedWebServer::setupRoutes()
             res.set_content(error_response.dump(), "application/json");
         }
     });
+}
 
-    // WebRTC API endpoints
+void IntegratedWebServer::setupWebRtcSessionLiveMainRoute()
+{
     server->Post("/api/webrtc/session-live-main",
                  [this]([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
                      std::cout << "POST /api/webrtc/session-live-main" << std::endl;
@@ -695,7 +742,10 @@ void IntegratedWebServer::setupRoutes()
                          res.set_content(error_response.dump(), "application/json");
                      }
                  });
+}
 
+void IntegratedWebServer::setupWebRtcSessionVideoThumbnailRoute()
+{
     server->Post("/api/webrtc/session-video-thumbnail",
                  [this]([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
                      std::cout << "POST /api/webrtc/session-video-thumbnail" << std::endl;
@@ -727,7 +777,10 @@ void IntegratedWebServer::setupRoutes()
                          res.set_content(error_response.dump(), "application/json");
                      }
                  });
+}
 
+void IntegratedWebServer::setupWebRtcOfferRoute()
+{
     server->Post("/api/webrtc/offer", [this](const httplib::Request &req, httplib::Response &res) {
         std::cout << "POST /api/webrtc/offer" << std::endl;
         try
@@ -762,7 +815,10 @@ void IntegratedWebServer::setupRoutes()
             res.set_content(error_response.dump(), "application/json");
         }
     });
+}
 
+void IntegratedWebServer::setupWebRtcAnswerRoute()
+{
     server->Post("/api/webrtc/answer", [this](const httplib::Request &req, httplib::Response &res) {
         std::cout << "POST /api/webrtc/answer" << std::endl;
         try
@@ -796,7 +852,10 @@ void IntegratedWebServer::setupRoutes()
             res.set_content(error_response.dump(), "application/json");
         }
     });
+}
 
+void IntegratedWebServer::setupWebRtcIceCandidateRoute()
+{
     server->Post("/api/webrtc/ice-candidate", [this](const httplib::Request &req, httplib::Response &res) {
         std::cout << "POST /api/webrtc/ice-candidate" << std::endl;
         try
@@ -833,7 +892,10 @@ void IntegratedWebServer::setupRoutes()
             res.set_content(error_response.dump(), "application/json");
         }
     });
+}
 
+void IntegratedWebServer::setupWebRtcStatusRoute()
+{
     server->Get("/api/webrtc/status", [this]([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
         json statusJson;
 
@@ -846,7 +908,10 @@ void IntegratedWebServer::setupRoutes()
         res.set_content(statusJson.dump(), "application/json");
         res.set_header("Access-Control-Allow-Origin", "*");
     });
+}
 
+void IntegratedWebServer::setupWebRtcVideoThumbnailStopRoute()
+{
     server->Post("/api/webrtc/video-thumbnail-stop", [this](const httplib::Request &req, httplib::Response &res) {
         std::cout << "POST /api/webrtc/video-thumbnail-stop" << std::endl;
         auto body = nlohmann::json::parse(req.body);
@@ -869,7 +934,10 @@ void IntegratedWebServer::setupRoutes()
         res.set_content("Connection closed", "text/plain");
         res.set_header("Access-Control-Allow-Origin", "*");
     });
+}
 
+void IntegratedWebServer::setupStorageStatusRoute()
+{
     server->Get("/api/storage/status", [this]([[maybe_unused]] const httplib::Request &req, httplib::Response &res) {
         json response;
 
@@ -907,8 +975,10 @@ void IntegratedWebServer::setupRoutes()
 
         res.set_content(response.dump(), "application/json");
     });
+}
 
-    // Handle CORS preflight for WebRTC endpoints
+void IntegratedWebServer::setupWebRtcCorsRoute()
+{
     server->Options("/api/webrtc/.*", [](const httplib::Request &, httplib::Response &res) {
         res.set_header("Access-Control-Allow-Origin", "*");
         res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");

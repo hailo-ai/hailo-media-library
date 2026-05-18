@@ -36,22 +36,6 @@
                     "right": 0,
                     "top": 0
                 },
-                "roi_area1": {
-                    "bottom": 0,
-                    "enable": false,
-                    "left": 0,
-                    "qp_delta": 0,
-                    "right": 0,
-                    "top": 0
-                },
-                "roi_area2": {
-                    "bottom": 0,
-                    "enable": false,
-                    "left": 0,
-                    "qp_delta": 0,
-                    "right": 0,
-                    "top": 0
-                },
                 "sei_messages": {
                     "encoder_timing_sei": true,
                     "user_metadata_sei": true
@@ -107,6 +91,11 @@
                 "zoom_bitrate_adjuster": {
                     "mode": "DISABLED"
                 }
+            },
+            "smart_encoder": {
+                "enabled": false,
+                "background_qp_delta": 10,
+                "rois": []
             }
         },
         "input_stream": {

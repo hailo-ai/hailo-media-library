@@ -21,7 +21,6 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include <fcntl.h>
-#include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
@@ -37,6 +36,8 @@
 #include "media_library_logger.hpp"
 #include "encoder_config_presets.hpp"
 #include <tl/expected.hpp>
+
+extern std::unordered_map<void *, std::string> encoder_names;
 
 #define MODULE_NAME LoggerType::Encoder
 
@@ -81,6 +82,11 @@ media_library_return EncoderConfig::fill_missing_profile_and_level()
         LOGGER__MODULE__ERROR(MODULE_NAME,
                               "Both profile and level must be specified together, or both left unset/'auto'");
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    if (profile_set && level_set) // Both explicitly set — use as-is
+    {
+        return MEDIA_LIBRARY_SUCCESS;
     }
 
     const auto &profiles = (output_stream.codec == CODEC_TYPE_H264) ? std::span<const ProfileLevel>(h264_profiles)
@@ -327,13 +333,13 @@ bool Encoder::Impl::gop_config_update_required(const hailo_encoder_config_t &old
 bool Encoder::Impl::instance_restart_required(const hailo_encoder_config_t &old_config,
                                               const hailo_encoder_config_t &new_config, bool gop_update_required)
 {
-    // Output stream configs requires hard restart
+    // Output stream configs requires instance restart
     if (new_config.output_stream != old_config.output_stream)
     {
         return true;
     }
 
-    // Input stream configs requires hard restart
+    // Input stream configs requires instance restart
     if ((new_config.input_stream.width != old_config.input_stream.width) ||
         (new_config.input_stream.height != old_config.input_stream.height) ||
         (new_config.input_stream.framerate != old_config.input_stream.framerate) ||
@@ -342,7 +348,7 @@ bool Encoder::Impl::instance_restart_required(const hailo_encoder_config_t &old_
         return true;
     }
 
-    // Gop size change requires hard restart
+    // Gop size change requires instance restart
     if (gop_update_required)
     {
         return true;
@@ -515,24 +521,6 @@ media_library_return Encoder::Impl::get_level(std::string level, bool codecH264,
     }
 
     return MEDIA_LIBRARY_SUCCESS;
-}
-
-void Encoder::Impl::updateArea(coding_roi_area_t &area, VCEncPictureArea &vc_area)
-{
-    if (area.enable)
-    {
-        vc_area.enable = 1;
-        vc_area.top = area.top;
-        vc_area.left = area.left;
-        vc_area.bottom = area.bottom;
-        vc_area.right = area.right;
-        // vc_area.qpDelta = area.qp_delta;
-    }
-    else
-    {
-        vc_area.enable = 0;
-        vc_area.top = vc_area.left = vc_area.bottom = vc_area.right = -1;
-    }
 }
 
 void Encoder::Impl::updateArea(coding_roi_t &area, VCEncPictureArea &vc_area)
@@ -715,6 +703,7 @@ media_library_return Encoder::Impl::init_coding_control_config()
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Encoder - init_coding_control_config");
     VCEncRet ret = VCENC_OK;
     auto coding_control = m_config.get_hailo_config().coding_control;
+    auto smart_encoder = m_config.get_hailo_config().smart_encoder;
 
     /* Encoder setup: coding control */
     if ((ret = VCEncGetCodingCtrl(m_inst, &m_vc_coding_cfg)) != VCENC_OK)
@@ -745,8 +734,6 @@ media_library_return Encoder::Impl::init_coding_control_config()
 
     m_vc_coding_cfg.pcm_loop_filter_disabled_flag = 0;
 
-    updateArea(coding_control.roi_area1, m_vc_coding_cfg.roi1Area);
-    updateArea(coding_control.roi_area2, m_vc_coding_cfg.roi2Area);
     updateArea(coding_control.intra_area, m_vc_coding_cfg.intraArea);
     updateArea(coding_control.ipcm_area1, m_vc_coding_cfg.ipcm1Area);
     updateArea(coding_control.ipcm_area2, m_vc_coding_cfg.ipcm2Area);
@@ -756,9 +743,6 @@ media_library_return Encoder::Impl::init_coding_control_config()
     m_vc_coding_cfg.pcm_enabled_flag = 0;
 
     m_vc_coding_cfg.codecH264 = m_vc_cfg.codecH264;
-
-    m_vc_coding_cfg.roiMapDeltaQpEnable = 0;
-    m_vc_coding_cfg.roiMapDeltaQpBlockUnit = 0;
 
     m_vc_coding_cfg.enableScalingList = 0;
     m_vc_coding_cfg.chroma_qp_offset = 0;

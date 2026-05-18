@@ -12,6 +12,13 @@
 #include <thread>
 #include <shared_mutex>
 
+enum class ActiveCallbackType
+{
+    NONE,
+    CPP,
+    GST
+};
+
 class MediaLibraryFrontend::Impl final
 {
   public:
@@ -30,6 +37,7 @@ class MediaLibraryFrontend::Impl final
 
     tl::expected<std::vector<frontend_output_stream_t>, media_library_return> get_outputs_streams();
     media_library_return subscribe(FrontendCallbacksMap callback);
+    media_library_return subscribe_gst(FrontendGstBufferCallbacksMap callbacks);
     tl::expected<std::vector<std::string>, media_library_return> get_all_subscribers_ids();
     media_library_return unsubscribe_all();
     media_library_return unsubscribe(const std::string &id);
@@ -130,6 +138,8 @@ class MediaLibraryFrontend::Impl final
     std::vector<frontend_output_stream_t> m_output_streams;
     guint m_send_buffer_id;
     std::map<output_stream_id_t, FrontendWrapperCallback> m_callbacks;
+    std::map<output_stream_id_t, FrontendGstBufferCallback> m_gst_callbacks;
+    ActiveCallbackType m_active_callback_type = ActiveCallbackType::NONE;
     std::map<std::string, output_stream_id_t> m_output_stream_by_srcpad_name;
     std::shared_mutex m_callbacks_mutex;
     std::shared_ptr<std::thread> m_main_loop_thread;

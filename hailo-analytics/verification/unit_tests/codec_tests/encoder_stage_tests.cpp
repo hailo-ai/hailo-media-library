@@ -214,18 +214,8 @@ TEST_F(EncoderStageTest, CanCreateEncoderFromMediaLibraryEncoder)
     auto stage = std::make_shared<EncoderStage>("test_encoder");
 
     // Create encoder stage from media library encoder
-    auto result = stage->configure(encoder);
+    auto result = stage->configure(*encoder);
     EXPECT_EQ(result, AppStatus::SUCCESS);
-}
-
-TEST_F(EncoderStageTest, CreateFailsWithNullEncoder)
-{
-    auto stage = std::make_shared<EncoderStage>("test_encoder");
-
-    MediaLibraryEncoderPtr null_encoder = nullptr;
-    auto result = stage->configure(null_encoder);
-
-    EXPECT_NE(result, AppStatus::SUCCESS);
 }
 
 TEST_F(EncoderStageTest, CanConfigureWithNewEncoder)
@@ -237,7 +227,7 @@ TEST_F(EncoderStageTest, CanConfigureWithNewEncoder)
 
     // Create and configure stage
     auto stage = std::make_shared<EncoderStage>("test_encoder");
-    auto result1 = stage->configure(encoder1);
+    auto result1 = stage->configure(*encoder1);
     ASSERT_EQ(result1, AppStatus::SUCCESS);
 
     // Create second encoder
@@ -246,18 +236,8 @@ TEST_F(EncoderStageTest, CanConfigureWithNewEncoder)
     auto encoder2 = encoder2_result.value();
 
     // Reconfigure with new encoder
-    auto result2 = stage->configure(encoder2);
+    auto result2 = stage->configure(*encoder2);
     EXPECT_EQ(result2, AppStatus::SUCCESS);
-}
-
-TEST_F(EncoderStageTest, ConfigureFailsWithNullEncoder)
-{
-    auto stage = std::make_shared<EncoderStage>("test_encoder");
-
-    MediaLibraryEncoderPtr null_encoder = nullptr;
-    auto result = stage->configure(null_encoder);
-
-    EXPECT_NE(result, AppStatus::SUCCESS);
 }
 
 // ============================================================================
@@ -273,7 +253,7 @@ TEST_F(EncoderStageTest, CanInitializeAfterCreate)
 
     // Create and configure stage
     auto stage = std::make_shared<EncoderStage>("test_encoder");
-    auto configure_result = stage->configure(encoder);
+    auto configure_result = stage->configure(*encoder);
     ASSERT_EQ(configure_result, AppStatus::SUCCESS);
 
     // Start should call init() internally
@@ -303,7 +283,7 @@ TEST_F(EncoderStageTest, CanStopAfterInit)
 
     // Create, configure and start stage
     auto stage = std::make_shared<EncoderStage>("test_encoder");
-    stage->configure(encoder);
+    stage->configure(*encoder);
     stage->start();
 
     // Stop should call deinit() internally
@@ -320,7 +300,7 @@ TEST_F(EncoderStageTest, CanHandleNullBuffer)
 
     // Create and configure stage
     auto stage = std::make_shared<EncoderStage>("test_encoder");
-    stage->configure(encoder);
+    stage->configure(*encoder);
     stage->add_queue("source");
     stage->start();
 
@@ -349,7 +329,7 @@ TEST_F(EncoderStageTest, CanStartAndStopMultipleTimes)
 
     // Create and configure stage
     auto stage = std::make_shared<EncoderStage>("test_encoder");
-    stage->configure(encoder);
+    stage->configure(*encoder);
 
     // Start and stop multiple times
     for (int i = 0; i < 3; i++)
@@ -366,7 +346,7 @@ TEST_F(EncoderStageTest, CanStartAndStopMultipleTimes)
         // Reconfigure after stop to allow restart
         if (i < 2) // Don't reconfigure after the last iteration
         {
-            auto reconfig_result = stage->configure(encoder);
+            auto reconfig_result = stage->configure(*encoder);
             EXPECT_EQ(reconfig_result, AppStatus::SUCCESS);
         }
     }
@@ -382,7 +362,7 @@ TEST_F(EncoderStageTest, StopWithoutStartIsIdempotent)
 
     // Create and configure stage
     auto stage = std::make_shared<EncoderStage>("test_encoder");
-    stage->configure(encoder);
+    stage->configure(*encoder);
 
     // Stop without start should not crash
     auto result = stage->stop();

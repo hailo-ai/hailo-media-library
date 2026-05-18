@@ -71,16 +71,6 @@ executable('switch_encoder_frontend_example',
   install_dir: get_option('bindir'),
 )
 
-# Calculate OSD Text Size
-calculate_size_osd_src = files('../api/examples/calculate_text_size_osd.cpp')
-executable('calc_osd_text_size',
-  calculate_size_osd_src,
-  cpp_args: common_args,
-  dependencies: [libmedialib_dep],
-  install: true,
-  install_dir: get_option('bindir'),
-)
-
 # Config Tuning GStreamer Application
 config_tuning_gst_application_src = files('../api/examples/config_tuning_gst_application.cpp')
 executable('config_tuning_gst_application',
@@ -120,6 +110,7 @@ frontend_example_src = files('../api/examples/basic_recording_to_file/basic_reco
 executable('basic_h264_recording_to_file',
   frontend_example_src,
   cpp_args: common_args,
+  include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
   install: true,
   install_dir: get_option('bindir'),
@@ -130,6 +121,7 @@ frontend_example_src = files('../api/examples/basic_recording_to_file/basic_reco
 executable('basic_jpeg_recording_to_file',
   frontend_example_src,
   cpp_args: common_args + ['-DUSE_JPEG_JSONS'],
+  include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
   install: true,
   install_dir: get_option('bindir'),
@@ -140,6 +132,7 @@ frontend_example_src = files('../api/examples/dynamic_controls_example/dynamic_c
 executable('dynamic_controls_example',
   frontend_example_src,
   cpp_args: common_args,
+  include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
   install: true,
   install_dir: get_option('bindir'),
@@ -150,6 +143,7 @@ frontend_example_src = files('../api/examples/osd_privacy_example/osd_privacy_ex
 executable('osd_privacy_example',
   frontend_example_src,
   cpp_args: common_args,
+  include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
   install: true,
   install_dir: get_option('bindir'),
@@ -160,6 +154,7 @@ frontend_example_src = files('../api/examples/profile_switching_example/profile_
 executable('profile_switching_example',
   frontend_example_src,
   cpp_args: common_args,
+  include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
   install: true,
   install_dir: get_option('bindir'),
@@ -170,6 +165,7 @@ frontend_example_src = files('../api/examples/profile_switching_example/profile_
 executable('jpeg_profile_switching_example',
   frontend_example_src,
   cpp_args: common_args + ['-DUSE_JPEG_JSONS'],
+  include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
   install: true,
   install_dir: get_option('bindir'),
@@ -180,6 +176,7 @@ frontend_example_src = files('../api/examples/profile_switching_example/profile_
 executable('encoder_profile_switching_example',
   frontend_example_src,
   cpp_args: common_args + ['-DUSE_SWITCH_ENCODER_EXAMPLE'],
+  include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
   install: true,
   install_dir: get_option('bindir'),
@@ -190,7 +187,9 @@ frontend_example_src = files('../api/examples/rotation_example/rotation_example.
 executable('rotation_example',
   frontend_example_src,
   cpp_args: common_args,
+  include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
+  link_with: [examples_common_lib],
   install: true,
   install_dir: get_option('bindir'),
 )
@@ -200,6 +199,7 @@ frontend_example_src = files('../api/examples/rotation_example/rotation_example.
 executable('jpeg_rotation_example',
   frontend_example_src,
   cpp_args: common_args + ['-DUSE_JPEG_JSONS'],
+  include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
   install: true,
   install_dir: get_option('bindir'),
@@ -210,6 +210,7 @@ frontend_example_src = files('../api/examples/resolution_change_example/resoluti
 executable('resolution_change_example',
   frontend_example_src,
   cpp_args: common_args,
+  include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
   install: true,
   install_dir: get_option('bindir'),
@@ -220,7 +221,19 @@ frontend_example_src = files('../api/examples/resolution_change_example/resoluti
 executable('jpeg_resolution_change_example',
   frontend_example_src,
   cpp_args: common_args + ['-DUSE_JPEG_JSONS'],
+  include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
   install: true,
   install_dir: get_option('bindir'),
 )
+
+# GStreamer Vision + Encoder Example
+gst_vision_encoder_example_src = files('../api/examples/gst_vision_encoder/gst_vision_encoder_example.cpp')
+executable('gst_vision_encoder_example',
+  gst_vision_encoder_example_src,
+  cpp_args: common_args,
+  dependencies: [libmedialib_dep],
+  install: true,
+  install_dir: get_option('bindir'),
+)
+

@@ -11,6 +11,7 @@ function init_variables() {
     port=$DEFAULT_PORT
     address=$DEFAULT_ADDRESS
     encoder=$DEFAULT_ENCODER
+    use_vaapi=false
 
     num_cores_to_use=$(($(nproc) / 2))
     queue_params="max-size-buffers=30 max-size-bytes=0 max-size-time=0"
@@ -29,6 +30,7 @@ function print_usage() {
     echo "  -p PORT --port PORT           Set the port source (default $port)"
     echo "  -a ADDRESS --address ADDRESS  Set the address source (default $address)"
     echo "  -e ENCODER --encoder ENCODER  Select the encoder type choose from [h265, h264]. default $encoder"
+    echo "  --use-vaapi                   Use VAAPI hardware acceleration for decoding (default: software decoder)"
     echo "  --show-fps                    Print fps"
     echo "  --print-gst-launch            Print the ready gst-launch command without running it"
     exit 0
@@ -44,6 +46,8 @@ function parse_args() {
         elif [ "$1" = "--show-fps" ]; then
             echo "Printing fps"
             additional_parameters="-v | grep hailo_display"
+        elif [ "$1" = "--use-vaapi" ]; then
+            use_vaapi=true
         elif [ "$1" = "--port" ] || [ "$1" = "-p" ]; then
             port="$2"
             shift
@@ -66,11 +70,18 @@ function parse_args() {
 init_variables $@
 parse_args $@
 
+# Select decoder based on VAAPI flag
+if [ "$use_vaapi" = true ]; then
+    decoder="vaapidecodebin"
+else
+    decoder="avdec_${encoder}"
+fi
+
 PIPELINE="gst-launch-1.0 \
     udpsrc port=$port address=$address ! application/x-rtp,encoding-name=${encoder^^} ! \
     queue ${queue_params_non_leaky} ! rtpjitterbuffer mode=0 !  \
     queue ${queue_params_non_leaky} ! rtp${encoder}depay !  \
-    queue ${queue_params_non_leaky} ! ${encoder}parse ! avdec_${encoder} ! \
+    queue ${queue_params_non_leaky} ! ${encoder}parse ! ${decoder} ! \
     queue ${queue_params_leaky} ! \
     videoconvert n-threads=${num_cores_to_use} ! queue ${queue_params_non_leaky} ! \
     fpsdisplaysink fps-update-interval=2000 name=hailo_display text-overlay=false sync=false ${additional_parameters}"

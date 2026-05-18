@@ -26,10 +26,7 @@ struct FrameData
     uint64_t dts; // in nanoseconds (will be calculated if needed)
     bool is_keyframe;
 
-    FrameData(const uint8_t *nal_data, size_t size, uint64_t timestamp)
-        : data(nal_data, nal_data + size), pts(timestamp), dts(0), is_keyframe(false)
-    {
-    }
+    FrameData(const uint8_t *nal_data, size_t size, uint64_t timestamp);
 };
 
 // Callback function type for segment notifications
@@ -49,9 +46,7 @@ struct SegmentInfo
     uint32_t index;
     bool completed;
 
-    SegmentInfo() : start_pts(0), end_pts(0), start_time_epoch_ms(0), index(0), completed(false)
-    {
-    }
+    SegmentInfo();
 };
 
 struct EpochNamingData
@@ -62,10 +57,7 @@ struct EpochNamingData
     std::mutex data_mutex;
     bool is_valid;
 
-    EpochNamingData(const std::string &path, const std::string &prefix)
-        : output_path(path), file_prefix(prefix), segment_counter(0), is_valid(true)
-    {
-    }
+    EpochNamingData(const std::string &path, const std::string &prefix);
 };
 
 class GStreamerMkvSegmenter

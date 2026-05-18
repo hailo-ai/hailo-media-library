@@ -1,6 +1,12 @@
 #include "storage_cleanup_service_ext.hpp"
 
 #include <iostream>
+
+StorageCleanupServiceExt::DatabaseConfig::DatabaseConfig(const std::string &faiss, const std::string &thumbnail,
+                                                         const std::string &video)
+    : faiss_db_name(faiss), thumbnail_db_name(thumbnail), video_db_name(video)
+{
+}
 #include "include/faiss_table.hpp"
 #include "include/thumbnail_table.hpp"
 #include "include/video_table.hpp"
