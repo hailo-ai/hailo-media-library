@@ -35,10 +35,7 @@ class TextEncoder
         EncoderResult() = default;
 
         EncoderResult(const std::string &id, std::map<std::string, std::vector<float>> positive,
-                      std::map<std::string, std::vector<float>> negative)
-            : network_id(id), positive_embeddings(std::move(positive)), negative_embeddings(std::move(negative))
-        {
-        }
+                      std::map<std::string, std::vector<float>> negative);
     };
 
     // Virtual destructor for proper cleanup of derived classes
@@ -89,27 +86,5 @@ class TextEncoder
      * Helper function to convert error codes to string descriptions
      * Can be overridden by derived classes for custom error messages
      */
-    virtual std::string error_to_string(ErrorCode error) const
-    {
-        switch (error)
-        {
-        case ErrorCode::SUCCESS:
-            return "Success";
-        case ErrorCode::INVALID_PARAMETER:
-            return "Invalid parameter";
-        case ErrorCode::UNINITIALIZED:
-            return "Encoder not initialized";
-        case ErrorCode::SERVICE_ERROR:
-            return "Service error";
-        case ErrorCode::ENCODING_ERROR:
-            return "Encoding error";
-        case ErrorCode::TOKENIZATION_ERROR:
-            return "Tokenization error";
-        case ErrorCode::TIMEOUT:
-            return "Operation timeout";
-        case ErrorCode::UNKNOWN_ERROR:
-        default:
-            return "Unknown error";
-        }
-    }
+    virtual std::string error_to_string(ErrorCode error) const;
 };

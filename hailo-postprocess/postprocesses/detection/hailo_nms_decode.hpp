@@ -10,8 +10,8 @@
 #include "hailo_postprocess_tools/objects/hailo_objects.hpp"
 #include "common/structures.hpp"
 #include "common/nms.hpp"
-#include "common/labels/coco_ninety.hpp"
-#include "common/labels/coco_visdrone.hpp"
+#include "hailo_postprocess_tools/labels/coco_ninety.hpp"
+#include "hailo_postprocess_tools/labels/coco_visdrone.hpp"
 
 static const int DEFAULT_MAX_BOXES = 100;
 static const float DEFAULT_THRESHOLD = 0.4;

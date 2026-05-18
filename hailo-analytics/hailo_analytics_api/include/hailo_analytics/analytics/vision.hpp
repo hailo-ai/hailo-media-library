@@ -3,17 +3,26 @@
 #include <optional>
 #include <string>
 #include <map>
-#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
 #include "hailo_analytics/pipeline/codecs/encoder_stage.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "hailo_analytics/pipeline/sinks/udp_stage.hpp"
 #include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
+#include "hailo_analytics/utils/stream_utils.hpp"
 #include "media_library/media_library.hpp"
 #include "media_library/frontend.hpp"
 #include "media_library/encoder.hpp"
-#include "tl/expected.hpp"
 
-// Macro that turns coverts stream ids to port #s
-#define PORT_FROM_ID(id) std::to_string(5000 + std::stoi(id.substr(4)) * 2)
+namespace hailo_analytics::analytics::vision
+{
+
+inline std::string port_from_stream_id(const std::string &id, int base_port = 5000)
+{
+    return hailo_analytics::utils::port_from_stream_id(id, base_port);
+}
+
+} // namespace hailo_analytics::analytics::vision
+
+#define PORT_FROM_ID(id, ...) hailo_analytics::utils::port_from_stream_id(id, ##__VA_ARGS__)
 
 namespace hailo_analytics::analytics::vision
 {
@@ -199,7 +208,7 @@ struct vision_config_t
  *
  * @return vision_output_config_t with sensible defaults
  */
-vision_output_config_t base_vision_output_config(std::string output_stream_id = "sink0");
+vision_output_config_t base_vision_output_config(std::string output_stream_id = "sink0", int base_port = 5000);
 
 /**
  * @brief Get default configuration for complete vision pipeline.
@@ -208,7 +217,7 @@ vision_output_config_t base_vision_output_config(std::string output_stream_id = 
  *
  * @return vision_config_t with sensible defaults
  */
-vision_config_t base_vision_config(std::vector<frontend_output_stream_t> frontend_streams);
+vision_config_t base_vision_config(std::vector<frontend_output_stream_t> frontend_streams, int base_port = 5000);
 
 /**
  * @brief Generate a vision output pipeline (encoder -> UDP) with the given configuration.
@@ -238,7 +247,7 @@ generate_vision_output_pipeline(MediaLibraryEncoderPtr encoder,
  * @return Expected<PipelinePtr, AppStatus> The constructed vision pipeline or error status
  */
 tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus> generate_vision_pipeline(
-    std::shared_ptr<MediaLibrary> media_library, const std::string &pipeline_name = "vision_pipeline",
+    MediaLibrary &media_library, const std::string &pipeline_name = "vision_pipeline",
     std::optional<vision_config_t> user_configs = std::nullopt);
 
 } // namespace hailo_analytics::analytics::vision

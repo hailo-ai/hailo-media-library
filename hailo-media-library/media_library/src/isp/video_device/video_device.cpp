@@ -189,6 +189,7 @@ bool VideoDevice::start_stream()
         LOGGER__MODULE__ERROR(LOGGER_TYPE, "{}: VIDIOC_STREAMON failed", m_name);
         return false;
     }
+    LOGGER__MODULE__DEBUG(LOGGER_TYPE, "{}: VIDIOC_STREAMON successful", m_name);
     m_is_stream_on = true;
     return true;
 }
@@ -221,6 +222,7 @@ bool VideoDevice::stop_stream()
         LOGGER__MODULE__ERROR(LOGGER_TYPE, "{}: VIDIOC_STREAMOFF failed", m_name);
         return false;
     }
+    LOGGER__MODULE__DEBUG(LOGGER_TYPE, "{}: VIDIOC_STREAMOFF successful", m_name);
     m_is_stream_on = false;
     return true;
 }

@@ -1,7 +1,4 @@
-#include <chrono>
 #include <iostream>
-#include <thread>
-#include <signal.h>
 #include <nlohmann/json.hpp>
 #include <cxxopts/cxxopts.hpp>
 #include <atomic>
@@ -11,13 +8,13 @@
 #include "common/logger_macros.hpp"
 #include "common/common.hpp"
 #include "resources/common/repository.hpp"
-#include "resources/common/events_utils.hpp"
 #include "media_library/signal_utils.hpp"
 
 #define DEFAULT_CONFIGS_PATH "/etc/imaging/cfg/medialib_configs/"
 #define APPEND_CONFIG_PATH(path) DEFAULT_CONFIGS_PATH path
 #define DEFAULT_MEDIALIB_CONFIG_PATH APPEND_CONFIG_PATH("webserver_medialib_config.json")
 
+using namespace hailo_analytics::pipeline;
 using namespace webserver;
 using namespace webserver::pipeline;
 using namespace webserver::resources;
@@ -93,7 +90,7 @@ int main(int argc, char *argv[])
     flags_init(argc, argv, medialib_config_path, initial_pipeline, tuning_mode);
 
     // Create HTTP server
-    std::shared_ptr<HTTPServer> svr = HTTPServer::create();
+    std::unique_ptr<HTTPServer> svr = HTTPServer::create();
 
     // Set up exception handler for HTTP server
     svr->set_exception_handler([](const auto &req, auto &res, std::exception_ptr ep) {
@@ -119,7 +116,7 @@ int main(int argc, char *argv[])
 
     // Create resources repository
     WEBSERVER_LOG_INFO("Creating resource repository with config: {}", medialib_config_path);
-    WebserverResourceRepository resources = ResourceRepository::create(svr, medialib_config_path);
+    WebserverResourceRepository resources = ResourceRepository::create(*svr, medialib_config_path);
 
     if (!resources)
     {
@@ -127,8 +124,8 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    std::shared_ptr<BasePipeline> active_pipeline;
-    std::shared_ptr<PipelineFactory> pipeline_factory;
+    BasePipeline *active_pipeline = nullptr;
+    std::unique_ptr<PipelineFactory> pipeline_factory;
 
     if (tuning_mode)
     {
@@ -142,7 +139,12 @@ int main(int argc, char *argv[])
     try
     {
         // We use the Factory for all cases to ensure correct construction
-        pipeline_factory = std::make_shared<PipelineFactory>(resources, arch, initial_pipeline);
+        pipeline_factory = std::make_unique<PipelineFactory>(*resources, arch, initial_pipeline);
+        if (pipeline_factory->set_override_persistent_settings(false) != AppStatus::SUCCESS)
+        {
+            WEBSERVER_LOG_ERROR("Failed to set override_persistent_settings");
+            return 1;
+        }
         active_pipeline = pipeline_factory->get_current_pipeline();
     }
     catch (const std::exception &e)

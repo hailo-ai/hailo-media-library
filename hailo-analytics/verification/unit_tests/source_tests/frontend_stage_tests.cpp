@@ -15,7 +15,7 @@
 #include "media_library/media_library.hpp"
 #include "media_library/frontend.hpp"
 #include "media_library/media_library_types.hpp"
-#include "media_library/examples_common.hpp"
+#include "common/common.hpp"
 
 using namespace hailo_analytics::pipeline;
 using namespace hailo_analytics::pipeline::sources;
@@ -95,9 +95,9 @@ class MediaLibraryTestHelper
         return helper;
     }
 
-    MediaLibraryFrontendPtr get_frontend()
+    MediaLibraryFrontend &get_frontend()
     {
-        return media_lib->m_frontend;
+        return *media_lib->m_frontend;
     }
 
     // Track subscribe calls by wrapping the frontend's subscribe method
@@ -171,7 +171,7 @@ class FrontendStageTest : public ::testing::Test
         return std::make_shared<Buffer>(mock_buffer);
     }
 
-    MediaLibraryFrontendPtr get_frontend()
+    MediaLibraryFrontend &get_frontend()
     {
         return media_lib_helper->get_frontend();
     }
@@ -500,7 +500,7 @@ TEST_F(FrontendStageTest, DestructorUnsubscribesAll)
     } // stage goes out of scope
 
     // Destructor should call unsubscribe_all - frontend should still be functional
-    auto streams = get_frontend()->get_outputs_streams();
+    auto streams = get_frontend().get_outputs_streams();
     EXPECT_TRUE(streams.has_value());
 }
 

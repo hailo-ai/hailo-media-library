@@ -10,4 +10,5 @@ __BEGIN_DECLS
 void filter(HailoROIPtr roi);
 void clip_resnet_50x4(HailoROIPtr roi);
 void clip_vit_b_32(HailoROIPtr roi);
+void clip_vit_l_14_laion2B(HailoROIPtr roi);
 __END_DECLS
