@@ -99,7 +99,7 @@ void facial_landmarks_nv12(HailoROIPtr roi)
     mediapipe_landmark(roi);
 }
 
-// Placeholder filter function (no-op)
 void filter(HailoROIPtr roi)
 {
+    facial_landmarks_nv12(roi);
 }

@@ -73,7 +73,7 @@ hailo_dsp_buffer_data_t::hailo_dsp_buffer_data_t(size_t width, size_t height, si
         break;
     default:
         LOGGER__MODULE__ERROR(MODULE_NAME, "Unsupported format {}", format);
-        // TOOD: Convert to `tl::expected` to be able to return error.
+        // TODO: Convert to `tl::expected` to be able to return error.
         // For now, set the format to unsupported DSP format to create error down the line
         properties.format = DSP_IMAGE_FORMAT_MAX_ENUM;
         break;
@@ -86,7 +86,7 @@ hailo_dsp_buffer_data_t::hailo_dsp_buffer_data_t(size_t width, size_t height, si
         break;
     default:
         LOGGER__MODULE__ERROR(MODULE_NAME, "Unsupported memory type {}", memory);
-        // TOOD: Convert to `tl::expected` to be able to return error.
+        // TODO: Convert to `tl::expected` to be able to return error.
         // For now, set the memory type to unsupported DSP memory type to create error down the line
         properties.memory = DSP_MEMORY_TYPE_MAX_ENUM;
         break;
@@ -472,7 +472,7 @@ dsp_status perform_dsp_multi_resize(dsp_multi_crop_resize_params_t *multi_crop_r
 }
 
 /**
- * Apply a privact mask and perform multiple crops and resizes on the DSP
+ * Apply a privacy mask and perform multiple crops and resizes on the DSP
  * This function calls the DSP library to perform crops and resizes on a given
  * input buffer. DSP will place the results in the array of output buffer.
  *

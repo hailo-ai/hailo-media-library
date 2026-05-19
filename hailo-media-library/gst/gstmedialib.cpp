@@ -25,8 +25,6 @@
 #endif
 
 #include "buffer_utils/gsthailobuffermeta.hpp"
-#include "encoder/gsthailoh264enc.hpp"
-#include "encoder/gsthailoh265enc.hpp"
 #include "hailo_encoder/gsthailoencoder.hpp"
 #include "osd/gsthailoosd.hpp"
 #include "muxers/gsthailoroundrobin.hpp"
@@ -44,8 +42,6 @@
 
 static gboolean media_library_plugin_init(GstPlugin *plugin)
 {
-    gst_element_register(plugin, "hailoh265enc", GST_RANK_PRIMARY, GST_TYPE_HAILO_H265_ENC);
-    gst_element_register(plugin, "hailoh264enc", GST_RANK_PRIMARY, GST_TYPE_HAILO_H264_ENC);
     gst_element_register(plugin, "hailoosd", GST_RANK_PRIMARY, GST_TYPE_HAILO_OSD);
     gst_element_register(plugin, "hailoencoder", GST_RANK_PRIMARY, GST_TYPE_HAILO_ENCODER);
     gst_element_register(plugin, "hailoencodebin", GST_RANK_PRIMARY, GST_TYPE_HAILO_ENCODE_BIN);

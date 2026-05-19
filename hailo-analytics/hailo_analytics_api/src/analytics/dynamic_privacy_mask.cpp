@@ -1,5 +1,7 @@
 #include "hailo_analytics/analytics/dynamic_privacy_mask.hpp"
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/utils/platform_utils.hpp"
+#include "hailo/hef.hpp"
 #include <stdexcept>
 
 namespace hailo_analytics::analytics::dynamic_privacy_mask
@@ -125,21 +127,20 @@ segmentation_config_t segmentation_base_config()
     utils::Architecture arch = utils::get_hailo_architecture();
     if (arch == utils::Architecture::Hailo15H)
     {
-        // Calculated based on number of segmented detection (per frame) times max entities (configured in analytics db)
-        // + the usage of the pipeline
         config.ai_config.output_pool_size = 400;
+        config.ai_config.batch_size = 60;
+        config.ai_config.job_limit = 60;
+        config.ai_config.scheduler_threshold = 60;
     }
     else
     {
-        // Calculated based on number of segmented detection (per frame) times max entities (configured in analytics db)
-        // + the usage of the pipeline
         config.ai_config.output_pool_size = 250;
+        config.ai_config.batch_size = 6;
+        config.ai_config.job_limit = 6;
+        config.ai_config.scheduler_threshold = 6;
     }
 
     config.ai_config.group_id = std::string(SEGMENTATION_GROUP_ID);
-    config.ai_config.batch_size = 60;
-    config.ai_config.job_limit = 60;
-    config.ai_config.scheduler_threshold = 60;
     config.ai_config.dynamic_threshold = true;
     config.ai_config.scheduler_timeout = std::chrono::milliseconds(100);
     config.ai_config.pool_mode = hailo_analytics::pipeline::StagePoolMode::BLOCKING;
@@ -205,11 +206,11 @@ bbox_crop_segmentation_config_t base_config()
 
     // Set default bbox crop stage configs
     config.bbox_crop_config.stage_name = std::string(BBOX_CROP_STAGE);
-    config.bbox_crop_config.output_pool_size = 150;
+    config.bbox_crop_config.output_pool_size = 160;
     config.bbox_crop_config.input_width = 1920; // Default FHD input
     config.bbox_crop_config.input_height = 1080;
-    config.bbox_crop_config.output_width = 128;
-    config.bbox_crop_config.output_height = 128;
+    // output_width/output_height are auto-detected from the segmentation HEF input shape
+    // in generate_dynamic_privacy_mask_pipeline()
     config.bbox_crop_config.main_sub_name = std::string(SEGMENTATION_AGGREGATOR_STAGE);
     config.bbox_crop_config.sub_sub_name = std::string(SEGMENTATION_SUBPIPELINE);
     config.bbox_crop_config.labels = std::vector<std::string>{"person", "face"};
@@ -236,7 +237,7 @@ bbox_crop_segmentation_config_t base_config()
     config.aggregator_config.multi_scale = false;
     config.aggregator_config.skip_migration = false;
     config.aggregator_config.trace = true;
-    config.aggregator_config.iou_threshold = 0.3f;
+    config.aggregator_config.iou_threshold = 0.99f;
     config.aggregator_config.border_threshold = 0.1f;
     config.aggregator_config.copy_sub_frame_tensor_to_metadata = true;
 
@@ -252,6 +253,32 @@ generate_dynamic_privacy_mask_pipeline(const std::string &pipeline_name,
     {
         cfg.merge_from(user_configs.value()); // user overrides
     }
+
+    // Parse the segmentation HEF to get the model's expected input dimensions
+    // and use them for the bbox crop output size
+    std::string hef_path = cfg.segmentation_config.ai_config.hef_path.value_or(std::string(SEGMENTATION_BASE_HEF));
+    auto hef_expected = hailort::Hef::create(hef_path);
+    if (!hef_expected)
+    {
+        HAILO_ANALYTICS_LOG_ERROR("Failed to parse HEF file '{}', status = {}", hef_path, hef_expected.status());
+        return tl::unexpected(hailo_analytics::pipeline::AppStatus::HAILORT_ERROR);
+    }
+    auto input_vstream_infos = hef_expected->get_input_vstream_infos();
+    if (!input_vstream_infos || input_vstream_infos->empty())
+    {
+        HAILO_ANALYTICS_LOG_ERROR("Failed to get input vstream infos from HEF '{}'", hef_path);
+        return tl::unexpected(hailo_analytics::pipeline::AppStatus::HAILORT_ERROR);
+    }
+    const auto &input_info = input_vstream_infos->front();
+    const auto &input_shape = input_info.shape;
+    uint32_t pixel_width = input_shape.width;
+    // NV12 shape reports tensor dimensions (H*1.5/features, W, features),
+    // convert back to pixel height
+    uint32_t pixel_height = (input_shape.height * input_shape.features * 2) / 3;
+    cfg.bbox_crop_config.output_width = static_cast<int>(pixel_width);
+    cfg.bbox_crop_config.output_height = static_cast<int>(pixel_height);
+    HAILO_ANALYTICS_LOG_INFO("Segmentation HEF input shape: {}x{} pixels (from '{}')", pixel_width, pixel_height,
+                             hef_path);
 
     // Create pipeline builder
     hailo_analytics::pipeline::PipelineBuilder pip_builder;
