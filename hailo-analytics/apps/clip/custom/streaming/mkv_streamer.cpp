@@ -1,13 +1,11 @@
 #include "mkv_streamer.hpp"
-#include <iostream>
-#include <sstream>
-#include <filesystem>
-#include <chrono>
-#include <gst/video/video.h>
-#include <gst/rtp/rtp.h>
-#include "common_utils.hpp"
+
 #include <malloc.h>
-#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include <glib-object.h>
+#include <gst/app/gstappsink.h>
+#include <gst/gstparse.h>
+
+#include "common_utils.hpp"
 
 VideoFile::VideoFile(const std::string &path, int64_t start_ts, int64_t duration)
     : file_path(path), start_timestamp_ms(start_ts), duration_ms(duration)
@@ -626,7 +624,7 @@ std::string MKVStreamer::create_pipeline_string(const std::string &file_path, Rt
     return result;
 }
 
-gboolean MKVStreamer::bus_callback([[maybe_unused]] GstBus *bus, GstMessage *msg, gpointer user_data)
+gboolean MKVStreamer::bus_callback(GstBus * /*bus*/, GstMessage *msg, gpointer user_data)
 {
     FileContext *context = static_cast<FileContext *>(user_data);
 

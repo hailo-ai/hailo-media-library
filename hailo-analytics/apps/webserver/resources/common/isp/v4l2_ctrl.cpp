@@ -1,10 +1,10 @@
 #include "v4l2_ctrl.hpp"
 
-#include <iostream>
-
-#include <sys/fcntl.h>
 #include <sys/ioctl.h>
-#include <sys/unistd.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <iostream>
 
 namespace v4l2_ctrl
 {

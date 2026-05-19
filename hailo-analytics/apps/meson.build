@@ -4,6 +4,9 @@ apps_install_dir = get_option('apps_install_dir')
 ################################################
 # SUBDIRS
 ################################################
+subdir('shared')
+
+
 if get_option('build_case_studies')
     subdir('case_studies')
 endif
@@ -28,4 +31,6 @@ if get_option('build_native')
     
 endif
 
-
+if get_option('build_vlm_event_monitor')
+    subdir('vlm_event_monitor')
+endif

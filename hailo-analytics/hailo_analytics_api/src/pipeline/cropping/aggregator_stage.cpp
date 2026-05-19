@@ -1,6 +1,23 @@
+#include <sys/types.h>
+#include <hailo_postprocess_tools/objects/hailo_common.hpp>
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
+#include <tl/expected.hpp>
+#include <algorithm>
+#include <atomic>
+#include <memory>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_analytics/pipeline/core/stage_tracing_perfetto.hpp"
 #include "hailo_analytics/pipeline/cropping/aggregator_stage.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/queue.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/pipeline/core/stage_tracing.hpp"
 
 namespace hailo_analytics::pipeline::cropping
 {
@@ -22,9 +39,8 @@ AggregatorStage::AggregatorStage(std::string name, std::string main_inlet_name, 
 
 AggregatorStage::~AggregatorStage() = default;
 
-void AggregatorStage::add_queue(std::string name)
+void AggregatorStage::add_queue(std::string /*name*/)
 {
-    (void)name;
     // Skip if called, queues are added in the constructor
 }
 
@@ -248,7 +264,6 @@ void AggregatorStage::loop()
 tl::expected<std::vector<BufferPtr>, SubframeStatus> AggregatorStage::get_subframes(BufferPtr main_buffer,
                                                                                     int num_subframes)
 {
-    (void)main_buffer;
     std::vector<BufferPtr> subframes;
     for (int i = 0; i < num_subframes; i++)
     {

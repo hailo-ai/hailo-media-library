@@ -1,13 +1,18 @@
 #pragma once
 
+#include <stddef.h>
 #include <string_view>
 #include <optional>
-#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
+#include <string>
+#include <vector>
+
 #include "hailo_analytics/pipeline/core/pipeline_database.hpp"
 #include "hailo_analytics/analytics/common_configs.hpp"
 #include "hailo_analytics/pipeline/cropping/bbox_crop_stage.hpp"
 #include "hailo_analytics/pipeline/cropping/aggregator_stage.hpp"
 #include "tl/expected.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 namespace hailo_analytics::analytics::license_plate_recognition
 {
@@ -30,8 +35,6 @@ inline constexpr std::string_view OCR_PIPELINE = "ocr_pipeline";
 
 // OCR AI Stage parameters
 inline constexpr std::string_view OCR_STAGE = "ocr_stage";
-inline constexpr std::string_view OCR_BASE_HEF =
-    "/home/root/apps/license_plate_recognition/resources/paddle_ocr_v5_mobile_recognition.hef";
 inline constexpr std::string_view OCR_GROUP_ID = "device0";
 
 // OCR Postprocess parameters
@@ -81,6 +84,7 @@ struct bbox_crop_config_t
     std::optional<bool> trace;
     std::optional<hailo_analytics::pipeline::StagePoolMode> pool_mode;
     std::optional<size_t> crop_every_x_frames;
+    std::optional<bool> release_input_after_dsp;
 
     /**
      * @brief Merge configuration from another bbox_crop_config_t.

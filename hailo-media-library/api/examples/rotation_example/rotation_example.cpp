@@ -1,6 +1,25 @@
-#include "common/common.hpp"
-#include <algorithm>
+#include <stdint.h>
+#include <stdlib.h>
+#include <tl/expected.hpp>
 #include <map>
+#include <chrono>
+#include <iostream>
+#include <memory>
+#include <optional>
+#include <string>
+#include <thread>
+#include <utility>
+#include <variant>
+#include <vector>
+
+#include "common/common.hpp"
+#include "media_library/media_library_types.hpp"
+#include "media_library/signal_utils.hpp"
+#include "media_library/encoder_config_types.hpp"
+#include "media_library/frontend.hpp"
+#include "media_library/media_library.hpp"
+#include "media_library/utils.hpp"
+#include "cloexec_fstream.hpp"
 
 // Track current rotation state
 static rotation_angle_t g_current_rotation = ROTATION_ANGLE_0;
@@ -135,37 +154,34 @@ void adjust_osd_positions_for_aspect_ratio_swap(const std::string &stream_id, co
 
     for (auto &text_overlay : osd.text_overlays)
     {
-        static constexpr float MAX_X_MARGIN = 0.95f;
-        float max_x = MAX_X_MARGIN * x_scale;
-        if (text_overlay->x > max_x)
+        float new_x = text_overlay->x * x_scale;
+        if (text_overlay->x != new_x)
         {
             std::cout << "  Adjusting text overlay '" << text_overlay->id << "' x: " << text_overlay->x << " -> "
-                      << max_x << std::endl;
-            text_overlay->x = max_x;
+                      << new_x << std::endl;
+            text_overlay->x = new_x;
         }
     }
 
     for (auto &datetime_overlay : osd.datetime_overlays)
     {
-        static constexpr float MAX_X_MARGIN = 0.95f;
-        float max_x = MAX_X_MARGIN * x_scale;
-        if (datetime_overlay->x > max_x)
+        float new_x = datetime_overlay->x * x_scale;
+        if (datetime_overlay->x != new_x)
         {
             std::cout << "  Adjusting datetime overlay '" << datetime_overlay->id << "' x: " << datetime_overlay->x
-                      << " -> " << max_x << std::endl;
-            datetime_overlay->x = max_x;
+                      << " -> " << new_x << std::endl;
+            datetime_overlay->x = new_x;
         }
     }
 
     for (auto &image_overlay : osd.image_overlays)
     {
-        static constexpr float MAX_X_MARGIN = 0.95f;
-        float max_x = std::max(0.0f, (MAX_X_MARGIN - image_overlay->width) * x_scale);
-        if (image_overlay->x > max_x)
+        float new_x = image_overlay->x * x_scale;
+        if (image_overlay->x != new_x)
         {
             std::cout << "  Adjusting image overlay '" << image_overlay->id << "' x: " << image_overlay->x << " -> "
-                      << max_x << std::endl;
-            image_overlay->x = max_x;
+                      << new_x << std::endl;
+            image_overlay->x = new_x;
         }
     }
 }
@@ -316,6 +332,8 @@ int main()
         std::cout << "Failed to initialize media library" << std::endl;
         return 1;
     }
+
+    examples::scale_osd_to_output_resolution(m_media_lib);
 
     auto streams = m_media_lib->m_frontend->get_outputs_streams();
     if (!streams.has_value())

@@ -1,16 +1,20 @@
 
+#include <stdlib.h>
+#include <tl/expected.hpp>
 // general includes
 #include <functional>
 #include <iostream>
 #include <string>
 #include <thread>
+#include <memory>
 
 #include "media_library/signal_utils.hpp"
 #include "clip_app_config_parser.hpp"
 #include "clip_pipeline_ai.hpp"
 #include "webserver.hpp"
-#include "common_utils.hpp"
 #include "clip_pipeline_ai_defines.hpp"
+#include "clip_app_config.hpp"
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
 std::function<void(int)> g_signal_callback;
 
@@ -54,7 +58,7 @@ int main()
 
     std::shared_ptr<IntegratedWebServer> server = server_result.value();
 
-    g_signal_callback = [&server]([[maybe_unused]] int sig) {
+    g_signal_callback = [&server](int /*sig*/) {
         HAILO_ANALYTICS_LOG_INFO("Stopping Pipeline...");
         // Stop Application
         server->stop();

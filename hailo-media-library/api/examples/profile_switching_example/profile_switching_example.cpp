@@ -1,4 +1,22 @@
+#include <stdlib.h>
+#include <tl/expected.hpp>
+#include <chrono>
+#include <iostream>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
+
 #include "common/common.hpp"
+#include "osd.hpp"
+#include "osd_types.hpp"
+#include "media_library/signal_utils.hpp"
+#include "media_library/media_library.hpp"
+#include "media_library/media_library_api_types.hpp"
+#include "cloexec_fstream.hpp"
 
 void update_osd_profile_name(const std::string &profile_name)
 {
@@ -133,6 +151,8 @@ int main()
         return 1;
     }
 
+    examples::scale_osd_to_output_resolution(m_media_lib);
+
     m_media_lib->subscribe_to_profile_restriction_done([]() {
         std::cout << "Profile restriction done" << std::endl;
         // Set profile to previous profile?
@@ -239,7 +259,7 @@ int main()
 
         std::cout << "Setting profile to low light" << std::endl;
 
-        if (!set_profile("Lowlight_Basic"))
+        if (!set_profile("AI_ISP_Gen1_Basic"))
         {
             std::cout << "Failed to set profile" << std::endl;
             return 1;
@@ -270,7 +290,7 @@ int main()
 
         std::cout << "Setting profile to low light JPEG" << std::endl;
 
-        if (!set_profile("Lowlight_JPEG"))
+        if (!set_profile("AI_ISP_Gen1_JPEG"))
         {
             std::cout << "Failed to set profile" << std::endl;
             return 1;
@@ -311,7 +331,7 @@ int main()
 
         std::cout << "Setting profile to low light_JPEG" << std::endl;
 
-        if (!set_profile("Lowlight_JPEG"))
+        if (!set_profile("AI_ISP_Gen1_JPEG"))
         {
             std::cout << "Failed to set profile" << std::endl;
             return 1;

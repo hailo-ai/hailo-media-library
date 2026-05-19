@@ -26,10 +26,12 @@
  **/
 
 #pragma once
+#include <time.h>
+#include <opencv2/core.hpp>
+
 #include "buffer_pool.hpp"
 #include "media_library_types.hpp"
 #include "multi_resize.hpp"
-#include <opencv2/core/mat.hpp>
 
 class MotionDetection
 {

@@ -1,6 +1,11 @@
 #include "hailort_service.hpp"
 
+#include <hailort.h>
+#include <buffer.hpp>
+#include <expected.hpp>
 #include <cstring>
+
+#include "service/query_service/hailort_buffer_manager.hpp"
 
 void HailortService::register_output_callback(const std::function<void(std::vector<float>)> &callback)
 {
@@ -36,7 +41,7 @@ HailortServiceStatus HailortService::initialize()
     }
 
     // Initialize HailoRT to use the same device group id.
-    hailo_vdevice_params_t vdevice_params = {0};
+    hailo_vdevice_params_t vdevice_params{};
     hailo_init_vdevice_params(&vdevice_params);
     vdevice_params.group_id = m_hailort_device_id.c_str();
 

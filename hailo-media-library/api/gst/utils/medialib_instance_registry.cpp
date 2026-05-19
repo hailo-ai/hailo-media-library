@@ -1,5 +1,10 @@
 #include "medialib_instance_registry.hpp"
 
+#include <tl/expected.hpp>
+#include <utility>
+
+#include "media_library/media_library_types.hpp"
+
 namespace hailo::gst_api
 {
 

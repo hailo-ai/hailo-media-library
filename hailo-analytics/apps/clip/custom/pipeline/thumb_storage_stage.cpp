@@ -1,9 +1,12 @@
 #include "thumb_storage_stage.hpp"
 
-#include "hailo_analytics/pipeline/core/error_utils.hpp"
-
 #include <chrono>
-#include <sstream>
+#include <cstring>
+
+#include "media_library/cloexec_fstream.hpp"
+#include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "common_utils.hpp"
+#include "sql_factory.hpp"
 
 ThumStorageStage::ThumStorageStage(std::string name, DBSource db_source, std::string db_source_data,
                                    std::string thumb_dir, std::string thumb_filename_prefix, size_t queue_size,
@@ -111,7 +114,7 @@ hailo_analytics::pipeline::AppStatus ThumStorageStage::process(hailo_analytics::
     }
 
     // Save thumbnail to file
-    std::ofstream file = create_file(thumb_path, filename);
+    cloexec::ofstream file = create_file(thumb_path, filename);
     if (!file)
     {
         std::cerr << "Failed to open file: " << thumb_path << "/" << filename << std::endl;
@@ -177,8 +180,8 @@ void ThumStorageStage::database_access()
                 std::chrono::high_resolution_clock::now() - start);
             if (duration.count() > 30)
             {
-                std::cout << "Time taken THUMB table insert: " << duration.count() << " ms"
-                          << ", total insert item: " << thumbnails_to_process.size() << std::endl;
+                HAILO_ANALYTICS_LOG_INFO("Time taken THUMB table insert: {} ms, total insert items: {}",
+                                         duration.count(), thumbnails_to_process.size());
             }
         }
 
@@ -210,8 +213,8 @@ void ThumStorageStage::database_access()
                 std::chrono::high_resolution_clock::now() - start);
             if (duration.count() > 30)
             {
-                std::cout << "Time taken THUMB image move from cache to storage: " << duration.count() << " ms"
-                          << std::endl;
+                HAILO_ANALYTICS_LOG_INFO("Time taken THUMB image move from cache to storage: {} ms, items: {}",
+                                         duration.count(), thumbnails_to_process.size());
             }
         }
 
@@ -222,7 +225,8 @@ void ThumStorageStage::database_access()
     }
 }
 
-bool ThumStorageStage::write_encoded_data(HailoMediaLibraryBufferPtr buffer, uint32_t size, std::ofstream &output_file)
+bool ThumStorageStage::write_encoded_data(HailoMediaLibraryBufferPtr buffer, uint32_t size,
+                                          cloexec::ofstream &output_file)
 {
     char *data = (char *)buffer->get_plane_ptr(0);
     if (!data)
@@ -236,12 +240,12 @@ bool ThumStorageStage::write_encoded_data(HailoMediaLibraryBufferPtr buffer, uin
     return true;
 }
 
-std::ofstream ThumStorageStage::create_file(const std::string &dir_path, const std::string &filename)
+cloexec::ofstream ThumStorageStage::create_file(const std::string &dir_path, const std::string &filename)
 {
     fs::path full_path = fs::path(dir_path) / filename;
 
     // Open the file with desired flags
-    std::ofstream file(full_path, std::ios::out | std::ios::binary | std::ios::app);
+    cloexec::ofstream file(full_path, std::ios::out | std::ios::binary | std::ios::app);
 
     return file;
 }

@@ -50,7 +50,6 @@ class ConfigResourceMedialib : public ConfigResourceBase
     nlohmann::json m_medialib_config;
     config_profile_t m_current_profile;
     std::vector<ProfileType> m_supported_profiles;
-    bool m_is_hdm_mode = false;
     bool gyro_exist = false;
     mutable std::shared_mutex m_config_mutex;
 
@@ -58,7 +57,6 @@ class ConfigResourceMedialib : public ConfigResourceBase
     tl::expected<nlohmann::json, std::string> extract_frontend_config();
     tl::expected<nlohmann::json, std::string> extract_encoder_config();
     tl::expected<void, std::string> extract_profile_data(const std::string &profile_name);
-    bool check_lowlight_bayer_is_hdm() const;
 
     nlohmann::json build_profile_response() const;
 

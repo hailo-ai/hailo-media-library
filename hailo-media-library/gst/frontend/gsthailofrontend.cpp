@@ -22,14 +22,15 @@
  */
 
 #include "gsthailofrontend.hpp"
-#include "media_library/media_library_types.hpp"
-#include "multi_resize/gsthailomultiresize.hpp"
-#include "common/gstmedialibcommon.hpp"
-#include "media_library/privacy_mask.hpp"
+
 #include <gst/gst.h>
-#include <gst/video/video.h>
-#include <dlfcn.h>
 #include <unistd.h>
+#include <gst/gsterror.h>
+#include <gst/gstghostpad.h>
+#include <gst/gstparamspecs.h>
+
+#include "media_library/media_library_types.hpp"
+#include "common/gstmedialibcommon.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailofrontend_debug_category);
 #define GST_CAT_DEFAULT gst_hailofrontend_debug_category

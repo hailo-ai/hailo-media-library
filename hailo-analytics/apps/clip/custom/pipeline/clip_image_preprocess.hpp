@@ -1,19 +1,15 @@
 #pragma once
 
-// General includes
-#include <cstdint>
+#include <stddef.h>
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
 #include <memory>
 #include <string>
-#include <iostream>
-#include <filesystem>
-#include <fstream>
-#include <chrono>
-#include <sstream>
+#include <optional>
+#include <string_view>
 
 // Infra includes
 #include "hailo_analytics/pipeline/core/stage.hpp"
 #include "hailo_analytics/pipeline/core/buffer.hpp"
-
 #include "hailo_postprocess_tools/image_utils/hailomat.hpp"
 
 // Using declarations for pipeline types

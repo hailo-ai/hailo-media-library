@@ -8,8 +8,12 @@
  **/
 #pragma once
 
-#include "hailo_postprocess_tools/objects/hailo_objects.hpp"
 #include <gst/gst.h>
+#include <glib-object.h>
+#include <glib.h>
+#include <gst/gstmeta.h>
+
+#include "hailo_postprocess_tools/objects/hailo_objects.hpp"
 
 G_BEGIN_DECLS
 

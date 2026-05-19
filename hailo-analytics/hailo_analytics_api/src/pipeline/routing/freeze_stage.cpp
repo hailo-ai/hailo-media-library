@@ -25,6 +25,12 @@ AppStatus FreezeStage::process(BufferPtr data)
 
     return AppStatus::SUCCESS;
 }
+
+AppStatus FreezeStage::deinit()
+{
+    m_saved_buffer.reset();
+    return AppStatus::SUCCESS;
+}
 bool FreezeStage::is_freeze()
 {
     return m_freeze;

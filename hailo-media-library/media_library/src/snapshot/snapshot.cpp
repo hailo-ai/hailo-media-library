@@ -1,18 +1,14 @@
 #include "snapshot.hpp"
+
+#include <algorithm>
+#include <sstream>
+#include <exception>
+#include <utility>
+
 #include "media_library_logger.hpp"
-
-#include <filesystem>
-#include <fstream>
-#include <iostream>
-#include <sys/statvfs.h> // For statvfs
-#include <fcntl.h>       // For O_WRONLY, O_CREAT, etc.
-#include <unistd.h>      // For write, close, fsync
-#include <string.h>      // For strerror
-#include <errno.h>       // For errno
-
 #include "env_vars.hpp"
 #include "common.hpp"
-#include "logger_macros.hpp"
+#include "threadpool.hpp"
 
 #define MODULE_NAME LoggerType::Snapshot
 
@@ -24,7 +20,8 @@ SnapshotManager &SnapshotManager::get_instance()
 
 SnapshotManager::SnapshotManager()
     : m_pending_operations(0), m_frame_complete(false), m_running(false), m_pipe_path(PIPE_PATH),
-      m_response_pipe_path(RESPONSE_PIPE_PATH), m_frames_remaining(1)
+      m_response_pipe_path(RESPONSE_PIPE_PATH), m_frames_remaining(1), m_total_frames_requested(1), m_frame_interval(1),
+      m_skip_counter(0)
 {
     if (is_env_variable_on(MEDIALIB_SNAPSHOT_ENABLE_ENV_VAR))
     {
@@ -100,35 +97,72 @@ SnapshotManager::~SnapshotManager()
     // PipeHandler's destructor will handle the cleanup
 }
 
-void SnapshotManager::request_snapshot(uint32_t frames_count, const std::set<std::string> &stages)
+uint32_t SnapshotManager::request_snapshot(uint32_t frames_count, const std::set<std::string> &stages,
+                                           uint32_t frame_interval)
 {
     if (!m_running)
     {
         LOGGER__MODULE__INFO(MODULE_NAME, "Snapshot manager is disabled, ignoring request.");
-        return;
+        return 0;
     }
 
-    LOGGER__MODULE__INFO(MODULE_NAME, "Snapshot requested for {} frames.", frames_count);
+    LOGGER__MODULE__INFO(MODULE_NAME, "Snapshot requested for {} frames (interval: {} frames).", frames_count,
+                         frame_interval);
+
+    // Reset completion flag before acquiring m_mutex to maintain consistent
+    // lock ordering (m_completion_mutex → m_mutex), matching the order used
+    // in process_snapshot_request's async completion path.
+    {
+        std::lock_guard<std::mutex> completion_lock(m_completion_mutex);
+        m_frame_complete = false;
+    }
+
     std::lock_guard<std::mutex> lock(m_mutex);
 
-    // Initialize the configuration for this snapshot sequence
     m_frames_remaining = frames_count;
+    m_total_frames_requested = frames_count;
+    m_frame_interval = std::max(frame_interval, 1u);
+    m_skip_counter = 0;
+    m_pending_pipe_message.clear();
 
     // Set filtered stages - if no stages specified, use all available stages
+    m_filtered_stages.clear();
     if (stages.empty())
     {
-        m_filtered_stages.clear();
-        for (const auto &[stage_name, _] : m_snapshot_map)
+        for (const auto &[stage_name, _] : m_stage_requested)
         {
             m_filtered_stages.insert(stage_name);
         }
     }
     else
     {
-        m_filtered_stages = stages;
+        for (const auto &stage : stages)
+        {
+            if (m_stage_requested.contains(stage))
+                m_filtered_stages.insert(stage);
+            else
+                LOGGER__MODULE__WARNING(MODULE_NAME, "Ignoring unknown stage '{}' — not registered.", stage);
+        }
     }
 
+    if (m_filtered_stages.empty())
+    {
+        m_frames_remaining = 0;
+        return 0;
+    }
+
+    // Clear all stage flags from any previous (possibly stale) request.
+    // Without this, a phantom stage left true from a prior request would
+    // block are_all_stages_cleared() indefinitely.
+    for (auto &[stage_name, flag] : m_stage_requested)
+    {
+        flag = false;
+    }
+
+    m_interval_counter_stage = *m_filtered_stages.begin();
     prepare_next_frame();
+
+    return static_cast<uint32_t>(m_filtered_stages.size());
 }
 
 bool SnapshotManager::has_snapshot_requested(const std::string &stage_name)
@@ -138,104 +172,193 @@ bool SnapshotManager::has_snapshot_requested(const std::string &stage_name)
         return false;
     }
 
+    if (stage_name.empty())
+    {
+        return false;
+    }
+
     std::lock_guard<std::mutex> lock(m_mutex);
 
-    if (m_snapshot_map.find(stage_name) == m_snapshot_map.end())
+    if (!m_stage_requested.contains(stage_name))
     {
-        m_snapshot_map[stage_name] = false;
+        m_stage_requested[stage_name] = false;
     }
 
-    return m_snapshot_map[stage_name];
+    return m_stage_requested[stage_name];
 }
 
-void SnapshotManager::take_snapshot(const std::string &stage_name, const HailoMediaLibraryBufferPtr &buffer)
+bool SnapshotManager::are_all_stages_cleared() const
 {
-    if (!m_running)
+    return std::none_of(m_filtered_stages.begin(), m_filtered_stages.end(),
+                        [this](const auto &stage) { return m_stage_requested.at(stage); });
+}
+
+void SnapshotManager::signal_frame_complete_if_ready()
+{
+    std::lock_guard<std::mutex> lock(m_completion_mutex);
+    m_frame_complete = true;
+    if (m_pending_operations.load() == 0)
+    {
+        process_snapshot_frame_complete();
+        m_frame_complete = false;
+    }
+}
+
+std::string SnapshotManager::build_snapshot_filename(const std::string &stage_name,
+                                                     const HailoMediaLibraryBufferPtr &buffer) const
+{
+    std::string extension = format_to_extension(buffer->buffer_data->format);
+    return m_current_snapshot_directory + "/" + stage_name + "_" + std::to_string(buffer->buffer_data->width) + "x" +
+           std::to_string(buffer->buffer_data->height) + extension;
+}
+
+void SnapshotManager::advance_frame_sequence()
+{
+    m_frames_remaining--;
+
+    if (m_frames_remaining > 0)
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Snapshot frame completed. {} frames remaining.", m_frames_remaining);
+        m_pending_pipe_message = "SNAPSHOT_PROGRESS:" + std::to_string(m_total_frames_requested - m_frames_remaining) +
+                                 "/" + std::to_string(m_total_frames_requested);
+
+        if (m_frame_interval > 1)
+        {
+            m_skip_counter = m_frame_interval - 1;
+            LOGGER__MODULE__TRACE(MODULE_NAME, "Skipping {} frames before next capture.", m_skip_counter);
+        }
+        else
+        {
+            prepare_next_frame();
+        }
+    }
+    else
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Snapshot sequence completed.");
+        m_pending_pipe_message = "SNAPSHOT_COMPLETE:" + std::to_string(m_total_frames_requested);
+    }
+}
+
+void SnapshotManager::take_snapshot(const std::string &stage_name, const HailoMediaLibraryBufferPtr &buffer,
+                                    bool synchronous)
+{
+    if (!m_running || stage_name.empty())
     {
         return;
     }
 
-    if (!has_snapshot_requested(stage_name))
-    {
-        LOGGER__MODULE__TRACE(MODULE_NAME, "Snapshot not requested for stage '{}'.", stage_name);
-        return;
-    }
-
-    if (!buffer || !buffer->buffer_data)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Invalid buffer provided for snapshot, for stage name {}.", stage_name);
-        return;
-    }
-
-    // Mark this stage as having its snapshot taken
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_snapshot_map[stage_name] = false;
-    }
-
-    std::string filename = m_current_snapshot_directory + "/" + stage_name + "_" +
-                           std::to_string(buffer->buffer_data->width) + "x" +
-                           std::to_string(buffer->buffer_data->height) + ".nv12";
-
-    SnapshotRequest request{stage_name, filename, buffer};
-
-    // Increment the pending operations counter
-    m_pending_operations++;
-
-    // Use ThreadPool to process the snapshot request asynchronously
-    ThreadPool::GetInstance()->enqueue(&SnapshotManager::process_snapshot_request, this, request);
-
-    // Check if this was the last stage for this frame
+    std::string filename;
     bool is_frame_complete = false;
+    bool should_save = false;
+
+    // Single lock scope: register stage, handle skip intervals, validate buffer,
+    // clear stage flag, build filename, and check frame completion.
     {
         std::lock_guard<std::mutex> lock(m_mutex);
 
-        // Simply check if any stage that should be captured still has a true value
-        is_frame_complete =
-            std::none_of(m_snapshot_map.begin(), m_snapshot_map.end(), [](const auto &pair) { return pair.second; });
+        // Auto-register unknown stages on first encounter
+        if (!m_stage_requested.contains(stage_name))
+            m_stage_requested[stage_name] = false;
+
+        // During frame-interval skipping, only the counter stage decrements
+        if (m_skip_counter > 0)
+        {
+            if (stage_name == m_interval_counter_stage)
+            {
+                m_skip_counter--;
+                LOGGER__MODULE__TRACE(MODULE_NAME, "Frame skip: {} remaining", m_skip_counter);
+                if (m_skip_counter == 0)
+                {
+                    prepare_next_frame();
+                }
+            }
+            return;
+        }
+
+        if (!m_stage_requested[stage_name])
+        {
+            LOGGER__MODULE__TRACE(MODULE_NAME, "Snapshot not requested for stage '{}'.", stage_name);
+            return;
+        }
+
+        // Validate buffer before clearing the stage flag — if invalid, leave
+        // the flag set so the stage can be retried on the next frame.
+        if (!buffer || !buffer->buffer_data)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Invalid buffer provided for snapshot, for stage name {}.", stage_name);
+            return;
+        }
+
+        m_stage_requested[stage_name] = false;
+
+        if (!synchronous && m_pending_operations.load() >= MAX_PENDING_SNAPSHOT_OPERATIONS)
+        {
+            LOGGER__MODULE__WARNING(MODULE_NAME, "Dropping snapshot for '{}': {} async operations pending (max {})",
+                                    stage_name, m_pending_operations.load(), MAX_PENDING_SNAPSHOT_OPERATIONS);
+        }
+        else
+        {
+            filename = build_snapshot_filename(stage_name, buffer);
+            should_save = true;
+            m_pending_operations++;
+        }
+
+        is_frame_complete = are_all_stages_cleared();
+
+        if (is_frame_complete && m_frames_remaining > 0)
+        {
+            advance_frame_sequence();
+        }
     }
 
-    // If all stages have been processed, the frame is logically complete
-    // But we'll wait for all file operations to finish before moving to the next frame
+    // Dispatch save outside the lock to avoid holding m_mutex during I/O
+    if (should_save)
+    {
+        SnapshotRequest request{stage_name, filename, buffer};
+
+        if (synchronous)
+        {
+            process_snapshot_request(request);
+        }
+        else
+        {
+            ThreadPool::GetInstance()->enqueue(&SnapshotManager::process_snapshot_request, this, request);
+        }
+    }
+
     if (is_frame_complete)
     {
-        // Set flag that logical frame is complete, but wait for all pending operations
-        std::unique_lock<std::mutex> lock(m_completion_mutex);
-        m_frame_complete = true;
-
-        // If there are no more pending operations, process the frame completion immediately
-        if (m_pending_operations.load() == 0)
-        {
-            process_snapshot_frame_complete();
-            m_frame_complete = false;
-        }
+        signal_frame_complete_if_ready();
     }
 }
 
 void SnapshotManager::process_snapshot_frame_complete()
 {
-    std::lock_guard<std::mutex> lock(m_mutex);
-
-    if (m_frames_remaining > 1)
+    std::string pipe_message;
     {
-        m_frames_remaining--;
-        LOGGER__MODULE__INFO(MODULE_NAME, "Snapshot frame completed. {} frames remaining.", m_frames_remaining);
-
-        prepare_next_frame();
+        std::lock_guard<std::mutex> lock(m_mutex);
+        pipe_message = std::move(m_pending_pipe_message);
     }
-    else
+
+    if (!pipe_message.empty() && m_pipe_handler)
     {
-        LOGGER__MODULE__INFO(MODULE_NAME, "Snapshot sequence completed.");
+        m_pipe_handler->write_response(pipe_message);
     }
 }
 
 void SnapshotManager::prepare_next_frame()
 {
     m_current_snapshot_directory = generate_timestamp_directory();
+    if (m_current_snapshot_directory.empty())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create snapshot directory, aborting snapshot sequence.");
+        m_frames_remaining = 0;
+        return;
+    }
 
     for (const auto &stage_name : m_filtered_stages)
     {
-        m_snapshot_map[stage_name] = true;
+        m_stage_requested[stage_name] = true;
     }
 }
 
@@ -251,175 +374,17 @@ std::string SnapshotManager::list_available_stages()
 
     ss << "Available stages for snapshot:\n";
 
-    if (m_snapshot_map.empty())
+    if (m_stage_requested.empty())
     {
         ss << "No stages available yet. Run your pipeline first.";
     }
     else
     {
-        for (const auto &[stage_name, _] : m_snapshot_map)
+        for (const auto &[stage_name, _] : m_stage_requested)
         {
             ss << "- " << stage_name << "\n";
         }
     }
 
     return ss.str();
-}
-
-std::string SnapshotManager::generate_timestamp_directory()
-{
-    auto now = std::chrono::system_clock::now();
-    auto in_time_t = std::chrono::system_clock::to_time_t(now);
-
-    // Add milliseconds to the timestamp to ensure uniqueness
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
-
-    std::ostringstream timestamp_stream;
-    timestamp_stream << std::put_time(std::localtime(&in_time_t), "%Y-%m-%d_%H-%M-%S");
-    timestamp_stream << "_" << std::setfill('0') << std::setw(3) << ms.count();
-
-    std::string directory_path = std::string(MEDIA_LIBRARY_PATH) + timestamp_stream.str();
-    std::filesystem::create_directories(directory_path);
-
-    LOGGER__MODULE__INFO(MODULE_NAME, "Snapshot directory created: {}", directory_path);
-
-    return directory_path;
-}
-
-std::string SnapshotManager::process_command(const std::string &command)
-{
-    std::istringstream cmd_stream(command);
-    std::string cmd_name;
-    cmd_stream >> cmd_name;
-
-    // Convert command name to lowercase for case-insensitive comparison
-    std::transform(cmd_name.begin(), cmd_name.end(), cmd_name.begin(), [](unsigned char c) { return std::tolower(c); });
-
-    std::string response;
-
-    if (cmd_name == SNAPSHOT_COMMAND)
-    {
-        response = process_snapshot_command(cmd_stream);
-    }
-    else if (cmd_name == LIST_STAGES_COMMAND)
-    {
-        response = list_available_stages();
-    }
-    else if (!command.empty())
-    {
-        LOGGER__MODULE__WARNING(MODULE_NAME, "Unknown command: '{}'", command);
-        response = "Error: Unknown command. Available commands: 'snapshot [frames_count] [stage_list]', 'list_stages'";
-    }
-
-    return response;
-}
-
-std::string SnapshotManager::process_snapshot_command(std::istringstream &cmd_stream)
-{
-    // Parse arguments: snapshot [frames_count] [stage1,stage2,...]
-    uint32_t frames_count = 1;
-    std::string stages_arg;
-    std::string response;
-
-    if (cmd_stream >> frames_count)
-    {
-        // Optional stage filter argument
-        if (cmd_stream >> stages_arg)
-        {
-            std::set<std::string> filtered_stages;
-            std::string stage;
-            std::istringstream stages_stream(stages_arg);
-
-            // Parse comma-separated list of stages
-            while (std::getline(stages_stream, stage, ','))
-            {
-                if (!stage.empty())
-                {
-                    filtered_stages.insert(stage);
-                }
-            }
-
-            request_snapshot(frames_count, filtered_stages);
-
-            if (filtered_stages.empty())
-            {
-                response = "Snapshot requested for " + std::to_string(frames_count) + " frames";
-            }
-            else
-            {
-                response = "Snapshot requested for " + std::to_string(frames_count) + " frames with " +
-                           std::to_string(filtered_stages.size()) + " filtered stages";
-            }
-        }
-        else
-        {
-            // Only frames_count provided
-            request_snapshot(frames_count);
-            response = "Snapshot requested for " + std::to_string(frames_count) + " frames";
-        }
-    }
-    else
-    {
-        // No arguments - default to 1 frame
-        request_snapshot();
-        response = "Snapshot requested for 1 frame";
-    }
-
-    return response;
-}
-
-bool SnapshotManager::save_medialib_buffer(const HailoMediaLibraryBufferPtr &buffer, const std::string &file_path)
-{
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Saving buffer to: {}", file_path);
-
-    const void *y_plane = buffer->get_plane_ptr(0);
-    size_t y_size = buffer->get_plane_size(0);
-    const void *uv_plane = buffer->get_plane_ptr(1);
-    size_t uv_size = buffer->get_plane_size(1);
-    size_t total_size = y_size + uv_size;
-
-    std::ofstream out(file_path, std::ios::binary | std::ios::trunc);
-    if (!out.is_open())
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to open file: {}", file_path);
-        return false;
-    }
-
-    out.write(static_cast<const char *>(y_plane), y_size);
-    out.write(static_cast<const char *>(uv_plane), uv_size);
-
-    if (!out)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to write buffer to file: {}", file_path);
-        return false;
-    }
-
-    LOGGER__MODULE__INFO(MODULE_NAME, "Saved {} bytes to {}", total_size, file_path);
-    return true;
-}
-
-void SnapshotManager::process_snapshot_request(const SnapshotRequest &request)
-{
-    if (!save_medialib_buffer(request.buffer, request.file_path))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to write buffer to file for stage '{}'.", request.stage_name);
-    }
-    else
-    {
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "Successfully saved snapshot for stage '{}'.", request.stage_name);
-    }
-
-    // Decrement the pending operations counter and check if we need to process frame completion
-    int pending = m_pending_operations.fetch_sub(1) - 1;
-
-    if (pending == 0)
-    {
-        // This was the last pending operation, check if we need to process frame completion
-        std::unique_lock<std::mutex> lock(m_completion_mutex);
-        if (m_frame_complete)
-        {
-            m_frame_complete = false;
-            process_snapshot_frame_complete();
-        }
-    }
 }

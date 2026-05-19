@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <fstream>
+#include "media_library/cloexec_fstream.hpp"
 #include <memory>
 #include <string>
 
@@ -40,7 +41,7 @@ class FileReader
     double m_fps;
     std::chrono::milliseconds m_frame_interval;
 
-    std::ifstream m_file_stream;
+    cloexec::ifstream m_file_stream;
     std::string m_name;
 
   public:

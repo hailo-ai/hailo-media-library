@@ -1,18 +1,29 @@
-#include "logger_macros.hpp"
-#include "media_library_logger.hpp"
-#include "gyro_device.hpp"
-#include "arguments_parser.hpp"
-#include <algorithm>
-#include <chrono>
-#include <ctime>
-#include <fstream>
-#include <thread>
-#include <iomanip>
 #include <common.hpp>
 #include <env_vars.hpp>
-#include "media_library/v4l2_ctrl.hpp"
-#include "media_library/isp_utils.hpp"
+#include <errno.h>
+#include <iio.h>
+#include <stdint.h>
+#include <string.h>
+#include <unistd.h>
+#include <tl/expected.hpp>
+#include <algorithm>
+#include "media_library/cloexec_fstream.hpp"
+#include <iomanip>
 #include <limits>
+#include <condition_variable>
+#include <ctime>   // IWYU pragma: keep
+#include <fstream> // IWYU pragma: keep
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include "media_library_logger.hpp"
+#include "gyro_device.hpp"
+#include "common/concurrent_queue.hpp"
+#include "eis_types.hpp"
 
 #define MODULE_NAME LoggerType::Eis
 #define DEVICE_CLK_TIMESTAMP "monotonic_raw"
@@ -32,7 +43,7 @@ std::unique_ptr<GyroDevice> gyroApi = nullptr;
 
 struct GyroPrintFile
 {
-    std::ofstream outfile;
+    cloexec::ofstream outfile;
     bool env_print_gyro_to_file;
 
     GyroPrintFile(const std::string &fname = GYRO_PRINTS_FILE_PATH)
@@ -141,7 +152,7 @@ GyroDevice::~GyroDevice()
 
 void GyroDevice::dump_rec_samples(const std::string &file_path)
 {
-    std::ofstream file(file_path, std::ios::trunc); // Open the file in trunc mode to overwrite existing content
+    cloexec::ofstream file(file_path, std::ios::trunc); // Open the file in trunc mode to overwrite existing content
     uint32_t idx = 0;
     if (!file.is_open())
     {

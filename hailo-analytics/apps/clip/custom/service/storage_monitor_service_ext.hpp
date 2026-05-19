@@ -1,11 +1,15 @@
 #pragma once
 
+#include <tl/expected.hpp>
+#include <stdint.h>
 #include <string>
 #include <thread>
 #include <mutex>
 #include <atomic>
-#include <sys/statvfs.h>
-#include <tl/expected.hpp>
+#include <chrono>
+#include <memory>
+#include <vector>
+
 #include "hailo_analytics/analytics/reference_camera_app_constructor.hpp"
 #include "service/storage_listener.hpp"
 

@@ -1,7 +1,11 @@
 #include "hailo_analytics/utils/platform_utils.hpp"
-#include <fstream>
+
+#include <ctype.h>
 #include <algorithm>
+#include <fstream> // IWYU pragma: keep
 #include <iostream>
+#include <string>
+#include "media_library/cloexec_fstream.hpp"
 
 namespace hailo_analytics::utils
 {
@@ -22,7 +26,7 @@ std::string to_lower(const std::string &str)
 
 Architecture get_hailo_architecture()
 {
-    std::ifstream file(MACHINE_FILE_PATH);
+    cloexec::ifstream file(MACHINE_FILE_PATH);
     if (!file.is_open())
     {
         std::cerr << "Failed to open machine file at " << MACHINE_FILE_PATH << std::endl;

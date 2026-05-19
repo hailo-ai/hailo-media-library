@@ -1,7 +1,13 @@
-#include <iostream>
-#include <nlohmann/json.hpp>
 #include <cxxopts/cxxopts.hpp>
+#include <httplib.h> // IWYU pragma: keep
+#include <stdio.h>
+#include <stdlib.h>
+#include <iostream>
 #include <atomic>
+#include <exception>
+#include <memory>
+#include <string>
+
 #include "pipeline/pipeline.hpp"
 #include "pipeline/pipeline_factory.hpp"
 #include "common/httplib/httplib_utils.hpp"
@@ -9,6 +15,10 @@
 #include "common/common.hpp"
 #include "resources/common/repository.hpp"
 #include "media_library/signal_utils.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "pipeline/isp_blender.hpp"
+#include "resources/common/events_utils.hpp"
 
 #define DEFAULT_CONFIGS_PATH "/etc/imaging/cfg/medialib_configs/"
 #define APPEND_CONFIG_PATH(path) DEFAULT_CONFIGS_PATH path
@@ -93,7 +103,7 @@ int main(int argc, char *argv[])
     std::unique_ptr<HTTPServer> svr = HTTPServer::create();
 
     // Set up exception handler for HTTP server
-    svr->set_exception_handler([](const auto &req, auto &res, std::exception_ptr ep) {
+    svr->set_exception_handler([](const auto & /*req*/, auto &res, std::exception_ptr ep) {
         auto fmt = "<h1>Error 500</h1><p>%s</p>";
         char buf[BUFSIZ];
         try

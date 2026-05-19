@@ -27,11 +27,10 @@
 
 #pragma once
 
-#include <mutex>
+#include <sys/types.h>
+#include <shared_mutex>
 #include <memory>
-#include <stdint.h>
 #include <unordered_map>
-#include <string_view>
 #include <linux/dma-heap.h>
 #include <linux/dma-buf.h>
 #include "media_library_types.hpp"
@@ -45,7 +44,7 @@ class DmaMemoryAllocator
     int m_dma_heap_fd;
     bool m_dma_heap_fd_open;
     bool m_should_fd_dup;
-    std::shared_ptr<std::mutex> m_allocator_mutex;
+    std::shared_ptr<std::shared_mutex> m_allocator_mutex;
     std::unordered_map<void *, dma_heap_allocation_data> m_allocated_buffers;
     std::unordered_map<void *, dma_heap_allocation_data> m_external_buffers;
     DmaMemoryAllocator();

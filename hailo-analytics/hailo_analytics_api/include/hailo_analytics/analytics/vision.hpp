@@ -9,8 +9,6 @@
 #include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
 #include "hailo_analytics/utils/stream_utils.hpp"
 #include "media_library/media_library.hpp"
-#include "media_library/frontend.hpp"
-#include "media_library/encoder.hpp"
 
 namespace hailo_analytics::analytics::vision
 {
@@ -223,15 +221,16 @@ vision_config_t base_vision_config(std::vector<frontend_output_stream_t> fronten
  * @brief Generate a vision output pipeline (encoder -> UDP) with the given configuration.
  *
  * Creates a pipeline with an encoder stage connected to a UDP sink stage.
- * Configures the encoder stage with the provided MediaLibrary encoder.
+ * Configures the encoder stage with the provided MediaLibrary and stream ID.
  *
- * @param encoder MediaLibrary encoder for configuring the encoder stage
+ * @param media_library Shared pointer to the MediaLibrary instance
+ * @param stream_id The output stream ID for the encoder
  * @param pipeline_name Name for the generated pipeline
  * @param user_configs Optional user-provided configuration (will be merged with defaults if provided)
  * @return Expected<PipelinePtr, AppStatus> The constructed vision output pipeline or error status
  */
 tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus>
-generate_vision_output_pipeline(MediaLibraryEncoderPtr encoder,
+generate_vision_output_pipeline(MediaLibraryInterfacePtr media_library, const output_stream_id_t &stream_id,
                                 const std::string &pipeline_name = "vision_output_pipeline",
                                 std::optional<vision_output_config_t> user_configs = std::nullopt);
 
@@ -241,13 +240,13 @@ generate_vision_output_pipeline(MediaLibraryEncoderPtr encoder,
  * Creates a pipeline with a frontend source connected to multiple encoder->UDP output pairs.
  * Configures the frontend and all encoder stages with the provided MediaLibrary instance.
  *
- * @param media_library MediaLibrary instance containing frontend and encoders
+ * @param media_library Shared pointer to the MediaLibrary instance
  * @param pipeline_name Name for the generated pipeline
  * @param user_configs Optional user-provided configuration (will be merged with defaults if provided)
  * @return Expected<PipelinePtr, AppStatus> The constructed vision pipeline or error status
  */
 tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus> generate_vision_pipeline(
-    MediaLibrary &media_library, const std::string &pipeline_name = "vision_pipeline",
+    MediaLibraryInterfacePtr media_library, const std::string &pipeline_name = "vision_pipeline",
     std::optional<vision_config_t> user_configs = std::nullopt);
 
 } // namespace hailo_analytics::analytics::vision

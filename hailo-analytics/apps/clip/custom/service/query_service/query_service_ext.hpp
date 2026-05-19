@@ -1,23 +1,20 @@
 #pragma once
 
+#include <tl/expected.hpp>
+#include <faiss/MetricType.h>
 #include <cstddef>
 #include <cstdint>
-#include <nlohmann/json.hpp>
-#include <iostream>
 #include <vector>
 #include <string>
-#include <fstream>
-#include <sstream>
 #include <chrono>
-#include <thread>
-#include <tl/expected.hpp>
+#include <memory>
 
 #include "include/faiss_table.hpp"
 #include "include/thumbnail_table.hpp"
-#include "faiss_factory.hpp"
-#include "sql_factory.hpp"
 #include "hailo_analytics/analytics/reference_camera_app_constructor.hpp"
-#include "clip_text_encoder.hpp"
+#include "faiss_partitioned.hpp"
+#include "service/query_service/text_encoder.hpp"
+#include "video_table.hpp"
 
 #define TOP_K_SEARCH_SCALE_FACTOR 10
 

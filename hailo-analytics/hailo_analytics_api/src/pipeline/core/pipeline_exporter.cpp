@@ -1,9 +1,15 @@
 #include "hailo_analytics/pipeline/core/pipeline_exporter.hpp"
+
+#include <stddef.h>
+#include <iostream>
+#include <map>
+#include <optional>
+
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "hailo_analytics/pipeline/core/stage.hpp"
 #include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
-#include <iostream>
+#include "media_library/cloexec_fstream.hpp"
 
 namespace hailo_analytics::pipeline
 {
@@ -59,18 +65,24 @@ void PipelineExporter::collect_stage_subscribers(const StagePtr &stage, const st
         return;
     }
 
-    // Regular ThreadedStage with single subscriber list (no stream label)
+    // Regular ThreadedStage — preserve per-subscriber stream-id labels when present (e.g. for
+    // SplitStreamsStage, which dispatches to subscribers by stream id).
     auto threaded_stage = std::dynamic_pointer_cast<ThreadedStage>(stage);
     if (threaded_stage)
     {
-        for (const auto &subscriber : threaded_stage->get_subscribers())
+        const auto &subscribers = threaded_stage->get_subscribers();
+        const auto &subscriber_stream_ids = threaded_stage->get_subscriber_stream_ids();
+        for (size_t i = 0; i < subscribers.size(); ++i)
         {
-            context.discovered_internal_connections.push_back(std::make_tuple(full_stage_name, subscriber, ""));
+            const std::string label = (i < subscriber_stream_ids.size() && subscriber_stream_ids[i].has_value())
+                                          ? *subscriber_stream_ids[i]
+                                          : std::string();
+            context.discovered_internal_connections.push_back(std::make_tuple(full_stage_name, subscribers[i], label));
         }
     }
 }
 
-void PipelineExporter::write_cluster_header(std::ofstream &dotfile, const std::string &indent,
+void PipelineExporter::write_cluster_header(cloexec::ofstream &dotfile, const std::string &indent,
                                             const std::string &stage_name)
 {
     dotfile << indent << "subgraph cluster_" << stage_name << " {" << std::endl;
@@ -83,7 +95,7 @@ void PipelineExporter::write_cluster_header(std::ofstream &dotfile, const std::s
     dotfile << std::endl;
 }
 
-void PipelineExporter::write_leaf_stage_node(std::ofstream &dotfile, const std::string &indent,
+void PipelineExporter::write_leaf_stage_node(cloexec::ofstream &dotfile, const std::string &indent,
                                              const std::string &full_name, const std::string &stage_name,
                                              const std::string &shape, const std::string &color)
 {
@@ -91,7 +103,7 @@ void PipelineExporter::write_leaf_stage_node(std::ofstream &dotfile, const std::
             << ", shape=" << shape << ", color=" << color << ", fillcolor=white, style=filled];" << std::endl;
 }
 
-void PipelineExporter::export_nested_pipeline(std::ofstream &dotfile, const std::string &stage_name,
+void PipelineExporter::export_nested_pipeline(cloexec::ofstream &dotfile, const std::string &stage_name,
                                               const std::shared_ptr<Pipeline> &pipeline,
                                               const std::unordered_map<std::string, StageType> &stageTypes,
                                               const std::string &parent_prefix, DotExportContext &context,
@@ -126,7 +138,8 @@ void PipelineExporter::export_nested_pipeline(std::ofstream &dotfile, const std:
     }
 }
 
-void PipelineExporter::export_leaf_stage(std::ofstream &dotfile, const std::string &stage_name, const StagePtr &stage,
+void PipelineExporter::export_leaf_stage(cloexec::ofstream &dotfile, const std::string &stage_name,
+                                         const StagePtr &stage,
                                          const std::unordered_map<std::string, StageType> &stageTypes,
                                          const std::string &parent_prefix, DotExportContext &context, int indent_level)
 {
@@ -149,7 +162,7 @@ void PipelineExporter::export_leaf_stage(std::ofstream &dotfile, const std::stri
     collect_stage_subscribers(stage, full_name, context);
 }
 
-void PipelineExporter::export_stages_recursively(std::ofstream &dotfile,
+void PipelineExporter::export_stages_recursively(cloexec::ofstream &dotfile,
                                                  const std::unordered_map<std::string, StagePtr> &stages,
                                                  const std::unordered_map<std::string, StageType> &stageTypes,
                                                  const std::string &parent_prefix, DotExportContext &context,
@@ -232,7 +245,7 @@ std::string PipelineExporter::lookup_full_stage_name(const std::string &short_or
     return (it != context.short_name_to_full_name.end()) ? it->second : short_or_partial_name;
 }
 
-void PipelineExporter::write_edge(std::ofstream &dotfile, const std::string &source, const std::string &target,
+void PipelineExporter::write_edge(cloexec::ofstream &dotfile, const std::string &source, const std::string &target,
                                   const std::string &attributes)
 {
     dotfile << "  \"" << source << "\" -> \"" << target << "\"";
@@ -243,7 +256,7 @@ void PipelineExporter::write_edge(std::ofstream &dotfile, const std::string &sou
     dotfile << ";" << std::endl;
 }
 
-void PipelineExporter::write_internal_connections(std::ofstream &dotfile, const DotExportContext &context)
+void PipelineExporter::write_internal_connections(cloexec::ofstream &dotfile, const DotExportContext &context)
 {
     for (const auto &conn : context.discovered_internal_connections)
     {
@@ -264,7 +277,7 @@ void PipelineExporter::write_internal_connections(std::ofstream &dotfile, const 
     }
 }
 
-void PipelineExporter::write_regular_connections(std::ofstream &dotfile,
+void PipelineExporter::write_regular_connections(cloexec::ofstream &dotfile,
                                                  const std::vector<std::pair<std::string, std::string>> &connections,
                                                  const std::unordered_map<std::string, StagePtr> &allStages,
                                                  const DotExportContext &context)
@@ -284,7 +297,7 @@ void PipelineExporter::write_regular_connections(std::ofstream &dotfile,
 }
 
 void PipelineExporter::write_frontend_subscriptions(
-    std::ofstream &dotfile, const std::vector<std::tuple<std::string, std::string, std::string>> &subscriptions,
+    cloexec::ofstream &dotfile, const std::vector<std::tuple<std::string, std::string, std::string>> &subscriptions,
     const std::unordered_map<std::string, StagePtr> &allStages, const DotExportContext &context)
 {
     for (const auto &sub : subscriptions)
@@ -310,7 +323,7 @@ void PipelineExporter::export_to_dot(
     const std::vector<std::tuple<std::string, std::string, std::string>> &frontendSubscriptions,
     const std::unordered_map<std::string, StageType> &stageTypes)
 {
-    std::ofstream dotfile(filename);
+    cloexec::ofstream dotfile(filename);
     if (!dotfile.is_open())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to open file for writing: {}", filename);

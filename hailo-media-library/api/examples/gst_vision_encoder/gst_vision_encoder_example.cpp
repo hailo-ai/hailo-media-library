@@ -37,20 +37,32 @@
  *   Phase 3: Switch to alternate profile (if available)
  */
 
-#include "media_library/media_library_types.hpp"
-#include "media_library/signal_utils.hpp"
-
+#include <gst/gst.h>
+#include <nlohmann/json.hpp>
+#include <glib-object.h>
+#include <glib.h>
+#include <gst/gstparse.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <condition_variable>
-#include <fstream>
+#include <fstream> // IWYU pragma: keep
+#include "media_library/cloexec_fstream.hpp"
 #include <iostream>
 #include <mutex>
-#include <sstream>
+#include <sstream> // IWYU pragma: keep
 #include <string>
 #include <variant>
 #include <vector>
+#include <algorithm>
+#include <chrono>
+#include <initializer_list>
+#include <iterator>
+#include <map>
+#include <utility>
 
-#include <gst/gst.h>
-#include <nlohmann/json.hpp>
+#include "media_library/media_library_types.hpp"
+#include "media_library/signal_utils.hpp"
+#include "encoder_config_types.hpp"
 
 static constexpr const char *DEFAULT_CONFIG_PATH = "/etc/imaging/cfg/medialib_configs/gst_example_medialib_config.json";
 static constexpr const char *OUTPUT_PATH = "/tmp/stream1.h264";
@@ -80,7 +92,7 @@ static void wait_for_stop_or_timeout(int seconds)
 
 static std::string read_file(const std::string &path)
 {
-    std::ifstream file(path);
+    cloexec::ifstream file(path);
     if (!file.is_open())
         return {};
     return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};

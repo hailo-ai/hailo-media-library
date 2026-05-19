@@ -21,9 +21,16 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include "encoder_config_presets.hpp"
+
+#include <tl/expected.hpp>
+#include <algorithm>
+#include <optional>
+#include <stdexcept>
+#include <unordered_map>
+
 #include "media_library_logger.hpp"
 #include "csv.h"
-#include <fstream>
+#include "encoder_config_types.hpp"
 
 #define MODULE_NAME LoggerType::Encoder
 

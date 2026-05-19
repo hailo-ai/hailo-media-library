@@ -1,13 +1,16 @@
 #pragma once
 
-#include "sql_factory.hpp"
-#include "faiss_factory.hpp"
-#include <unistd.h>
+#include <tl/expected.hpp>
 #include <unordered_map>
 #include <string>
 #include <memory>
 #include <shared_mutex>
 #include <vector>
+#include <unordered_set>
+
+#include "sql_factory.hpp"
+#include "faiss_factory.hpp"
+#include "database.hpp"
 
 // Configuration for database manager initialization
 struct DatabaseManagerConfig

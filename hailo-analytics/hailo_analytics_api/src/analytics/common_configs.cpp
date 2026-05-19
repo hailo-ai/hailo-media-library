@@ -31,6 +31,8 @@ void ai_stage_config_t::merge_from(const ai_stage_config_t &other)
         dynamic_threshold = *other.dynamic_threshold;
     if (other.scheduler_timeout)
         scheduler_timeout = *other.scheduler_timeout;
+    if (other.scheduler_priority)
+        scheduler_priority = *other.scheduler_priority;
     if (other.pool_mode)
         pool_mode = *other.pool_mode;
     if (other.nms_score_threshold)
@@ -39,6 +41,8 @@ void ai_stage_config_t::merge_from(const ai_stage_config_t &other)
         nms_classes_filter_mask = *other.nms_classes_filter_mask;
     if (other.nms_max_accumulated_mask_size_multiplier)
         nms_max_accumulated_mask_size_multiplier = *other.nms_max_accumulated_mask_size_multiplier;
+    if (other.use_hailort_service)
+        use_hailort_service = *other.use_hailort_service;
     if (other.trace)
         trace = *other.trace;
 }
@@ -65,6 +69,8 @@ void ai_stage_config_t::apply_to(ai_stages::HailortAsyncStageBuild::Builder &b) 
         b.set_dynamic_threshold_opt(*dynamic_threshold);
     if (scheduler_timeout)
         b.set_scheduler_timeout_opt(*scheduler_timeout);
+    if (scheduler_priority)
+        b.set_scheduler_priority_opt(*scheduler_priority);
     if (pool_mode)
         b.set_pool_mode_opt(*pool_mode);
     if (nms_score_threshold)
@@ -73,6 +79,8 @@ void ai_stage_config_t::apply_to(ai_stages::HailortAsyncStageBuild::Builder &b) 
         b.set_nms_classes_filter_mask(*nms_classes_filter_mask);
     if (nms_max_accumulated_mask_size_multiplier)
         b.set_nms_max_accumulated_mask_size_multiplier(*nms_max_accumulated_mask_size_multiplier);
+    if (use_hailort_service)
+        b.set_use_hailort_service(*use_hailort_service);
     if (trace)
         b.set_trace_opt(*trace);
 }

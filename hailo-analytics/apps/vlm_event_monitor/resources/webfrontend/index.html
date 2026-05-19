@@ -1,0 +1,2543 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>VLM Smart Event Monitor</title>
+    <!-- Stage 4 — debug bundle download. Vendored as a single file under
+         resources/webfrontend/jszip.min.js. Only used by the per-event
+         3-dot "Download debug bundle" button; loads even when the feature
+         is unavailable (event.debug absent), at the cost of ~95 KB. -->
+    <script src="jszip.min.js"></script>
+    <style>
+        :root {
+            --bg-page: #1a1f2e;
+            --bg-panel: #232a3c;
+            --bg-panel-2: #1d2434;
+            --bg-card: #2a3346;
+            --border: #38415a;
+            --border-strong: #4a5677;
+            --text: #e6e9f2;
+            --text-dim: #8b94ad;
+            --text-faint: #5b647d;
+            --accent: #5b6cff;
+            --accent-hover: #7382ff;
+            --danger: #e25a5a;
+            --ok: #4caf6e;
+            --warn: #d8a84a;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            background: var(--bg-page);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 14px;
+        }
+
+        /* ─────────────── App shell ─────────────── */
+        .app {
+            display: grid;
+            grid-template-rows: auto 1fr;
+            height: 100vh;
+            padding: 12px;
+            gap: 12px;
+        }
+
+        .app-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 16px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        .app-title {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        /* ─────────────── Stage 6 item 1 — VLM / Monitoring status badges ─────────────── */
+        .app-status-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-left: auto;
+            margin-right: 12px;
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            white-space: nowrap;
+            max-width: 360px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .status-badge .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-faint);
+            flex-shrink: 0;
+        }
+
+        .status-badge.state-loading .status-dot {
+            background: var(--text-dim);
+        }
+
+        .status-badge.state-ready .status-dot {
+            background: var(--ok);
+        }
+
+        .status-badge.state-failed .status-dot {
+            background: var(--danger);
+        }
+
+        .status-badge.state-running .status-dot {
+            background: var(--ok);
+        }
+
+        .status-badge.state-stopped .status-dot {
+            background: var(--text-faint);
+        }
+
+        .status-badge.state-paused .status-dot {
+            background: var(--warn);
+        }
+
+        .status-badge.state-failed {
+            border-color: var(--danger);
+        }
+
+        .status-badge.state-paused {
+            border-color: var(--warn);
+        }
+
+        /* Stage 6 item 1 — refinements: pulse the dot while VLM is loading
+           so the state is visible at a glance. Also drives the
+           backend-disconnected alarm (faster cadence + red). */
+        @keyframes status-pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.35;
+                transform: scale(0.8);
+            }
+        }
+
+        /* Loading: amber dot + amber border + pulse on BOTH badges. Amber
+           reads as "attention / in progress" and is much more visible than
+           the default grey. Same colour token as chat-pause (--warn), but
+           the two states are mutually exclusive so they can't be confused. */
+        .status-badge.loading-pulse {
+            border-color: var(--warn);
+        }
+
+        .status-badge.loading-pulse .status-dot {
+            background: var(--warn);
+            animation: status-pulse 1.4s ease-in-out infinite;
+        }
+
+        .status-badge.state-disconnected {
+            border-color: var(--danger);
+        }
+
+        .status-badge.state-disconnected .status-dot {
+            background: var(--danger);
+            animation: status-pulse 1.0s ease-in-out infinite;
+        }
+
+        /* Visual treatment for VLM-dependent controls during loading/failed. */
+        .vlm-dependent.vlm-not-ready {
+            opacity: 0.45;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        .btn {
+            background: var(--bg-card);
+            color: var(--text);
+            border: 1px solid var(--border-strong);
+            border-radius: 6px;
+            padding: 6px 14px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.15s, border-color 0.15s;
+        }
+
+        .btn:hover:not(:disabled) {
+            background: #323c54;
+            border-color: var(--accent);
+        }
+
+        .btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: var(--accent-hover);
+            border-color: var(--accent-hover);
+        }
+
+        .btn-sm {
+            padding: 4px 10px;
+            font-size: 12px;
+        }
+
+        .btn-danger {
+            color: var(--danger);
+        }
+
+        /* ─────────────── Main 2-column grid ─────────────── */
+        .main {
+            display: grid;
+            grid-template-columns: minmax(320px, 1fr) minmax(640px, 1fr);
+            gap: 12px;
+            min-height: 0;
+        }
+
+        .panel {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .panel-header {
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-dim);
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .panel-body {
+            padding: 12px;
+            flex: 1;
+            overflow-y: auto;
+            min-height: 0;
+        }
+
+        .panel-footer {
+            padding: 10px 14px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: center;
+        }
+
+        /* ─────────────── Left: triggered events ─────────────── */
+        .left-panel {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .events-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .event-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px;
+            cursor: pointer;
+            transition: transform 0.15s, border-color 0.15s;
+        }
+
+        .event-card:hover {
+            transform: translateY(-1px);
+            border-color: var(--accent);
+        }
+
+        .event-thumb {
+            aspect-ratio: 4 / 3;
+            background: var(--bg-panel-2);
+            border: 1px dashed var(--border-strong);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-faint);
+            font-size: 12px;
+            font-style: italic;
+            margin-bottom: 8px;
+            overflow: hidden;
+            position: relative;
+            /* so .event-debug-btn can absolute-position */
+        }
+
+        /* 3-dot "Download debug bundle" button — bottom-right of the
+           thumbnail. Only rendered when the SSE event payload includes the
+           optional `debug` node, which the backend ships only when
+           debug_metadata_save.enabled is true. */
+        .event-debug-btn {
+            position: absolute;
+            bottom: 4px;
+            right: 4px;
+            width: 22px;
+            height: 22px;
+            line-height: 18px;
+            padding: 0;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.6);
+            color: #fff;
+            border: 1px solid var(--border-strong);
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            text-align: center;
+            opacity: 0.85;
+            transition: background 0.15s, opacity 0.15s;
+        }
+
+        .event-debug-btn:hover {
+            background: rgba(0, 0, 0, 0.85);
+            opacity: 1;
+        }
+
+        .event-thumb img.thumb-single {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        /* Multi-frame layouts share the same outer tile size — sub-frames are
+           drawn inside via a tight grid with a thin gap so each frame is
+           clearly visible. Performance mode = 3 frames (1×3 strip);
+           Accuracy mode = 4 frames (2×2 grid). */
+        .thumb-grid {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            gap: 1px;
+            background: var(--border-strong);
+        }
+
+        .thumb-grid.thumb-grid-strip-3 {
+            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-rows: 1fr;
+        }
+
+        .thumb-grid.thumb-grid-2x2 {
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+        }
+
+        .thumb-grid img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .event-name {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text);
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .event-time {
+            font-size: 11px;
+            color: var(--text-faint);
+        }
+
+        .empty-state {
+            grid-column: 1 / -1;
+            text-align: center;
+            color: var(--text-faint);
+            padding: 32px 16px;
+            font-size: 13px;
+        }
+
+        /* ─────────────── Right: stacked panels ─────────────── */
+        .right-panel {
+            display: grid;
+            grid-template-rows: 1fr 1fr;
+            gap: 12px;
+            min-height: 0;
+        }
+
+        /* ─────────────── Live video panel ─────────────── */
+        .video-panel-body {
+            padding: 0;
+            overflow: hidden;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .video-stream {
+            max-width: 100%;
+            max-height: 100%;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            display: none;
+        }
+
+        .video-controls {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.55);
+            cursor: pointer;
+            transition: opacity 0.3s;
+        }
+
+        .video-controls.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .play-button {
+            width: 88px;
+            height: 88px;
+            background: rgba(255, 255, 255, 0.18);
+            border: 3px solid rgba(255, 255, 255, 0.85);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 0.2s, background 0.2s;
+        }
+
+        .play-button:hover {
+            background: rgba(255, 255, 255, 0.28);
+            transform: scale(1.06);
+        }
+
+        .play-triangle {
+            width: 0;
+            height: 0;
+            border-left: 22px solid rgba(255, 255, 255, 0.95);
+            border-top: 14px solid transparent;
+            border-bottom: 14px solid transparent;
+            margin-left: 6px;
+        }
+
+        .video-status {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            z-index: 5;
+            letter-spacing: 0.04em;
+        }
+
+        .video-status.status-disconnected {
+            background: var(--danger);
+            color: #fff;
+        }
+
+        .video-status.status-connecting {
+            background: var(--warn);
+            color: #1a1a1a;
+        }
+
+        .video-status.status-connected {
+            background: var(--ok);
+            color: #fff;
+        }
+
+        .video-overlay-text {
+            position: absolute;
+            left: 50%;
+            bottom: 80px;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 12px;
+            pointer-events: none;
+            text-align: center;
+            line-height: 1.4;
+        }
+
+        /* ─────────────── Event configuration panel ─────────────── */
+        .config-section {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .mode-label {
+            font-size: 11px;
+            color: var(--text-dim);
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .mode-toggle {
+            display: inline-flex;
+            border: 1px solid var(--border-strong);
+            border-radius: 6px;
+            overflow: hidden;
+            background: var(--bg-panel-2);
+        }
+
+        .mode-toggle button {
+            background: transparent;
+            color: var(--text-dim);
+            border: 0;
+            padding: 4px 12px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .mode-toggle button.active {
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .mode-toggle button:hover:not(.active):not(:disabled) {
+            background: rgba(91, 108, 255, 0.12);
+            color: var(--text);
+        }
+
+        .events-section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .events-section-title {
+            font-size: 12px;
+            color: var(--text-dim);
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .events-counters {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        .events-counters .count-warn {
+            color: var(--warn);
+        }
+
+        .events-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            background: var(--bg-panel-2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px;
+            min-height: 96px;
+        }
+
+        .events-empty {
+            color: var(--text-faint);
+            font-size: 12px;
+            font-style: italic;
+            padding: 12px;
+            text-align: center;
+        }
+
+        .event-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 6px;
+            border-radius: 4px;
+        }
+
+        .event-row:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .event-row .event-checkbox {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: var(--accent);
+        }
+
+        .event-row .event-checkbox:disabled {
+            cursor: not-allowed;
+        }
+
+        .event-row .event-text {
+            flex: 1;
+            color: var(--text);
+            font-size: 13px;
+            min-width: 0;
+        }
+
+        .event-row .event-text-input {
+            flex: 1;
+            background: var(--bg-card);
+            color: var(--text);
+            border: 1px solid var(--border-strong);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 13px;
+            font-family: inherit;
+            min-width: 0;
+        }
+
+        .event-row .icon-btn {
+            background: transparent;
+            border: 0;
+            color: var(--text-dim);
+            cursor: pointer;
+            padding: 2px 6px;
+            font-size: 14px;
+            line-height: 1;
+        }
+
+        .event-row .icon-btn:hover:not(:disabled) {
+            color: var(--text);
+        }
+
+        .event-row .icon-btn.danger:hover:not(:disabled) {
+            color: var(--danger);
+        }
+
+        .event-row .icon-btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+
+        .footer-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .footer-cluster {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .unsaved-marker {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--warn);
+        }
+
+        .unsaved-marker.hidden {
+            visibility: hidden;
+        }
+
+        .unsaved-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--warn);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-strong);
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-size: 13px;
+            color: var(--text);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity 0.2s, transform 0.2s;
+            pointer-events: none;
+            z-index: 100;
+            max-width: 360px;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .toast.error {
+            border-color: var(--danger);
+            color: var(--danger);
+        }
+
+        .toast.success {
+            border-color: var(--ok);
+        }
+
+        /* ─────────────── Settings modal ─────────────── */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+        }
+
+        .modal-backdrop.hidden {
+            display: none;
+        }
+
+        .modal {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-strong);
+            border-radius: 8px;
+            padding: 20px 24px;
+            min-width: 320px;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-title {
+            margin: 0 0 12px 0;
+            font-size: 14px;
+            color: var(--text);
+        }
+
+        .modal-body {
+            font-size: 13px;
+            color: var(--text-dim);
+            margin-bottom: 16px;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        /* ─────────────── Settings modal — Stage 6 ─────────────── */
+        .setting-row {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding: 8px 0;
+        }
+
+        .setting-label {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .setting-hint {
+            font-size: 12px;
+            font-weight: 400;
+            color: var(--text-dim);
+            line-height: 1.4;
+        }
+
+        .setting-control {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .setting-control input[type="range"] {
+            flex: 1;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            outline: none;
+        }
+
+        .setting-control input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--accent);
+            border: 1px solid var(--border-strong);
+            cursor: pointer;
+        }
+
+        .setting-control input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--accent);
+            border: 1px solid var(--border-strong);
+            cursor: pointer;
+        }
+
+        .setting-control input[type="range"].vlm-not-ready::-webkit-slider-thumb {
+            background: var(--text-faint);
+            cursor: not-allowed;
+        }
+
+        .setting-control input[type="range"].vlm-not-ready::-moz-range-thumb {
+            background: var(--text-faint);
+            cursor: not-allowed;
+        }
+
+        .setting-value {
+            min-width: 60px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            font-size: 13px;
+            color: var(--text);
+        }
+
+        /* ─────────────── Chat modal (Stage 4) ─────────────── */
+        /*
+         * Two-column layout (mirrors event_chat_modal_v2.png):
+         *   ┌──────────── header ────────────┐
+         *   │ frames (left)  │ transcript     │
+         *   │   stacked       │   right col    │
+         *   ├────────────────┴───────────────┤
+         *   │           input row             │
+         *   └────────────────────────────────┘
+         * Frames stack vertically at full aspect ratio (no cropping);
+         * each frame uses object-fit: contain. The frames column scrolls
+         * independently of the transcript when there are several frames.
+         */
+        .chat-modal {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-strong);
+            border-radius: 8px;
+            padding: 16px 20px;
+            /* ~88% of the viewport — locked (not max-) so the modal feels
+               consistently large regardless of how much transcript text is
+               inside. The 1200px cap keeps it sane on very wide displays. */
+            width: min(1200px, 88vw);
+            height: 88vh;
+            display: grid;
+            grid-template-columns: minmax(280px, 38%) 1fr;
+            grid-template-rows: auto 1fr auto;
+            row-gap: 12px;
+            column-gap: 16px;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .chat-modal-header {
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .chat-modal-title {
+            margin: 0;
+            font-size: 14px;
+            color: var(--text);
+        }
+
+        /* Persistent KV-cache usage badge in the header. Updates after every
+           done frame so the user can watch the session's context fill up
+           toward the model's max_context_capacity (currently 2048). The
+           hidden state covers the gap between session start and the first
+           response (no usage to report yet). */
+        .chat-context-badge {
+            font-size: 11px;
+            color: var(--text-dim);
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            padding: 2px 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            white-space: nowrap;
+        }
+
+        .chat-context-badge.hidden {
+            display: none;
+        }
+
+        /* Highlight when the remaining KV-cache headroom is too small to fit
+           one more max-length response. Paired with input/send-button lock
+           in JS so the user can't push the session past the cap. */
+        .chat-context-badge.full {
+            color: #fff;
+            background: var(--danger);
+            border-color: var(--danger);
+        }
+
+        .chat-modal-header-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Frames column — vertically stacked, scrollable. Each frame is
+           shown at its native aspect ratio with no cropping. */
+        .chat-frames {
+            grid-column: 1;
+            grid-row: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-height: 0;
+            overflow-y: auto;
+            padding: 8px;
+            background: #000;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+
+        .chat-frames img {
+            width: 100%;
+            height: auto;
+            max-height: 80vh;
+            /* never let one frame grow past the column */
+            object-fit: contain;
+            display: block;
+            border-radius: 4px;
+        }
+
+        .chat-transcript {
+            grid-column: 2;
+            grid-row: 2;
+            min-height: 180px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 12px 14px;
+            font-size: 13px;
+            line-height: 1.45;
+            color: var(--text);
+            background: var(--bg-panel-2);
+            /* Messenger-style stacking: each bubble aligns itself left/right
+               via align-self in the rules below. */
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .chat-bubble {
+            max-width: 75%;
+            padding: 8px 12px;
+            border-radius: 14px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .chat-bubble.user {
+            align-self: flex-end;
+            background: var(--accent);
+            color: #fff;
+            /* Slight asymmetric corner — the "tail" toward the sender. */
+            border-bottom-right-radius: 4px;
+        }
+
+        .chat-bubble.assistant {
+            align-self: flex-start;
+            background: var(--bg-card);
+            color: var(--text);
+            border-bottom-left-radius: 4px;
+        }
+
+        .chat-bubble.system {
+            align-self: center;
+            max-width: 90%;
+            text-align: center;
+            background: rgba(220, 160, 80, 0.10);
+            color: var(--text-dim);
+            font-style: italic;
+            border-radius: 8px;
+            padding: 6px 12px;
+        }
+
+        /* Per-turn stats line that sits directly under the assistant bubble.
+           Stays left-aligned (same column as the bubble it describes) and
+           dim so it doesn't compete with the response text. */
+        .chat-stats {
+            align-self: flex-start;
+            margin-top: -6px;
+            /* tuck it close to the bubble above */
+            font-size: 11px;
+            color: var(--text-dim);
+            opacity: 0.8;
+            padding-left: 4px;
+        }
+
+        .chat-input-row {
+            grid-column: 1 / -1;
+            display: flex;
+            gap: 8px;
+        }
+
+        .chat-input-row input[type=text] {
+            flex: 1 1 auto;
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 6px 8px;
+            font-size: 13px;
+        }
+
+        .chat-input-row input[type=text]:disabled {
+            opacity: 0.5;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+        <header class="app-header">
+            <h1 class="app-title">VLM Smart Event Monitor</h1>
+            <!-- Stage 6 item 1 — VLM + Monitoring status badges. JS sets the
+                 class (state-loading / state-ready / state-failed for VLM,
+                 state-running / state-stopped / state-paused for Monitoring)
+                 and the inner label based on the SSE monitoring_status feed. -->
+            <div class="app-status-bar">
+                <span class="status-badge state-loading" id="vlmStatusBadge" title="VLM model loading state">
+                    <span class="status-dot"></span>
+                    <span class="status-text">VLM loading…</span>
+                </span>
+                <span class="status-badge state-stopped" id="monitoringStatusBadge" title="Event-monitoring state">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Monitoring waiting — VLM loading</span>
+                </span>
+            </div>
+            <button class="btn btn-sm" id="settingsBtn">Settings</button>
+        </header>
+
+        <div class="main">
+            <!-- LEFT — Triggered Events -->
+            <section class="panel left-panel">
+                <div class="panel-header">
+                    <span>Triggered Events</span>
+                </div>
+                <div class="panel-body">
+                    <div class="events-grid" id="eventsGrid">
+                        <div class="empty-state" id="eventsEmpty">
+                            No events yet. Triggered events will appear here as they fire.
+                        </div>
+                    </div>
+                </div>
+                <div class="panel-footer">
+                    <button class="btn btn-sm" id="clearEventsBtn" disabled>Clear Events</button>
+                </div>
+            </section>
+
+            <!-- RIGHT — stacked: live video on top, event config below -->
+            <div class="right-panel">
+
+                <!-- Live video -->
+                <section class="panel">
+                    <div class="panel-header">
+                        <span>Live Video Stream</span>
+                        <button class="btn btn-sm btn-primary vlm-dependent vlm-not-ready" id="chatNowBtn"
+                            title="VLM is still loading…">Chat Now</button>
+                    </div>
+                    <div class="panel-body video-panel-body">
+                        <video id="videoStream" class="video-stream" autoplay playsinline muted></video>
+                        <div id="videoControls" class="video-controls">
+                            <div class="play-button" id="playButton" title="Click to start streaming">
+                                <div class="play-triangle"></div>
+                            </div>
+                        </div>
+                        <div id="videoStatus" class="video-status status-disconnected">Disconnected</div>
+                        <div id="videoOverlayText" class="video-overlay-text"></div>
+                    </div>
+                </section>
+
+                <!-- Event configuration -->
+                <section class="panel">
+                    <div class="panel-header">
+                        <span>Event Configuration</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="config-section">
+
+                            <div>
+                                <div class="events-section-header">
+                                    <span class="events-section-title">Active Events</span>
+                                    <span class="events-counters" id="eventsCounters">
+                                        <span id="totalCount">0</span> / 10 events &nbsp; · &nbsp;
+                                        <span id="enabledCount">0</span> / 3 enabled
+                                    </span>
+                                </div>
+                                <div class="events-list" id="eventsList">
+                                    <div class="events-empty">Loading…</div>
+                                </div>
+                            </div>
+
+                            <div class="footer-row">
+                                <div class="footer-cluster">
+                                    <span class="mode-label">Mode</span>
+                                    <div class="mode-toggle" id="modeToggle">
+                                        <button data-mode="performance" class="active"
+                                            title="Faster checks (smaller AI workload)">Performance</button>
+                                        <button data-mode="accuracy"
+                                            title="Slower, fewer false negatives">Accuracy</button>
+                                    </div>
+                                </div>
+                                <div class="footer-cluster">
+                                    <button class="btn btn-sm btn-primary" id="addEventBtn">+ Add Event</button>
+                                    <button class="btn btn-sm" id="loadBtn">Load</button>
+                                    <button class="btn btn-sm btn-primary" id="saveBtn">Save</button>
+                                    <span class="unsaved-marker hidden" id="unsavedMarker"
+                                        title="Mode and event-list changes are applied when you click Save">
+                                        <span class="unsaved-dot"></span>unsaved
+                                    </span>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings modal (stub) -->
+    <div class="modal-backdrop hidden" id="settingsBackdrop">
+        <div class="modal">
+            <h2 class="modal-title">Settings</h2>
+            <div class="modal-body">
+                <div class="setting-row">
+                    <label for="cooldownSlider" class="setting-label">
+                        Event deduplication cooldown
+                        <span class="setting-hint">
+                            After an event fires, the same event is suppressed for this long
+                            before it can fire again. Other events are unaffected. Range
+                            30 s – 5 min.
+                        </span>
+                    </label>
+                    <div class="setting-control">
+                        <input type="range" id="cooldownSlider" min="30" max="300" step="5" value="60"
+                            class="vlm-dependent vlm-not-ready">
+                        <span class="setting-value" id="cooldownValue">60 s</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-sm" id="settingsCloseBtn">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chat modal (Stage 4) — single shared modal for both event-chat and live-chat -->
+    <div class="modal-backdrop hidden" id="chatBackdrop">
+        <div class="chat-modal">
+            <div class="chat-modal-header">
+                <h2 class="chat-modal-title" id="chatTitle">Chat</h2>
+                <div class="chat-modal-header-right">
+                    <span class="chat-context-badge hidden" id="chatContextBadge"
+                        title="KV-cache usage for this session"></span>
+                    <button class="btn btn-sm" id="chatCloseBtn">Close</button>
+                </div>
+            </div>
+            <div class="chat-frames" id="chatFrames"></div>
+            <div class="chat-transcript" id="chatTranscript"></div>
+            <div class="chat-input-row">
+                <input type="text" id="chatInput" placeholder="Ask a question about the frame(s)…" autocomplete="off" />
+                <button class="btn btn-sm btn-primary" id="chatSendBtn">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <script>
+        'use strict';
+
+        // ─────────────── Utilities ───────────────
+        const $ = (id) => document.getElementById(id);
+
+        function showToast(message, kind) {
+            const toastEl = $('toast');
+            toastEl.textContent = message;
+            toastEl.className = 'toast show' + (kind ? ' ' + kind : '');
+            clearTimeout(showToast._timer);
+            showToast._timer = setTimeout(() => {
+                toastEl.className = 'toast';
+            }, 3500);
+        }
+
+        // Stage 4 — Download the debug bundle for one triggered event.
+        // The bundle is delivered inline in the SSE new_event payload's
+        // optional `debug` node (only present when debug_metadata_save is
+        // enabled in the YAML). Output is a zip matching the on-disk
+        // /var/volatile/vlm-event-metadata/<cycle>/ layout exactly.
+        async function downloadEventBundle(eventPayload) {
+            const dbg = eventPayload && eventPayload.debug;
+            if (!dbg) return;
+            try {
+                const zip = new JSZip();
+                zip.file('metadata.json', JSON.stringify(dbg.metadata, null, 2));
+                const frames = dbg.frames || {};
+                for (const [name, b64] of Object.entries(frames)) {
+                    zip.file(name, b64, { base64: true });
+                }
+                const blob = await zip.generateAsync({ type: 'blob' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `vlm-event-${dbg.cycle_id || 'unknown'}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                console.warn('[debug-download] failed', err);
+                showToast('Download failed: ' + err, 'error');
+            }
+        }
+
+        function formatTimestamp(iso) {
+            // Backend sends ISO-8601 UTC (e.g. "2025-11-15T14:30:45.123Z").
+            // toLocaleString() renders in the browser's locale + timezone,
+            // showing both date and time. Same pattern as clip.
+            try {
+                const d = new Date(iso);
+                if (isNaN(d.getTime())) return iso;
+                return d.toLocaleString();
+            } catch (_) {
+                return iso;
+            }
+        }
+
+        // ─────────────── EventConfig component ───────────────
+        //
+        // Two arrays:
+        //   - working_events / working_mode — what the user is currently editing
+        //   - saved_events   / saved_mode   — what we last saw on disk (initial GET / Load / Save)
+        // The unsaved-dot turns on whenever working ≠ saved.
+        //
+        // Backend invariants are also enforced client-side for a snappy UI:
+        //   max 10 events, min 1, max 5 enabled, min 1 enabled, non-empty desc.
+
+        const MAX_EVENTS = 10;
+        const MIN_EVENTS = 1;
+        const MAX_ENABLED = 3;
+        const MIN_ENABLED = 1;
+
+        class EventConfig {
+            constructor() {
+                this.workingEvents = [];
+                this.savedEvents = [];
+                this.workingMode = 'performance';
+                this.savedMode = 'performance';
+                this.nextLocalId = 1;
+
+                this.modeToggleEl = $('modeToggle');
+                this.listEl = $('eventsList');
+                this.totalCountEl = $('totalCount');
+                this.enabledCountEl = $('enabledCount');
+                this.unsavedMarkerEl = $('unsavedMarker');
+                this.addBtn = $('addEventBtn');
+                this.loadBtn = $('loadBtn');
+                this.saveBtn = $('saveBtn');
+
+                this.bindEvents();
+                this.refresh();
+            }
+
+            bindEvents() {
+                this.modeToggleEl.querySelectorAll('button').forEach(btn => {
+                    btn.addEventListener('click', () => this.setMode(btn.dataset.mode));
+                });
+                this.addBtn.addEventListener('click', () => this.addEvent());
+                this.loadBtn.addEventListener('click', () => this.refresh());
+                this.saveBtn.addEventListener('click', () => this.save());
+            }
+
+            // GET /api/events — used both for initial mount and the Load button.
+            async refresh() {
+                try {
+                    const r = await fetch('/api/events');
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    const doc = await r.json();
+                    const events = (doc.events || []).map(ev => ({
+                        id: ev.id, description: ev.description, enabled: ev.enabled
+                    }));
+                    this.workingEvents = JSON.parse(JSON.stringify(events));
+                    this.savedEvents = JSON.parse(JSON.stringify(events));
+                    this.workingMode = (doc.mode === 'accuracy') ? 'accuracy' : 'performance';
+                    this.savedMode = this.workingMode;
+                    // Re-seed the local-id allocator to avoid collisions.
+                    this.nextLocalId = events.reduce((max, e) => Math.max(max, e.id), 0) + 1;
+                    this.render();
+                    if (!doc.file_existed) {
+                        showToast('Events file not yet on disk — Add Event + Save to create it.', '');
+                    }
+                } catch (err) {
+                    showToast('Failed to load events: ' + err.message, 'error');
+                }
+            }
+
+            setMode(mode) {
+                if (mode !== 'performance' && mode !== 'accuracy') return;
+                if (this.workingMode === mode) return;
+                this.workingMode = mode;
+                this.render();
+            }
+
+            addEvent() {
+                if (this.workingEvents.length >= MAX_EVENTS) return;
+                const enabledCount = this.workingEvents.filter(e => e.enabled).length;
+                this.workingEvents.push({
+                    id: this.nextLocalId++,
+                    description: '',
+                    enabled: enabledCount < MAX_ENABLED, // default enabled if there's headroom
+                });
+                this.render();
+            }
+
+            deleteEvent(index) {
+                if (this.workingEvents.length <= MIN_EVENTS) return;
+                this.workingEvents.splice(index, 1);
+                this.render();
+            }
+
+            toggleEnabled(index, value) {
+                const target = this.workingEvents[index];
+                if (!target) return;
+                if (value) {
+                    const enabledCount = this.workingEvents.filter(e => e.enabled).length;
+                    if (enabledCount >= MAX_ENABLED) return;
+                    target.enabled = true;
+                } else {
+                    const enabledCount = this.workingEvents.filter(e => e.enabled).length;
+                    if (enabledCount <= MIN_ENABLED) return;
+                    target.enabled = false;
+                }
+                this.render();
+            }
+
+            updateDescription(index, value) {
+                const target = this.workingEvents[index];
+                if (!target) return;
+                target.description = value;
+                this.updateUnsavedMarker();
+            }
+
+            isUnsaved() {
+                if (this.workingMode !== this.savedMode) return true;
+                if (this.workingEvents.length !== this.savedEvents.length) return true;
+                for (let i = 0; i < this.workingEvents.length; i++) {
+                    const a = this.workingEvents[i];
+                    const b = this.savedEvents[i];
+                    if (a.id !== b.id || a.description !== b.description || a.enabled !== b.enabled) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            updateUnsavedMarker() {
+                if (this.isUnsaved()) {
+                    this.unsavedMarkerEl.classList.remove('hidden');
+                } else {
+                    this.unsavedMarkerEl.classList.add('hidden');
+                }
+            }
+
+            render() {
+                // Mode toggle highlight.
+                this.modeToggleEl.querySelectorAll('button').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.mode === this.workingMode);
+                });
+
+                // List rows.
+                this.listEl.innerHTML = '';
+                if (this.workingEvents.length === 0) {
+                    const empty = document.createElement('div');
+                    empty.className = 'events-empty';
+                    empty.textContent = 'No events configured. Click "+ Add Event" to start.';
+                    this.listEl.appendChild(empty);
+                } else {
+                    const enabledCount = this.workingEvents.filter(e => e.enabled).length;
+                    this.workingEvents.forEach((event, index) => {
+                        const row = this.renderRow(event, index, enabledCount);
+                        this.listEl.appendChild(row);
+                    });
+                }
+
+                // Counters.
+                const total = this.workingEvents.length;
+                const enabled = this.workingEvents.filter(e => e.enabled).length;
+                this.totalCountEl.textContent = total;
+                this.totalCountEl.parentElement.classList.toggle('count-warn',
+                    total >= MAX_EVENTS);
+                this.enabledCountEl.textContent = enabled;
+                this.enabledCountEl.parentElement.classList.toggle('count-warn',
+                    enabled >= MAX_ENABLED);
+
+                // Add Event disabled at cap.
+                this.addBtn.disabled = total >= MAX_EVENTS;
+                this.addBtn.title = total >= MAX_EVENTS
+                    ? `Maximum ${MAX_EVENTS} events`
+                    : 'Add a new event';
+
+                this.updateUnsavedMarker();
+            }
+
+            renderRow(event, index, enabledCount) {
+                const row = document.createElement('div');
+                row.className = 'event-row';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'event-checkbox';
+                checkbox.checked = event.enabled;
+                // Disable when unchecking would drop us below MIN_ENABLED, OR
+                // checking would push us above MAX_ENABLED.
+                if (event.enabled && enabledCount <= MIN_ENABLED) {
+                    checkbox.disabled = true;
+                    checkbox.title = `At least ${MIN_ENABLED} event must be enabled`;
+                } else if (!event.enabled && enabledCount >= MAX_ENABLED) {
+                    checkbox.disabled = true;
+                    checkbox.title = `At most ${MAX_ENABLED} events may be enabled`;
+                }
+                checkbox.addEventListener('change', () => {
+                    this.toggleEnabled(index, checkbox.checked);
+                });
+                row.appendChild(checkbox);
+
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'event-text-input';
+                input.value = event.description;
+                input.placeholder = 'Event description';
+                input.addEventListener('input', () => {
+                    this.updateDescription(index, input.value);
+                });
+                row.appendChild(input);
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'icon-btn danger';
+                deleteBtn.innerHTML = '✕';
+                deleteBtn.title = 'Delete event';
+                if (this.workingEvents.length <= MIN_EVENTS) {
+                    deleteBtn.disabled = true;
+                    deleteBtn.title = `At least ${MIN_EVENTS} event must remain`;
+                }
+                deleteBtn.addEventListener('click', () => this.deleteEvent(index));
+                row.appendChild(deleteBtn);
+
+                return row;
+            }
+
+            // PUT /api/events — atomic replace + persist + apply.
+            async save() {
+                this.saveBtn.disabled = true;
+                try {
+                    const body = {
+                        events: this.workingEvents.map(ev => ({
+                            id: ev.id,
+                            description: ev.description,
+                            enabled: ev.enabled,
+                        })),
+                        mode: this.workingMode,
+                    };
+                    const r = await fetch('/api/events', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body),
+                    });
+                    if (!r.ok) {
+                        let reason = 'HTTP ' + r.status;
+                        try {
+                            const errBody = await r.json();
+                            if (errBody && errBody.reason) reason = errBody.reason;
+                        } catch (_) { /* ignore */ }
+                        showToast('Save failed: ' + reason, 'error');
+                        return;
+                    }
+                    this.savedEvents = JSON.parse(JSON.stringify(this.workingEvents));
+                    this.savedMode = this.workingMode;
+                    this.updateUnsavedMarker();
+                    showToast('Saved.', 'success');
+                } catch (err) {
+                    showToast('Save failed: ' + err.message, 'error');
+                } finally {
+                    this.saveBtn.disabled = false;
+                }
+            }
+        }
+
+        // ─────────────── TriggeredEvents (SSE consumer) ───────────────
+
+        class TriggeredEvents {
+            constructor() {
+                this.events = []; // most recent first
+                this.gridEl = $('eventsGrid');
+                this.emptyEl = $('eventsEmpty');
+                this.clearBtn = $('clearEventsBtn');
+                this.eventSource = null;
+
+                this.clearBtn.addEventListener('click', () => this.clear());
+                this.connect();
+            }
+
+            connect() {
+                try {
+                    this.eventSource = new EventSource('/api/triggered-events/stream');
+                    this.eventSource.addEventListener('new_event', e => {
+                        noteSseRx();
+                        try {
+                            const payload = JSON.parse(e.data);
+                            this.appendEvent(payload);
+                        } catch (err) {
+                            console.warn('[sse] malformed new_event', err);
+                        }
+                    });
+                    this.eventSource.addEventListener('monitoring_status', e => {
+                        noteSseRx();
+                        // Stage 6 item 1 — drive the VLM + Monitoring header
+                        // badges and toggle disabled state on VLM-dependent
+                        // controls.
+                        try {
+                            const payload = JSON.parse(e.data);
+                            applyMonitoringStatus(payload);
+                        } catch (err) {
+                            console.warn('[sse] malformed monitoring_status', err);
+                        }
+                    });
+                    // Stage 6 item 1 refinement: heartbeats are proof-of-life
+                    // for the backend-disconnect detector below.
+                    this.eventSource.addEventListener('heartbeat', () => { noteSseRx(); });
+                    this.eventSource.addEventListener('chat_session_expired', e => {
+                        noteSseRx();
+                        try {
+                            const payload = JSON.parse(e.data);
+                            if (window.chatModal) {
+                                window.chatModal.handleSessionExpired(payload);
+                            }
+                        } catch (err) {
+                            console.warn('[sse] malformed chat_session_expired', err);
+                        }
+                    });
+                    this.eventSource.onerror = () => {
+                        // Browser will auto-reconnect; surface the gap to the
+                        // user via the badges until a fresh SSE message clears
+                        // it via noteSseRx().
+                        if (this.eventSource &&
+                            this.eventSource.readyState !== EventSource.OPEN) {
+                            setBackendDisconnected();
+                        }
+                    };
+                } catch (err) {
+                    console.warn('[sse] connect failed', err);
+                    setBackendDisconnected();
+                }
+            }
+
+            appendEvent(payload) {
+                this.events.unshift(payload);
+                this.clearBtn.disabled = false;
+                this.render();
+            }
+
+            clear() {
+                this.events = [];
+                this.clearBtn.disabled = true;
+                this.render();
+            }
+
+            render() {
+                this.gridEl.innerHTML = '';
+                if (this.events.length === 0) {
+                    const empty = document.createElement('div');
+                    empty.className = 'empty-state';
+                    empty.textContent = 'No events yet. Triggered events will appear here as they fire.';
+                    this.gridEl.appendChild(empty);
+                    return;
+                }
+                this.events.forEach(event => {
+                    const card = document.createElement('div');
+                    card.className = 'event-card';
+                    card.addEventListener('click', () => {
+                        if (window.chatModal) {
+                            window.chatModal.openForEvent(event);
+                        }
+                    });
+
+                    const thumb = document.createElement('div');
+                    thumb.className = 'event-thumb';
+                    const frames = Array.isArray(event.frames) ? event.frames : [];
+                    if (frames.length === 0) {
+                        thumb.textContent = 'no frame';
+                    } else if (frames.length === 1) {
+                        const img = document.createElement('img');
+                        img.className = 'thumb-single';
+                        img.src = 'data:image/jpeg;base64,' + frames[0];
+                        img.alt = event.event_description || 'event';
+                        thumb.appendChild(img);
+                    } else {
+                        // 3 frames (Performance) → 1×3 strip
+                        // 4 frames (Accuracy)    → 2×2 grid
+                        // Anything else falls back to a strip across all cells.
+                        const grid = document.createElement('div');
+                        grid.className = 'thumb-grid ' +
+                            (frames.length === 4 ? 'thumb-grid-2x2' : 'thumb-grid-strip-3');
+                        if (frames.length !== 3 && frames.length !== 4) {
+                            // Override the inline column template for unexpected counts.
+                            grid.style.gridTemplateColumns = `repeat(${frames.length}, 1fr)`;
+                            grid.style.gridTemplateRows = '1fr';
+                        }
+                        frames.forEach((b64, j) => {
+                            const img = document.createElement('img');
+                            img.src = 'data:image/jpeg;base64,' + b64;
+                            img.alt = (event.event_description || 'event') + ' frame ' + (j + 1);
+                            img.title = `Frame ${j + 1} of ${frames.length}`;
+                            grid.appendChild(img);
+                        });
+                        thumb.appendChild(grid);
+                    }
+
+                    // Stage 4 — Optional debug-bundle download button. Only
+                    // rendered when the SSE payload includes the `debug`
+                    // node (backend gates this on debug_metadata_save).
+                    if (event.debug) {
+                        const debugBtn = document.createElement('button');
+                        debugBtn.className = 'event-debug-btn';
+                        debugBtn.title = 'Download debug bundle (336x336 frames + metadata.json)';
+                        debugBtn.textContent = '⋯'; // ⋯ horizontal ellipsis
+                        debugBtn.addEventListener('click', e => {
+                            e.stopPropagation(); // don't open the chat modal
+                            downloadEventBundle(event);
+                        });
+                        thumb.appendChild(debugBtn);
+                    }
+
+                    card.appendChild(thumb);
+
+                    const name = document.createElement('div');
+                    name.className = 'event-name';
+                    name.title = event.event_description || '';
+                    name.textContent = event.event_description || '(unnamed event)';
+                    card.appendChild(name);
+
+                    const time = document.createElement('div');
+                    time.className = 'event-time';
+                    time.textContent = formatTimestamp(event.timestamp);
+                    card.appendChild(time);
+
+                    this.gridEl.appendChild(card);
+                });
+            }
+        }
+
+        // ─────────────── Settings modal ───────────────
+
+        function setupSettingsModal() {
+            const backdrop = $('settingsBackdrop');
+            $('settingsBtn').addEventListener('click', () => backdrop.classList.remove('hidden'));
+            $('settingsCloseBtn').addEventListener('click', () => backdrop.classList.add('hidden'));
+            backdrop.addEventListener('click', e => {
+                if (e.target === backdrop) backdrop.classList.add('hidden');
+            });
+
+            // Stage 6 — runtime deduplication-cooldown slider.
+            // input → live-update the label only (no network).
+            // change (fires on slider release) → PUT /api/monitoring/config.
+            const slider = $('cooldownSlider');
+            const valueEl = $('cooldownValue');
+            if (slider && valueEl) {
+                slider.addEventListener('input', () => {
+                    // Mark "currently dragging" so renderStatusBadges() does
+                    // not yank the slider position out from under the user
+                    // when an SSE monitoring_status arrives mid-drag.
+                    slider.dataset.dragging = 'true';
+                    valueEl.textContent = slider.value + ' s';
+                });
+                slider.addEventListener('change', () => {
+                    slider.dataset.dragging = 'false';
+                    const requested = parseInt(slider.value, 10);
+                    valueEl.textContent = requested + ' s';
+                    fetch('/api/monitoring/config', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ cooldown_seconds: requested }),
+                    })
+                        .then(async r => {
+                            const body = await r.json().catch(() => ({}));
+                            if (!r.ok) {
+                                if (r.status === 503) {
+                                    showToast('VLM not ready yet', 'error');
+                                } else if (r.status === 400 && body.error === 'out_of_range') {
+                                    showToast('Cooldown must be 30–300 s', 'error');
+                                } else {
+                                    showToast('Failed to update cooldown', 'error');
+                                }
+                                return;
+                            }
+                            // Success: server echoes the applied value. SSE
+                            // monitoring_status will also fire and bring
+                            // every other open tab in sync.
+                            if (typeof body.cooldown_seconds === 'number') {
+                                valueEl.textContent = body.cooldown_seconds + ' s';
+                            }
+                        })
+                        .catch(() => showToast('Failed to update cooldown', 'error'));
+                });
+            }
+        }
+
+        // ─────────────── ChatModal (Stage 4) ───────────────
+        //
+        // Single-session chat. Event-chat is opened by clicking a triggered-event
+        // tile (frames are passed through the SSE payload that already arrived).
+        // Live-chat is opened by the "Chat Now" button (server snapshots the
+        // latest JPEG itself and returns it in the /chat/start response).
+        //
+        // First /chat/stream uses the frames stashed by /chat/start; every
+        // subsequent /chat/stream on the same session is text-only. The server
+        // enforces this — frontend just sends the prompt either way.
+        //
+        // SSE-over-fetch parser: standard EventSource is GET-only, so we use
+        // fetch() + ReadableStream to consume the chunked text/event-stream.
+        class ChatModal {
+            constructor() {
+                this.backdrop = $('chatBackdrop');
+                this.titleEl = $('chatTitle');
+                this.framesEl = $('chatFrames');
+                this.transcriptEl = $('chatTranscript');
+                this.inputEl = $('chatInput');
+                this.sendBtn = $('chatSendBtn');
+                this.closeBtn = $('chatCloseBtn');
+                this.contextBadgeEl = $('chatContextBadge');
+
+                this.currentSessionId = null;
+                this.streaming = false;       // true while a /chat/stream is in flight
+                this.currentReader = null;    // ReadableStreamDefaultReader to abort on close
+                this.currentAssistantBubble = null; // bubble being filled by the active stream
+                this.contextFull = false;     // true once remaining < max_generated_tokens
+                this.defaultPlaceholder = this.inputEl.placeholder;
+
+                this.closeBtn.addEventListener('click', () => this.close({ explicit: true }));
+                this.backdrop.addEventListener('click', e => {
+                    if (e.target === this.backdrop) this.close({ explicit: true });
+                });
+                this.sendBtn.addEventListener('click', () => this._handleSend());
+                this.inputEl.addEventListener('keydown', e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        this._handleSend();
+                    }
+                });
+                window.addEventListener('beforeunload', () => {
+                    if (this.currentSessionId !== null) {
+                        try {
+                            navigator.sendBeacon('/api/vlm/chat/close',
+                                new Blob([JSON.stringify({ session_id: this.currentSessionId })],
+                                    { type: 'application/json' }));
+                        } catch (_) { /* best-effort */ }
+                    }
+                });
+            }
+
+            // Event-chat — payload comes from TriggeredEvents new_event SSE.
+            async openForEvent(payload) {
+                const frames = Array.isArray(payload && payload.frames) ? payload.frames : [];
+                if (frames.length === 0) {
+                    showToast('No frames on this event', 'error');
+                    return;
+                }
+                this._reset(payload.event_description || 'Event chat');
+                this._renderFrames(frames);
+                this._show();
+
+                try {
+                    const response = await fetch('/api/vlm/chat/start', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            frames: frames,
+                            triggered_event_id: payload.id,
+                        }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok || data.status === 'error') {
+                        this._appendSystem('Failed to start chat: ' +
+                            (data.message || data.reason || response.statusText));
+                        this._disableInput();
+                        return;
+                    }
+                    this.currentSessionId = data.session_id;
+                    this._enableInput();
+                } catch (err) {
+                    this._appendSystem('Failed to start chat: ' + err);
+                    this._disableInput();
+                }
+            }
+
+            // Live-chat — server snapshots latest JPEG and returns it as base64.
+            async openForLive() {
+                this._reset('Live chat');
+                this._show();
+
+                try {
+                    const response = await fetch('/api/vlm/chat/start', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ live: true }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok || data.status === 'error') {
+                        this._appendSystem('Failed to start chat: ' +
+                            (data.message || data.reason || response.statusText));
+                        this._disableInput();
+                        return;
+                    }
+                    this.currentSessionId = data.session_id;
+                    if (data.snapshot) {
+                        this._renderFrames([data.snapshot]);
+                    }
+                    this._enableInput();
+                } catch (err) {
+                    this._appendSystem('Failed to start chat: ' + err);
+                    this._disableInput();
+                }
+            }
+
+            // Called by TriggeredEvents on a chat_session_expired SSE event.
+            handleSessionExpired(payload) {
+                if (!payload || payload.session_id !== this.currentSessionId) {
+                    return; // not our session
+                }
+                this._appendSystem(payload.message ||
+                    'Chat session expired — please close this session and start again.');
+                if (this.currentReader) {
+                    try { this.currentReader.cancel(); } catch (_) { /* ignore */ }
+                }
+                this.currentSessionId = null;
+                this._disableInput();
+            }
+
+            // Explicit close — also called for the (X) button. If a stream is
+            // in flight, abort it; tell the server to discard the session.
+            async close({ explicit }) {
+                if (this.currentReader) {
+                    try { this.currentReader.cancel(); } catch (_) { /* ignore */ }
+                    this.currentReader = null;
+                }
+                if (explicit && this.currentSessionId !== null) {
+                    const sid = this.currentSessionId;
+                    try {
+                        await fetch('/api/vlm/chat/close', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ session_id: sid }),
+                        });
+                    } catch (_) { /* best-effort */ }
+                }
+                this.currentSessionId = null;
+                this.streaming = false;
+                this.backdrop.classList.add('hidden');
+            }
+
+            _show() {
+                this.backdrop.classList.remove('hidden');
+                setTimeout(() => this.inputEl.focus(), 50);
+            }
+
+            _reset(title) {
+                this.titleEl.textContent = title;
+                this.framesEl.innerHTML = '';
+                this.framesEl.className = 'chat-frames';
+                this.transcriptEl.innerHTML = '';
+                this.inputEl.value = '';
+                this.inputEl.disabled = true;
+                this.sendBtn.disabled = true;
+                this.currentSessionId = null;
+                this.streaming = false;
+                this.currentReader = null;
+                this.currentAssistantBubble = null;
+                this.contextFull = false;
+                this.inputEl.placeholder = this.defaultPlaceholder;
+                if (this.contextBadgeEl) {
+                    this.contextBadgeEl.textContent = '';
+                    this.contextBadgeEl.classList.remove('full');
+                    this.contextBadgeEl.classList.add('hidden');
+                }
+            }
+
+            _renderFrames(framesB64) {
+                this.framesEl.innerHTML = '';
+                // Layout is uniform: vertically stacked, contained at native
+                // aspect ratio. Column scrolls if frames overflow.
+                framesB64.forEach((b64, idx) => {
+                    const img = document.createElement('img');
+                    img.src = 'data:image/jpeg;base64,' + b64;
+                    img.alt = 'frame ' + (idx + 1);
+                    this.framesEl.appendChild(img);
+                });
+            }
+
+            _enableInput() {
+                // Don't unlock if the session has hit its KV-cache cap.
+                if (this.contextFull) {
+                    return;
+                }
+                this.inputEl.disabled = false;
+                this.sendBtn.disabled = false;
+                this.inputEl.focus();
+            }
+
+            // Called when the remaining KV-cache headroom drops below the
+            // per-response budget — there's no room for one more answer of
+            // max_generated_tokens, so we lock the input.
+            _lockForFullContext() {
+                this.contextFull = true;
+                this.inputEl.value = '';
+                this.inputEl.placeholder = 'Max context reached — please close and start a new chat';
+                this.inputEl.disabled = true;
+                this.sendBtn.disabled = true;
+                if (this.contextBadgeEl) {
+                    this.contextBadgeEl.classList.add('full');
+                }
+                this._appendSystem(
+                    'Max context reached — this session can no longer fit a new response. ' +
+                    'Please close and start a new chat.');
+            }
+
+            _disableInput() {
+                this.inputEl.disabled = true;
+                this.sendBtn.disabled = true;
+            }
+
+            _appendUserBubble(text) {
+                const bubble = document.createElement('div');
+                bubble.className = 'chat-bubble user';
+                bubble.textContent = text;
+                this.transcriptEl.appendChild(bubble);
+                this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+            }
+
+            _appendAssistantBubble() {
+                const bubble = document.createElement('div');
+                bubble.className = 'chat-bubble assistant';
+                const text = document.createElement('span');
+                text.className = 'text';
+                bubble.appendChild(text);
+                this.transcriptEl.appendChild(bubble);
+                this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+                return bubble;
+            }
+
+            _appendSystem(message) {
+                const bubble = document.createElement('div');
+                bubble.className = 'chat-bubble system';
+                bubble.textContent = message;
+                this.transcriptEl.appendChild(bubble);
+                this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+            }
+
+            async _handleSend() {
+                if (this.streaming) return;
+                if (this.currentSessionId === null) {
+                    showToast('No active chat session', 'error');
+                    return;
+                }
+                const text = this.inputEl.value.trim();
+                if (!text) return;
+                this.inputEl.value = '';
+                this._appendUserBubble(text);
+
+                this.streaming = true;
+                this._disableInput();
+                this.currentAssistantBubble = this._appendAssistantBubble();
+                const textSpan = this.currentAssistantBubble.querySelector('.text');
+
+                try {
+                    const response = await fetch('/api/vlm/chat/stream', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            session_id: this.currentSessionId,
+                            prompt: text,
+                        }),
+                    });
+                    if (response.status === 404) {
+                        this._appendSystem('Session expired — please start a new chat.');
+                        this.currentSessionId = null;
+                        this.streaming = false;
+                        return;
+                    }
+                    if (!response.ok) {
+                        let errMsg = 'HTTP ' + response.status;
+                        try {
+                            const errJson = await response.json();
+                            errMsg = errJson.message || errJson.reason || errMsg;
+                        } catch (_) { /* keep default */ }
+                        this._appendSystem('Stream error: ' + errMsg);
+                        this.streaming = false;
+                        this._enableInput();
+                        return;
+                    }
+
+                    this.currentReader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+                    while (true) {
+                        const { done, value } = await this.currentReader.read();
+                        if (done) break;
+                        buffer += decoder.decode(value, { stream: true });
+                        // SSE: frames are separated by blank line ("\n\n")
+                        let separator;
+                        while ((separator = buffer.indexOf('\n\n')) >= 0) {
+                            const frame = buffer.slice(0, separator);
+                            buffer = buffer.slice(separator + 2);
+                            this._processStreamFrame(frame, textSpan);
+                        }
+                    }
+                } catch (err) {
+                    if (err && err.name === 'AbortError') {
+                        // Aborted by close() — silent.
+                    } else {
+                        this._appendSystem('Stream error: ' + err);
+                    }
+                } finally {
+                    this.currentReader = null;
+                    this.streaming = false;
+                    if (this.currentSessionId !== null) {
+                        this._enableInput();
+                    }
+                }
+            }
+
+            _processStreamFrame(frame, textSpan) {
+                // Each frame may have multiple "data: ..." lines; we only emit one
+                // per token so we just look for the first data: line.
+                const lines = frame.split('\n');
+                for (const line of lines) {
+                    if (!line.startsWith('data:')) continue;
+                    const payload = line.slice(5).trim();
+                    if (!payload) continue;
+                    let json;
+                    try {
+                        json = JSON.parse(payload);
+                    } catch (_) { continue; }
+                    if (json.token !== undefined) {
+                        textSpan.textContent += json.token;
+                        this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+                    } else if (json.done) {
+                        if (json.error) {
+                            this._appendSystem('VLM error: ' + json.error);
+                        }
+                        const stats = json.stats || {};
+                        const statsLine = document.createElement('div');
+                        // Sibling of the assistant bubble (not a child) so the
+                        // messenger-style flex layout can align it independently.
+                        statsLine.className = 'chat-stats';
+                        const ttft = Math.round(stats.ttft_ms || 0);
+                        const wait = Math.round(stats.wait_ms || 0);
+                        const total = Math.round(stats.total_ms || 0);
+                        const tps = (stats.tps || 0).toFixed(1);
+                        const tokens = stats.tokens_generated || 0;
+                        const maxTokens = stats.max_generated_tokens || 0;
+                        const tokensText = maxTokens > 0
+                            ? `${tokens}/${maxTokens} tokens`
+                            : `${tokens} tokens`;
+                        statsLine.textContent =
+                            `ttft=${ttft}ms · wait=${wait}ms · total=${total}ms · ${tps} tps · ${tokensText}`;
+                        // Update the persistent KV-cache badge in the header.
+                        const ctxUsed = stats.context_usage || 0;
+                        const ctxCap = stats.context_capacity || 0;
+                        if (this.contextBadgeEl && ctxCap > 0) {
+                            this.contextBadgeEl.textContent =
+                                `Context: ${ctxUsed} / ${ctxCap}`;
+                            this.contextBadgeEl.classList.remove('hidden');
+                        }
+                        // Lock the input if there's no room left for another
+                        // max-length response (server's max_generated_tokens
+                        // cap). Without this, the user can keep typing and
+                        // either get truncated answers or hit a backend
+                        // error mid-generation.
+                        if (!this.contextFull && ctxCap > 0 && maxTokens > 0 &&
+                            (ctxCap - ctxUsed) < maxTokens) {
+                            this._lockForFullContext();
+                        }
+                        // Insert immediately after the matching assistant
+                        // bubble so we can keep streaming a follow-up reply.
+                        if (this.currentAssistantBubble &&
+                            this.currentAssistantBubble.parentNode === this.transcriptEl) {
+                            this.transcriptEl.insertBefore(statsLine,
+                                this.currentAssistantBubble.nextSibling);
+                        } else {
+                            this.transcriptEl.appendChild(statsLine);
+                        }
+                        this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+                    }
+                }
+            }
+        }
+
+        // ─────────────── WebRTC client (preserved from Stage 1) ───────────────
+        //
+        // Talks to:
+        //   POST /api/webrtc/offer          → returns { type, sdp }
+        //   POST /api/webrtc/answer         → body { type, sdp }
+        //   POST /api/webrtc/ice-candidate  → body { candidate, sdpMid, sdpMLineIndex }
+        //   GET  /api/webrtc/status         → { connected: bool }
+
+        class WebRTCClient {
+            constructor() {
+                this.peerConnection = null;
+                this.videoEl = $('videoStream');
+                this.controlsEl = $('videoControls');
+                this.playBtn = $('playButton');
+                this.statusEl = $('videoStatus');
+                this.overlayTextEl = $('videoOverlayText');
+                this.isPlaying = false;
+
+                this.RECONNECT_INTERVAL_MS = 2000;
+                this.MAX_RECONNECT_ATTEMPTS = 15;
+                this.reconnectTimer = null;
+                this.reconnectAttempts = 0;
+
+                this.bindEvents();
+                this.startStatusPolling();
+            }
+
+            bindEvents() {
+                this.playBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.start();
+                });
+                this.videoEl.addEventListener('click', () => {
+                    if (this.isPlaying) this.stop();
+                });
+            }
+
+            setStatus(state) {
+                this.statusEl.className = `video-status status-${state}`;
+                this.statusEl.textContent = state[0].toUpperCase() + state.slice(1);
+            }
+
+            showControls(show) {
+                if (show) {
+                    this.controlsEl.classList.remove('hidden');
+                    this.overlayTextEl.style.display = '';
+                } else {
+                    this.controlsEl.classList.add('hidden');
+                    this.overlayTextEl.style.display = 'none';
+                }
+            }
+
+            log(msg) { console.log('[webrtc]', msg); }
+
+            async start() {
+                try {
+                    this.setStatus('connecting');
+                    this.log('starting');
+
+                    this.peerConnection = new RTCPeerConnection({ iceServers: [] });
+
+                    this.peerConnection.onicecandidate = (event) => {
+                        if (event.candidate) this.sendIceCandidate(event.candidate);
+                    };
+
+                    this.peerConnection.ontrack = (event) => {
+                        this.log('remote track received');
+                        this.videoEl.srcObject = event.streams[0];
+                        this.videoEl.style.display = 'block';
+                        this.showControls(false);
+                        this.isPlaying = true;
+                        this.videoEl.play().catch(err => this.log('play() failed: ' + err.message));
+                        this.setStatus('connected');
+                        this.stopReconnectAttempts();
+                    };
+
+                    this.peerConnection.onconnectionstatechange = () => {
+                        const s = this.peerConnection.connectionState;
+                        this.log('pc state: ' + s);
+                        if (s === 'connected') {
+                            this.setStatus('connected');
+                        } else if (s === 'disconnected' || s === 'failed' || s === 'closed') {
+                            this.handleConnectionLost();
+                        }
+                    };
+
+                    const offerResp = await fetch('/api/webrtc/offer', { method: 'POST' });
+                    if (!offerResp.ok) throw new Error('offer HTTP ' + offerResp.status);
+                    const offer = await offerResp.json();
+                    await this.peerConnection.setRemoteDescription({ type: 'offer', sdp: offer.sdp });
+
+                    const answer = await this.peerConnection.createAnswer();
+                    await this.peerConnection.setLocalDescription(answer);
+
+                    await fetch('/api/webrtc/answer', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ type: 'answer', sdp: answer.sdp })
+                    });
+                    this.log('answer sent');
+                } catch (err) {
+                    this.log('start failed: ' + err.message);
+                    this.setStatus('disconnected');
+                    this.videoEl.style.display = 'none';
+                    this.showControls(true);
+                    this.isPlaying = false;
+                    throw err;
+                }
+            }
+
+            async sendIceCandidate(candidate) {
+                try {
+                    await fetch('/api/webrtc/ice-candidate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            candidate: candidate.candidate,
+                            sdpMid: candidate.sdpMid,
+                            sdpMLineIndex: candidate.sdpMLineIndex
+                        })
+                    });
+                } catch (err) {
+                    this.log('ice send failed: ' + err.message);
+                }
+            }
+
+            stop() {
+                this.stopReconnectAttempts();
+                if (this.peerConnection) {
+                    this.peerConnection.close();
+                    this.peerConnection = null;
+                }
+                this.videoEl.srcObject = null;
+                this.videoEl.style.display = 'none';
+                this.showControls(true);
+                this.setStatus('disconnected');
+                this.isPlaying = false;
+                this.log('stopped by user');
+            }
+
+            handleConnectionLost() {
+                if (!this.isPlaying) return;
+                this.log('connection lost; will attempt reconnect');
+                this.videoEl.srcObject = null;
+                this.videoEl.style.display = 'none';
+                this.showControls(true);
+                this.setStatus('disconnected');
+                this.isPlaying = false;
+                if (this.peerConnection) {
+                    this.peerConnection.close();
+                    this.peerConnection = null;
+                }
+                this.startReconnectAttempts();
+            }
+
+            startReconnectAttempts() {
+                if (this.reconnectTimer) return;
+                this.reconnectAttempts = 0;
+                this.reconnectTimer = setInterval(async () => {
+                    this.reconnectAttempts += 1;
+                    if (this.reconnectAttempts > this.MAX_RECONNECT_ATTEMPTS) {
+                        this.log('max reconnect attempts reached');
+                        this.stopReconnectAttempts();
+                        return;
+                    }
+                    this.log(`reconnect attempt ${this.reconnectAttempts}`);
+                    try {
+                        await this.start();
+                    } catch (e) {
+                        // keep trying
+                    }
+                }, this.RECONNECT_INTERVAL_MS);
+            }
+
+            stopReconnectAttempts() {
+                if (this.reconnectTimer) {
+                    clearInterval(this.reconnectTimer);
+                    this.reconnectTimer = null;
+                }
+                this.reconnectAttempts = 0;
+            }
+
+            startStatusPolling() {
+                setInterval(async () => {
+                    try {
+                        const r = await fetch('/api/webrtc/status');
+                        if (!r.ok) return;
+                        const s = await r.json();
+                        if (this.isPlaying && s.connected === false &&
+                            this.peerConnection && this.peerConnection.connectionState === 'connected') {
+                            this.log('server reports disconnected; reconnecting');
+                            this.handleConnectionLost();
+                        }
+                    } catch (_) { /* silent */ }
+                }, 2000);
+            }
+        }
+
+        // ─────────────── Stage 6 item 1 — VLM / Monitoring status binding ───────────────
+        //
+        // Renders two header badges + toggles the disabled class on
+        // VLM-dependent controls. Driven by three inputs that flow into
+        // module-level state and a single render function:
+        //
+        //   1. SSE monitoring_status events (live updates)
+        //   2. One-shot fetch /api/monitoring/status on page load
+        //   3. Backend-disconnect signal (SSE onerror OR no heartbeat in 40 s)
+        //
+        // The backend never sends a "disconnected" state — it's a synthetic
+        // frontend flag derived from the existing 15 s SSE heartbeat.
+
+        let g_lastStatusPayload = null;
+        let g_backendDisconnected = false;
+        let g_lastSseRxAt = Date.now();
+        const SSE_STALE_AFTER_MS = 40_000;   // ~2.5x the backend's 15 s heartbeat
+
+        function renderStatusBadges() {
+            const vlmBadge = $('vlmStatusBadge');
+            const monBadge = $('monitoringStatusBadge');
+
+            // ── Backend-disconnect override (no per-payload data needed) ──
+            if (g_backendDisconnected) {
+                if (vlmBadge) {
+                    vlmBadge.classList.remove(
+                        'state-loading', 'state-ready', 'state-failed', 'loading-pulse');
+                    vlmBadge.classList.add('state-disconnected');
+                    vlmBadge.querySelector('.status-text').textContent = 'Backend disconnected';
+                    vlmBadge.title = 'Backend disconnected — retrying…';
+                }
+                if (monBadge) {
+                    monBadge.classList.remove(
+                        'state-running', 'state-stopped', 'state-paused', 'loading-pulse');
+                    monBadge.classList.add('state-disconnected');
+                    monBadge.querySelector('.status-text').textContent = 'Backend disconnected';
+                    monBadge.title = 'Backend disconnected — retrying…';
+                }
+                document.querySelectorAll('.vlm-dependent').forEach(el => {
+                    if (!el.classList.contains('vlm-not-ready') && !el.dataset.titleReady && el.title) {
+                        el.dataset.titleReady = el.title;
+                    }
+                    el.classList.add('vlm-not-ready');
+                    el.title = 'Backend disconnected';
+                });
+                return;
+            }
+
+            // ── Normal (live) rendering, driven by the most recent payload ──
+            const payload = g_lastStatusPayload || {};
+            const vlmState = payload.vlm_state || 'loading';
+            const vlmError = payload.vlm_error || '';
+            const monitorState = payload.state || 'stopped';
+            const pauseReason = payload.monitoring_pause_reason || '';
+
+            // ── VLM badge ──
+            if (vlmBadge) {
+                vlmBadge.classList.remove(
+                    'state-loading', 'state-ready', 'state-failed', 'state-disconnected');
+                let vlmLabel = 'VLM loading…';
+                if (vlmState === 'ready') {
+                    vlmBadge.classList.add('state-ready');
+                    vlmLabel = 'VLM ready';
+                } else if (vlmState === 'failed') {
+                    vlmBadge.classList.add('state-failed');
+                    vlmLabel = 'VLM failed' + (vlmError ? ': ' + vlmError : '');
+                } else {
+                    vlmBadge.classList.add('state-loading');
+                }
+                vlmBadge.querySelector('.status-text').textContent = vlmLabel;
+                vlmBadge.title = vlmLabel;
+            }
+
+            // ── Monitoring badge — derived from (state, vlm_state, pause_reason) ──
+            if (monBadge) {
+                monBadge.classList.remove(
+                    'state-running', 'state-stopped', 'state-paused', 'state-disconnected');
+                let monClass = 'state-stopped';
+                let monLabel = 'Monitoring stopped';
+                if (vlmState === 'loading') {
+                    monClass = 'state-stopped';
+                    monLabel = monitorState === 'running'
+                        ? 'Monitoring waiting — VLM loading'
+                        : 'Monitoring stopped — VLM loading';
+                } else if (vlmState === 'failed') {
+                    monClass = 'state-stopped';
+                    monLabel = monitorState === 'running'
+                        ? 'Monitoring unavailable — VLM failed'
+                        : 'Monitoring stopped — VLM failed';
+                } else if (pauseReason === 'chat_active') {
+                    monClass = 'state-paused';
+                    monLabel = 'Monitoring paused — chat active';
+                } else if (monitorState === 'running') {
+                    monClass = 'state-running';
+                    monLabel = 'Monitoring running';
+                } else {
+                    monClass = 'state-stopped';
+                    monLabel = 'Monitoring stopped';
+                }
+                monBadge.classList.add(monClass);
+                monBadge.querySelector('.status-text').textContent = monLabel;
+                monBadge.title = monLabel;
+            }
+
+            // ── Pulse the dot on both badges while VLM is loading ──
+            const isLoading = vlmState === 'loading';
+            [vlmBadge, monBadge].forEach(b => {
+                if (b) b.classList.toggle('loading-pulse', isLoading);
+            });
+
+            // ── VLM-dependent controls (Chat Now, future controls) ──
+            const vlmReady = vlmState === 'ready';
+            document.querySelectorAll('.vlm-dependent').forEach(el => {
+                if (vlmReady) {
+                    el.classList.remove('vlm-not-ready');
+                    const readyTitle = el.dataset.titleReady;
+                    if (readyTitle) el.title = readyTitle;
+                } else {
+                    if (!el.classList.contains('vlm-not-ready')) {
+                        if (!el.dataset.titleReady && el.title) {
+                            el.dataset.titleReady = el.title;
+                        }
+                    }
+                    el.classList.add('vlm-not-ready');
+                    el.title = vlmState === 'failed'
+                        ? ('VLM failed' + (vlmError ? ': ' + vlmError : ''))
+                        : 'VLM is still loading…';
+                }
+            });
+
+            // ── Settings-modal cooldown slider — sync from live state ──
+            // Reflects the current EventStateTracker value so the slider
+            // picks up changes made in another tab (or the YAML default
+            // once VLM finishes loading). Skipped while the user is
+            // actively dragging this tab's slider so we don't yank the
+            // thumb out from under them.
+            const slider = document.getElementById('cooldownSlider');
+            const valueEl = document.getElementById('cooldownValue');
+            if (slider && valueEl && typeof payload.cooldown_seconds === 'number') {
+                if (slider.dataset.dragging !== 'true') {
+                    slider.value = String(payload.cooldown_seconds);
+                    valueEl.textContent = payload.cooldown_seconds + ' s';
+                }
+            }
+        }
+
+        // Compatibility wrapper — older sites call applyMonitoringStatus(payload)
+        // directly. Stores the payload and re-renders.
+        function applyMonitoringStatus(payload) {
+            if (!payload) return;
+            g_lastStatusPayload = payload;
+            renderStatusBadges();
+        }
+
+        // Called on every SSE event arrival to mark the backend as alive.
+        // Clears the disconnected flag if it was set, and re-renders to
+        // restore the live state.
+        function noteSseRx() {
+            g_lastSseRxAt = Date.now();
+            if (g_backendDisconnected) {
+                g_backendDisconnected = false;
+                renderStatusBadges();
+            }
+        }
+
+        function setBackendDisconnected() {
+            if (g_backendDisconnected) return;
+            g_backendDisconnected = true;
+            renderStatusBadges();
+        }
+
+        function fetchInitialMonitoringStatus() {
+            fetch('/api/monitoring/status')
+                .then(r => r.ok ? r.json() : Promise.reject(new Error('http ' + r.status)))
+                .then(applyMonitoringStatus)
+                .catch(() => {
+                    // Backend not reachable at page load — paint the
+                    // disconnected state immediately so the user knows.
+                    // SSE will clear this when it (re)connects.
+                    setBackendDisconnected();
+                });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            setupSettingsModal();
+            new WebRTCClient();
+            new EventConfig();
+            window.chatModal = new ChatModal();
+            new TriggeredEvents();
+
+            // Stage 6 item 1: seed the badges + disabled state before SSE fires.
+            fetchInitialMonitoringStatus();
+
+            // Stage 6 item 1 refinement: backstop staleness check. If the
+            // SSE connection stays "open" but no heartbeats arrive (frozen
+            // backend, network buffering), mark the UI disconnected after
+            // ~2.5x the 15 s heartbeat interval.
+            setInterval(() => {
+                if (Date.now() - g_lastSseRxAt > SSE_STALE_AFTER_MS) {
+                    setBackendDisconnected();
+                }
+            }, 5000);
+
+            // Stage 4: Chat Now button kicks off a live-chat session.
+            // Stash the ready-title so applyMonitoringStatus can restore it
+            // when VLM transitions to ready (it was overridden to a loading
+            // message in the HTML).
+            const chatBtn = $('chatNowBtn');
+            if (chatBtn) {
+                chatBtn.dataset.titleReady = 'Open a live chat with the latest snapshot';
+            }
+            chatBtn.addEventListener('click', () => {
+                if (window.chatModal) {
+                    window.chatModal.openForLive();
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>

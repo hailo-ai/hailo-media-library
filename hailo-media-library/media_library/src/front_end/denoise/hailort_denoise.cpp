@@ -1,11 +1,26 @@
 #include "hailort_denoise.hpp"
 
-#include "logger_macros.hpp"
-#include "media_library_logger.hpp"
+#include <hailo/expected.hpp>
+#include <hailo/infer_model.hpp>
+#include <hailo/vdevice.hpp>
 #include <chrono>
+#include <ratio>
+#include <type_traits>
+#include <utility>
+
+#include "media_library_logger.hpp"
 #include "hailo_media_library_perfetto.hpp"
 
+#include "snapshot.hpp"
+
 #define MODULE_NAME LoggerType::Denoise
+
+struct HailortAsyncDenoise::PerfettoImpl
+{
+#ifdef HAVE_PERFETTO
+    perfetto::NamedTrack track{perfetto::NamedTrack("Inference", 0, DENOISE_TRACK)};
+#endif
+};
 
 HailoMediaLibraryBufferPtr get_output_buffer(NetworkInferenceBindingsPtr bindings, int index)
 {
@@ -36,7 +51,8 @@ void bind_skip_input_buffer(NetworkInferenceBindingsPtr bindings, int index, Hai
     HailortAsyncDenoise
 */
 
-HailortAsyncDenoise::HailortAsyncDenoise(const OnInferCb &on_infer_finish) : m_on_infer_finish(on_infer_finish)
+HailortAsyncDenoise::HailortAsyncDenoise(const OnInferCb &on_infer_finish)
+    : m_on_infer_finish(on_infer_finish), m_perfetto(std::make_unique<PerfettoImpl>())
 {
 }
 
@@ -218,9 +234,8 @@ bool HailortAsyncDenoise::infer(NetworkInferenceBindingsPtr bindings)
     }
 
     auto output_buffer = get_output_buffer(bindings, get_denoised_output_index());
-    HAILO_MEDIA_LIBRARY_TRACE_ASYNC_EVENT_BEGIN("Inference", output_buffer->isp_timestamp_ns, DENOISE_TRACK,
-                                                MEDIA_LIBRARY_CATEGORY, "isp_timestamp_ms",
-                                                output_buffer->isp_timestamp_ns / 1000000);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("Inference", m_perfetto->track, MEDIA_LIBRARY_CATEGORY, "isp_timestamp_ms",
+                                          output_buffer->isp_timestamp_ms());
 
     auto job = m_configured_devices[m_current_vdevice_name]->configured_infer_model.run_async(
         m_configured_devices[m_current_vdevice_name]->bindings,
@@ -234,13 +249,13 @@ bool HailortAsyncDenoise::infer(NetworkInferenceBindingsPtr bindings)
             m_on_infer_finish(std::move(bindings));
             m_last_result_infer_output_buffer_timestamp.store(output_buffer->isp_timestamp_ns,
                                                               std::memory_order_seq_cst);
-            HAILO_MEDIA_LIBRARY_TRACE_ASYNC_EVENT_END("Inference", output_buffer->isp_timestamp_ns, DENOISE_TRACK,
-                                                      MEDIA_LIBRARY_CATEGORY);
+            HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(m_perfetto->track, MEDIA_LIBRARY_CATEGORY);
         });
 
     if (!job)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to start async infer job, status = {}", job.status());
+        HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(m_perfetto->track, MEDIA_LIBRARY_CATEGORY);
         return false;
     }
 
@@ -269,6 +284,21 @@ size_t HailortAsyncDenoise::get_output_frame_size(const std::string &tensor_name
 hailo_3d_image_shape_t HailortAsyncDenoise::get_output_frame_shape(const std::string &tensor_name) const
 {
     return m_configured_devices.at(m_current_vdevice_name)->infer_model->output(tensor_name)->shape();
+}
+
+hailo_quant_info_t HailortAsyncDenoise::get_output_quant_info(const std::string &tensor_name) const
+{
+    auto quant_infos =
+        m_configured_devices.at(m_current_vdevice_name)->infer_model->output(tensor_name)->get_quant_infos();
+    if (quant_infos.empty())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Tensor {} returned no quant info; falling back to identity", tensor_name);
+        return hailo_quant_info_t{.qp_zp = 0.0f, .qp_scale = 1.0f, .limvals_min = 0.0f, .limvals_max = 0.0f};
+    }
+    const auto &q = quant_infos.front();
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Tensor {} quant info ({} entries): qp_scale={} qp_zp={} limvals=[{},{}]",
+                          tensor_name, quant_infos.size(), q.qp_scale, q.qp_zp, q.limvals_min, q.limvals_max);
+    return q;
 }
 
 void HailortAsyncDenoise::set_infer_layers(std::shared_ptr<hailort::InferModel> infer_model,
@@ -526,6 +556,10 @@ media_library_return HailortAsyncDenoisePreISPHdm::bind_loopback_buffers(Network
         return media_library_return::MEDIA_LIBRARY_BUFFER_NOT_FOUND;
     }
     bindings->inputs[InputIndex::GAMMA_CHANNEL].buffer = loopback_buffers[OutputIndex::OUTPUT_GAMMA_CHANNEL].buffer;
+    SnapshotManager::get_instance().take_snapshot("pre_isp_feedback_fusion_input",
+                                                  bindings->inputs[InputIndex::FUSION_CHANNEL].buffer, true);
+    SnapshotManager::get_instance().take_snapshot("pre_isp_feedback_gamma_input",
+                                                  bindings->inputs[InputIndex::GAMMA_CHANNEL].buffer, true);
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 

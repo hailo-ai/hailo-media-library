@@ -1,14 +1,13 @@
 #pragma once
 
+#include <stddef.h>
 #include <chrono>
-#include <climits>
-#include <iostream>
 #include <memory>
 #include <string>
+#include <optional>
 
 #include "hailo_analytics/pipeline/core/stage.hpp"
 #include "hailo_analytics/pipeline/core/buffer.hpp"
-#include "hailo_postprocess_tools/objects/hailo_objects.hpp"
 
 using hailo_analytics::pipeline::Buffer;
 using hailo_analytics::pipeline::BufferPtr;

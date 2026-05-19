@@ -1,14 +1,43 @@
 #include "clip_pipeline.hpp"
 
+#include <httplib.h>
+#include <unistd.h>
+#include <media_library/encoder_config_types.hpp>
+#include <media_library/media_library_types.hpp>
+#include <nlohmann/json.hpp>
+#include <iostream>
+#include <ctime>
+#include <functional>
+#include <iterator>
+#include <map>
+#include <stdexcept>
+
 #include "clip_app_config_parser.hpp"
 #include "common/common.hpp"
+#include "resources/configs.hpp"
+#include "resources/webrtc.hpp"
 #include "hailo_analytics/pipeline/sinks/app_sink_stage.hpp"
 #include "service/app_control_service_ext.hpp"
 #include "service/player_service_ext.hpp"
 #include "service/query_service/query_service_ext.hpp"
 #include "service/storage_cleanup_service_ext.hpp"
 #include "service/storage_monitor_service_ext.hpp"
-#include <fstream>
+#include "streaming/mkv_concatenator.hpp"
+#include "media_library/cloexec_fstream.hpp"
+#include "common/httplib/httplib_utils.hpp"
+#include "common/logger_macros.hpp"
+#include "hailo_analytics/analytics/reference_camera_app_constructor.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/overlay/overlay_stage.hpp"
+#include "hailo_analytics/pipeline/routing/valve_stage.hpp"
+#include "hailo_analytics/pipeline/sinks/output_module.hpp"
+#include "pipeline/isp_blender.hpp"
+#include "resources/common/event_bus.hpp"
+#include "resources/common/events_utils.hpp"
+#include "resources/common/resources.hpp"
+#include "resources/encoder.hpp"
+#include "streaming/mkv_streamer.hpp"
+#include "streaming/webrtc_streamer_ext.hpp"
 
 #define TEE_STAGE "vision_tee"
 
@@ -31,6 +60,7 @@ const std::string CONFIG_VIDEO_PLAYBACK_TOTAL_LENGTH = "/clip/config/video-playb
 const std::string NETWORKS = "/clip/networks";
 const std::string EMBEDDING = "/clip/embedding";
 const std::string VIDEO_THUMBNAIL_CLICKED = "/clip/video-thumbnail-clicked";
+const std::string VIDEO_SEGMENTS_DOWNLOAD = "/clip/video-segments/download";
 const std::string VIDEO_THUMBNAIL_STOP = "/clip/video-thumbnail-stop";
 const std::string STORAGE_STATUS = "/clip/storage/status";
 
@@ -40,12 +70,13 @@ const std::vector<std::string> ALL_ENDPOINTS = {
     NETWORKS,
     EMBEDDING,
     VIDEO_THUMBNAIL_CLICKED,
+    VIDEO_SEGMENTS_DOWNLOAD,
     VIDEO_THUMBNAIL_STOP,
     STORAGE_STATUS,
 };
 } // namespace clip_endpoints
 
-ClipPipeline::ClipPipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
+ClipPipeline::ClipPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
                            RTPConverterStage &webrtc_stage, Architecture platform)
     : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight, {ProfileType::Daylight})
 {
@@ -137,7 +168,7 @@ inline std::string base64_encode(const std::string &data)
 // Load JPEG file and convert to base64
 inline tl::expected<std::string, ImageError> loadJpegFile(const std::string &filepath)
 {
-    std::ifstream file(filepath, std::ios::binary);
+    cloexec::ifstream file(filepath, std::ios::binary);
     if (!file.is_open())
     {
         return tl::unexpected(ImageError::FILE_NOT_FOUND);
@@ -214,7 +245,7 @@ void ClipPipeline::build_pipeline()
     }
 
     CameraAppConstructor::InitializerParams params;
-    params.media_library_component = &m_app_resources->media_library;
+    params.media_library_component = m_app_resources->media_library.get();
     params.initialize_media_library_configuration = false;
     params.initialize_media_library_profile = false;
 
@@ -265,7 +296,7 @@ void ClipPipeline::start()
 
     m_resources.m_event_bus->notify(EventType::RESET_ISP, std::make_shared<EmptyState>(EmptyState()));
 
-    auto expected_profile = m_app_resources->media_library.get_current_profile();
+    auto expected_profile = m_app_resources->media_library->get_current_profile();
     if (!expected_profile.has_value())
     {
         WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -321,6 +352,7 @@ void ClipPipeline::register_endpoints()
     register_networks_endpoint();
     register_embedding_endpoint();
     register_video_thumbnail_clicked_endpoint();
+    register_video_segments_download_endpoint();
     register_video_thumbnail_stop_endpoint();
     register_storage_status_endpoint();
 }
@@ -567,10 +599,100 @@ void ClipPipeline::register_video_thumbnail_clicked_endpoint()
         }));
 }
 
+void ClipPipeline::register_video_segments_download_endpoint()
+{
+    m_resources.m_srv.Get(clip_endpoints::VIDEO_SEGMENTS_DOWNLOAD,
+                          [this](const httplib::Request &req, httplib::Response &res) {
+                              WEBSERVER_LOG_INFO("GET {} called", clip_endpoints::VIDEO_SEGMENTS_DOWNLOAD);
+
+                              if (!req.has_param("timestamp"))
+                              {
+                                  res.status = 400;
+                                  nlohmann::json error_response;
+                                  error_response["status"] = "error";
+                                  error_response["message"] = "Missing required parameter: timestamp";
+                                  res.set_content(error_response.dump(), "application/json");
+                                  return;
+                              }
+
+                              int64_t timestamp = std::stoll(req.get_param_value("timestamp"));
+
+                              if (!m_app)
+                              {
+                                  res.status = 500;
+                                  nlohmann::json error_response;
+                                  error_response["status"] = "error";
+                                  error_response["message"] = "ClipVideoPipeline not available";
+                                  res.set_content(error_response.dump(), "application/json");
+                                  return;
+                              }
+
+                              auto clip_query_service = m_app->get_extension<ClipQueryServiceExt>();
+                              if (!clip_query_service)
+                              {
+                                  res.status = 500;
+                                  nlohmann::json error_response;
+                                  error_response["status"] = "error";
+                                  error_response["message"] = "ClipQueryService extension not available";
+                                  res.set_content(error_response.dump(), "application/json");
+                                  return;
+                              }
+
+                              auto video_query_result = clip_query_service->query_videos(timestamp);
+                              if (!video_query_result.has_value() || video_query_result.value().empty())
+                              {
+                                  res.status = 500;
+                                  nlohmann::json error_response;
+                                  error_response["status"] = "error";
+                                  error_response["message"] = "No video segments found for the given timestamp";
+                                  res.set_content(error_response.dump(), "application/json");
+                                  return;
+                              }
+
+                              std::vector<std::string> file_paths;
+                              for (const auto &segment : video_query_result.value())
+                              {
+                                  file_paths.push_back(segment.m_video_path);
+                              }
+
+                              std::string filename = "clip_" + std::to_string(timestamp) + ".mkv";
+
+                              auto concatenator = std::make_shared<MkvConcatenator>();
+                              if (!concatenator->start(file_paths))
+                              {
+                                  res.status = 500;
+                                  nlohmann::json error_response;
+                                  error_response["status"] = "error";
+                                  error_response["message"] = "Failed to start video concatenation pipeline";
+                                  res.set_content(error_response.dump(), "application/json");
+                                  return;
+                              }
+
+                              res.set_header("Content-Disposition", "attachment; filename=\"" + filename + "\"");
+
+                              res.set_chunked_content_provider(
+                                  "video/x-matroska",
+                                  [concatenator](size_t /*offset*/, httplib::DataSink &sink) -> bool {
+                                      auto chunk = concatenator->pull_chunk();
+                                      if (concatenator->is_done() && chunk.empty())
+                                      {
+                                          sink.done();
+                                          return true;
+                                      }
+                                      if (chunk.empty())
+                                      {
+                                          return true;
+                                      }
+                                      return sink.write(reinterpret_cast<const char *>(chunk.data()), chunk.size());
+                                  },
+                                  [concatenator](bool /*success*/) { concatenator->stop(); });
+                          });
+}
+
 void ClipPipeline::register_video_thumbnail_stop_endpoint()
 {
     m_resources.m_srv.Post(clip_endpoints::VIDEO_THUMBNAIL_STOP,
-                           std::function<void(const nlohmann::json &)>([this](const nlohmann::json &j_body) {
+                           std::function<void(const nlohmann::json &)>([this](const nlohmann::json & /*j_body*/) {
                                WEBSERVER_LOG_INFO("POST {} called", clip_endpoints::VIDEO_THUMBNAIL_STOP);
                                if (!m_app)
                                {

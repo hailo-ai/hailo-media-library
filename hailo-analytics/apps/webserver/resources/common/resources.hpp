@@ -1,15 +1,12 @@
 #pragma once
-#include <string>
 #include <nlohmann/json.hpp>
-#include <mutex>
-#include <shared_mutex>
-#include <gst/gst.h>
+#include <string>
 #include <initializer_list>
+#include <memory>
+
 #include "common/httplib/httplib_utils.hpp"
-#include "common/logger_macros.hpp"
 #include "event_bus.hpp"
-#include "media_library/gyro_device.hpp"
-#include "common/common.hpp"
+#include "resources/common/events_utils.hpp"
 
 namespace webserver
 {

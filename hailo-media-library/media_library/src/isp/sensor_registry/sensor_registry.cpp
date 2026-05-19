@@ -1,12 +1,16 @@
 #include "sensor_registry.hpp"
-#include "media_library_logger.hpp"
-
-#include "sensor_capabilities.hpp"
 
 #include <filesystem>
 #include <optional>
-#include <fstream>
 #include <regex>
+#include <map>
+#include <set>
+#include <vector>
+
+#include "media_library/cloexec_fstream.hpp"
+#include "media_library_logger.hpp"
+#include "sensor_capabilities.hpp"
+#include "dsp_utils.hpp"
 
 #define MODULE_NAME LoggerType::Isp
 
@@ -39,7 +43,7 @@ std::optional<SensorRegistry::SensorDeviceInfo> SensorRegistry::get_sensor_devic
     {
         if (entry.path().filename().string().find("v4l-subdev") != std::string::npos)
         {
-            std::ifstream name_file(entry.path() / "name");
+            cloexec::ifstream name_file(entry.path() / "name");
             std::string name;
             std::getline(name_file, name);
 

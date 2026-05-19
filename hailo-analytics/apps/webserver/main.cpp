@@ -1,10 +1,21 @@
-#include <nlohmann/json.hpp>
 #include <cxxopts/cxxopts.hpp>
-#include <atomic>
-#include <filesystem>
-#include <fstream>
+#include <httplib.h> // IWYU pragma: keep
 #include <sys/stat.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <atomic>
+#include <filesystem>
+#include <optional>
+#include <csignal>
+#include <cctype>
+#include <exception>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <system_error>
+
+#include "media_library/cloexec_fstream.hpp"
 #include "pipeline/pipeline_factory.hpp"
 #include "common/httplib/httplib_utils.hpp"
 #include "common/logger_macros.hpp"
@@ -12,6 +23,7 @@
 #include "resources/common/repository.hpp"
 #include "media_library/signal_utils.hpp"
 #include "media_library/media_library_types.hpp"
+#include "pipeline/pipeline.hpp"
 
 #define DEFAULT_CONFIGS_PATH "/etc/imaging/cfg/medialib_configs/"
 #define APPEND_CONFIG_PATH(path) DEFAULT_CONFIGS_PATH path
@@ -19,11 +31,17 @@
 
 static std::atomic<bool> g_webserver_stopping{false};
 
-bool is_device_in_use(const std::string &device_path)
+struct DeviceUser
+{
+    pid_t pid;
+    std::string process_name;
+};
+
+std::optional<DeviceUser> find_device_user(const std::string &device_path)
 {
     struct stat dev_stat;
     if (stat(device_path.c_str(), &dev_stat) != 0)
-        return false;
+        return std::nullopt;
 
     pid_t self = getpid();
     std::error_code ec;
@@ -36,11 +54,12 @@ bool is_device_in_use(const std::string &device_path)
         if (name.empty() || !std::isdigit(name[0]))
             continue;
 
-        if (std::stoi(name) == self)
+        pid_t pid = std::stoi(name);
+        if (pid == self)
             continue;
 
         std::string comm;
-        if (std::ifstream(path / "comm") >> comm && comm.rfind("isp_med", 0) == 0)
+        if (cloexec::ifstream(path / "comm") >> comm && comm.rfind("isp_med", 0) == 0)
             continue;
 
         for (const auto &fd : std::filesystem::directory_iterator(path / "fd", ec))
@@ -48,10 +67,21 @@ bool is_device_in_use(const std::string &device_path)
             struct stat fd_stat;
             if (stat(fd.path().c_str(), &fd_stat) == 0 && S_ISCHR(fd_stat.st_mode) &&
                 fd_stat.st_rdev == dev_stat.st_rdev)
-                return true;
+            {
+                // Read full process name from cmdline (comm is truncated to 15 chars)
+                std::string full_name = comm;
+                std::string cmdline;
+                if (cloexec::ifstream cmdline_file(path / "cmdline"); cmdline_file)
+                {
+                    std::getline(cmdline_file, cmdline, '\0');
+                    if (!cmdline.empty())
+                        full_name = std::filesystem::path(cmdline).filename().string();
+                }
+                return DeviceUser{pid, full_name};
+            }
         }
     }
-    return false;
+    return std::nullopt;
 }
 void flags_init(int argc, char *argv[], std::string &medialib_config_path)
 {
@@ -87,10 +117,34 @@ int main(int argc, char *argv[])
 {
     WEBSERVER_LOG_INFO("Starting webserver");
 
-    if (is_device_in_use("/dev/video0"))
+    auto device_user = find_device_user("/dev/video0");
+    if (device_user)
     {
-        WEBSERVER_LOG_ERROR("/dev/video0 is already in use by another process");
-        return 1;
+        std::cout << "\nWARNING: /dev/video0 is already in use by '" << device_user->process_name << "' (PID "
+                  << device_user->pid << ").\nAuto terminating it before proceeding, please wait...\n"
+                  << std::endl;
+
+        WEBSERVER_LOG_INFO("Auto terminating conflicting app - Sending SIGTERM to '{}' (PID {})",
+                           device_user->process_name, device_user->pid);
+        kill(device_user->pid, SIGTERM);
+
+        static constexpr int MAX_WAIT_MS = 5000;
+        static constexpr int POLL_INTERVAL_US = 100000; // 100ms
+        int waited_ms = 0;
+        while (waited_ms < MAX_WAIT_MS)
+        {
+            if (kill(device_user->pid, 0) != 0)
+                break;
+            usleep(POLL_INTERVAL_US);
+            waited_ms += POLL_INTERVAL_US / 1000;
+        }
+
+        if (kill(device_user->pid, 0) == 0)
+        {
+            WEBSERVER_LOG_INFO("Process '{}' (PID {}) did not exit after SIGTERM, sending SIGKILL",
+                               device_user->process_name, device_user->pid);
+            kill(device_user->pid, SIGKILL);
+        }
     }
 
     setenv("MEDIALIB_USE_DIV_FRAMERATE_LOGIC", "1", 1);
@@ -105,7 +159,7 @@ int main(int argc, char *argv[])
 
     std::unique_ptr<HTTPServer> svr = HTTPServer::create();
     // register error handler
-    svr->set_exception_handler([](const auto &req, auto &res, std::exception_ptr ep) {
+    svr->set_exception_handler([](const auto & /*req*/, auto &res, std::exception_ptr ep) {
         auto fmt = "Error 500: %s";
         char buf[BUFSIZ];
         try

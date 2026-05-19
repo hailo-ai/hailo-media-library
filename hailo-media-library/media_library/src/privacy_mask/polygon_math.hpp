@@ -26,9 +26,11 @@
  **/
 
 #pragma once
+#include <sys/types.h>
+#include <vector>
+
 #include "media_library_types.hpp"
 #include "privacy_mask_types.hpp"
-#include <cstddef>
 
 #define PRIVACY_MASK_QUANTIZATION (0.25)
 

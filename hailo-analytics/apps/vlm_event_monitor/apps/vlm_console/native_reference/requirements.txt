@@ -1,0 +1,7 @@
+torch>=2.2
+torchvision>=0.17
+transformers>=4.50
+accelerate>=0.30
+pillow>=10
+qwen-vl-utils>=0.0.8
+opencv-python>=4.8
