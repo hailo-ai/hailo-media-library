@@ -1,16 +1,38 @@
 ---
 name: edit-pipeline
-description: Add, remove, or edit stages in an existing hailo-media-library app's analytics pipeline. Use when the user says "add a stage to X", "join Y into the pipeline", "make detection app also do Z", "stream out the AI metadata to another sink". Edits `main.cpp`'s `create_pipeline()`, then hands off to /cross-compile and /deploy. NOT for adding a new output stream — that's /add-stream.
+description: Modify the pipeline of an existing hailo-media-library app — either by editing the medialib JSON on the board (via /add-stream when the change is "more streams" / "different resolution" / "different sink") or by editing `main.cpp`'s `create_pipeline()` and cross-compiling when the stage topology must change. Use when the user says "make this app do X", "add a stage to X", "join Y into the pipeline", "make detection app also do Z", "stream out the AI metadata to another sink", or "run N streams instead of 1". Triages JSON vs C++ first; only goes to /cross-compile + /deploy on the C++ path.
 tools: Read, Write, Edit, Bash, Grep, Glob, Agent
 ---
 
-# /edit-pipeline — modify an app's analytics processing chain
+# /edit-pipeline — modify a hailo-media-library app's pipeline
 
-A pipeline edit is a change to the `PipelineBuilder` chain in an app's `create_pipeline()` — adding, removing, or rewiring `Stage`s. Always a C++ source change. Pure config edits go elsewhere: `/add-stream` for new resolutions, `/swap-model` for new HEFs, `/add-osd` for just drawing bboxes.
+Scope: any change to an existing app's pipeline behavior — number of streams, output destinations, resolutions/bitrates, *and* topology (adding/removing/rewiring stages). Two paths:
 
-Authoritative reference: **Media Library User Guide §10 (AI Analytics API)** — read it for the catalog of stages (§10.6) and the `PipelineBuilder` API (§10.5). The skill below assumes you already know that.
+- **JSON path** (cheap, on-board): parameter or count changes that don't move stages around. Edit the medialib JSON on the board, re-run the binary — no source change, no recompile. Delegate to `/add-stream` (or the other JSON-edit siblings) instead of doing it here.
+- **C++ path** (cross-compile): the `PipelineBuilder` chain in `create_pipeline()` actually changes shape — a new stage type, a fork, a tee, a custom `ThreadedStage`. This skill owns that path.
 
-## Procedure
+Authoritative reference for the C++ path: **Media Library User Guide §10 (AI Analytics API)** — catalog of stages (§10.6) and `PipelineBuilder` API (§10.5). The procedure below assumes you already know that.
+
+## JSON path — try this first
+
+Most apps in this repo (`single_stream`, the vision case studies, etc.) build their pipeline by calling `generate_vision_pipeline()` / `generate_*_pipeline()` helpers that read the **medialib JSON config** on the board (path is `#define`d at the top of `main.cpp`, e.g. `/etc/imaging/cfg/medialib_configs/...`). If the change is "more of the same" or "same topology, different parameters", it's a JSON edit on the board — **don't cross-compile, delegate**.
+
+| Request                                | Skill to use                                                             |
+| -------------------------------------- | ------------------------------------------------------------------------ |
+| "N streams instead of M"               | **/add-stream** (adds an `application_input_streams` resolution + a profile `encoded_output_streams` entry, generates per-sink encoder/osd/masking files) |
+| "different resolution / framerate"     | **/add-stream** for a new sink; for editing an existing one, edit `application_settings.json` directly |
+| "stream to a different host or port"   | edit the `udp` sink's `host` / `port` in the profile JSON               |
+| "change bitrate / encoder profile"     | edit the per-sink `encoder_sinkN.json`                                   |
+| "use a different HEF"                  | **/swap-model**                                                          |
+| "draw bboxes on the video"             | **/add-osd**                                                             |
+
+**Heuristic:** if the answer to "does the *topology* of stages change?" is no — only counts, parameters, or destinations change — it's a JSON edit. Read the app's `main.cpp` for ~30 seconds first: if `create_pipeline()` is a single `generate_*_pipeline()` call, the pipeline lives in JSON, not C++.
+
+The trap is that "make this app do 3 streams" sounds like a topology change but isn't — it's just two more entries in `application_input_streams.resolutions` plus matching `encoded_output_streams` entries in the profile JSON. `/add-stream` already knows how to do that end-to-end (templates, per-sink files, `scp` to the board, hash-bypass env var). Hand off rather than reimplementing.
+
+Only fall through to the C++ procedure below when adding/removing/rewiring stages is genuinely required.
+
+## C++ path — adding, removing, or rewiring stages
 
 1. **Read `create_pipeline()`.** The `PipelineBuilder` chain is define the pipeline topology and the constants at the top of `main.cpp` name the building blocks.
 
@@ -58,11 +80,12 @@ The canonical minimal example is `apps/case_studies/custom_stage/main.cpp` — c
 
 ## When to delegate
 
-- **/explain-pipeline** if the user needs help articulate the current topology.
-- **pipeline-expert** for cross-sink frame correlation (`MuxerStage`/`DemuxerStage`).
-- **doc-explorer** for a specific stage's parameter list (§10.6).
-- **/swap-model** for HEF-only changes (config struct on `HailortAsyncStage`, not topology).
-- **/add-stream** for a new `sinkN` (frontend config, not topology).
+- **/add-stream** — first stop for anything that's just "more streams" / "new sinkN" / different resolution. Handles JSON edits, per-sink file generation, and the on-board push.
+- **/swap-model** — HEF-only changes (config struct on `HailortAsyncStage`, not topology).
+- **/add-osd** — just drawing bboxes / labels on the frame.
+- **/explain-pipeline** — if the user needs help articulating the current topology before deciding.
+- **pipeline-expert** — cross-sink frame correlation (`MuxerStage`/`DemuxerStage`).
+- **doc-explorer** — a specific stage's parameter list (§10.6).
 
 ## Gotchas
 
