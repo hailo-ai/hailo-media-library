@@ -1,9 +1,22 @@
 #include "isp.hpp"
 
-#include "common/isp/v4l2_ctrl.hpp"
+#include <sys/types.h>
+#include <imaging/aaa_config_types.hpp>
+#include <tl/expected.hpp>
 #include <functional>
-#include <sys/ioctl.h>
-#include <linux/videodev2.h>
+#include <chrono>
+#include <exception>
+#include <stdexcept>
+#include <thread>
+#include <unordered_map>
+#include <utility>
+
+#include "common/isp/v4l2_ctrl.hpp"
+#include "common/common.hpp"
+#include "common/logger_macros.hpp"
+#include "resources/common/isp/common.hpp"
+#include "resources/common/resources.hpp"
+#include "resources/configs.hpp"
 
 using namespace webserver::resources;
 using namespace webserver::common;
@@ -39,11 +52,11 @@ IspResource::IspResource(std::shared_ptr<EventBus> event_bus, std::shared_ptr<Co
       m_config_res(config_res)
 {
 
-    subscribe_callback(EventType::RESET_ISP, [this](ResourceStateChangeNotification notification) {
+    subscribe_callback(EventType::RESET_ISP, [this](ResourceStateChangeNotification /*notification*/) {
         WEBSERVER_LOG_INFO("Received configure isp notification");
         this->init();
     });
-    subscribe_callback(EventType::SWITCH_PROFILE, [this, config_res](ResourceStateChangeNotification notification) {
+    subscribe_callback(EventType::SWITCH_PROFILE, [this, config_res](ResourceStateChangeNotification /*notification*/) {
         m_isp_filters_manual_state = config_res->get_denoise_default_config()["enabled"].get<bool>()
                                          ? IspResource::FiltersManualState::FILTER_STATE_FORCE_AUTO
                                          : IspResource::FiltersManualState::FILTER_STATE_AUTO;

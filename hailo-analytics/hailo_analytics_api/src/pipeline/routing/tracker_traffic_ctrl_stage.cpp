@@ -1,6 +1,21 @@
-#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include <stddef.h>
+#include <stdint.h>
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
+#include <chrono>
+#include <deque>
+#include <iostream>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
 #include "hailo_analytics/pipeline/routing/tracker_traffic_ctrl_stage.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 namespace hailo_analytics::pipeline::routing
 {

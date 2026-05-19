@@ -3,6 +3,11 @@
  * Distributed under the LGPL license (https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt)
  **/
 #pragma once
+#include <sys/types.h>
+#include <cstdint>
+#include <map>
+#include <string>
+
 #include "hailo_postprocess_tools/objects/hailo_objects.hpp"
 #include "hailo_postprocess_tools/objects/hailo_common.hpp"
 

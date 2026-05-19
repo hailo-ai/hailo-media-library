@@ -1,12 +1,9 @@
 #pragma once
 
 #include <cstdint>
-#include <memory>
 #include <string>
 
 #include "media_library/buffer_pool.hpp"
-#include "media_library/dsp_utils.hpp"
-#include "media_library/media_library_types.hpp"
 
 /**
  * @brief RAII wrapper for loading test images as NV12 buffers.

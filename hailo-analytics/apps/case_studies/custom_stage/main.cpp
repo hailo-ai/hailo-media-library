@@ -1,20 +1,34 @@
 // general includes
-#include <queue>
-#include <fstream>
-#include <iostream>
-#include <sstream>
-#include <thread>
 #include <tl/expected.hpp>
 #include <cxxopts/cxxopts.hpp>
+#include <stddef.h>
+#include <hailo_postprocess_tools/objects/hailo_common.hpp>
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
+#include <media_library/media_library.hpp>
+#include <media_library/media_library_types.hpp>
+#include <iostream>
+#include <chrono>
+#include <condition_variable>
+#include <iterator>
+#include <memory>
+#include <mutex>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
+#include "media_library/cloexec_fstream.hpp"
 // medialibrary includes
 #include "media_library/signal_utils.hpp"
-
 // infra includes
+#include "hailo_analytics/analytics/ai_models_config.hpp"
 #include "hailo_analytics/analytics/detection.hpp"
 #include "hailo_analytics/analytics/vision.hpp"
 #include "hailo_analytics/analytics/overlay.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 // defines
 #define VISION_PIPELINE "vision_pipeline"
@@ -122,7 +136,7 @@ struct AppResources
 
 std::string read_string_from_file(const char *file_path)
 {
-    std::ifstream file_to_read;
+    cloexec::ifstream file_to_read;
     file_to_read.open(file_path);
     if (!file_to_read.is_open())
         throw std::runtime_error(std::string("config path (") + file_path + ") is not valid");
@@ -208,7 +222,7 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     // we apply a fresh vision_config_t, which by default has no outputs set, to override the vision pipeline
     // automatically connecting frontend outputs to encoders
     auto vision_pipeline_status = hailo_analytics::analytics::vision::generate_vision_pipeline(
-        *app_resources->media_library, VISION_PIPELINE, vision_config);
+        app_resources->media_library, VISION_PIPELINE, vision_config);
     if (!vision_pipeline_status.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create vision pipeline");
@@ -217,8 +231,11 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     hailo_analytics::pipeline::PipelinePtr vision_pipeline = vision_pipeline_status.value();
 
     // AI Pipeline Stages
+    hailo_analytics::analytics::detection::detection_config_t detection_cfg;
+    namespace ai_models = hailo_analytics::analytics::ai_models;
+    ai_models::apply_to(ai_models::YOLOV8N, detection_cfg);
     auto detection_pipeline_status =
-        hailo_analytics::analytics::detection::generate_detection_pipeline(DETECTION_PIPELINE);
+        hailo_analytics::analytics::detection::generate_detection_pipeline(DETECTION_PIPELINE, detection_cfg);
     if (!detection_pipeline_status.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create detection pipeline");
@@ -231,7 +248,7 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
 
     // Analytics Output Pipeline
     auto overlay_pipeline_status = hailo_analytics::analytics::overlay::generate_overlay_pipeline(
-        app_resources->media_library->m_encoders[VISION_SINK], OVERLAY_PIPELINE);
+        app_resources->media_library, VISION_SINK, OVERLAY_PIPELINE);
     if (!overlay_pipeline_status.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create overlay pipeline");
@@ -275,7 +292,7 @@ int main(int argc, char *argv[])
 
     // register signal SIGINT and signal handler
     signal_utils::SignalHandler signal_handler(false);
-    signal_handler.register_signal_handler([]([[maybe_unused]] int signal) {
+    signal_handler.register_signal_handler([](int /*signal*/) {
         std::cout << "Stopping Pipeline..." << std::endl;
         HAILO_ANALYTICS_LOG_INFO("Stopping Pipeline...");
         g_stop_cv.notify_all();

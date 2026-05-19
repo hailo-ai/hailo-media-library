@@ -1,9 +1,22 @@
 #include "basic_pipeline.hpp"
+
+#include <memory>
+#include <stdexcept>
+
 #include "common/common.hpp"
 #include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
 #include "hailo_analytics/pipeline/routing/tee_stage.hpp"
 #include "hailo_analytics/pipeline/routing/valve_stage.hpp"
 #include "hailo_analytics/pipeline/sinks/app_sink_stage.hpp"
+#include "common/logger_macros.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "hailo_analytics/pipeline/overlay/overlay_stage.hpp"
+#include "hailo_analytics/pipeline/routing/freeze_stage.hpp"
+#include "hailo_analytics/pipeline/sinks/output_module.hpp"
+#include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
+#include "pipeline/isp_blender.hpp"
+#include "resources/common/events_utils.hpp"
 
 #define TEE_STAGE "vision_tee"
 
@@ -15,10 +28,10 @@ using namespace webserver::pipeline;
 using namespace webserver::resources;
 
 #define BASIC_PIPELINE_SUPPORTED_PROFILES                                                                              \
-    {ProfileType::Daylight, ProfileType::Lowlight, ProfileType::HighDynamicRange, ProfileType::LowlightBayer,          \
-     ProfileType::DenoiseHdr}
+    {ProfileType::Daylight,  ProfileType::AiIspGen1, ProfileType::HighDynamicRange,                                    \
+     ProfileType::AiIspGen2, ProfileType::AiIspGen3, ProfileType::AiIspGen3_1}
 
-BasicPipeline::BasicPipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
+BasicPipeline::BasicPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
                              RTPConverterStage &webrtc_stage, Architecture platform)
     : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight,
                    BASIC_PIPELINE_SUPPORTED_PROFILES)
@@ -36,14 +49,16 @@ std::string BasicPipeline::get_profile_name_by_type(ProfileType type) const
     {
     case ProfileType::Daylight:
         return BASIC_DAYLIGHT_PROFILE_NAME;
-    case ProfileType::Lowlight:
-        return BASIC_LOWLIGHT_PROFILE_NAME;
+    case ProfileType::AiIspGen1:
+        return BASIC_AI_ISP_GEN1_PROFILE_NAME;
     case ProfileType::HighDynamicRange:
         return BASIC_HDR_PROFILE_NAME;
-    case ProfileType::LowlightBayer:
-        return BASIC_LOWLIGHT_BAYER_PROFILE_NAME;
-    case ProfileType::DenoiseHdr:
-        return BASIC_DENOISE_HDR_PROFILE_NAME;
+    case ProfileType::AiIspGen2:
+        return BASIC_AI_ISP_GEN2_PROFILE_NAME;
+    case ProfileType::AiIspGen3:
+        return BASIC_AI_ISP_GEN3_PROFILE_NAME;
+    case ProfileType::AiIspGen3_1:
+        return BASIC_AI_ISP_GEN3_1_PROFILE_NAME;
     default:
         throw std::runtime_error("profile type not supported in Basic Pipeline");
     }
@@ -53,14 +68,16 @@ ProfileType BasicPipeline::get_profile_type_by_name(const std::string &name) con
 {
     if (name == BASIC_DAYLIGHT_PROFILE_NAME)
         return ProfileType::Daylight;
-    else if (name == BASIC_LOWLIGHT_PROFILE_NAME)
-        return ProfileType::Lowlight;
+    else if (name == BASIC_AI_ISP_GEN1_PROFILE_NAME)
+        return ProfileType::AiIspGen1;
     else if (name == BASIC_HDR_PROFILE_NAME)
         return ProfileType::HighDynamicRange;
-    else if (name == BASIC_LOWLIGHT_BAYER_PROFILE_NAME)
-        return ProfileType::LowlightBayer;
-    else if (name == BASIC_DENOISE_HDR_PROFILE_NAME)
-        return ProfileType::DenoiseHdr;
+    else if (name == BASIC_AI_ISP_GEN2_PROFILE_NAME)
+        return ProfileType::AiIspGen2;
+    else if (name == BASIC_AI_ISP_GEN3_PROFILE_NAME)
+        return ProfileType::AiIspGen3;
+    else if (name == BASIC_AI_ISP_GEN3_1_PROFILE_NAME)
+        return ProfileType::AiIspGen3_1;
     else
         throw std::runtime_error("profile name not supported in Basic Pipeline");
 }

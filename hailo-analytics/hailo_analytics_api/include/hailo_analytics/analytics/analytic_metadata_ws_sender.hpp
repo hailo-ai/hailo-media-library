@@ -1,13 +1,16 @@
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
 #include <optional>
 #include <string>
 #include <string_view>
-#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
+
 #include "hailo_analytics/pipeline/codecs/analytic_metadata_packager_stage.hpp"
 #include "hailo_analytics/pipeline/sinks/websocket_sink_stage.hpp"
-#include "hailo_postprocess_tools/objects/hailo_objects.hpp"
 #include "tl/expected.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 namespace hailo_analytics::analytics::analytic_metadata_ws_sender
 {
@@ -23,7 +26,6 @@ struct analytic_metadata_config_t
     std::optional<size_t> queue_size;
     std::optional<bool> leaky;
     std::optional<bool> trace;
-    std::optional<codecs_stage::Format> format;
 
     void merge_from(const analytic_metadata_config_t &other);
     void apply_to(codecs_stage::AnalyticMetadataPackagerStageBuild::Builder &b) const;
@@ -106,7 +108,8 @@ websocket_config_t base_websocket_sender_config();
  * @brief Get default configuration for analytic metadata WebSocket sender pipeline.
  *
  * Returns an analytic_metadata_ws_sender_config_t with default analytic metadata and
- * WebSocket sender configurations. Format defaults to JSON.
+ * WebSocket sender configurations. Metadata is shipped as serialized protobuf
+ * (hailo_analytics.Frame) inside binary WebSocket frames.
  *
  * @return analytic_metadata_ws_sender_config_t with sensible defaults
  */
@@ -115,8 +118,8 @@ analytic_metadata_ws_sender_config_t base_analytic_metadata_ws_sender_config();
 /**
  * @brief Generate an analytic metadata WebSocket sender pipeline.
  *
- * Creates a pipeline with an analytic metadata packager stage (JSON format) as the first stage,
- * followed by a WebSocket sink stage.
+ * Creates a pipeline with an analytic metadata packager stage (protobuf-binary output) as the
+ * first stage, followed by a WebSocket sink stage.
  *
  * @param pipeline_name Name for the generated pipeline
  * @param user_configs Optional user-provided configuration (will be merged with defaults if provided)

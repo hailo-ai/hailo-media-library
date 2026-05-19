@@ -1,17 +1,20 @@
 #pragma once
 
 #include <gtest/gtest.h>
-#include <gmock/gmock.h>
+#include <stddef.h>
+#include <media_library/buffer_pool.hpp>
 #include <string>
-#include <thread>
 #include <chrono>
 #include <vector>
 #include <atomic>
 #include <memory>
-#include <iostream>
+#include <mutex>
+#include <optional>
+#include <utility>
 
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
-#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 using namespace hailo_analytics::pipeline;
 

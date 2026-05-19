@@ -2,9 +2,7 @@
  * Copyright (c) 2021-2022 Hailo Technologies Ltd. All rights reserved.
  * Distributed under the LGPL license (https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt)
  **/
-#include "stdio.h"
-#include "stdlib.h"
-#include "string.h"
+#include <stddef.h>
 
 #include "gst_hailo_stream_meta.hpp"
 

@@ -1,23 +1,21 @@
 #include "hdr_manager_impl.hpp"
 
+#include <string.h>
+#include <filesystem>
+#include <optional>
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <utility>
+
 #include "buffer_pool.hpp"
 #include "hdr_manager.hpp"
 #include "hrt_stitcher/hrt_stitcher.hpp"
 #include "isp_manager.hpp"
-#include "logger_macros.hpp"
 #include "media_library_types.hpp"
 #include "sensor_registry.hpp"
-#include "video_buffer.hpp"
-#include "video_device.hpp"
-#include "media_library_types.hpp"
 #include "v4l2_ctrl.hpp"
-#include "video_device.hpp"
 #include "hailo_media_library_perfetto.hpp"
-#include "isp_utils.hpp"
-#include "perfetto_fps_tracer.hpp"
-
-#include <filesystem>
-#include <optional>
 
 #define MODULE_NAME LoggerType::Hdr
 
@@ -46,7 +44,7 @@ std::optional<std::string> HdrManager::Impl::get_hdr_hef_path(hdr_dol_t dol, Res
 
     resolution_str = resolution_info->name;
     dol_str = std::to_string(static_cast<int>(dol));
-    return "/usr/lib/medialib/hdr_config/hdr_" + resolution_str + "_" + dol_str + "_exposures.hef";
+    return "/usr/lib/medialib/hdr_config/hdr_" + resolution_str + "_" + dol_str + "dol_h15h.hef";
 }
 
 bool HdrManager::Impl::configure(const frontend_config_t &frontend_config)
@@ -95,7 +93,7 @@ bool HdrManager::Impl::configure(const frontend_config_t &frontend_config)
         return false;
     }
     if (stitcher->init(hdr_hef_path.value(), frontend_config.hailort_config.device_id, SCHEDULER_THRESHOLD,
-                       SCHEDULER_TIMEOUT.count(), dol))
+                       SCHEDULER_TIMEOUT.count(), dol, frontend_config.hailort_config.use_hailort_service))
     {
         LOGGER__MODULE__ERROR(LOGGER_TYPE, "Failed to initialize HailortAsyncStitching with HEF path: {}",
                               hdr_hef_path.value());
@@ -335,12 +333,6 @@ bool HdrManager::Impl::handle_frame(HailoMediaLibraryBufferPtr raw_buffer)
     auto &stitch_ctx = stitch_context_opt.value();
     HailoMediaLibraryBufferPtr output_frame = output_frame_opt.value();
     output_frame->copy_metadata_from(raw_buffer);
-    HDR::VideoBuffer *input_buffer_as_video_buffer = static_cast<HDR::VideoBuffer *>(raw_buffer->get_on_free_data());
-    HDR::VideoBuffer *output_buffer_as_video_buffer = static_cast<HDR::VideoBuffer *>(output_frame->get_on_free_data());
-    // Also copy timestamp in pre isp denoise?
-    output_buffer_as_video_buffer->get_v4l2_buffer()->timestamp =
-        input_buffer_as_video_buffer->get_v4l2_buffer()->timestamp;
-    output_buffer_as_video_buffer->get_v4l2_buffer()->flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
 
     stitch_ctx->m_stitched_buffer = output_frame;
 

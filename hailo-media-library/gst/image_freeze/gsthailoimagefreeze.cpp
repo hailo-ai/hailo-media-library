@@ -22,14 +22,19 @@
  */
 
 #include "gsthailoimagefreeze.hpp"
+
 #include <gst/gst.h>
-#include <gst/video/video.h>
-#include <gst/gstbuffer.h>
-#include <memory.h>
-#include <tl/expected.hpp>
+#include <gst/gstparamspecs.h>
+#include <gst/video/video-info.h>
+#include <string.h>
+#include <memory>
+#include <utility>
+
 #include "common/gstmedialibcommon.hpp"
 #include "buffer_utils/buffer_utils.hpp"
-#include "hailo_v4l2/hailo_v4l2_meta.h"
+#include "buffer_pool.hpp"
+#include "media_library_buffer.hpp"
+#include "media_library_types.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailo_image_freeze_debug);
 #define GST_CAT_DEFAULT gst_hailo_image_freeze_debug

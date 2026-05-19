@@ -1,6 +1,16 @@
 #include "analytics_db.hpp"
-#include "logger_macros.hpp"
+
+#include <bits/std_abs.h>
+#include <stddef.h>
+#include <tl/expected.hpp>
+#include <compare>
+#include <iterator>
+#include <ratio>
+#include <unordered_map>
+#include <utility>
+
 #include "media_library_logger.hpp"
+
 #define MODULE_NAME LoggerType::AnalyticsDB
 AnalyticsDB::AnalyticsDB()
 {
@@ -18,7 +28,6 @@ media_library_return AnalyticsDB::add_entry(MapT &db, const std::string &analyti
                                             const ConfigMapT &config_map)
 {
     if (m_application_analytics_config.detection_analytics_config.empty() &&
-        m_application_analytics_config.instance_segmentation_analytics_config.empty() &&
         m_application_analytics_config.semantic_segmentation_analytics_config.empty())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "AnalyticsDB is not initialized. Call initialize() before adding entries.");
@@ -51,13 +60,6 @@ media_library_return AnalyticsDB::add_detection_entry(const std::string &analyti
                      m_application_analytics_config.detection_analytics_config);
 }
 
-media_library_return AnalyticsDB::add_instance_segmentation_entry(const std::string &analytics_id,
-                                                                  const InstanceSegmentationAnalyticsData &data)
-{
-    return add_entry(m_instance_segmentation_entries_db, analytics_id, data,
-                     m_application_analytics_config.instance_segmentation_analytics_config);
-}
-
 media_library_return AnalyticsDB::add_semantic_segmentation_entry(const std::string &analytics_id,
                                                                   const SemanticSegmentationAnalyticsData &data)
 {
@@ -71,8 +73,6 @@ void AnalyticsDB::clear_db()
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Clearing AnalyticsDB entries (preserving configuration).");
     for (auto &[id, entries] : m_detection_entries_db)
         entries.clear();
-    for (auto &[id, entries] : m_instance_segmentation_entries_db)
-        entries.clear();
     for (auto &[id, entries] : m_semantic_segmentation_entries_db)
         entries.clear();
 }
@@ -82,7 +82,6 @@ void AnalyticsDB::reset_db()
     std::lock_guard<std::mutex> lock(m_mutex);
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Resetting AnalyticsDB (clearing entries and configuration).");
     m_detection_entries_db.clear();
-    m_instance_segmentation_entries_db.clear();
     m_semantic_segmentation_entries_db.clear();
     m_application_analytics_config = {};
 }
@@ -93,8 +92,6 @@ void AnalyticsDB::add_configuration(application_analytics_config_t application_a
 
     size_t new_detection_ids = 0;
     size_t updated_detection_ids = 0;
-    size_t new_segmentation_ids = 0;
-    size_t updated_segmentation_ids = 0;
     size_t new_semantic_segmentation_ids = 0;
     size_t updated_semantic_segmentation_ids = 0;
 
@@ -121,31 +118,6 @@ void AnalyticsDB::add_configuration(application_analytics_config_t application_a
 
         // Pre-populate entries DB (for both new and updated IDs)
         m_detection_entries_db[analytics_id] = {};
-    }
-
-    // Process instance segmentation analytics config
-    for (const auto &pair : application_analytics_config.instance_segmentation_analytics_config)
-    {
-        const auto &analytics_id = pair.first;
-        const auto &config = pair.second;
-
-        auto it = m_application_analytics_config.instance_segmentation_analytics_config.find(analytics_id);
-        if (it != m_application_analytics_config.instance_segmentation_analytics_config.end())
-        {
-            it->second = config;
-            m_instance_segmentation_entries_db[analytics_id].clear();
-            updated_segmentation_ids++;
-            LOGGER__MODULE__DEBUG(MODULE_NAME, "Updated existing instance segmentation analytics ID: {}", analytics_id);
-        }
-        else
-        {
-            m_application_analytics_config.instance_segmentation_analytics_config[analytics_id] = config;
-            new_segmentation_ids++;
-            LOGGER__MODULE__DEBUG(MODULE_NAME, "Added new instance segmentation analytics ID: {}", analytics_id);
-        }
-
-        // Pre-populate entries DB (for both new and updated IDs)
-        m_instance_segmentation_entries_db[analytics_id] = {};
     }
 
     // Process semantic segmentation analytics config
@@ -175,13 +147,11 @@ void AnalyticsDB::add_configuration(application_analytics_config_t application_a
 
     LOGGER__MODULE__DEBUG(MODULE_NAME,
                           "AnalyticsDB configuration added: {} new detection IDs, {} updated detection IDs, "
-                          "{} new instance segmentation IDs, {} updated instance segmentation IDs, "
                           "{} new semantic segmentation IDs, {} updated semantic segmentation IDs. "
-                          "Total: {} detection IDs, {} instance segmentation IDs, {} semantic segmentation IDs.",
-                          new_detection_ids, updated_detection_ids, new_segmentation_ids, updated_segmentation_ids,
-                          new_semantic_segmentation_ids, updated_semantic_segmentation_ids,
+                          "Total: {} detection IDs, {} semantic segmentation IDs.",
+                          new_detection_ids, updated_detection_ids, new_semantic_segmentation_ids,
+                          updated_semantic_segmentation_ids,
                           m_application_analytics_config.detection_analytics_config.size(),
-                          m_application_analytics_config.instance_segmentation_analytics_config.size(),
                           m_application_analytics_config.semantic_segmentation_analytics_config.size());
 }
 
@@ -284,12 +254,6 @@ tl::expected<DetectionAnalyticsData, media_library_return> AnalyticsDB::query_de
     const std::string &analytics_id, const AnalyticsQueryOptions &options)
 {
     return query_entry<DetectionAnalyticsData>(m_detection_entries_db, analytics_id, options);
-}
-
-tl::expected<InstanceSegmentationAnalyticsData, media_library_return> AnalyticsDB::query_instance_segmentation_entry(
-    const std::string &analytics_id, const AnalyticsQueryOptions &options)
-{
-    return query_entry<InstanceSegmentationAnalyticsData>(m_instance_segmentation_entries_db, analytics_id, options);
 }
 
 tl::expected<SemanticSegmentationAnalyticsData, media_library_return> AnalyticsDB::query_semantic_segmentation_entry(

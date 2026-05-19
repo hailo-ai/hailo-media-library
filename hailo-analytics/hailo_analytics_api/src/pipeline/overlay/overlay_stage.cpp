@@ -1,6 +1,30 @@
+#include <stddef.h>
+#include <stdint.h>
+#include <hailo_postprocess_tools/image_utils/hailomat.hpp>
+#include <hailo_postprocess_tools/objects/hailo_common.hpp>
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
+#include <media_library/buffer_pool.hpp>
+#include <media_library/dma_memory_allocator.hpp>
+#include <media_library/media_library_buffer.hpp>
+#include <media_library/media_library_types.hpp>
+#include <opencv2/core.hpp>
+#include <atomic>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <ostream>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_postprocess_tools/image_utils/overlay_native.hpp"
 #include "hailo_analytics/pipeline/overlay/overlay_stage.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 namespace hailo_analytics::pipeline::overlay
 {

@@ -1,7 +1,8 @@
 #pragma once
 
-#include <gst/gst.h>
 #include <gst/base/gstbasetransform.h>
+#include <glib-object.h>
+#include <glib.h>
 
 G_BEGIN_DECLS
 

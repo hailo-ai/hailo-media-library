@@ -1,6 +1,16 @@
-#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include <stddef.h>
+#include <atomic>
+#include <memory>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
 #include "hailo_analytics/pipeline/muxing/muxer_stage.hpp"
-#include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/queue.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/pipeline/core/stage_tracing.hpp"
 
 namespace hailo_analytics::pipeline::muxing
 {
@@ -27,10 +37,9 @@ MuxerStage::MuxerStage(std::string name, std::string main_inlet_name, size_t mai
  * MuxerStage creates its two fixed queues (main and sub) in the constructor,
  * so additional queue creation is not supported.
  */
-void MuxerStage::add_queue(std::string name)
+void MuxerStage::add_queue(std::string /*name*/)
 {
     // Muxer has fixed queues - main and sub
-    (void)name;
 }
 
 /**

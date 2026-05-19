@@ -1,19 +1,18 @@
 #pragma once
-#include "buffer_pool.hpp"
-#include "dsp_utils.hpp"
-#include "interface_types.h"
-#include "config_parser.hpp"
-#include "media_library_types.hpp"
-#include "media_library_utils.hpp"
-#include "hailo_v4l2/hailo_v4l2.h"
+#include <tl/expected.hpp>
+#include <hailo/hailodsp.h>
+#include <stdint.h>
+#include <opencv2/core.hpp>
 #include <memory>
 #include <shared_mutex>
-#include <tl/expected.hpp>
-#include <opencv2/opencv.hpp>
-#include "gyro_device.hpp"
+#include <ctime>
+
+#include "buffer_pool.hpp"
+#include "interface_types.h"
+#include "media_library_types.hpp"
 #include "eis.hpp"
-#include "isp_utils.hpp"
-#include "env_vars.hpp"
+#include "dis_math.h"
+#include "v4l2_ctrl.hpp"
 
 #define LDC_VSM_CONFIG "/usr/bin/media_server_cfg.json"
 

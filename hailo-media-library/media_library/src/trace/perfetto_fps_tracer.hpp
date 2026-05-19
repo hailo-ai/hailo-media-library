@@ -23,12 +23,13 @@
 
 #pragma once
 
+#include <string>
+#include <chrono>
+
 #include "fps_tracer.hpp"
 
-#include <string>
-
 #ifdef HAVE_PERFETTO
-#include <perfetto.h>
+#include "hailo_media_library_perfetto.hpp"
 #endif
 
 /**

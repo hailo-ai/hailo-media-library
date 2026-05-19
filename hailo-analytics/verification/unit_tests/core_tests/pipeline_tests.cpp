@@ -1,14 +1,16 @@
 #include <gtest/gtest.h>
-#include <gmock/gmock.h>
 #include <thread>
 #include <chrono>
-#include <vector>
-#include <atomic>
 #include <memory>
-#include <iostream>
+#include <initializer_list>
+#include <string>
 
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "core_tests_common.hpp"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 using namespace hailo_analytics::pipeline;
 using ::testing::_;

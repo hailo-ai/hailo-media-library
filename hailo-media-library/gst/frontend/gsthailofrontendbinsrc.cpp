@@ -22,19 +22,29 @@
  */
 
 #include "gsthailofrontendbinsrc.hpp"
-#include "isp_manager.hpp"
+
+#include <gst/gst.h>
+#include <unistd.h>
+#include <gst/gsterror.h>
+#include <gst/gstghostpad.h>
+#include <gst/gstparamspecs.h>
+#include <tl/expected.hpp>
+#include <optional>
+#include <functional>
+
+#include "media_library/isp_manager.hpp"
 #include "media_library/media_library_types.hpp"
+#include "media_library/buffer_pool.hpp"
 #include "media_library/sensor_registry.hpp"
-#include "media_library_logger.hpp"
-#include "media_library/isp_utils.hpp"
+#include "media_library/media_library_logger.hpp"
 #include "media_library/config_manager.hpp"
 #include "common/gstmedialibcommon.hpp"
-#include "media_library/isp_utils.hpp"
-#include <gst/gst.h>
-#include <gst/video/video.h>
-#include <dlfcn.h>
-#include <optional>
-#include <unistd.h>
+#include "config_parser.hpp"
+#include "denoise.hpp"
+#include "dsp_utils.hpp"
+#include "gstmedialibptrs.hpp"
+#include "hdr_manager.hpp"
+#include "pre_isp_denoise.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailofrontendbinsrc_debug_category);
 #define GST_CAT_DEFAULT gst_hailofrontendbinsrc_debug_category
@@ -64,8 +74,6 @@ static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, fro
 static std::optional<frontend_config_t> gst_hailofrontendbinsrc_load_config(GstHailoFrontendBinSrc *self,
                                                                             const std::string &config_string);
 static bool set_dummy_profile_in_gst_mode(GstHailoFrontendBinSrc *self, const frontend_config_t &frontend_config);
-static GstPadProbeReturn gst_hailofrontendbinsrc_v4l2src_probe(GstPad *pad, GstPadProbeInfo *info,
-                                                               gpointer frontendbinsrc);
 
 ConfigManagerInteractor *gst_mode_config_manager_interactor =
     nullptr; // global is the best way to access from encoders as well in gst mode
@@ -232,13 +240,6 @@ static void gst_hailofrontendbinsrc_init(GstHailoFrontendBinSrc *hailofrontendbi
                      hailofrontendbinsrc->params->m_frontend, NULL);
     hailofrontendbinsrc->params->m_frontend_config_parser =
         std::make_shared<ConfigParser>(ConfigSchema::CONFIG_SCHEMA_FRONTEND);
-
-    GstPadPtr v4l2src_pad = gst_element_get_static_pad(hailofrontendbinsrc->params->m_v4l2src, "src");
-    if (v4l2src_pad)
-    {
-        gst_pad_add_probe(v4l2src_pad, GST_PAD_PROBE_TYPE_BUFFER, gst_hailofrontendbinsrc_v4l2src_probe,
-                          hailofrontendbinsrc, NULL);
-    }
 }
 
 static GstElement *gst_hailofrontendbinsrc_init_queue(GstHailoFrontendBinSrc *hailofrontendbinsrc)
@@ -299,7 +300,7 @@ static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, fro
     }
     g_object_set(self->params->m_v4l2src, "device", device_path.value().c_str(), NULL);
 
-    if (self->params->m_config_manager_interactor)
+    if (gst_mode_config_manager_interactor) // working in gst mode
     {
         self->params->m_config_manager_interactor->set_frontend_config(config);
     }
@@ -363,7 +364,8 @@ bool set_dummy_profile_in_gst_mode(GstHailoFrontendBinSrc *self, const frontend_
             GST_ERROR_OBJECT(self, "Failed to create dummy profile interactor");
             return false;
         }
-        self->params->m_config_manager_interactor = std::move(config_manager_interactor.value());
+        self->params->m_config_manager_interactor = {config_manager_interactor.value().release(),
+                                                     std::default_delete<ConfigManagerInteractor>{}};
         gst_mode_config_manager_interactor = self->params->m_config_manager_interactor.get();
         self->params->m_isp_manager->set_config_manager_interactor(self->params->m_config_manager_interactor.get(),
                                                                    false);
@@ -444,9 +446,11 @@ void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id, co
         break;
     }
     case PROP_CONFIG_MANAGER_INTERACTOR: {
-        self->params->m_isp_manager->set_config_manager_interactor(
-            static_cast<ConfigManagerInteractor *>(g_value_get_pointer(value)), true);
-        g_object_set(self->params->m_frontend, "config-manager-interactor", g_value_get_pointer(value), NULL);
+        auto *interactor = static_cast<ConfigManagerInteractor *>(g_value_get_pointer(value));
+        // Non-owning: the interactor lifetime is managed by the caller (MediaLibrary API).
+        self->params->m_config_manager_interactor = {interactor, [](ConfigManagerInteractor *) {}};
+        self->params->m_isp_manager->set_config_manager_interactor(interactor, true);
+        g_object_set(self->params->m_frontend, "config-manager-interactor", interactor, NULL);
         break;
     }
     default:
@@ -544,6 +548,13 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
             gst_hailofrontendbinsrc_link_elements(GST_ELEMENT(self));
             self->params->m_elements_linked = TRUE;
         }
+        if (self->params->m_config_manager_interactor && !self->params->m_prealloc_done)
+        {
+            // Pre-allocate DMA buffers for all pipeline components on a background thread
+            MediaLibraryBufferPool::preallocate_from_config(*self->params->m_config_manager_interactor);
+            self->params->m_prealloc_done = true;
+        }
+
         break;
     }
     case GST_STATE_CHANGE_PAUSED_TO_PLAYING: {
@@ -579,6 +590,10 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_change_state(GstElement *ele
         self->params->m_pre_isp_denoise->deinit();
         self->params->m_hdr->deinit();
         self->params->frame_count = 0;
+        // Symmetric with NULL_TO_READY's preallocate_from_config: drop any
+        // prealloc'd buffers that pool inits did not consume so the next
+        // start with a (possibly different) profile sees an empty cache.
+        MediaLibraryBufferPool::clear_prealloc_cache();
         break;
     }
     default:
@@ -676,33 +691,6 @@ static void gst_hailofrontendbinsrc_dispose(GObject *object)
     }
 
     G_OBJECT_CLASS(gst_hailofrontendbinsrc_parent_class)->dispose(object);
-}
-
-static GstPadProbeReturn gst_hailofrontendbinsrc_v4l2src_probe(GstPad *, GstPadProbeInfo *,
-                                                               gpointer frontenbinsrc_uncasted)
-{
-    GstHailoFrontendBinSrc *frontendbincsrc = static_cast<GstHailoFrontendBinSrc *>(frontenbinsrc_uncasted);
-
-    // Drop frames #1-20 to allow buffer pools to alloc (using the first frame) and not cause end of pipeline stress
-    const size_t buffers_to_drop = 20;
-    const size_t first_frame_index_to_drop = 1;
-    const size_t last_frame_index_to_drop = buffers_to_drop + first_frame_index_to_drop - 1;
-
-    GstPadProbeReturn ret = GST_PAD_PROBE_OK;
-
-    if (frontendbincsrc->params->frame_count > last_frame_index_to_drop)
-    {
-        return ret;
-    }
-
-    if (frontendbincsrc->params->frame_count >= first_frame_index_to_drop)
-    {
-        GST_DEBUG("Dropping frame #%lu (to warm up buffer pools)", frontendbincsrc->params->frame_count);
-        ret = GST_PAD_PROBE_DROP;
-    }
-
-    ++frontendbincsrc->params->frame_count;
-    return ret;
 }
 
 static gboolean gst_hailofrontendbinsrc_denoise_enabled_changed(GstHailoFrontendBinSrc *self, bool enabled)

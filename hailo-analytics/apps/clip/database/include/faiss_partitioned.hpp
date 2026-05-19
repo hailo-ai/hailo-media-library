@@ -1,18 +1,27 @@
 #pragma once
 
-#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
-#include "faiss_shard.hpp"
 #include <faiss/IndexShards.h>
+#include <faiss/MetricType.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <future>
 #include <functional>
 #include <unordered_map>
 #include <chrono>
 #include <vector>
-#include <algorithm>
 #include <thread>
 #include <queue>
 #include <mutex>
 #include <condition_variable>
+#include <atomic>
+#include <memory>
+#include <shared_mutex>
+#include <string>
+#include <type_traits>
+#include <unordered_set>
+#include <utility>
+
+#include "faiss_shard.hpp"
 
 // Sealing hot shard is either reaching specified hot_shard_max_size or exceeding HOT_SHARD_MAX_ALLOWED_DURATION_SEC
 // NOTE: Recommend not to set HOT_SHARD_MAX_ALLOWED_DURATION_SEC too high to avoid long-lived hot shards

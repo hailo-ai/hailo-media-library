@@ -352,10 +352,12 @@ struct smart_encoder_config_t
     bool enabled;
     uint8_t background_qp_delta;
     std::vector<normalized_roi_t> rois;
+    std::vector<std::string> analytics_labels;
 
     bool operator==(const smart_encoder_config_t &other) const
     {
-        return enabled == other.enabled && background_qp_delta == other.background_qp_delta && rois == other.rois;
+        return enabled == other.enabled && background_qp_delta == other.background_qp_delta && rois == other.rois &&
+               analytics_labels == other.analytics_labels;
     }
 };
 

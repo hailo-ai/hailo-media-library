@@ -18,22 +18,26 @@
  */
 
 #include "pre_isp_denoise.hpp"
+
+#include <asm/ioctl.h>
+#include <hailo/hailort.h>
+#include <fmt/format.h>
+#include <linux/videodev2.h>
+#include <stdint.h>
+#include <optional>
+#include <chrono>
+#include <functional>
+#include <string>
+#include <utility>
+#include <algorithm>
+#include <cmath>
+
 #include "hailort_denoise.hpp"
 #include "buffer_pool.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
-#include "isp_utils.hpp"
-#include "sensor_registry.hpp"
-#include "video_device.hpp"
-
-#include <linux/v4l2-controls.h>
-#include <linux/v4l2-subdev.h>
-#include <optional>
-#include <stdint.h>
-#include <fcntl.h>
-#include <sys/ioctl.h>
-#include <tl/expected.hpp>
-#include <ctime>
+#include "snapshot.hpp"
+#include "media_library_buffer.hpp"
 
 #define MODULE_NAME LoggerType::Denoise
 
@@ -86,21 +90,6 @@ media_library_return initialize_buffer_pool(const std::string &buffer_pool_name,
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return set_dummy_output_buffer(MediaLibraryBufferPoolPtr buffer_pool,
-                                             NetworkInferenceBindingsPtr bindings, int index)
-{
-    HailoMediaLibraryBufferPtr dummy_output_buffer = std::make_shared<hailo_media_library_buffer>();
-    auto ret = buffer_pool->acquire_buffer(dummy_output_buffer);
-    if (ret != MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to acquire dummy output buffer");
-        return media_library_return::MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
-    }
-    std::memset(dummy_output_buffer->get_plane_ptr(0), 0, dummy_output_buffer->get_plane_size(0));
-    bind_output_buffer(bindings, index, dummy_output_buffer);
-    return media_library_return::MEDIA_LIBRARY_SUCCESS;
-}
-
 void timestamp_buffer_if_missing(HailoMediaLibraryBufferPtr hailo_buffer_raw)
 {
     if (hailo_buffer_raw->isp_timestamp_ns == 0)
@@ -111,6 +100,37 @@ void timestamp_buffer_if_missing(HailoMediaLibraryBufferPtr hailo_buffer_raw)
             std::chrono::time_point_cast<std::chrono::nanoseconds>(now_time).time_since_epoch().count();
     }
 }
+
+namespace
+{
+// Inverse of the HEF's dequantization (dq = (q - zp) * scale):
+// returns the uint16 the network will read back as target_dequant.
+uint16_t compute_loopback_init_value(float target_dequant, const hailo_quant_info_t &q)
+{
+    return static_cast<uint16_t>(std::round(target_dequant / q.qp_scale + q.qp_zp));
+}
+
+void fill_binding(const TensorBinding &binding, uint16_t value, const char *channel_label)
+{
+    if (!binding.buffer)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Cannot init {} loopback: binding has no buffer", channel_label);
+        return;
+    }
+    const uint32_t plane_index = static_cast<uint32_t>(binding.plane_id);
+    auto *plane_ptr = static_cast<uint16_t *>(binding.buffer->get_plane_ptr(plane_index));
+    const uint32_t plane_size = binding.buffer->get_plane_size(plane_index);
+    if (plane_ptr == nullptr || plane_size == 0 || plane_size % sizeof(uint16_t) != 0)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Cannot init {} loopback: invalid plane (ptr={}, size={})", channel_label,
+                              fmt::ptr(plane_ptr), plane_size);
+        return;
+    }
+    std::fill_n(plane_ptr, plane_size / sizeof(uint16_t), value);
+    LOGGER__MODULE__INFO(MODULE_NAME, "Cold-start {} loopback init: bytes={} value={}", channel_label, plane_size,
+                         value);
+}
+} // namespace
 
 // MediaLibraryPreIspDenoise implementation
 MediaLibraryPreIspDenoise::MediaLibraryPreIspDenoise(IspManager &isp_manager)
@@ -123,11 +143,13 @@ MediaLibraryPreIspDenoise::MediaLibraryPreIspDenoise(IspManager &isp_manager)
 
     MediaLibraryDenoise::callbacks_t callbacks;
     callbacks.on_buffer_ready = [this](HailoMediaLibraryBufferPtr output_buffer) {
+        SnapshotManager::get_instance().take_snapshot("pre_isp_denoised", output_buffer, true);
         m_isp_manager.put_buffer_into_isp(output_buffer);
     };
     observe(callbacks);
 
     m_isp_manager.set_subscriber(static_cast<int>(MODULE_NAME), [this](HailoMediaLibraryBufferPtr raw_buffer) {
+        SnapshotManager::get_instance().take_snapshot("pre_isp_raw", raw_buffer, true);
         timestamp_buffer_if_missing(raw_buffer);
         return this->handle_frame(raw_buffer);
     });
@@ -158,6 +180,7 @@ void MediaLibraryPreIspDenoise::copy_meta(HailoMediaLibraryBufferPtr input_buffe
 {
     output_buffer->isp_timestamp_ns = input_buffer->isp_timestamp_ns;
     output_buffer->attach_profile(input_buffer->get_attached_profile());
+    output_buffer->pending_bls_value = input_buffer->pending_bls_value;
 }
 
 void MediaLibraryPreIspDenoise::prepare_hailort_instance(const denoise_config_t &denoise_configs)
@@ -340,4 +363,22 @@ media_library_return MediaLibraryPreIspDenoise::acquire_output_buffers(NetworkIn
 
     LOGGER__MODULE__TRACE(MODULE_NAME, "Output buffer acquired successfully for Pre-ISP denoise");
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
+}
+
+void MediaLibraryPreIspDenoise::initialize_dummy_loopback_buffers(const TensorBindings &loopback_buffers)
+{
+    if (m_hailort_denoise->type() != HailortAsyncDenoiseType::PreISPHdm)
+    {
+        return;
+    }
+
+    const auto &fusion_binding = loopback_buffers[HailortAsyncDenoisePreISPHdm::OutputIndex::OUTPUT_FUSION_CHANNEL];
+    const uint16_t fusion_init =
+        compute_loopback_init_value(0.0f, m_hailort_denoise->get_output_quant_info(fusion_binding.tensor_name));
+    fill_binding(fusion_binding, fusion_init, "fusion");
+
+    const auto &gamma_binding = loopback_buffers[HailortAsyncDenoisePreISPHdm::OutputIndex::OUTPUT_GAMMA_CHANNEL];
+    const uint16_t gamma_init =
+        compute_loopback_init_value(1.0f, m_hailort_denoise->get_output_quant_info(gamma_binding.tensor_name));
+    fill_binding(gamma_binding, gamma_init, "gamma");
 }

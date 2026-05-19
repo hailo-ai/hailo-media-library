@@ -1,10 +1,16 @@
+#include <media_library/buffer_pool.hpp>
+#include <media_library/media_library_buffer.hpp>
+#include <media_library/media_library_types.hpp>
 #include <gtest/gtest.h>
 #include <cstdint>
 #include <cstring>
 #include <string>
 #include <vector>
+#include <memory>
+#include <utility>
 
 #include "test_images/test_image_loader.hpp"
+#include "gtest/gtest.h"
 
 // ============================================================================
 // TestImageLoaderTest — test suite for test_image_loader utility

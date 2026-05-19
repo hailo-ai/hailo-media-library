@@ -1,9 +1,18 @@
 #pragma once
+#include <gst/gst.h>
+#include <nlohmann/json.hpp>
+#include <map>
+#include <memory>
+#include <shared_mutex>
+#include <string>
+#include <vector>
+
 #include "common/resources.hpp"
-#include "rtc/rtc.hpp"
-#include "encoder.hpp"
 #include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
-#include "webrtc_turn.hpp"
+#include "common/httplib/httplib_utils.hpp"
+#include "hailo_analytics/pipeline/sinks/output_module.hpp"
+#include "resources/common/event_bus.hpp"
+#include "resources/configs.hpp"
 
 using namespace hailo_analytics::pipeline::sinks;
 
@@ -11,21 +20,17 @@ namespace webserver
 {
 namespace resources
 {
+
+// Forward declaration — avoid pulling in webrtc_turn.hpp and <rtc/rtc.hpp>
+namespace turn
+{
+struct TurnConfig;
+}
 class WebRtcResource : public Resource, public RTPConverterStage::RTPReceiver
 {
   private:
-    struct WebrtcSession
-    {
-        rtp_session_id_t session_id;
-        std::string stream_name;
-        std::shared_ptr<rtc::PeerConnection> peer_connection;
-        std::shared_ptr<rtc::Track> track;
-        rtc::PeerConnection::State state = rtc::PeerConnection::State::New;
-        rtc::PeerConnection::GatheringState gathering_state = rtc::PeerConnection::GatheringState::New;
-        rtc::SSRC ssrc;
-        std::string codec;
-        nlohmann::json ICE_offer;
-    };
+    struct WebrtcSession;
+
     std::string m_stream_codec;
     std::shared_mutex m_session_mutex;
     const std::map<std::string, int> codec_payload_type_map = {
@@ -40,6 +45,7 @@ class WebRtcResource : public Resource, public RTPConverterStage::RTPReceiver
 
   public:
     WebRtcResource(std::shared_ptr<EventBus> event_bus, std::shared_ptr<ConfigResourceBase> configs);
+    ~WebRtcResource();
     void on_rtp_packet(GstSample *sample, rtp_session_id_t stream_name) override;
     rtp_session_id_t start(std::string stream_name) override;
     void stop(std::string stream_name) override;

@@ -2,6 +2,16 @@
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
+#include <hailodsp.h>
+#include <hailodsp_base.h>
+#include <media_library/buffer_pool.hpp>
+#include <media_library/dsp_utils.hpp>
+#include <media_library/media_library_types.hpp>
+#include <opencv2/core.hpp>
+#include <cstring>
+#include <memory>
+#include <utility>
+#include <vector>
 
 #include "media_library/media_library_buffer.hpp"
 

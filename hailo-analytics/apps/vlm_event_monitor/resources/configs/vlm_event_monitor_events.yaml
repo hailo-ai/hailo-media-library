@@ -1,0 +1,16 @@
+# VLM Event Monitor — persisted event list and active event-check mode.
+#
+# This file is the single source of truth for the configured events the
+# event-check loop watches for. The frontend's "Save" button in the Event
+# Configuration panel rewrites this file via PUT /api/events; "Load"
+# re-reads it via GET /api/events.
+#
+mode: performance
+
+events:
+    - id: 1
+      description: "a person is talking on a cell phone"
+      enabled: true
+    - id: 2
+      description: "a person is showing thumbs-up gesture"
+      enabled: false

@@ -1,14 +1,48 @@
 #include "webrtc.hpp"
-#include "webrtc_turn.hpp"
+
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <media_library/frontend.hpp>
+#include <rtc/rtc.hpp>
+#include <random>
 #include <algorithm>
-#include <cstdlib>
 #include <cstring>
+#include <chrono>
+#include <cstddef>
+#include <exception>
+#include <functional>
+#include <mutex>
+#include <optional>
+#include <stdexcept>
+#include <thread>
+#include <utility>
+
+#include "webrtc_turn.hpp"
+#include "common/logger_macros.hpp"
+#include "resources/common/events_utils.hpp"
+#include "resources/common/resources.hpp"
 
 using namespace webserver::resources;
+
+// WebrtcSession definition (moved here from webrtc.hpp to avoid rtc/rtc.hpp in the header)
+struct WebRtcResource::WebrtcSession
+{
+    rtp_session_id_t session_id;
+    std::string stream_name;
+    std::shared_ptr<rtc::PeerConnection> peer_connection;
+    std::shared_ptr<rtc::Track> track;
+    rtc::PeerConnection::State state = rtc::PeerConnection::State::New;
+    rtc::PeerConnection::GatheringState gathering_state = rtc::PeerConnection::GatheringState::New;
+    rtc::SSRC ssrc;
+    std::string codec;
+    nlohmann::json ICE_offer;
+};
+
+WebRtcResource::~WebRtcResource() = default;
 
 // Helper function to generate session id
 inline rtp_session_id_t generate_session_id()
@@ -40,7 +74,7 @@ WebRtcResource::WebRtcResource(std::shared_ptr<EventBus> event_bus, std::shared_
 {
     subscribe_callback(
         EventType::PIPELINE_READY, EventPriority::EVENT_PRIORITY_HIGH,
-        [this, configs](ResourceStateChangeNotification notification) {
+        [this, configs](ResourceStateChangeNotification /*notification*/) {
             WEBSERVER_LOG_INFO("Initializing WebRtcResource");
             this->m_stream_codec =
                 configs->get_encoder_default_config()["hailo_encoder"]["config"]["output_stream"]["codec"];

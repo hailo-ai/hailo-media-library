@@ -3,8 +3,13 @@
  * Distributed under the LGPL license (https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt)
  **/
 #pragma once
-#include "hailo_postprocess_tools/objects/hailo_objects.hpp"
-#include <iostream>
+
+#include <sys/types.h>
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include "hailo_postprocess_tools/objects/hailo_tensors.hpp"
 
 /**
  * @brief Base class to represent OutputLayer of Yolo networks.
@@ -146,7 +151,8 @@ class Yolov4OL : public YoloOutputLayer
 class Yolov5OL : public YoloOutputLayer
 {
   public:
-    Yolov5OL(HailoTensorPtr tensor, std::vector<int> anchors, bool perform_sigmoid, int label_offset, bool is_uint16)
+    Yolov5OL(HailoTensorPtr tensor, std::vector<int> anchors, bool /*perform_sigmoid*/, int label_offset,
+             bool is_uint16)
         : YoloOutputLayer(tensor->width(), tensor->height(), num_classes(tensor->features()), anchors, false,
                           label_offset, is_uint16, tensor) {};
     virtual float get_class_conf(uint prob_max);

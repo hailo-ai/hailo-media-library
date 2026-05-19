@@ -1,16 +1,21 @@
+#include <stddef.h>
+#include <media_library/media_library_buffer.hpp>
+#include <media_library/media_library_types.hpp>
 #include <gtest/gtest.h>
-#include <gmock/gmock.h>
 #include <thread>
 #include <chrono>
 #include <vector>
-#include <atomic>
 #include <memory>
+#include <stdexcept>
+#include <string>
 
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "hailo_analytics/pipeline/sinks/udp_stage.hpp"
 #include "hailo_analytics/pipeline/core/buffer.hpp"
-#include "core_tests/core_tests_common.hpp"
 #include "media_library/buffer_pool.hpp"
+#include "gtest/gtest.h"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/pipeline/sinks/output_module.hpp"
 
 using namespace hailo_analytics::pipeline;
 using namespace hailo_analytics::pipeline::sinks;

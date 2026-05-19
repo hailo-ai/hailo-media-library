@@ -1,18 +1,25 @@
+#include <rapidjson/encodings.h>
 #include <regex>
-#include <fstream>
-#include <sstream>
 #include <map>
+#include <cstdio>
+#include <memory>
+#include <stdexcept>
+#include <utility>
+#include <vector>
+
 #include "rapidjson/document.h"
-#include "rapidjson/stringbuffer.h"
-#include "rapidjson/error/en.h"
 #include "rapidjson/filereadstream.h"
-#include "rapidjson/schema.h"
 #include "hailo_postprocess_tools/objects/json_config.hpp"
 #include "hailo_postprocess_tools/labels/coco_eighty.hpp"
 #include "hailo_postprocess_tools/labels/yolo_personface.hpp"
 #include "hailo_postprocess_tools/labels/hailo_yolov8n.hpp"
 #include "hailo_nms_decode.hpp"
 #include "yolo_hailortpp.hpp"
+#include "common/structures.hpp"
+#include "common/file_reader.hpp"
+#include "hailo_gst_tensor_metadata.hpp"
+#include "hailo_postprocess_tools/objects/hailo_tensors.hpp"
+#include "hailort.h"
 
 static const std::string DEFAULT_YOLOV5S_OUTPUT_LAYER = "yolov5s_nv12/yolov5_nms_postprocess";
 static const std::string DEFAULT_YOLOV5M_OUTPUT_LAYER = "yolov5m_wo_spp_60p/yolov5_nms_postprocess";
@@ -22,13 +29,15 @@ static const std::string DEFAULT_YOLOV8M_OUTPUT_LAYER = "yolov8m/yolov8_nms_post
 
 #if __GNUC__ > 8
 #include <filesystem>
+
 namespace fs = std::filesystem;
 #else
 #include <experimental/filesystem>
+
 namespace fs = std::experimental::filesystem;
 #endif
 
-YoloParamsNMS *init(const std::string config_path, const std::string function_name)
+YoloParamsNMS *init(const std::string config_path, const std::string /*function_name*/)
 {
     YoloParamsNMS *params;
     if (!fs::exists(config_path))
@@ -39,7 +48,6 @@ YoloParamsNMS *init(const std::string config_path, const std::string function_na
     else
     {
         params = new YoloParamsNMS();
-        char config_buffer[4096];
         const char *json_schema = R""""({
         "$schema": "http://json-schema.org/draft-04/schema#",
         "type": "object",
@@ -64,17 +72,12 @@ YoloParamsNMS *init(const std::string config_path, const std::string function_na
         ]
         })"""";
 
-        std::FILE *fp = fopen(config_path.c_str(), "r");
-        if (fp == nullptr)
-        {
-            throw std::runtime_error("JSON config file is not valid");
-        }
-        rapidjson::FileReadStream stream(fp, config_buffer, sizeof(config_buffer));
-        bool valid = common::validate_json_with_schema(stream, json_schema);
+        std::string config_content = common::read_file(config_path);
+        bool valid = common::validate_json_with_schema(config_content, json_schema);
         if (valid)
         {
             rapidjson::Document doc_config_json;
-            doc_config_json.ParseStream(stream);
+            doc_config_json.Parse(config_content.c_str());
 
             // parse labels
             auto labels = doc_config_json["labels"].GetArray();
@@ -96,7 +99,6 @@ YoloParamsNMS *init(const std::string config_path, const std::string function_na
                 params->filter_by_score = true;
             }
         }
-        fclose(fp);
     }
     return params;
 }

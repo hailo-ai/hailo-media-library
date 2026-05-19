@@ -1,7 +1,19 @@
 #pragma once
-#include "media_library/encoder_config.hpp"
+#include <stdint.h>
+#include <media_library/encoder_config_types.hpp>
+#include <nlohmann/json.hpp>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 #include "common/resources.hpp"
 #include "configs.hpp"
+#include "common/httplib/httplib_utils.hpp"
+#include "resources/common/event_bus.hpp"
+#include "resources/common/events_utils.hpp"
 
 namespace webserver
 {
@@ -34,11 +46,39 @@ class EncoderResource : public Resource
             normalized_roi_t roi;
         };
 
+        struct analytics_labels_t
+        {
+            bool person = false;
+            bool face = false;
+            bool vehicle = false;
+            bool license_plate = false;
+
+            std::vector<std::string> to_vector() const
+            {
+                std::vector<std::string> labels;
+                if (person)
+                    labels.emplace_back("person");
+                if (face)
+                    labels.emplace_back("face");
+                if (vehicle)
+                    labels.emplace_back("vehicle");
+                if (license_plate)
+                    labels.emplace_back("license_plate");
+                return labels;
+            }
+
+            bool any() const
+            {
+                return person || face || vehicle || license_plate;
+            }
+        };
+
         struct smart_encoder_ui_t
         {
             bool global_enable;
             std::string quality; // "LOW", "MEDIUM", "HIGH"
             std::vector<roi_ui_t> rois;
+            analytics_labels_t analytics_labels;
         };
 
         std::optional<smart_encoder_ui_t> smart_encoder;

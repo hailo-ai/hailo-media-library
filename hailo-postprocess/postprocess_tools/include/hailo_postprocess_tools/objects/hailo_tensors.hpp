@@ -108,27 +108,27 @@ class HailoTensor
     {
         return m_data;
     }
-    const uint32_t width()
+    uint32_t width()
     {
         return m_width;
     }
-    const uint32_t height()
+    uint32_t height()
     {
         return m_height;
     }
-    const uint32_t features()
+    uint32_t features()
     {
         return m_features;
     }
-    const float32_t qp_zp()
+    float32_t qp_zp()
     {
         return m_qp_zp;
     }
-    const float32_t qp_scale()
+    float32_t qp_scale()
     {
         return m_qp_scale;
     }
-    const uint32_t size() const
+    uint32_t size() const
     {
         return m_width * m_height * m_features; // Total number of elements in the tensor.
     }

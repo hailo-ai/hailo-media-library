@@ -27,18 +27,23 @@
 
 #pragma once
 
-#include "dsp_utils.hpp"
-#include <memory>
 #include <mqueue.h>
-#include <functional>
+#include <hailo/hailodsp.h>
+#include <stdint.h>
+#include <memory>
 #include <shared_mutex>
 #include <thread>
 #include <utility>
+#include <atomic>
+#include <optional>
+#include <vector>
 
 // Forward declarations for DMA buffer pool (full include in .cpp only)
 class MediaLibraryBufferPool;
+
 using MediaLibraryBufferPoolPtr = std::shared_ptr<MediaLibraryBufferPool>;
 struct hailo_media_library_buffer;
+
 using HailoMediaLibraryBufferPtr = std::shared_ptr<hailo_media_library_buffer>;
 
 /**

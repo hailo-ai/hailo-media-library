@@ -1,29 +1,22 @@
-#include "opencv2/imgproc.hpp"
-#include "opencv2/imgcodecs.hpp"
-#include "opencv2/highgui.hpp"
-#include <bitset>
-#include <iostream>
 #include <time.h>
-
+#include <string.h>
+#include <limits.h>
+#include <stdint.h>
+#include <opencv2/core.hpp>
+#include <opencv2/core/types_c.h> // IWYU pragma: keep
 #include <vector>
 #include <algorithm>
 #include <cmath>
-#include <math.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <limits.h>
-#include <float.h>
-#include <fstream>
 #include <numbers>
+#include <cstddef>
+#include <memory>
 
-#include "opencv2/core/core.hpp"
-#include "opencv2/core/types_c.h"
-#include <opencv2/core/mat.hpp>
 #include "media_library_utils.hpp"
 #include "media_library_logger.hpp"
 #include "privacy_mask_types.hpp"
 #include "polygon_math.hpp"
+#include "buffer_pool.hpp"
+#include "media_library_buffer.hpp"
 
 #define MODULE_NAME LoggerType::PrivacyMask
 

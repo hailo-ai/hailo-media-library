@@ -1,7 +1,15 @@
 #include "cache_stage.hpp"
 
+#include <media_library/buffer_pool.hpp>
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <iostream>
+#include <vector>
+
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "hailo_analytics/pipeline/core/queue.hpp"
 
 TimeSeriesCache::TimeSeriesCache(size_t maxSize) : m_maxSize(maxSize)
 {

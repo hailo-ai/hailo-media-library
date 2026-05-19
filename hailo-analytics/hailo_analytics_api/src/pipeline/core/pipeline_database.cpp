@@ -1,5 +1,9 @@
 #include "hailo_analytics/pipeline/core/pipeline_database.hpp"
+
 #include <mutex>
+#include <compare>
+#include <ratio>
+#include <utility>
 
 namespace hailo_analytics::pipeline
 {

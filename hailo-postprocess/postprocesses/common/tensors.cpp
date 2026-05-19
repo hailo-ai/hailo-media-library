@@ -4,6 +4,14 @@
  **/
 #include "common/tensors.hpp"
 
+#include <xtensor/xadapt.hpp>
+#include <xtensor/xarray.hpp>
+#include <xtensor/xbuffer_adaptor.hpp>
+#include <xtensor/xiterator.hpp>
+#include <xtensor/xoperation.hpp>
+#include <memory>
+#include <utility>
+
 namespace common
 {
 

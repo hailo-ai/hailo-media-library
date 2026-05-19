@@ -1,23 +1,30 @@
+#include <stddef.h>
+#include <stdint.h>
+#include <media_library/frontend.hpp>
+#include <media_library/media_library_buffer.hpp>
+#include <tl/expected.hpp>
 #include <gtest/gtest.h>
-#include <gmock/gmock.h>
 #include <thread>
 #include <chrono>
 #include <vector>
 #include <atomic>
 #include <memory>
-#include <iostream>
 #include <fstream>
-#include <map>
+#include <iterator>
+#include <stdexcept>
+#include <string>
 
-#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "media_library/cloexec_fstream.hpp"
 #include "hailo_analytics/pipeline/codecs/encoder_stage.hpp"
 #include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
 #include "core_tests/core_tests_common.hpp"
 #include "media_library/media_library.hpp"
-#include "media_library/encoder.hpp"
-#include "media_library/frontend.hpp"
 #include "media_library/media_library_types.hpp"
 #include "media_library/buffer_pool.hpp"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 using namespace hailo_analytics::pipeline;
 using namespace hailo_analytics::pipeline::codecs;
@@ -25,10 +32,14 @@ using namespace hailo_analytics::pipeline::sources;
 using ::testing::_;
 using ::testing::Return;
 
+// MediaLibrary config deployed to device
+static const std::string MEDIALIB_CONFIG_PATH =
+    "/etc/imaging/cfg/medialib_configs/case_studies/single_stream_medialib_config.json";
+
 // Helper to read config from file
 static tl::expected<std::string, media_library_return> read_config_file(const std::string &file_path)
 {
-    std::ifstream file(file_path);
+    cloexec::ifstream file(file_path);
     if (!file.is_open())
     {
         return tl::unexpected(media_library_return::MEDIA_LIBRARY_ERROR);
@@ -46,12 +57,10 @@ class EncoderStageTest : public ::testing::Test
     static constexpr uint32_t BUFFER_HEIGHT = 2160;
     static constexpr uint32_t POOL_SIZE = 4;
 
-    // Encoder config deployed to /usr/bin on target
-    static const std::string ENCODER_CONFIG_PATH;
-
     MediaLibraryBufferPoolPtr buffer_pool;
     HailoMediaLibraryBufferPtr real_buffer;
-    std::string encoder_config_json;
+    MediaLibraryPtr media_library;
+    std::string first_stream_id;
 
     void SetUp() override
     {
@@ -75,10 +84,32 @@ class EncoderStageTest : public ::testing::Test
             GTEST_SKIP() << "Failed to acquire buffer from pool for encoder tests.";
         }
 
-        // Read encoder config from deployed location
-        auto config_result = read_config_file(ENCODER_CONFIG_PATH);
-        ASSERT_TRUE(config_result.has_value()) << "Failed to read encoder config from: " << ENCODER_CONFIG_PATH;
-        encoder_config_json = config_result.value();
+        // Create and initialize MediaLibrary
+        auto config_result = read_config_file(MEDIALIB_CONFIG_PATH);
+        if (!config_result.has_value())
+        {
+            GTEST_SKIP() << "MediaLibrary config not found: " << MEDIALIB_CONFIG_PATH;
+        }
+
+        auto media_lib_result = MediaLibrary::create();
+        if (!media_lib_result.has_value())
+        {
+            GTEST_SKIP() << "Failed to create MediaLibrary";
+        }
+
+        media_library = media_lib_result.value();
+        if (media_library->initialize(config_result.value()) != MEDIA_LIBRARY_SUCCESS)
+        {
+            GTEST_SKIP() << "Failed to initialize MediaLibrary";
+        }
+
+        // Get the first output stream ID for encoder tests
+        auto output_streams = media_library->get_frontend_output_streams();
+        if (!output_streams.has_value() || output_streams.value().empty())
+        {
+            GTEST_SKIP() << "No output streams available from MediaLibrary";
+        }
+        first_stream_id = output_streams.value().front().id;
     }
 
     void TearDown() override
@@ -96,31 +127,9 @@ class EncoderStageTest : public ::testing::Test
             buffer_pool->free(false); // Don't fail if buffers still in use
         }
         buffer_pool.reset();
-    }
-
-    // Helper to create a MediaLibraryEncoder for a given stream
-    tl::expected<MediaLibraryEncoderPtr, media_library_return> create_encoder(const std::string &stream_id = "enc_0")
-    {
-        auto encoder_result = MediaLibraryEncoder::create(stream_id);
-        if (!encoder_result.has_value())
-        {
-            return encoder_result;
-        }
-
-        auto encoder = encoder_result.value();
-        auto config_status = encoder->set_config(encoder_config_json);
-        if (config_status != MEDIA_LIBRARY_SUCCESS)
-        {
-            return tl::unexpected(config_status);
-        }
-
-        return encoder;
+        media_library.reset();
     }
 };
-
-// Static member initialization
-// Config files are deployed from hailo-media-library/api/examples/config_examples to /usr/bin
-const std::string EncoderStageTest::ENCODER_CONFIG_PATH = "/usr/bin/frontend_encoder_sink0.json";
 
 // Helper stage for metadata checking tests
 class MetadataCheckingStage : public TestThreadedStage
@@ -203,40 +212,25 @@ TEST_F(EncoderStageTest, BuilderThrowsWhenNameNotSet)
 // Configuration Tests
 // ============================================================================
 
-TEST_F(EncoderStageTest, CanCreateEncoderFromMediaLibraryEncoder)
+TEST_F(EncoderStageTest, CanConfigureWithMediaLibrary)
 {
-    // Create encoder
-    auto encoder_result = create_encoder();
-    ASSERT_TRUE(encoder_result.has_value()) << "Failed to create MediaLibraryEncoder";
-    auto encoder = encoder_result.value();
-
     // Create stage
     auto stage = std::make_shared<EncoderStage>("test_encoder");
 
-    // Create encoder stage from media library encoder
-    auto result = stage->configure(*encoder);
+    // Configure encoder stage with media library
+    auto result = stage->configure(media_library, first_stream_id);
     EXPECT_EQ(result, AppStatus::SUCCESS);
 }
 
-TEST_F(EncoderStageTest, CanConfigureWithNewEncoder)
+TEST_F(EncoderStageTest, CanReconfigureWithNewStreamId)
 {
-    // Create first encoder
-    auto encoder1_result = create_encoder("enc_0");
-    ASSERT_TRUE(encoder1_result.has_value());
-    auto encoder1 = encoder1_result.value();
-
     // Create and configure stage
     auto stage = std::make_shared<EncoderStage>("test_encoder");
-    auto result1 = stage->configure(*encoder1);
+    auto result1 = stage->configure(media_library, first_stream_id);
     ASSERT_EQ(result1, AppStatus::SUCCESS);
 
-    // Create second encoder
-    auto encoder2_result = create_encoder("enc_1");
-    ASSERT_TRUE(encoder2_result.has_value());
-    auto encoder2 = encoder2_result.value();
-
-    // Reconfigure with new encoder
-    auto result2 = stage->configure(*encoder2);
+    // Reconfigure with same media library (simulates stream switch)
+    auto result2 = stage->configure(media_library, first_stream_id);
     EXPECT_EQ(result2, AppStatus::SUCCESS);
 }
 
@@ -244,16 +238,11 @@ TEST_F(EncoderStageTest, CanConfigureWithNewEncoder)
 // Initialization Tests
 // ============================================================================
 
-TEST_F(EncoderStageTest, CanInitializeAfterCreate)
+TEST_F(EncoderStageTest, CanInitializeAfterConfigure)
 {
-    // Create encoder
-    auto encoder_result = create_encoder();
-    ASSERT_TRUE(encoder_result.has_value());
-    auto encoder = encoder_result.value();
-
     // Create and configure stage
     auto stage = std::make_shared<EncoderStage>("test_encoder");
-    auto configure_result = stage->configure(*encoder);
+    auto configure_result = stage->configure(media_library, first_stream_id);
     ASSERT_EQ(configure_result, AppStatus::SUCCESS);
 
     // Start should call init() internally
@@ -264,11 +253,11 @@ TEST_F(EncoderStageTest, CanInitializeAfterCreate)
     stage->stop();
 }
 
-TEST_F(EncoderStageTest, InitFailsWithoutCreate)
+TEST_F(EncoderStageTest, InitFailsWithoutConfigure)
 {
     auto stage = std::make_shared<EncoderStage>("test_encoder");
 
-    // Try to start without calling create
+    // Try to start without calling configure
     auto result = stage->start();
 
     EXPECT_NE(result, AppStatus::SUCCESS);
@@ -276,14 +265,9 @@ TEST_F(EncoderStageTest, InitFailsWithoutCreate)
 
 TEST_F(EncoderStageTest, CanStopAfterInit)
 {
-    // Create encoder
-    auto encoder_result = create_encoder();
-    ASSERT_TRUE(encoder_result.has_value());
-    auto encoder = encoder_result.value();
-
     // Create, configure and start stage
     auto stage = std::make_shared<EncoderStage>("test_encoder");
-    stage->configure(*encoder);
+    stage->configure(media_library, first_stream_id);
     stage->start();
 
     // Stop should call deinit() internally
@@ -293,14 +277,9 @@ TEST_F(EncoderStageTest, CanStopAfterInit)
 
 TEST_F(EncoderStageTest, CanHandleNullBuffer)
 {
-    // Create encoder
-    auto encoder_result = create_encoder();
-    ASSERT_TRUE(encoder_result.has_value());
-    auto encoder = encoder_result.value();
-
     // Create and configure stage
     auto stage = std::make_shared<EncoderStage>("test_encoder");
-    stage->configure(*encoder);
+    stage->configure(media_library, first_stream_id);
     stage->add_queue("source");
     stage->start();
 
@@ -322,14 +301,9 @@ TEST_F(EncoderStageTest, CanHandleNullBuffer)
 
 TEST_F(EncoderStageTest, CanStartAndStopMultipleTimes)
 {
-    // Create encoder
-    auto encoder_result = create_encoder();
-    ASSERT_TRUE(encoder_result.has_value());
-    auto encoder = encoder_result.value();
-
     // Create and configure stage
     auto stage = std::make_shared<EncoderStage>("test_encoder");
-    stage->configure(*encoder);
+    stage->configure(media_library, first_stream_id);
 
     // Start and stop multiple times
     for (int i = 0; i < 3; i++)
@@ -346,7 +320,7 @@ TEST_F(EncoderStageTest, CanStartAndStopMultipleTimes)
         // Reconfigure after stop to allow restart
         if (i < 2) // Don't reconfigure after the last iteration
         {
-            auto reconfig_result = stage->configure(*encoder);
+            auto reconfig_result = stage->configure(media_library, first_stream_id);
             EXPECT_EQ(reconfig_result, AppStatus::SUCCESS);
         }
     }
@@ -355,14 +329,9 @@ TEST_F(EncoderStageTest, CanStartAndStopMultipleTimes)
 TEST_F(EncoderStageTest, StopWithoutStartIsIdempotent)
 {
     // *Idempotent means that calling the method multiple times has the same effect as calling it once.
-    // Create encoder
-    auto encoder_result = create_encoder();
-    ASSERT_TRUE(encoder_result.has_value());
-    auto encoder = encoder_result.value();
-
     // Create and configure stage
     auto stage = std::make_shared<EncoderStage>("test_encoder");
-    stage->configure(*encoder);
+    stage->configure(media_library, first_stream_id);
 
     // Stop without start should not crash
     auto result = stage->stop();

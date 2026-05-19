@@ -1,0 +1,4 @@
+{
+    "similarity_threshold": 0.6,
+    "gallery_path": "/home/root/apps/face_recognition/resources/gallery.json"
+}

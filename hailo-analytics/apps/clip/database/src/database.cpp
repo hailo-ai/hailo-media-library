@@ -1,10 +1,6 @@
-#include <cstddef>
-#include <thread>
 #include <mutex>
-#include <chrono>
-#include "database.hpp"
-#include <iostream>
 
+#include "database.hpp"
 #include "common_utils.hpp"
 
 Database::SqliteAccessType Database::get_access_type() const
@@ -104,7 +100,7 @@ bool Database::flush()
 
     if (m_db_access_type != SQLITE_ACCESS_OPEN_CREATE_READ_WRITE)
     {
-        HAILO_ANALYTICS_LOG_ERROR("Database flush is only applicable for read-write databases.");
+        HAILO_ANALYTICS_LOG_WARN("Database flush is only applicable for read-write databases.");
         return false;
     }
 

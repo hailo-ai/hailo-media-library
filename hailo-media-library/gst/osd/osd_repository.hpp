@@ -27,32 +27,31 @@
  **/
 #pragma once
 
+#include <tl/expected.hpp>
+#include <stddef.h>
 #include <memory>
-#include <nlohmann/json.hpp>
 #include <future>
 #include <shared_mutex>
 #include <string>
-#include <tl/expected.hpp>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <functional>
+#include <utility>
 
 #include "media_library/media_library_types.hpp"
 #include "impl/custom_overlay_impl.hpp"
 #include "impl/datetime_overlay_impl.hpp"
 #include "impl/image_overlay_impl.hpp"
 #include "impl/text_overlay_impl.hpp"
+#include "impl/overlay_impl.hpp"
+#include "osd_types.hpp"
 
-class OverlayImpl;
 using OverlayImplPtr = std::shared_ptr<OverlayImpl>;
 
 namespace osd
 {
-class ImageOverlay;
-class TextOverlay;
-class DateTimeOverlay;
-class CustomOverlay;
-class OverlayRepository
+class OverlayRepository : public std::enable_shared_from_this<OverlayRepository>
 {
   public:
     static tl::expected<std::shared_ptr<OverlayRepository>, media_library_return> create();
@@ -91,22 +90,18 @@ class OverlayRepository
 
         OverlayImplPtr find(const std::string &id)
         {
-            if (image.contains(id))
-            {
-                return image.at(id);
-            }
-            if (text.contains(id))
-            {
-                return text.at(id);
-            }
-            if (datetime.contains(id))
-            {
-                return datetime.at(id);
-            }
-            if (custom.contains(id))
-            {
-                return custom.at(id);
-            }
+            auto image_it = image.find(id);
+            if (image_it != image.end())
+                return image_it->second;
+            auto text_it = text.find(id);
+            if (text_it != text.end())
+                return text_it->second;
+            auto datetime_it = datetime.find(id);
+            if (datetime_it != datetime.end())
+                return datetime_it->second;
+            auto custom_it = custom.find(id);
+            if (custom_it != custom.end())
+                return custom_it->second;
             return nullptr;
         }
 

@@ -2,13 +2,8 @@
 
 #include <variant>
 #include <string>
-#include <vector>
-#include <iostream>
-#include "common_utils.hpp"
-#include "service/storage_cleanup_service_ext.hpp"
 
-// Forward declaration
-class StorageCleanupServiceExt;
+#include "service/storage_cleanup_service_ext.hpp"
 
 // Strategy for different cleanup approaches
 using CleanupParam = std::variant<float, int, std::string>;

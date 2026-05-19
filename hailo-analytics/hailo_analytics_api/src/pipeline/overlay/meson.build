@@ -6,7 +6,7 @@ overlay_sources = [
 # Compile lib
 overlay_lib = static_library('hailo_analytics_overlay',
     overlay_sources,
-    cpp_args: hailo_lib_args + ['-Wno-missing-field-initializers'],
+    cpp_args: hailo_lib_args,
     include_directories: incdir,
     dependencies: [base_deps, hailo_analytics_logger_dep],
     pic: true,

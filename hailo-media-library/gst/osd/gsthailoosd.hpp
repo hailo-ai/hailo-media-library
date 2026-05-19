@@ -22,14 +22,14 @@
  */
 #pragma once
 
-#include "media_library/dsp_utils.hpp"
+#include <gst/base/gstbasetransform.h>
+#include <glib-object.h>
+#include <glib.h>
+#include <memory>
+#include <string>
+
 #include "media_library/privacy_mask.hpp"
 #include "osd.hpp"
-#include <gst/base/gstbasetransform.h>
-#include <gst/video/video.h>
-#include <map>
-#include <memory>
-#include <vector>
 
 G_BEGIN_DECLS
 

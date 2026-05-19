@@ -21,6 +21,10 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include "dsp_utils.hpp"
+
+#include <hailo/hailodsp.h>
+#include <sys/types.h>
+
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
 #include "dma_memory_allocator.hpp"
@@ -615,9 +619,10 @@ dsp_status perform_dsp_frontend_process(const dsp_frontend_params_t &frontend_pa
         frontend_params.multi_crop_resize_params->crop_resize_params->crop->end_x,
         frontend_params.multi_crop_resize_params->crop_resize_params->crop->end_y);
     dsp_status status;
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_frontend_process", DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_frontend_process", MULTI_RESIZE_THREADED_TRACK,
+                                          MEDIA_LIBRARY_DETAILED_CATEGORY);
     status = dsp_frontend_process(device, &frontend_params);
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(MULTI_RESIZE_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
     return status;
 }
 
@@ -684,9 +689,9 @@ dsp_status perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
                               dsp_interpolation_type_t interpolation)
 {
     dsp_status status;
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_dewarp", DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_dewarp", DEWARP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
     status = dsp_dewarp(device, input_image_properties, output_image_properties, mesh, interpolation);
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DEWARP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
     return status;
 }
 
@@ -731,10 +736,10 @@ dsp_status perform_dsp_dewarp(hailo_buffer_data_t *input_buffer_data, hailo_buff
     hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
     hailo_dsp_buffer_data_t output_dsp_buffer_data = output_buffer_data->As<hailo_dsp_buffer_data_t>();
     dsp_status status;
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_dewarp", DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_dewarp", DEWARP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
     status =
         dsp_dewarp(device, &input_dsp_buffer_data.properties, &output_dsp_buffer_data.properties, mesh, interpolation);
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DEWARP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
     return status;
 }
 

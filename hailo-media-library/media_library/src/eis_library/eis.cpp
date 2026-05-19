@@ -1,8 +1,18 @@
-#include <fstream>
+#include "media_library/cloexec_fstream.hpp"
 #include <nlohmann/json.hpp>
+#include <opencv2/calib3d.hpp>
+#include <fstream>
+#include <algorithm>
+#include <initializer_list>
+#include <iterator>
+#include <map>
+#include <stdexcept>
+
 #include "media_library_logger.hpp"
 #include "eis.hpp"
 #include "eis_utils.hpp"
+#include "eis_types.hpp"
+#include "isp_utils.hpp"
 
 #define MODULE_NAME LoggerType::Eis
 #define RAD_TO_DEG(x) ((x) * 180.0 / CV_PI)
@@ -272,7 +282,7 @@ std::vector<cv::Mat> EIS::get_rolling_shutter_rotations(
 static int parse_gyro_calibration_config_file(const std::string &filename,
                                               gyro_calibration_config_t &gyro_calibration_config)
 {
-    std::ifstream file(filename);
+    cloexec::ifstream file(filename);
     if (!file.is_open())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "parse_gyro_calibration_config_file could not open file {}", filename);

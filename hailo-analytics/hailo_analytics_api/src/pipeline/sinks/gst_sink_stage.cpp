@@ -1,5 +1,11 @@
 #include "hailo_analytics/pipeline/sinks/gst_sink_stage.hpp"
 
+#include <glib-object.h>
+#include <glib.h>
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
+#include <media_library/buffer_pool.hpp>
+#include <utility>
+
 #include "gsthailobuffermeta.hpp"
 #include "hailo_analytics/pipeline/sinks/gsthailoroimeta.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"

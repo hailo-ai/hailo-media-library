@@ -1,6 +1,23 @@
+#include <stddef.h>
+#include <media_library/frontend.hpp>
+#include <media_library/media_library.hpp>
+#include <tl/expected.hpp>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
 #include "hailo_analytics/analytics/vision.hpp"
+#include "hailo_analytics/pipeline/codecs/encoder_stage.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/pipeline/sinks/output_module.hpp"
+#include "hailo_analytics/pipeline/sinks/udp_stage.hpp"
+#include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
 
 namespace hailo_analytics::analytics::vision
 {
@@ -219,8 +236,8 @@ vision_config_t base_vision_config(std::vector<frontend_output_stream_t> fronten
 }
 
 tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus>
-generate_vision_output_pipeline(MediaLibraryEncoderPtr encoder, const std::string &pipeline_name,
-                                std::optional<vision_output_config_t> user_configs)
+generate_vision_output_pipeline(MediaLibraryInterfacePtr media_library, const output_stream_id_t &stream_id,
+                                const std::string &pipeline_name, std::optional<vision_output_config_t> user_configs)
 {
     vision_output_config_t cfg = base_vision_output_config(); // default configs
     if (user_configs.has_value())
@@ -237,7 +254,7 @@ generate_vision_output_pipeline(MediaLibraryEncoderPtr encoder, const std::strin
     std::shared_ptr<codecs::EncoderStage> encoder_stage = encoder_builder.buildptr();
 
     // Configure the encoder stage
-    hailo_analytics::pipeline::AppStatus status = encoder_stage->configure(*encoder);
+    hailo_analytics::pipeline::AppStatus status = encoder_stage->configure(media_library, stream_id);
     if (status != hailo_analytics::pipeline::AppStatus::SUCCESS)
     {
         return tl::unexpected(status);
@@ -272,11 +289,11 @@ generate_vision_output_pipeline(MediaLibraryEncoderPtr encoder, const std::strin
 }
 
 tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus> generate_vision_pipeline(
-    MediaLibrary &media_library, const std::string &pipeline_name, std::optional<vision_config_t> user_configs)
+    MediaLibraryInterfacePtr media_library, const std::string &pipeline_name,
+    std::optional<vision_config_t> user_configs)
 {
     // Get output streams from frontend
-    MediaLibraryFrontend &frontend = *media_library.m_frontend;
-    auto output_streams = frontend.get_outputs_streams();
+    auto output_streams = media_library->get_frontend_output_streams();
     if (!output_streams.has_value())
     {
         return tl::unexpected(hailo_analytics::pipeline::AppStatus::CONFIGURATION_ERROR);
@@ -297,7 +314,7 @@ tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::
     std::shared_ptr<sources::FrontendStage> frontend_stage = frontend_builder.buildptr();
 
     // Configure the frontend stage
-    hailo_analytics::pipeline::AppStatus status = frontend_stage->configure(*media_library.m_frontend);
+    hailo_analytics::pipeline::AppStatus status = frontend_stage->configure(media_library);
     if (status != hailo_analytics::pipeline::AppStatus::SUCCESS)
     {
         return tl::unexpected(status);
@@ -309,12 +326,10 @@ tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::
     // Create all output branches as separate pipelines
     for (const auto &[stream_id, output_config] : cfg.outputs)
     {
-        // Get encoder from MediaLibrary for this stream
-        MediaLibraryEncoderPtr encoder = media_library.m_encoders[stream_id];
-
         // Generate output pipeline (encoder -> UDP)
         std::string output_pipeline_name = pipeline_name + "_output_" + stream_id;
-        auto output_result = generate_vision_output_pipeline(encoder, output_pipeline_name, output_config);
+        auto output_result =
+            generate_vision_output_pipeline(media_library, stream_id, output_pipeline_name, output_config);
         if (!output_result.has_value())
         {
             return tl::unexpected(output_result.error());

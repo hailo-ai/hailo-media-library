@@ -15,9 +15,20 @@
 
 #pragma once
 
-#include <gst/video/video.h>
+#include <stddef.h>
+#include <gst/gst.h>
+#include <memory>
+#include <vector>
+
 #include "hailomat.hpp"
 #include "hailo_postprocess_tools/objects/hailo_objects.hpp"
+#include "gst/gstmemory.h"
+#include "gst/video/video-frame.h"
+#include "gst/video/video-info.h"
+#include "hailo_postprocess_tools/objects/hailo_common.hpp"
+#include "opencv2/core/mat.hpp"
+#include "opencv2/core/types.hpp"
+#include "opencv2/imgproc.hpp"
 
 __BEGIN_DECLS
 

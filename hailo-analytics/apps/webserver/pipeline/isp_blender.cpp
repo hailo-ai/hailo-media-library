@@ -1,21 +1,27 @@
 #include "isp_blender.hpp"
+
+#include <media_library/media_library.hpp>
+#include <tl/expected.hpp>
+#include <memory>
+#include <stdexcept>
+
 #include "common/logger_macros.hpp"
 
 using namespace webserver::pipeline;
 #define MEDIALIB_NOT_SET "Media library is not set"
 
-IspBlender::IspBlender() : m_media_library(std::nullopt), pipeline_active(false)
+IspBlender::IspBlender() : m_media_library(nullptr), pipeline_active(false)
 {
 }
 
 void IspBlender::applyProfile(const config_profile_t &cfg) const
 {
-    if (!m_media_library.has_value())
+    if (!m_media_library)
     {
         WEBSERVER_LOG_ERROR(MEDIALIB_NOT_SET);
         throw std::runtime_error(MEDIALIB_NOT_SET);
     }
-    if (m_media_library.value()->set_override_parameters(cfg) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    if (m_media_library->set_override_parameters(cfg) != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         constexpr char ERROR_MESSAGE[] = "Failed to set profile";
         WEBSERVER_LOG_ERROR(ERROR_MESSAGE);
@@ -27,12 +33,12 @@ config_profile_t IspBlender::get_current_profile()
 {
     std::lock_guard<std::recursive_mutex> lock(mutex);
     WEBSERVER_LOG_DEBUG("Pipeline: Handling update profile event");
-    if (!m_media_library.has_value())
+    if (!m_media_library)
     {
         WEBSERVER_LOG_ERROR(MEDIALIB_NOT_SET);
         throw std::runtime_error(MEDIALIB_NOT_SET);
     }
-    auto expected_profile = m_media_library.value()->get_current_profile();
+    auto expected_profile = m_media_library->get_current_profile();
     if (!expected_profile.has_value())
     {
         constexpr char ERROR_MESSAGE[] = "Failed to get current profile";
@@ -94,12 +100,12 @@ void IspBlender::reset_auto_configs()
 config_profile_t IspBlender::get_profile_by_name(const std::string &profile_name)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex);
-    if (!m_media_library.has_value())
+    if (!m_media_library)
     {
         WEBSERVER_LOG_ERROR(MEDIALIB_NOT_SET);
         throw std::runtime_error(MEDIALIB_NOT_SET);
     }
-    auto expected_profile = m_media_library.value()->get_profile(profile_name);
+    auto expected_profile = m_media_library->get_profile(profile_name);
     if (!expected_profile.has_value())
     {
         WEBSERVER_LOG_ERROR("Failed to get profile by name: {}", profile_name);
@@ -108,17 +114,17 @@ config_profile_t IspBlender::get_profile_by_name(const std::string &profile_name
     return expected_profile.value();
 }
 
-void IspBlender::set_media_library(MediaLibrary &mediaLib)
+void IspBlender::set_media_library(MediaLibraryPtr media_library)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex);
-    m_media_library = &mediaLib;
-    pipeline_active = m_media_library.has_value();
+    m_media_library = media_library;
+    pipeline_active = (m_media_library != nullptr);
 }
 
 void IspBlender::unset_media_library()
 {
     std::lock_guard<std::recursive_mutex> lock(mutex);
-    m_media_library.reset();
+    m_media_library = nullptr;
     pipeline_active = false;
 }
 

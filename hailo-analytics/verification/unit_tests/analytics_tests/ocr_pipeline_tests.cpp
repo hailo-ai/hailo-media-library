@@ -1,3 +1,11 @@
+#include <hailodsp_base.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
+#include <media_library/buffer_pool.hpp>
+#include <media_library/media_library_buffer.hpp>
+#include <media_library/media_library_types.hpp>
+#include <tl/expected.hpp>
 #include <gtest/gtest.h>
 #include <string>
 #include <chrono>
@@ -5,6 +13,9 @@
 #include <thread>
 #include <unordered_set>
 #include <vector>
+#include <memory>
+#include <mutex>
+#include <string_view>
 
 #include "hailo_analytics/analytics/license_plate_recognition.hpp"
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
@@ -13,6 +24,9 @@
 #include "media_library/dsp_utils.hpp"
 #include "test_images/test_image_loader.hpp"
 #include "core_tests/core_tests_common.hpp"
+#include "gtest/gtest.h"
+#include "hailo_analytics/analytics/common_configs.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 namespace lpr = hailo_analytics::analytics::license_plate_recognition;
 using hailo_analytics::pipeline::AppStatus;
@@ -103,7 +117,9 @@ TEST(OcrConfigTest, BaseConfigMatchesHeaderConstants)
     auto config = lpr::ocr_base_config();
 
     EXPECT_EQ(config.ai_config.stage_name.value(), lpr::OCR_STAGE);
-    EXPECT_EQ(config.ai_config.hef_path.value(), lpr::OCR_BASE_HEF);
+    ASSERT_TRUE(config.ai_config.hef_path.has_value());
+    EXPECT_EQ(config.ai_config.hef_path.value(),
+              "/home/root/apps/license_plate_recognition/resources/paddle_ocr_v5_mobile_recognition.hef");
     EXPECT_EQ(config.ai_config.group_id.value(), lpr::OCR_GROUP_ID);
 
     EXPECT_EQ(config.post_config.stage_name.value(), lpr::OCR_POST_STAGE);

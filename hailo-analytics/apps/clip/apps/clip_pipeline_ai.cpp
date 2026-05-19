@@ -1,5 +1,59 @@
 #include "clip_pipeline_ai.hpp"
 
+#include <media_library/frontend.hpp>
+#include <media_library/media_library_types.hpp>
+#include <unordered_map>
+
+#include "hailo_analytics/analytics/ai_models_config.hpp"
+#include "pipeline/thumb_storage_stage.hpp"
+#include "pipeline/faiss_storage_stage.hpp"
+#include "pipeline/cache_stage.hpp"
+#include "pipeline/clip_image_preprocess.hpp"
+#include "pipeline/video_storage_stage.hpp"
+#include "pipeline/full_frame_bbox_injector_stage.hpp"
+#include "database_manager.hpp"
+#include "hailo_analytics/pipeline/ai/analytics_db_stage.hpp"
+#include "hailo_postprocess_tools/labels/hailo_yolov8n.hpp"
+#include "media_library/analytics_db.hpp"
+#include "service/query_service/query_service_ext.hpp"
+#include "service/query_service/clip_text_encoder.hpp"
+#include "streaming/webrtc_streamer_ext.hpp"
+#include "service/player_service_ext.hpp"
+#include "service/storage_monitor_service_ext.hpp"
+#include "service/storage_cleanup_service_ext.hpp"
+#include "service/storage_cleanup_strategy.hpp"
+#include "service/app_control_service_ext.hpp"
+#include "clip_pipeline_ai_defines.hpp"
+#include "common_utils.hpp"
+#include "database.hpp"
+#include "faiss_partitioned.hpp"
+#include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
+#include "sql_factory.hpp"
+
+namespace
+{
+constexpr const char *DETECTIONS_DATA_ID = "detections";
+constexpr const char *DETECTIONS_DB_STAGE = "detections_db";
+
+void register_detections_db_config(int width, int height)
+{
+    detection_analytics_config_t detection_config;
+    detection_config.analytics_data_id = DETECTIONS_DATA_ID;
+    detection_config.scaling_mode = ScalingMode::STRETCH;
+    detection_config.width = width;
+    detection_config.height = height;
+    detection_config.original_width_ratio = width;
+    detection_config.original_height_ratio = height;
+    detection_config.max_entries = 100;
+    for (const auto &[id, name] : ::common::hailo_yolov8n)
+        detection_config.labels.push_back({.label = name, .id = id});
+
+    application_analytics_config_t application_config;
+    application_config.detection_analytics_config[DETECTIONS_DATA_ID] = detection_config;
+    AnalyticsDB::instance().add_configuration(application_config);
+}
+} // namespace
+
 ClipAppCustomData::ClipAppCustomData(
     const ClipAppConfig::ImageEncoders &encoders, const ClipAppConfig::PipelineConfig &pipeline_config,
     const ClipAppConfig::HailortDeviceConfig &hailort_device_config,
@@ -121,11 +175,31 @@ hailo_analytics::analytics::app_constructor::CamAppReturnCode ClipVideoPipeline:
     register_extension(std::make_shared<StorageCleanupServiceExt>());
     auto storage_cleanup_service_ext = get_extension<StorageCleanupServiceExt>();
 
-    // Initialize Storage CleanupService
-    auto cleanup_db_config = StorageCleanupServiceExt::DatabaseConfig(
-        DatabaseManagerHelper::get_faiss_table_factory_name(Database::SQLITE_ACCESS_OPEN_CREATE_READ_WRITE).value(),
-        DatabaseManagerHelper::get_thumbnail_table_factory_name(Database::SQLITE_ACCESS_OPEN_CREATE_READ_WRITE).value(),
-        DatabaseManagerHelper::get_video_table_factory_name(Database::SQLITE_ACCESS_OPEN_CREATE_READ_WRITE).value());
+    // Create dedicated cleanup database connections so the cleanup thread
+    // doesn't share sqlite3 connections with pipeline stage threads to improve concurrency access
+    static const std::string FAISS_CLEANUP_RW = "faiss_cleanup_rw";
+    static const std::string THUMBNAIL_CLEANUP_RW = "thumbnail_cleanup_rw";
+    static const std::string VIDEO_CLEANUP_RW = "video_cleanup_rw";
+
+    auto faiss_cleanup_result = SqlDatabaseQuickAccess::get_or_create_database(
+        FAISS_CLEANUP_RW,
+        DatabaseConfig(DatabaseConfig::FAISS_TABLE, sql_db_file_path, Database::SQLITE_ACCESS_OPEN_CREATE_READ_WRITE));
+    auto thumb_cleanup_result = SqlDatabaseQuickAccess::get_or_create_database(
+        THUMBNAIL_CLEANUP_RW, DatabaseConfig(DatabaseConfig::THUMBNAIL_TABLE, sql_db_file_path,
+                                             Database::SQLITE_ACCESS_OPEN_CREATE_READ_WRITE));
+    auto video_cleanup_result = SqlDatabaseQuickAccess::get_or_create_database(
+        VIDEO_CLEANUP_RW,
+        DatabaseConfig(DatabaseConfig::VIDEO_TABLE, sql_db_file_path, Database::SQLITE_ACCESS_OPEN_CREATE_READ_WRITE));
+
+    if (!faiss_cleanup_result || !thumb_cleanup_result || !video_cleanup_result)
+    {
+        HAILO_ANALYTICS_LOG_ERROR("{} failed: Failed to create dedicated cleanup database connections", __func__);
+        return CamAppReturnCode::APP_EXTENSION_REGITRATION_FAILED;
+    }
+
+    // Initialize Storage CleanupService with dedicated cleanup connections
+    auto cleanup_db_config =
+        StorageCleanupServiceExt::DatabaseConfig(FAISS_CLEANUP_RW, THUMBNAIL_CLEANUP_RW, VIDEO_CLEANUP_RW);
 
     auto storage_cleanup_result = storage_cleanup_service_ext->initialize(
         std::make_unique<FaissShardFirstCleanupStrategy>(10.0f), cleanup_db_config);
@@ -497,10 +571,11 @@ tl::expected<PipelinePtr, CamAppReturnCode> ClipVideoPipeline::build_pipeline(co
                                                              .set_pool_mode_opt(StagePoolMode::BLOCKING)
                                                              .buildptr();
 
+        namespace ai_models = hailo_analytics::analytics::ai_models;
         std::shared_ptr<HailortAsyncStage> detection_infer_stage =
             HailortAsyncStageBuild::create()
                 .set_stage_name(app::stage::detection_infer)
-                .set_hef_path(app::paths::yolo_hef)
+                .set_hef_path(ai_models::resolve_hef(ai_models::YOLOV8N.hef_relative))
                 .set_queue_size(5)
                 .set_output_pool_size(50)
                 .set_group_id(app_custom_data->m_hailort_device_config.device_id)
@@ -512,14 +587,15 @@ tl::expected<PipelinePtr, CamAppReturnCode> ClipVideoPipeline::build_pipeline(co
                 .set_pool_mode_opt(StagePoolMode::BLOCKING)
                 .buildptr();
 
-        std::shared_ptr<PostprocessStage> detection_post_stage = PostprocessStageBuild::create()
-                                                                     .set_stage_name(app::stage::detection_post)
-                                                                     .set_so_path(app::paths::yolo_post_so)
-                                                                     .set_function_name_opt(app::paths::yolo_func_name)
-                                                                     .set_config_path_opt(app::paths::yolo_config)
-                                                                     .set_queue_size_opt(5)
-                                                                     .set_leaky_opt(false)
-                                                                     .buildptr();
+        std::shared_ptr<PostprocessStage> detection_post_stage =
+            PostprocessStageBuild::create()
+                .set_stage_name(app::stage::detection_post)
+                .set_so_path(ai_models::resolve_post_so(ai_models::YOLOV8N.post_so_relative))
+                .set_function_name_opt(std::string(ai_models::YOLOV8N.post_function_name))
+                .set_config_path_opt(ai_models::resolve_config(ai_models::YOLOV8N.post_config_relative))
+                .set_queue_size_opt(5)
+                .set_leaky_opt(false)
+                .buildptr();
 
         std::shared_ptr<AggregatorStage> tiling_agg_stage = AggregatorStageBuild::create()
                                                                 .set_stage_name(app::stage::tiling_aggregator)
@@ -549,10 +625,11 @@ tl::expected<PipelinePtr, CamAppReturnCode> ClipVideoPipeline::build_pipeline(co
                                                                      .set_main_leaky(false)
                                                                      .set_sub_inlet_name(app::stage::tiling_aggregator)
                                                                      .set_sub_queue_size(3)
-                                                                     .set_sub_leaky(false)
+                                                                     .set_sub_leaky(true)
                                                                      .set_multiscale_opt(false)
                                                                      .set_iou_threshold_opt(0.3)
                                                                      .set_border_threshold_opt(0.1)
+                                                                     .set_timeout_opt(std::chrono::milliseconds(300))
                                                                      .buildptr();
 
         std::shared_ptr<LightweightTrackerStage> tracker_stage =
@@ -576,6 +653,15 @@ tl::expected<PipelinePtr, CamAppReturnCode> ClipVideoPipeline::build_pipeline(co
                                                             .set_leaky_opt(false)
                                                             .buildptr();
 
+        register_detections_db_config(app::tiling::input.width, app::tiling::input.height);
+        auto detections_db_stage = hailo_analytics::pipeline::ai::AnalyticsDBStageBuild::create()
+                                       .set_stage_name(DETECTIONS_DB_STAGE)
+                                       .set_queue_size(10)
+                                       .set_leaky_opt(true)
+                                       .set_analytics_data_id(DETECTIONS_DATA_ID)
+                                       .set_type(AnalyticsType::DETECTION)
+                                       .buildptr();
+
         pip_builder.add_stage(tilling_stage);
         pip_builder.add_stage(detection_infer_stage);
         pip_builder.add_stage(detection_post_stage);
@@ -584,6 +670,7 @@ tl::expected<PipelinePtr, CamAppReturnCode> ClipVideoPipeline::build_pipeline(co
         pip_builder.add_stage(main_4k_agg_stage);
         pip_builder.add_stage(tracker_stage);
         pip_builder.add_stage(detection_tee_stage);
+        pip_builder.add_stage(detections_db_stage, hailo_analytics::pipeline::StageType::SINK);
     }
     // AI Pipeline Clip embedding Stages
     {
@@ -598,7 +685,7 @@ tl::expected<PipelinePtr, CamAppReturnCode> ClipVideoPipeline::build_pipeline(co
                 .set_unclassified_fps_to_block(
                     unclassified_fps_block) // Let a detection frame pass every x amount of unclassified frame
                 .set_tracked_max_objects_per_second(max_objects_per_second)
-                .set_leaky_opt(false)
+                .set_leaky_opt(true)
                 .buildptr();
 
         std::vector<std::string> bbox_crop_labels;
@@ -633,8 +720,8 @@ tl::expected<PipelinePtr, CamAppReturnCode> ClipVideoPipeline::build_pipeline(co
                 .set_sub_sub_name(app::stage::clip_image_preprocess_check)
                 .set_labels(bbox_crop_labels)
                 .set_queue_size(5)
-                .set_leaky_opt(false)
-                .set_pool_mode_opt(StagePoolMode::BLOCKING)
+                .set_leaky_opt(true)
+                .set_pool_mode_opt(StagePoolMode::LEAKY)
                 .buildptr();
 
         std::shared_ptr<ClipImagePreprocess> clip_image_preprocess_stage =
@@ -749,6 +836,8 @@ tl::expected<PipelinePtr, CamAppReturnCode> ClipVideoPipeline::build_pipeline(co
         pip_builder.connect(app::stage::main_4k_aggregator, app::stage::tracker_light);
 
         pip_builder.connect(app::stage::tracker_light, app::stage::detection_tee_out);
+
+        pip_builder.connect(app::stage::detection_tee_out, DETECTIONS_DB_STAGE);
 
         pip_builder.connect_frontend(frontend_stage_name, app::stream_id::stream_ai, app::stage::detection_tiling);
 

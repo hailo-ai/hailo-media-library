@@ -8,6 +8,7 @@ option('build_lpr', type : 'boolean', value : true)
 option('build_clip', type : 'boolean', value : true)
 option('build_webserver', type : 'boolean', value : true)
 option('build_native', type : 'boolean', value : true)
+option('build_vlm_event_monitor', type : 'boolean', value : true)
 
 # Verification/Testing - Build unit tests for library validation
 option('build_verification', type : 'boolean', value : true)

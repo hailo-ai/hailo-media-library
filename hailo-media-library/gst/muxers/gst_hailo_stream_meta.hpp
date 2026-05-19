@@ -4,6 +4,9 @@
  **/
 #pragma once
 #include <gst/gst.h>
+#include <glib-object.h>
+#include <glib.h>
+#include <gst/gstmeta.h>
 
 G_BEGIN_DECLS
 

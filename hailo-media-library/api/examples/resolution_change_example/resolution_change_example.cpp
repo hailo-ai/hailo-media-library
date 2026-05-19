@@ -1,5 +1,27 @@
-#include "common/common.hpp"
+#include <stdint.h>
+#include <stdlib.h>
+#include <tl/expected.hpp>
 #include <map>
+#include <algorithm>
+#include <chrono>
+#include <iostream>
+#include <memory>
+#include <optional>
+#include <string>
+#include <thread>
+#include <utility>
+#include <variant>
+#include <vector>
+
+#include "common/common.hpp"
+#include "media_library/media_library_types.hpp"
+#include "media_library/signal_utils.hpp"
+#include "media_library/dsp_utils.hpp"
+#include "media_library/encoder_config_types.hpp"
+#include "media_library/frontend.hpp"
+#include "media_library/media_library.hpp"
+#include "media_library/utils.hpp"
+#include "cloexec_fstream.hpp"
 
 struct StreamResolution
 {
@@ -89,6 +111,8 @@ media_library_return change_resolution(MediaLibraryPtr media_lib, const std::vec
             continue;
         }
 
+        uint32_t previous_encoder_height = current_h_ptr ? *current_h_ptr : 0;
+
         if (current_w_ptr && current_h_ptr)
         {
             std::cout << "[" << stream_id << " Encoder] " << *current_w_ptr << "x" << *current_h_ptr << " -> " << new_w
@@ -111,6 +135,17 @@ media_library_return change_resolution(MediaLibraryPtr media_lib, const std::vec
         else
         {
             std::cout << "Warning: Could not find app input for stream " << stream_id << std::endl;
+        }
+
+        // Scale saved OSD by the height ratio so overlays match the new resolution.
+        if (previous_encoder_height > 0 && new_h != previous_encoder_height)
+        {
+            auto saved_it = saved_osd.find(stream_id);
+            if (saved_it != saved_osd.end())
+            {
+                const double scale = static_cast<double>(new_h) / static_cast<double>(previous_encoder_height);
+                examples::scale_osd_pixel_fields(saved_it->second, scale);
+            }
         }
     }
 
@@ -181,6 +216,8 @@ int main()
         std::cout << "Failed to initialize media library" << std::endl;
         return 1;
     }
+
+    examples::scale_osd_to_output_resolution(m_media_lib);
 
     auto streams = m_media_lib->m_frontend->get_outputs_streams();
     if (streams.has_value())

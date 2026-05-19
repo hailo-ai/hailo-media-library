@@ -1,8 +1,10 @@
 #pragma once
 
 #include <gst/gst.h>
-#include <gst/video/video.h>
 #include <gst/gstbufferpool.h>
+#include <glib-object.h>
+#include <glib.h>
+
 #include "media_library/dma_memory_allocator.hpp"
 
 G_BEGIN_DECLS
