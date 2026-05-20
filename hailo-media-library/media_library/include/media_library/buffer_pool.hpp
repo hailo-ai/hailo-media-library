@@ -26,16 +26,20 @@
  **/
 
 #pragma once
+#include <condition_variable>
 #include <deque>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stdint.h>
 #include <string>
 #include <unordered_set>
 #include <vector>
 #include <condition_variable>
 #include <functional>
+#include <atomic>
 
 #include "media_library_types.hpp"
 #include "hailo_v4l2/hailo_v4l2.h"
@@ -49,10 +53,14 @@
 class MediaLibraryBufferPool;
 using MediaLibraryBufferPoolPtr = std::shared_ptr<MediaLibraryBufferPool>;
 
+class ConfigManagerInteractor;
 class HailoBucket;
 
 struct hailo_media_library_buffer;
 using HailoMediaLibraryBufferPtr = std::shared_ptr<hailo_media_library_buffer>;
+
+struct AnalyticsMetadata;
+using AnalyticsMetadataPtr = std::shared_ptr<AnalyticsMetadata>;
 
 using HailoBucketPtr = std::shared_ptr<HailoBucket>;
 
@@ -98,8 +106,17 @@ class MediaLibraryBufferPool : public std::enable_shared_from_this<MediaLibraryB
     std::shared_ptr<std::mutex> m_buffer_pool_mutex;
     size_t m_max_buffers;
     uint32_t m_buffer_index;
-    std::condition_variable m_pool_cv;
     std::function<void(void *)> m_on_release_callback;
+
+    // -- Async chunked allocation --
+    static constexpr size_t CHUNK_SIZE = 3;
+    static constexpr size_t INITIAL_CHUNK_SIZE = 1;
+    static void async_worker_loop();
+    static void ensure_worker_started();
+    std::atomic<size_t> m_async_pending{0};  ///< Number of async chunks remaining for this pool
+    std::atomic<bool> m_async_failed{false}; ///< Set if any async chunk allocation failed
+    std::condition_variable m_async_cv;      ///< Notified when all async chunks done
+    std::mutex m_async_cv_mutex;
 
   public:
     /**
@@ -161,7 +178,50 @@ class MediaLibraryBufferPool : public std::enable_shared_from_this<MediaLibraryB
      * }
      * @endcode
      */
-    media_library_return init();
+    /**
+     * @brief Pre-allocates DMA buffers into a static cache for fast synchronous pool initialization.
+     * Call before pool creation to avoid CMA allocation latency during init().
+     *
+     * @param[in] width - buffer width
+     * @param[in] height - buffer height
+     * @param[in] format - buffer format (determines bucket sizes)
+     * @param[in] count - number of buffers to pre-allocate per bucket
+     * @param[in] bytes_per_line - stride (0 = use width)
+     * @return media_library_return
+     */
+    static media_library_return preallocate_buffers(uint width, uint height, HailoFormat format, size_t count,
+                                                    uint bytes_per_line = 0);
+
+    /**
+     * @brief Returns the total number of buffers currently in the pre-alloc cache (across all sizes).
+     */
+    static size_t prealloc_cache_total_buffers();
+
+    /**
+     * @brief Clears and frees all buffers in the pre-alloc cache.
+     */
+    static void clear_prealloc_cache();
+
+    /**
+     * @brief Pre-allocates DMA buffers for all pipeline components based on the full profile config.
+     * Runs asynchronously on a background thread.
+     * Components: dewarp, post-ISP denoise, each multi-resize output, motion detection,
+     * and encoder outputs (gop_size buffers per encoder).
+     */
+    static void preallocate_from_config(const ConfigManagerInteractor &interactor);
+
+    media_library_return init(size_t initial_chunk_size = INITIAL_CHUNK_SIZE);
+
+    /**
+     * @brief Waits until all asynchronous buffer allocation chunks have completed.
+     * If the pool was small enough to be fully allocated synchronously, returns immediately.
+     *
+     * @param[in] timeout_ms - maximum time to wait (default 30 seconds)
+     * @return MEDIA_LIBRARY_SUCCESS if all buffers allocated, MEDIA_LIBRARY_ERROR on timeout
+     */
+    media_library_return wait_for_all_buffers_allocated(
+        const std::chrono::milliseconds &timeout_ms = std::chrono::milliseconds(30000));
+
     /**
      * @brief Free all the allocated buffers
      * @param[in] fail_on_used_buffers - bool flag to indicate if the function should fail if there are still used
@@ -328,6 +388,15 @@ struct hailo_media_library_buffer
     bool motion_detected;
     float optical_zoom_magnification;
     std::unordered_set<std::string> concurrent_stream_ids;
+    uint64_t service_buffer_id = 0;
+    AnalyticsMetadataPtr m_analytics_metadata;
+    std::optional<int> pending_bls_value;
+
+    static constexpr uint64_t NS_PER_MS = 1'000'000;
+    uint64_t isp_timestamp_ms() const
+    {
+        return isp_timestamp_ns / NS_PER_MS;
+    }
 
     std::shared_ptr<const config_profile_t> get_attached_profile() const
     {
@@ -496,6 +565,7 @@ struct hailo_media_library_buffer
         motion_detected = other->motion_detected;
         optical_zoom_magnification = other->optical_zoom_magnification;
         attached_profile = other->attached_profile;
+        pending_bls_value = other->pending_bls_value;
     }
 
     void *get_plane_ptr(uint32_t index)

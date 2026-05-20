@@ -27,9 +27,9 @@
 #pragma once
 #include "config_attacher.hpp"
 #include "config_manager.hpp"
-#include "media_library/buffer_pool.hpp"
-#include "media_library/media_library_types.hpp"
-#include "media_library/privacy_mask.hpp"
+#include "buffer_pool.hpp"
+#include "media_library_types.hpp"
+#include "privacy_mask.hpp"
 #include <climits>
 #include <functional>
 #include <unordered_map>

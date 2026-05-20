@@ -25,13 +25,9 @@
 #include "denoise.hpp"
 #include "buffer_pool.hpp"
 #include "media_library_types.hpp"
+#include "hailort_denoise.hpp"
 
-#include <linux/v4l2-controls.h>
-#include <linux/v4l2-subdev.h>
-#include <fcntl.h>
-#include <sys/ioctl.h>
-#include <tl/expected.hpp>
-#include <ctime>
+#include <memory>
 
 class MediaLibraryPostIspDenoise final : public MediaLibraryDenoise
 {

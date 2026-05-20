@@ -42,23 +42,15 @@ class AnalyticsDBStage : public hailo_analytics::pipeline::ThreadedStage
   private:
     std::string m_analytics_data_id;
     AnalyticsType m_type;
+    std::string m_overflow_analytics_data_id;
     std::optional<SemanticSegmentationAnalyticsData> m_last_semantic_segmentation_data;
 
     /**
      * @brief Process detection analytics data
      * @param data Buffer containing detection data
-     * @param media_lib_buffer Media library buffer pointer (unused for detection)
      * @return AppStatus indicating success or failure
      */
-    AppStatus process_detection(BufferPtr data, HailoMediaLibraryBufferPtr /*media_lib_buffer*/);
-
-    /**
-     * @brief Process instance segmentation analytics data
-     * @param data Buffer containing instance segmentation data
-     * @param media_lib_buffer Media library buffer pointer containing tensor data
-     * @return AppStatus indicating success or failure
-     */
-    AppStatus process_instance_segmentation(BufferPtr data, HailoMediaLibraryBufferPtr media_lib_buffer);
+    AppStatus process_detection(BufferPtr data);
 
     /**
      * @brief Process semantic segmentation analytics data
@@ -67,6 +59,13 @@ class AnalyticsDBStage : public hailo_analytics::pipeline::ThreadedStage
      * @return AppStatus indicating success or failure
      */
     AppStatus process_semantic_segmentation(BufferPtr data, HailoMediaLibraryBufferPtr media_lib_buffer);
+
+    /**
+     * @brief Walk the ROI for HailoDetections without a HailoClassMask child and write them to
+     *        m_overflow_analytics_data_id. No-op if the overflow id is empty or the AnalyticsDB
+     *        has no detection_analytics_config entry for it.
+     */
+    void process_overflow_detections(BufferPtr data);
 
     /**
      * @brief Extract timestamp from buffer's ISP timestamp
@@ -128,12 +127,6 @@ class AnalyticsDBStage : public hailo_analytics::pipeline::ThreadedStage
     tl::expected<detection_analytics_config_t, AppStatus> get_detection_config() const;
 
     /**
-     * @brief Get instance segmentation analytics configuration
-     * @return Expected containing instance segmentation config or error status
-     */
-    tl::expected<instance_segmentation_analytics_config_t, AppStatus> get_instance_segmentation_config() const;
-
-    /**
      * @brief Get semantic segmentation analytics configuration
      * @return Expected containing semantic segmentation config or error status
      */
@@ -169,12 +162,13 @@ class AnalyticsDBStage : public hailo_analytics::pipeline::ThreadedStage
      * @param queue_size Size of the processing queue
      * @param leaky Whether the queue should drop old frames when full
      * @param analytics_data_id Identifier for the analytics data in the database
-     * @param type Type of analytics to process (default: INSTANCE_SEGMENTATION)
+     * @param type Type of analytics to process (default: SEMANTIC_SEGMENTATION)
      * @param trace_processing_operations Enable tracing for processing operations (default: true)
+     * @param overflow_analytics_data_id Identifier for the overflow stream; empty disables it.
      */
     AnalyticsDBStage(const std::string &name, size_t queue_size, bool leaky, const std::string &analytics_data_id,
-                     AnalyticsType type = AnalyticsType::INSTANCE_SEGMENTATION,
-                     bool trace_processing_operations = true);
+                     AnalyticsType type = AnalyticsType::SEMANTIC_SEGMENTATION, bool trace_processing_operations = true,
+                     const std::string &overflow_analytics_data_id = "");
 
     /**
      * @brief Process buffer and add analytics data to database
@@ -203,8 +197,9 @@ class AnalyticsDBStageBuild : public AnalyticsDBStage
         size_t m_queue_size = 10;
         bool m_leaky = false;
         std::optional<std::string> m_analytics_data_id;
-        AnalyticsType m_type = AnalyticsType::INSTANCE_SEGMENTATION;
+        AnalyticsType m_type = AnalyticsType::SEMANTIC_SEGMENTATION;
         bool m_trace = true;
+        std::string m_overflow_analytics_data_id;
 
       public:
         /**
@@ -248,6 +243,13 @@ class AnalyticsDBStageBuild : public AnalyticsDBStage
          * @return Builder reference for chaining
          */
         Builder &set_trace_opt(bool activate);
+
+        /**
+         * @brief Set the overflow analytics_data_id. Empty disables the overflow write.
+         * @param overflow_analytics_data_id Identifier for the overflow stream
+         * @return Builder reference for chaining
+         */
+        Builder &set_overflow_analytics_data_id(const std::string &overflow_analytics_data_id);
 
         /**
          * @brief Build and return shared pointer to AnalyticsDBStage

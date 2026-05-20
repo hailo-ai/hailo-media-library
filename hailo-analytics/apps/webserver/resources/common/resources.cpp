@@ -1,5 +1,7 @@
 #include "resources.hpp"
 
+#include "resources/common/event_bus.hpp"
+
 namespace webserver
 {
 namespace resources
@@ -23,7 +25,7 @@ nlohmann::json Resource::get()
 Resource::Resource(std::shared_ptr<EventBus> event_bus) : m_event_bus(event_bus)
 {
     subscribe_callback(EventType::RESET_CONFIG, EventPriority::EVENT_PRIORITY_MEDIUM,
-                       [this](ResourceStateChangeNotification notification) { this->reset_config(); });
+                       [this](ResourceStateChangeNotification /*notification*/) { this->reset_config(); });
 }
 
 void Resource::subscribe_callback(EventType resource_type, ResourceChangeCallback callback)

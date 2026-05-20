@@ -33,13 +33,18 @@ common_sources_files = files(
     'src/utils/signal_utils.cpp',
     'src/utils/threadpool.cpp',
     'src/snapshot/snapshot.cpp',
+    'src/snapshot/snapshot_buffer_io.cpp',
+    'src/snapshot/snapshot_commands.cpp',
+    'src/snapshot/snapshot_utils.cpp',
     'src/config_manager/config_manager.cpp',
     'src/config_manager/config_backup.cpp',
     'src/utils/pipe_handler.cpp',
     'src/analytics_db/analytics_db.cpp',
     'src/config_attacher/config_attacher.cpp',
     'src/privacy_mask/privacy_mask_blender.cpp',
+    'src/privacy_mask/privacy_mask_blender_db.cpp',
     'src/privacy_mask/privacy_mask_configurer.cpp',
+    'src/privacy_mask/privacy_mask_dynamic.cpp',
     'src/privacy_mask/polygon_math.cpp',
     'src/trace/fps_tracer.cpp',
     'src/trace/perfetto_fps_tracer.cpp'
@@ -88,12 +93,12 @@ medialib_components += [libfrontend]
 
 media_library_encoder_lib_sources = [
     'src/hailo_encoder/encoder.cpp',
-    'src/hailo_encoder/encoder_internal.cpp',
+    'src/hailo_encoder/hailo_encoder_impl.cpp',
     'src/hailo_encoder/encoder_config.cpp',
     'src/hailo_encoder/encoder_gop_config.cpp',
 ]
 
-libmedialib_encoder = static_library('medialib_encoder_internal',
+libmedialib_encoder = static_library('medialib_encoder_impl',
     media_library_encoder_lib_sources,
     cpp_args: common_args,
     dependencies: medialib_dependencies,

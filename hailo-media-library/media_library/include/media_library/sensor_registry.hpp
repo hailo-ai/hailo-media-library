@@ -27,9 +27,14 @@
 
 #pragma once
 
-#include "sensor_types.hpp"
-
+#include <stddef.h>
 #include <optional>
+#include <string>
+#include <unordered_map>
+#include <utility>
+
+#include "sensor_types.hpp"
+#include "media_library_types.hpp"
 
 class SensorRegistry
 {

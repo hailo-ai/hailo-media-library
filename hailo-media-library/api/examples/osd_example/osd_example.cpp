@@ -1,8 +1,17 @@
-#include "media_library/media_library.hpp"
-#include "common/common.hpp"
+#include <tl/expected.hpp>
 #include <iostream>
 #include <chrono>
 #include <thread>
+#include <cstdlib>
+#include <map>
+#include <memory>
+#include <string>
+
+#include "media_library/media_library.hpp"
+#include "common/common.hpp"
+#include "media_library/encoder.hpp"
+#include "osd.hpp"
+#include "osd_types.hpp"
 
 struct Arguments
 {

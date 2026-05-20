@@ -22,13 +22,20 @@
  */
 
 #include <fstream>
+#include "media_library/cloexec_fstream.hpp"
+#include <memory>
 #include <linux/v4l2-controls.h>
-#include <linux/v4l2-subdev.h>
+#include <hailo/hailodsp.h>
+#include <hailo/hailodsp_base.h>
+#include <hailo_v4l2/hailo_v4l2.h>
+#include <linux/videodev2.h>
+#include <string.h>
+#include <opencv2/core.hpp>
 #include <stdint.h>
-#include <string>
 #include <sys/ioctl.h>
 #include <time.h>
 #include <tl/expected.hpp>
+#include <string>
 #include <vector>
 
 #include "buffer_pool.hpp"
@@ -39,11 +46,13 @@
 #include "hailo_media_library_perfetto.hpp"
 #include "perfetto_fps_tracer.hpp"
 #include "ldc_mesh_context.hpp"
-#include "logger_macros.hpp"
 #include "media_library_buffer.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_utils.hpp"
 #include "snapshot.hpp"
+#include "dis_common.h"
+#include "interface_types.h"
+#include "media_library_types.hpp"
 
 #define HAILO15_ISP_CID_LSC_BASE (V4L2_CID_USER_BASE + 0x3200)
 #define HAILO15_ISP_CID_LSC_OPTICAL_ZOOM (HAILO15_ISP_CID_LSC_BASE + 0x0009)
@@ -53,7 +62,7 @@
 
 struct VSMPrintFile
 {
-    std::ofstream outfile;
+    cloexec::ofstream outfile;
     bool env_print_vsm_to_file;
 
     VSMPrintFile(const std::string &fname = VSM_PRINTS_FILE_PATH)
@@ -165,11 +174,11 @@ media_library_return MediaLibraryDewarp::handle_frame(HailoMediaLibraryBufferPtr
                                                       HailoMediaLibraryBufferPtr output_frame)
 {
     media_library_return status;
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("MediaLibraryDewarp::handle_frame", DSP_THREADED_TRACK,
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("MediaLibraryDewarp::handle_frame", DEWARP_TRACK,
                                           MEDIA_LIBRARY_DETAILED_CATEGORY, "isp_timestamp_ms",
-                                          input_frame->isp_timestamp_ns / 1000000);
+                                          input_frame->isp_timestamp_ms());
     status = m_impl->handle_frame(input_frame, output_frame);
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DEWARP_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
     return status;
 }
 
@@ -447,10 +456,10 @@ media_library_return MediaLibraryDewarp::Impl::handle_frame(HailoMediaLibraryBuf
     m_last_vsm.dx = input_frame->vsm.dx;
     m_last_vsm.dy = input_frame->vsm.dy;
 
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("perform_dewarp", DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY,
-                                          "isp_timestamp_ms", input_frame->isp_timestamp_ns / 1000000);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("perform_dewarp", DEWARP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY,
+                                          "isp_timestamp_ms", input_frame->isp_timestamp_ms());
     media_lib_ret = perform_dewarp(input_frame, output_frame);
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DEWARP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
     output_frame->copy_metadata_from(input_frame);
 
     output_frame->optical_zoom_magnification =

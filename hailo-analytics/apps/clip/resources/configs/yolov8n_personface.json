@@ -1,8 +1,0 @@
-{
-    "iou_threshold": 0.5,
-    "detection_threshold": 0.6,
-    "output_activation": "none",
-    "label_offset": 1,
-    "max_boxes": 1000,
-    "labels": ["unlabeled", "person", "face"]
-}

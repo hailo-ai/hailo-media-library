@@ -1,14 +1,16 @@
 
-#include <fstream>
-#include <sstream>
 #include <string>
 #include <stdexcept>
 #include <iostream>
+#include "media_library/cloexec_fstream.hpp"
 #include <filesystem>
+#include <fstream> // IWYU pragma: keep
+#include <sstream> // IWYU pragma: keep
+#include <exception>
 
 std::string read_string_from_file(const std::string &file_path)
 {
-    std::ifstream file(file_path);
+    cloexec::ifstream file(file_path);
     if (!file.is_open())
     {
         throw std::runtime_error("Could not open file: " + file_path);

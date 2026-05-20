@@ -1,4 +1,5 @@
 #include <fstream>
+#include "media_library/cloexec_fstream.hpp"
 #include <iostream>
 #include <vector>
 #include <cstdint>
@@ -32,7 +33,7 @@ struct EmbeddingTable
 
     bool load(const std::string &path)
     {
-        std::ifstream f(path, std::ios::binary);
+        cloexec::ifstream f(path, std::ios::binary);
         if (!f)
             return false;
 
@@ -62,7 +63,7 @@ struct Matrix
 
     bool load(const std::string &path)
     {
-        std::ifstream f(path, std::ios::binary);
+        cloexec::ifstream f(path, std::ios::binary);
         if (!f)
         {
             std::cerr << "Error: Cannot open file " << path << std::endl;
@@ -94,7 +95,7 @@ struct Matrix
 
 void save_as_npy(const std::vector<float> &data, int batch_size, int seq_len, int dim, const std::string &filename)
 {
-    std::ofstream file(filename, std::ios::binary);
+    cloexec::ofstream file(filename, std::ios::binary);
     if (!file)
     {
         throw std::runtime_error("Failed to open file: " + filename);

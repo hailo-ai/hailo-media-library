@@ -1,16 +1,14 @@
 #pragma once
 
 #include "common/common.hpp"
-#include "common/logger_macros.hpp"
-#include "resources/common/isp/v4l2_ctrl.hpp"
-#include <malloc.h>
+
 #include <nlohmann/json.hpp>
-#include <thread>
-#include <unistd.h>
-#include <iostream>
-#include <fstream>
-#include <cstring>
-#include <optional>
+#include <stdint.h>
+#include <mutex>
+#include <unordered_map>
+#include <vector>
+
+#include "resources/common/isp/v4l2_ctrl.hpp"
 
 namespace webserver
 {

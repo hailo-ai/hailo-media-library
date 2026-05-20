@@ -22,20 +22,14 @@
  */
 #pragma once
 
+#include <memory>
+#include <queue>
+
 #include "denoise.hpp"
 #include "buffer_pool.hpp"
 #include "media_library_types.hpp"
 #include "isp_manager.hpp"
 #include "hailort_denoise.hpp"
-
-#include <linux/v4l2-controls.h>
-#include <linux/v4l2-subdev.h>
-#include <stdint.h>
-#include <fcntl.h>
-#include <sys/ioctl.h>
-#include <time.h>
-#include <tl/expected.hpp>
-#include <ctime>
 
 class MediaLibraryPreIspDenoise : public MediaLibraryDenoise
 {
@@ -66,6 +60,7 @@ class MediaLibraryPreIspDenoise : public MediaLibraryDenoise
                                                             const input_video_config_t &input_video_configs) override;
     media_library_return free_buffer_pools() override;
     media_library_return acquire_output_buffers(NetworkInferenceBindingsPtr bindings) override;
+    void initialize_dummy_loopback_buffers(const TensorBindings &loopback_buffers) override;
 
   private:
     bool process_inference(NetworkInferenceBindingsPtr bindings) override;

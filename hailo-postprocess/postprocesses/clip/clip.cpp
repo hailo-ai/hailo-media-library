@@ -2,22 +2,26 @@
  * Copyright (c) 2021-2022 Hailo Technologies Ltd. All rights reserved.
  * Distributed under the LGPL license (https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt)
  **/
+#include <nlohmann/json.hpp>
+#include <zmq.hpp>
+#include <stdint.h>
 #include <algorithm>
 #include <cmath>
-#include <iostream>
 #include <string>
 #include <vector>
-#include <sys/stat.h>
-#include <nlohmann/json.hpp>
-
-#include "clip.hpp"
-#include <zmq.hpp>
 #include <queue>
 #include <mutex>
-#include <thread>
-#include <condition_variable>
-#include "hailo_postprocess_tools/objects/hailo_common.hpp"
+#include <cstring>
+#include <initializer_list>
+#include <iterator>
+#include <memory>
+#include <numeric>
+#include <utility>
+
+#include "clip.hpp"
+#include "hailo_postprocess_tools/logger/hailo_postprocess_logger.hpp"
 #include "hailo_postprocess_tools/tracking/hailo_tracker.hpp"
+#include "hailo_postprocess_tools/objects/hailo_tensors.hpp"
 
 const char *output_layer_name = "clip_resnet_50/conv59";
 bool initialization_done = false;
@@ -48,7 +52,7 @@ void decode_zmq_messages(const std::string &message_str)
     json received_json = json::parse(message_str, /*cb=*/nullptr, /*allow_exceptions=*/false);
     if (received_json.is_discarded())
     {
-        std::cerr << "[CLIP] bad json, skip\n";
+        HAILO_POSTPROCESS_LOG_WARN("[CLIP] bad json, skip");
         return;
     }
 

@@ -1,8 +1,11 @@
 #pragma once
 
 #include <gst/gst.h>
-#include <gst/video/video.h>
 #include <gst/gstbufferpool.h>
+#include <glib-object.h>
+#include <glib.h>
+#include <stddef.h>
+
 #include "gsthailodmabufallocator.hpp"
 
 G_BEGIN_DECLS

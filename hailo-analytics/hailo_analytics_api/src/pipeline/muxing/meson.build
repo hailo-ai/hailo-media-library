@@ -1,7 +1,9 @@
 # Sources
 muxing_sources = [
     'muxer_stage.cpp',
-    'demuxer_stage.cpp'
+    'demuxer_stage.cpp',
+    'bundle_streams_stage.cpp',
+    'split_streams_stage.cpp'
 ]
 
 # Compile lib

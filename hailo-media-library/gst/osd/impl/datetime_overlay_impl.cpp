@@ -22,8 +22,16 @@
  */
 
 #include "datetime_overlay_impl.hpp"
+
+#include <opencv2/core.hpp>
+#include <ctime>
+#include <exception>
+#include <iomanip>
+#include <ostream>
+
 #include "media_library/media_library_logger.hpp"
-#include "../osd.hpp"
+#include "impl/simple_text_overlay_impl.hpp"
+#include "impl/text_overlay_impl.hpp"
 
 #define MODULE_NAME LoggerType::Osd
 

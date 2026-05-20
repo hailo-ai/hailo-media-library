@@ -3,12 +3,15 @@
  * Distributed under the LGPL license (https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt)
  **/
 #include "ocr_post.hpp"
-#include "hailo_postprocess_tools/labels/ppocrv5_char_dict.hpp"
-#include "hailo_postprocess_tools/objects/hailo_common.hpp"
-#include "hailo_postprocess_tools/objects/hailo_objects.hpp"
 
-#include <iostream>
+#include <stdint.h>
 #include <string>
+#include <cstddef>
+#include <memory>
+
+#include "hailo_postprocess_tools/labels/ppocrv5_char_dict.hpp"
+#include "hailo_postprocess_tools/objects/hailo_objects.hpp"
+#include "hailo_postprocess_tools/objects/hailo_tensors.hpp"
 
 #ifdef __aarch64__
 #include <arm_neon.h>

@@ -1,6 +1,16 @@
 #include "encoder.hpp"
+
+#include <stddef.h>
+#include <fmt/format.h>
+#include <exception>
+#include <map>
+#include <stdexcept>
+#include <utility>
+
 #include "common/logger_macros.hpp"
-#include <iostream>
+#include "resources/common/resources.hpp"
+#include "resources/configs.hpp"
+#include "media_library/encoder_config_types.hpp"
 
 // Quality preset to background_qp_delta mapping
 const std::unordered_map<std::string, uint8_t> webserver::resources::EncoderResource::quality_to_qp_delta{
@@ -39,6 +49,7 @@ webserver::resources::EncoderResource::encoder_control_t webserver::resources::E
                 .fixed_intra_qp = encoder_config.rate_control.quantization.fixed_intra_qp,
                 .qp_hdr = encoder_config.rate_control.quantization.qp_hdr,
             },
+        .smart_encoder = std::nullopt,
     };
 
     // Extract smart encoder configuration
@@ -69,6 +80,19 @@ webserver::resources::EncoderResource::encoder_control_t webserver::resources::E
             roi_ui.status = true;
             roi_ui.roi = roi;
             smart_encoder_ui.rois.push_back(roi_ui);
+        }
+
+        // Convert analytics_labels (vector<string>) -> 4 bools
+        for (const auto &label : encoder_config.smart_encoder.analytics_labels)
+        {
+            if (label == "person")
+                smart_encoder_ui.analytics_labels.person = true;
+            else if (label == "face")
+                smart_encoder_ui.analytics_labels.face = true;
+            else if (label == "vehicle")
+                smart_encoder_ui.analytics_labels.vehicle = true;
+            else if (label == "license_plate")
+                smart_encoder_ui.analytics_labels.license_plate = true;
         }
 
         control.smart_encoder = smart_encoder_ui;
@@ -121,14 +145,19 @@ void webserver::resources::EncoderResource::encoder_control_t::fill_encoder_elem
             }
         }
 
-        WEBSERVER_LOG_INFO("Smart Encoder configured: quality={}, background_qp_delta={}, enabled ROIs={}/{}",
+        encoder_config.smart_encoder.analytics_labels = this->smart_encoder->analytics_labels.to_vector();
+
+        WEBSERVER_LOG_INFO("Smart Encoder configured: quality={}, background_qp_delta={}, enabled ROIs={}/{}, "
+                           "analytics_labels=[{}]",
                            this->smart_encoder->quality, encoder_config.smart_encoder.background_qp_delta,
-                           encoder_config.smart_encoder.rois.size(), this->smart_encoder->rois.size());
+                           encoder_config.smart_encoder.rois.size(), this->smart_encoder->rois.size(),
+                           fmt::join(encoder_config.smart_encoder.analytics_labels, ", "));
     }
     else
     {
         encoder_config.smart_encoder.enabled = false;
         encoder_config.smart_encoder.rois.clear();
+        encoder_config.smart_encoder.analytics_labels.clear();
     }
 }
 
@@ -143,7 +172,7 @@ webserver::resources::ResourceType webserver::resources::EncoderResource::get_ty
 }
 
 webserver::resources::EncoderResource::EncoderResource(
-    std::shared_ptr<EventBus> event_bus, std::shared_ptr<webserver::resources::ConfigResourceBase> configs)
+    std::shared_ptr<EventBus> event_bus, std::shared_ptr<webserver::resources::ConfigResourceBase> /*configs*/)
     : Resource(event_bus)
 {
 }
@@ -209,9 +238,16 @@ void webserver::resources::EncoderResource::to_json(nlohmann::json &j, const Enc
     // Serialize smart encoder configuration
     if (b.smart_encoder.has_value())
     {
-        j["smart_encoder"] = nlohmann::json{{"global_enable", b.smart_encoder->global_enable},
-                                            {"quality", b.smart_encoder->quality},
-                                            {"rois", nlohmann::json::array()}};
+        j["smart_encoder"] = nlohmann::json{
+            {"global_enable", b.smart_encoder->global_enable},
+            {"quality", b.smart_encoder->quality},
+            {"rois", nlohmann::json::array()},
+            {"analytics_labels",
+             {{"person", b.smart_encoder->analytics_labels.person},
+              {"face", b.smart_encoder->analytics_labels.face},
+              {"vehicle", b.smart_encoder->analytics_labels.vehicle},
+              {"license_plate", b.smart_encoder->analytics_labels.license_plate}}},
+        };
 
         for (const auto &roi : b.smart_encoder->rois)
         {
@@ -284,9 +320,26 @@ void webserver::resources::EncoderResource::from_json(const nlohmann::json &j, E
             }
         }
 
+        if (smart.contains("analytics_labels"))
+        {
+            const auto &labels = smart.at("analytics_labels");
+            if (labels.contains("person"))
+                smart_ui.analytics_labels.person = labels.at("person").get<bool>();
+            if (labels.contains("face"))
+                smart_ui.analytics_labels.face = labels.at("face").get<bool>();
+            if (labels.contains("vehicle"))
+                smart_ui.analytics_labels.vehicle = labels.at("vehicle").get<bool>();
+            if (labels.contains("license_plate"))
+                smart_ui.analytics_labels.license_plate = labels.at("license_plate").get<bool>();
+        }
+
         b.smart_encoder = smart_ui;
-        WEBSERVER_LOG_INFO("Parsed smart encoder from UI: global_enable={}, quality={}, total_rois={}",
-                           smart_ui.global_enable, smart_ui.quality, smart_ui.rois.size());
+        WEBSERVER_LOG_INFO(
+            "Parsed smart encoder from UI: global_enable={}, quality={}, total_rois={}, analytics_labels=[{}{}{}{}]",
+            smart_ui.global_enable, smart_ui.quality, smart_ui.rois.size(),
+            smart_ui.analytics_labels.person ? "person " : "", smart_ui.analytics_labels.face ? "face " : "",
+            smart_ui.analytics_labels.vehicle ? "vehicle " : "",
+            smart_ui.analytics_labels.license_plate ? "license_plate" : "");
     }
 }
 
@@ -339,6 +392,7 @@ void webserver::resources::EncoderResource::http_register(HTTPServer &srv)
                  on_resource_change(EventType::CHANGED_RESOURCE_ENCODER,
                                     std::make_shared<webserver::resources::EncoderResource::EncoderResourceState>(
                                         EncoderResourceState(encoder_control)));
+
                  WEBSERVER_LOG_INFO("HTTP POST /encoder completed");
                  return j_body;
              }));

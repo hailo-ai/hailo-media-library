@@ -1,13 +1,11 @@
 #pragma once
 
-#include <type_traits>
 #include <unordered_map>
-
 #include <cstdint>
-#include <cstdlib>
 #include <cstring>
 
 #include <linux/videodev2.h>
+#include <sys/types.h>
 
 namespace v4l2_ctrl
 {

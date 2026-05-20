@@ -1,14 +1,15 @@
 #include "pipe_handler.hpp"
-#include "media_library_logger.hpp"
 
 #include <fcntl.h>
 #include <sys/epoll.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <errno.h>
+#include <string.h>
 #include <filesystem>
-#include <iostream>
-#include <algorithm>
 #include <array>
+
+#include "media_library_logger.hpp"
 
 #define MODULE_NAME LoggerType::NamedPipe
 

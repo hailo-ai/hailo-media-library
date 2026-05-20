@@ -13,13 +13,16 @@
 #pragma once
 
 #include <gst/gst.h>
+#include <glib-object.h>
+#include <glib.h>
+#include <sys/types.h>
 #include <vector>
 #include <queue>
 #include <mutex>
 #include <shared_mutex>
 #include <condition_variable>
-#include <pthread.h>
 #include <thread>
+#include <memory>
 
 G_BEGIN_DECLS
 

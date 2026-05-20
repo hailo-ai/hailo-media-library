@@ -1,5 +1,9 @@
 #include "full_frame_bbox_injector_stage.hpp"
 
+#include <stdint.h>
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
+#include <utility>
+
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 

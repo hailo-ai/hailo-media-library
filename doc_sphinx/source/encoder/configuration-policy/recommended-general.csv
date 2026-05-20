@@ -1,0 +1,8 @@
+Parameter,Local Playback,Internet Streaming,Real-time Communication
+gopLen,150,30 - 150,5 - 30
+pictureRc,1,1,1
+ctbRc,0,0,1
+hrd,0,0,1 (can skip frames)
+qpMin,20 - 30,20 - 25,10
+qpMax,35 - 45,45 - 50,51
+qpHdr,-1,-1,-1

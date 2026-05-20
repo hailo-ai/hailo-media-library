@@ -1,5 +1,11 @@
 #pragma once
-#include <opencv2/opencv.hpp>
+
+#include <stddef.h>
+#include <opencv2/calib3d.hpp> // IWYU pragma: keep
+#include <opencv2/core.hpp>
+#include <deque>
+#include <stdexcept>
+#include <vector>
 
 namespace eis_utils
 {

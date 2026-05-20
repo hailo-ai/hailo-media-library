@@ -21,9 +21,19 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #pragma once
-#include "encoder_class.hpp"
-#include <iostream>
+
+// hailo_encoder_impl.hpp #includes this file, so we can't include the umbrella
+// here (would create a circular include). Use the C header directly.
+// IWYU pragma: no_include "hailo_encoder_impl.hpp"
+
+#include <stdint.h>
 #include <vector>
+#include <utility>
+
+extern "C"
+{
+#include <video_encoder/hevcencapi.h> // IWYU pragma: keep
+}
 
 struct GopPicConfig
 {
@@ -38,7 +48,7 @@ struct GopPicConfig
     GopPicConfig(int frame_num, VCEncPictureCodingType type, uint8_t poc, int qp_offset, float qp_factor,
                  int num_ref_pics, std::vector<int> ref_pics, std::vector<int> used_by_cur)
         : m_frame_num(frame_num), m_type(type), m_poc(poc), m_qp_offset(qp_offset), m_qp_factor(qp_factor),
-          m_num_ref_pics(num_ref_pics), m_ref_pics(ref_pics), m_used_by_cur(used_by_cur) {};
+          m_num_ref_pics(num_ref_pics), m_ref_pics(std::move(ref_pics)), m_used_by_cur(std::move(used_by_cur)) {};
 };
 
 const std::vector<GopPicConfig> RpsDefault_GOPSize_1 = {GopPicConfig(1, VCENC_PREDICTED_FRAME, 1, 0, 0.8, 1,
