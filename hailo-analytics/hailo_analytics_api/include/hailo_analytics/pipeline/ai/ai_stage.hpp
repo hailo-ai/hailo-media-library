@@ -58,10 +58,12 @@ class HailortAsyncStage : public hailo_analytics::pipeline::ThreadedStage
     // network members
     std::string m_hef_path;                            ///< Path to the Hailo Execution File (HEF).
     std::string m_group_id;                            ///< Group ID for the HailoRT device.
+    bool m_use_hailort_service;                        ///< Whether to use hailort_server service mode.
     int m_batch_size;                                  ///< Batch size for inference.
     int m_scheduler_threshold;                         ///< Threshold for the scheduler.
     bool m_dynamic_threshold;                          ///< Whether to use dynamic thresholding.
     float32_t m_nms_score_threshold;                   ///< NMS score threshold for filtering detections.
+    std::vector<bool> m_nms_classes_filter_mask;       ///< NMS classes filter mask (false at index i filters class i).
     size_t m_nms_max_accumulated_mask_size_multiplier; ///< NMS max accumulated mask size multiplier (0 = no change).
     std::chrono::milliseconds m_scheduler_timeout;     ///< Timeout for the scheduler.
 
@@ -77,6 +79,7 @@ class HailortAsyncStage : public hailo_analytics::pipeline::ThreadedStage
     uint64_t get_unique_buffer_identifier(BufferPtr data);
     void inference_tracing_begin(BufferPtr data);
     void inference_tracing_end(BufferPtr data);
+    void setup_pool_notifications();
 
   public:
     /**
@@ -97,7 +100,9 @@ class HailortAsyncStage : public hailo_analytics::pipeline::ThreadedStage
                       bool dynamic_threshold = false,
                       std::chrono::milliseconds scheduler_timeout = std::chrono::milliseconds(100),
                       StagePoolMode pool_mode = StagePoolMode::FAIL_ON_EMPTY_POOL, float32_t nms_score_threshold = 0.0f,
-                      size_t nms_max_accumulated_mask_size_multiplier = 0, bool trace_processing_operations = true);
+                      std::vector<bool> nms_classes_filter_mask = {},
+                      size_t nms_max_accumulated_mask_size_multiplier = 0, bool trace_processing_operations = true,
+                      bool use_hailort_service = false);
 
     /**
      * @brief Initialize the HailoRT stage.
@@ -167,8 +172,10 @@ class HailortAsyncStageBuild : public HailortAsyncStage
         std::chrono::milliseconds m_scheduler_timeout = std::chrono::milliseconds(100);
         StagePoolMode m_pool_mode = StagePoolMode::FAIL_ON_EMPTY_POOL;
         float32_t m_nms_score_threshold = 0.0f;
+        std::vector<bool> m_nms_classes_filter_mask;
         size_t m_nms_max_accumulated_mask_size_multiplier = 0;
         bool m_trace = true;
+        bool m_use_hailort_service = false;
 
       public:
         Builder &set_stage_name(std::string name);
@@ -184,8 +191,10 @@ class HailortAsyncStageBuild : public HailortAsyncStage
         Builder &set_printfps_opt(bool activate);
         Builder &set_pool_mode_opt(StagePoolMode mode);
         Builder &set_nms_score_threshold(float32_t score_threshold);
+        Builder &set_nms_classes_filter_mask(std::vector<bool> mask);
         Builder &set_nms_max_accumulated_mask_size_multiplier(size_t multiplier);
         Builder &set_trace_opt(bool activate);
+        Builder &set_use_hailort_service(bool use_service);
         std::shared_ptr<HailortAsyncStage> buildptr() const;
     };
 

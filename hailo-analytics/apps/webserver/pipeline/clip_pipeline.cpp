@@ -1,8 +1,13 @@
+#include "clip_pipeline.hpp"
+
 #include "clip_app_config_parser.hpp"
-#include "pipeline.hpp"
 #include "common/common.hpp"
-#include "clip_pipeline_ai_defines.hpp"
-#include "common_utils.hpp"
+#include "hailo_analytics/pipeline/sinks/app_sink_stage.hpp"
+#include "service/app_control_service_ext.hpp"
+#include "service/player_service_ext.hpp"
+#include "service/query_service/query_service_ext.hpp"
+#include "service/storage_cleanup_service_ext.hpp"
+#include "service/storage_monitor_service_ext.hpp"
 #include <fstream>
 
 #define TEE_STAGE "vision_tee"
@@ -40,8 +45,8 @@ const std::vector<std::string> ALL_ENDPOINTS = {
 };
 } // namespace clip_endpoints
 
-ClipPipeline::ClipPipeline(WebserverResourceRepository resources, std::shared_ptr<MediaLibrary> media_library,
-                           std::shared_ptr<RTPConverterStage> webrtc_stage, Architecture platform)
+ClipPipeline::ClipPipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
+                           RTPConverterStage &webrtc_stage, Architecture platform)
     : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight, {ProfileType::Daylight})
 {
     m_stream_4k_name = DEFAULT_STREAM_4K_NAME;
@@ -52,10 +57,10 @@ ClipPipeline::ClipPipeline(WebserverResourceRepository resources, std::shared_pt
     app::stream_id::stream_ai = CLIP_AI_STREAM_ID;
 }
 
-bool ClipPipeline::is_supported(WebserverResourceRepository resources)
+bool ClipPipeline::is_supported(webserver::resources::ResourceRepository &resources)
 {
     // Verify Clip profile is available in media library
-    auto config = std::static_pointer_cast<ConfigResourceMedialib>(resources->get(RESOURCE_CONFIG_MANAGER));
+    auto config = std::static_pointer_cast<ConfigResourceMedialib>(resources.get(RESOURCE_CONFIG_MANAGER));
     tl::expected<nlohmann::json, std::string> profile = config->get_profile(CLIP_PROFILE_NAME);
     if (!profile.has_value())
     {
@@ -184,14 +189,14 @@ void ClipPipeline::build_pipeline()
     WEBSERVER_LOG_INFO("Building clip pipeline");
 
     std::shared_ptr<webserver::resources::WebRtcResource> webrtc_resource =
-        std::static_pointer_cast<WebRtcResource>(m_resources->get(RESOURCE_WEBRTC));
+        std::static_pointer_cast<WebRtcResource>(m_resources.get(RESOURCE_WEBRTC));
 
     std::shared_ptr<AppSinkStage> main_sink_stage =
         AppSinkStageBuild::create()
             .set_stage_name("main_sink")
             .set_queue_size_opt(1)
             .set_leaky_opt(false)
-            .set_process_func([&](hailo_analytics::pipeline::BufferPtr buf) { m_webrtc_stage->process(buf); })
+            .set_process_func([&](hailo_analytics::pipeline::BufferPtr buf) { m_webrtc_stage.process(buf); })
             .buildptr();
 
     // Create App
@@ -209,7 +214,7 @@ void ClipPipeline::build_pipeline()
     }
 
     CameraAppConstructor::InitializerParams params;
-    params.media_library_component = m_app_resources->media_library;
+    params.media_library_component = &m_app_resources->media_library;
     params.initialize_media_library_configuration = false;
     params.initialize_media_library_profile = false;
 
@@ -255,12 +260,12 @@ void ClipPipeline::start()
 
     // Create pipeline
     sleep(1);
-    auto encoder_resource = std::static_pointer_cast<EncoderResource>(m_resources->get(RESOURCE_ENCODER));
+    auto encoder_resource = std::static_pointer_cast<EncoderResource>(m_resources.get(RESOURCE_ENCODER));
     encoder_resource->set_encoder_query([this]() { return this->get_encoder_config(); });
 
-    m_resources->m_event_bus->notify(EventType::RESET_ISP, std::make_shared<EmptyState>(EmptyState()));
+    m_resources.m_event_bus->notify(EventType::RESET_ISP, std::make_shared<EmptyState>(EmptyState()));
 
-    auto expected_profile = m_app_resources->media_library->get_current_profile();
+    auto expected_profile = m_app_resources->media_library.get_current_profile();
     if (!expected_profile.has_value())
     {
         WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -269,8 +274,8 @@ void ClipPipeline::start()
     config_profile_t current_profile = expected_profile.value();
     ProfileStateData current_profile_data{current_profile, this->get_profile_type_by_name(current_profile.name),
                                           current_profile.name, this->get_supported_profiles()};
-    m_resources->m_event_bus->notify(EventType::PIPELINE_READY,
-                                     std::make_shared<ProfileState>(ProfileState(current_profile_data)));
+    m_resources.m_event_bus->notify(EventType::PIPELINE_READY,
+                                    std::make_shared<ProfileState>(ProfileState(current_profile_data)));
 
     WEBSERVER_LOG_INFO("CLIP Pipeline started successfully");
 }
@@ -311,75 +316,88 @@ void ClipPipeline::register_endpoints()
     BasePipeline::register_endpoints();
 
     WEBSERVER_LOG_INFO("Registering CLIP Pipeline endpoints");
-    m_resources->m_srv->Get(clip_endpoints::CONFIG_EMBEDDED_REFRESH, std::function<nlohmann::json()>([this]() {
-                                WEBSERVER_LOG_INFO("GET {} called", clip_endpoints::CONFIG_EMBEDDED_REFRESH);
-                                if (!m_app)
-                                {
-                                    WEBSERVER_LOG_ERROR("ClipVideoPipeline is not available");
-                                    throw std::runtime_error("ClipVideoPipeline not available");
-                                }
-                                auto app_controlservice_ext = m_app->get_extension<AppControlServiceExt>();
-                                if (!app_controlservice_ext)
-                                {
-                                    WEBSERVER_LOG_ERROR("AppControlServiceExt extension is not available");
-                                    throw std::runtime_error("AppControlServiceExt extension not available");
-                                }
-                                nlohmann::json j;
-                                j["rate"] = app_controlservice_ext->get_clip_embedding_refresh_rate().value();
-                                WEBSERVER_LOG_INFO("GET {} completed", clip_endpoints::CONFIG_EMBEDDED_REFRESH);
-                                return j;
-                            }));
+    register_config_embedded_refresh_endpoint();
+    register_config_video_playback_total_length_endpoint();
+    register_networks_endpoint();
+    register_embedding_endpoint();
+    register_video_thumbnail_clicked_endpoint();
+    register_video_thumbnail_stop_endpoint();
+    register_storage_status_endpoint();
+}
+
+void ClipPipeline::register_config_embedded_refresh_endpoint()
+{
+    m_resources.m_srv.Get(clip_endpoints::CONFIG_EMBEDDED_REFRESH, std::function<nlohmann::json()>([this]() {
+                              WEBSERVER_LOG_INFO("GET {} called", clip_endpoints::CONFIG_EMBEDDED_REFRESH);
+                              if (!m_app)
+                              {
+                                  WEBSERVER_LOG_ERROR("ClipVideoPipeline is not available");
+                                  throw std::runtime_error("ClipVideoPipeline not available");
+                              }
+                              auto app_controlservice_ext = m_app->get_extension<AppControlServiceExt>();
+                              if (!app_controlservice_ext)
+                              {
+                                  WEBSERVER_LOG_ERROR("AppControlServiceExt extension is not available");
+                                  throw std::runtime_error("AppControlServiceExt extension not available");
+                              }
+                              nlohmann::json j;
+                              j["rate"] = app_controlservice_ext->get_clip_embedding_refresh_rate().value();
+                              WEBSERVER_LOG_INFO("GET {} completed", clip_endpoints::CONFIG_EMBEDDED_REFRESH);
+                              return j;
+                          }));
 
     // Receives a new refresh rate, validates it, and updates the setting.
-    m_resources->m_srv->Post(
-        clip_endpoints::CONFIG_EMBEDDED_REFRESH,
-        std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &j_body) {
-            WEBSERVER_LOG_INFO("POST {} called", clip_endpoints::CONFIG_EMBEDDED_REFRESH);
-            int new_rate = j_body["rate"];
-            if (!m_app)
-            {
-                WEBSERVER_LOG_ERROR("ClipVideoPipeline is not available");
-                throw std::runtime_error("ClipVideoPipeline not available");
-            }
-            auto app_controlservice_ext = m_app->get_extension<AppControlServiceExt>();
-            if (!app_controlservice_ext)
-            {
-                WEBSERVER_LOG_ERROR("AppControlServiceExt extension is not available");
-                throw std::runtime_error("AppControlServiceExt extension not available");
-            }
+    m_resources.m_srv.Post(clip_endpoints::CONFIG_EMBEDDED_REFRESH,
+                           std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &j_body) {
+                               WEBSERVER_LOG_INFO("POST {} called", clip_endpoints::CONFIG_EMBEDDED_REFRESH);
+                               int new_rate = j_body["rate"];
+                               if (!m_app)
+                               {
+                                   WEBSERVER_LOG_ERROR("ClipVideoPipeline is not available");
+                                   throw std::runtime_error("ClipVideoPipeline not available");
+                               }
+                               auto app_controlservice_ext = m_app->get_extension<AppControlServiceExt>();
+                               if (!app_controlservice_ext)
+                               {
+                                   WEBSERVER_LOG_ERROR("AppControlServiceExt extension is not available");
+                                   throw std::runtime_error("AppControlServiceExt extension not available");
+                               }
 
-            if (auto result = app_controlservice_ext->set_clip_embedding_refresh_rate(new_rate); !result)
-            {
-                WEBSERVER_LOG_ERROR("Failed to set new refresh rate: {}", result.error());
-                throw std::runtime_error("Failed to set new refresh rate");
-            }
-            nlohmann::json j;
-            j["new_rate"] = new_rate;
-            return j;
-        }));
+                               if (auto result = app_controlservice_ext->set_clip_embedding_refresh_rate(new_rate);
+                                   !result)
+                               {
+                                   WEBSERVER_LOG_ERROR("Failed to set new refresh rate: {}", result.error());
+                                   throw std::runtime_error("Failed to set new refresh rate");
+                               }
+                               nlohmann::json j;
+                               j["new_rate"] = new_rate;
+                               return j;
+                           }));
+}
 
-    m_resources->m_srv->Get(clip_endpoints::CONFIG_VIDEO_PLAYBACK_TOTAL_LENGTH,
-                            std::function<nlohmann::json()>([this]() {
-                                WEBSERVER_LOG_INFO("GET {} called", clip_endpoints::CONFIG_VIDEO_PLAYBACK_TOTAL_LENGTH);
-                                if (!m_app)
-                                {
-                                    WEBSERVER_LOG_ERROR("ClipVideoPipeline is not available");
-                                    throw std::runtime_error("ClipVideoPipeline not available");
-                                }
-                                auto clip_query_service = m_app->get_extension<ClipQueryServiceExt>();
-                                if (!clip_query_service)
-                                {
-                                    WEBSERVER_LOG_ERROR("ClipQueryService extension is not available");
-                                    throw std::runtime_error("ClipQueryService extension not available");
-                                }
+void ClipPipeline::register_config_video_playback_total_length_endpoint()
+{
+    m_resources.m_srv.Get(clip_endpoints::CONFIG_VIDEO_PLAYBACK_TOTAL_LENGTH, std::function<nlohmann::json()>([this]() {
+                              WEBSERVER_LOG_INFO("GET {} called", clip_endpoints::CONFIG_VIDEO_PLAYBACK_TOTAL_LENGTH);
+                              if (!m_app)
+                              {
+                                  WEBSERVER_LOG_ERROR("ClipVideoPipeline is not available");
+                                  throw std::runtime_error("ClipVideoPipeline not available");
+                              }
+                              auto clip_query_service = m_app->get_extension<ClipQueryServiceExt>();
+                              if (!clip_query_service)
+                              {
+                                  WEBSERVER_LOG_ERROR("ClipQueryService extension is not available");
+                                  throw std::runtime_error("ClipQueryService extension not available");
+                              }
 
-                                nlohmann::json response;
-                                response["total_length"] = clip_query_service->get_query_video_total_length().value() /
-                                                           1000; // divide to seconds;
-                                return response;
-                            }));
+                              nlohmann::json response;
+                              response["total_length"] = clip_query_service->get_query_video_total_length().value() /
+                                                         1000; // divide to seconds;
+                              return response;
+                          }));
 
-    m_resources->m_srv->Post(
+    m_resources.m_srv.Post(
         clip_endpoints::CONFIG_VIDEO_PLAYBACK_TOTAL_LENGTH,
         std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &j_body) {
             WEBSERVER_LOG_INFO("POST {} called", clip_endpoints::CONFIG_VIDEO_PLAYBACK_TOTAL_LENGTH);
@@ -408,80 +426,89 @@ void ClipPipeline::register_endpoints()
             j["new_total_length"] = new_total_length;
             return j;
         }));
+}
 
-    m_resources->m_srv->Get(clip_endpoints::NETWORKS, std::function<nlohmann::json()>([this]() {
-                                WEBSERVER_LOG_INFO("GET {} called", clip_endpoints::NETWORKS);
-                                nlohmann::json response = nlohmann::json::array();
-                                for (const auto &network : m_clip_app_config->text_encoder_support_list)
-                                {
-                                    nlohmann::json network_obj = {
-                                        {"name", network.network_name},
-                                        {"id", network.network_id}, // Convert name to ID
-                                        {"onnx_file_path", network.network_text_enc_onnx_file_path},
-                                        {"embedding_size", network.network_embedding_size},
-                                        {"context_length", network.network_context_length},
-                                    };
-                                    response.push_back(network_obj);
-                                }
-                                return response;
-                            }));
+void ClipPipeline::register_networks_endpoint()
+{
+    m_resources.m_srv.Get(clip_endpoints::NETWORKS, std::function<nlohmann::json()>([this]() {
+                              WEBSERVER_LOG_INFO("GET {} called", clip_endpoints::NETWORKS);
+                              nlohmann::json response = nlohmann::json::array();
+                              for (const auto &network : m_clip_app_config->text_encoder_support_list)
+                              {
+                                  nlohmann::json network_obj = {
+                                      {"name", network.network_name},
+                                      {"id", network.network_id}, // Convert name to ID
+                                      {"onnx_file_path", network.network_text_enc_onnx_file_path},
+                                      {"embedding_size", network.network_embedding_size},
+                                      {"context_length", network.network_context_length},
+                                  };
+                                  response.push_back(network_obj);
+                              }
+                              return response;
+                          }));
+}
 
-    m_resources->m_srv->Post(
-        clip_endpoints::EMBEDDING,
-        std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &j_body) {
-            WEBSERVER_LOG_INFO("POST {} called", clip_endpoints::EMBEDDING);
+void ClipPipeline::register_embedding_endpoint()
+{
+    m_resources.m_srv.Post(clip_endpoints::EMBEDDING,
+                           std::function<nlohmann::json(const nlohmann::json &)>([this](const nlohmann::json &j_body) {
+                               WEBSERVER_LOG_INFO("POST {} called", clip_endpoints::EMBEDDING);
 
-            EmbeddingInfo embedding_info;
+                               EmbeddingInfo embedding_info;
 
-            // Parse positive prompt
-            if (j_body.contains("positive_prompt"))
-            {
-                auto &pos_json = j_body["positive_prompt"];
-                embedding_info.positive_embedding.prompt = pos_json["text"];
-                embedding_info.positive_embedding.embedding = pos_json["embedding"].get<std::vector<float>>();
-            }
+                               // Parse positive prompt
+                               if (j_body.contains("positive_prompt"))
+                               {
+                                   auto &pos_json = j_body["positive_prompt"];
+                                   embedding_info.positive_embedding.prompt = pos_json["text"];
+                                   embedding_info.positive_embedding.embedding =
+                                       pos_json["embedding"].get<std::vector<float>>();
+                               }
 
-            // Parse negative prompts
-            if (j_body.contains("negative_prompts"))
-            {
-                for (const auto &neg_json : j_body["negative_prompts"])
-                {
-                    EmbeddingInfo::EmbeddingData neg_data;
-                    neg_data.prompt = neg_json["text"];
-                    neg_data.embedding = neg_json["embedding"].get<std::vector<float>>();
-                    embedding_info.negative_embeddings.push_back(neg_data);
-                }
-            }
+                               // Parse negative prompts
+                               if (j_body.contains("negative_prompts"))
+                               {
+                                   for (const auto &neg_json : j_body["negative_prompts"])
+                                   {
+                                       EmbeddingInfo::EmbeddingData neg_data;
+                                       neg_data.prompt = neg_json["text"];
+                                       neg_data.embedding = neg_json["embedding"].get<std::vector<float>>();
+                                       embedding_info.negative_embeddings.push_back(neg_data);
+                                   }
+                               }
 
-            // Parse text decode on device flag
-            embedding_info.text_decode_on_device =
-                j_body.value("text_decode_on_device", embedding_info.text_decode_on_device);
+                               // Parse text decode on device flag
+                               embedding_info.text_decode_on_device =
+                                   j_body.value("text_decode_on_device", embedding_info.text_decode_on_device);
 
-            nlohmann::json response;
-            clearAllImages();
-            if (!processEmbedding(embedding_info))
-            {
-                WEBSERVER_LOG_INFO("No embedding query results found");
-                throw std::runtime_error("No embedding query results found");
-            }
-            response["status"] = "success";
-            nlohmann::json image_array = nlohmann::json::array();
+                               nlohmann::json response;
+                               clearAllImages();
+                               if (!processEmbedding(embedding_info))
+                               {
+                                   WEBSERVER_LOG_INFO("No embedding query results found");
+                                   throw std::runtime_error("No embedding query results found");
+                               }
+                               response["status"] = "success";
+                               nlohmann::json image_array = nlohmann::json::array();
 
-            for (const auto &image : m_images)
-            {
-                nlohmann::json img_obj;
-                img_obj["jpeg_data"] = "data:image/jpeg;base64," + image.jpeg_data;
-                img_obj["description"] = image.description;
-                img_obj["timestamp"] = image.timestamp;
-                img_obj["score"] = image.score;
-                image_array.push_back(img_obj);
-            }
+                               for (const auto &image : m_images)
+                               {
+                                   nlohmann::json img_obj;
+                                   img_obj["jpeg_data"] = "data:image/jpeg;base64," + image.jpeg_data;
+                                   img_obj["description"] = image.description;
+                                   img_obj["timestamp"] = image.timestamp;
+                                   img_obj["score"] = image.score;
+                                   image_array.push_back(img_obj);
+                               }
 
-            response["images"] = image_array;
-            return response;
-        }));
+                               response["images"] = image_array;
+                               return response;
+                           }));
+}
 
-    m_resources->m_srv->Post(
+void ClipPipeline::register_video_thumbnail_clicked_endpoint()
+{
+    m_resources.m_srv.Post(
         clip_endpoints::VIDEO_THUMBNAIL_CLICKED,
         std::function<void(const nlohmann::json &)>([this](const nlohmann::json &j_body) {
             WEBSERVER_LOG_INFO("POST {} called", clip_endpoints::VIDEO_THUMBNAIL_CLICKED);
@@ -538,62 +565,69 @@ void ClipPipeline::register_endpoints()
             WEBSERVER_LOG_INFO("Video streaming for clicked thumbnail started");
             return;
         }));
+}
 
-    m_resources->m_srv->Post(clip_endpoints::VIDEO_THUMBNAIL_STOP,
-                             std::function<void(const nlohmann::json &)>([this](const nlohmann::json &j_body) {
-                                 WEBSERVER_LOG_INFO("POST {} called", clip_endpoints::VIDEO_THUMBNAIL_STOP);
-                                 if (!m_app)
-                                 {
-                                     WEBSERVER_LOG_ERROR("ClipVideoPipeline is not available");
-                                     throw std::runtime_error("ClipVideoPipeline not available");
-                                 }
-                                 auto query_player_ext = m_app->get_extension<VideoStreamingServiceExt>();
-                                 if (!query_player_ext)
-                                 {
-                                     WEBSERVER_LOG_ERROR("VideoStreamingServiceExt extension is not available");
-                                     throw std::runtime_error("VideoStreamingServiceExt extension not available");
-                                 }
-                                 query_player_ext->stop_streaming();
-                                 WEBSERVER_LOG_INFO("Video streaming for clicked thumbnail stopped");
-                                 return;
-                             }));
+void ClipPipeline::register_video_thumbnail_stop_endpoint()
+{
+    m_resources.m_srv.Post(clip_endpoints::VIDEO_THUMBNAIL_STOP,
+                           std::function<void(const nlohmann::json &)>([this](const nlohmann::json &j_body) {
+                               WEBSERVER_LOG_INFO("POST {} called", clip_endpoints::VIDEO_THUMBNAIL_STOP);
+                               if (!m_app)
+                               {
+                                   WEBSERVER_LOG_ERROR("ClipVideoPipeline is not available");
+                                   throw std::runtime_error("ClipVideoPipeline not available");
+                               }
+                               auto query_player_ext = m_app->get_extension<VideoStreamingServiceExt>();
+                               if (!query_player_ext)
+                               {
+                                   WEBSERVER_LOG_ERROR("VideoStreamingServiceExt extension is not available");
+                                   throw std::runtime_error("VideoStreamingServiceExt extension not available");
+                               }
+                               query_player_ext->stop_streaming();
+                               WEBSERVER_LOG_INFO("Video streaming for clicked thumbnail stopped");
+                               return;
+                           }));
+}
 
-    m_resources->m_srv->Get(clip_endpoints::STORAGE_STATUS, std::function<nlohmann::json()>([this]() {
-                                WEBSERVER_LOG_INFO("GET {} called", clip_endpoints::STORAGE_STATUS);
-                                if (!m_app)
-                                {
-                                    WEBSERVER_LOG_ERROR("ClipVideoPipeline is not available");
-                                    throw std::runtime_error("ClipVideoPipeline not available");
-                                }
-                                auto storage_monitor_service = m_app->get_extension<StorageMonitorServiceExt>();
-                                if (!storage_monitor_service)
-                                {
-                                    WEBSERVER_LOG_ERROR("StorageMonitorServiceExt extension is not available");
-                                    throw std::runtime_error("StorageMonitorServiceExt extension not available");
-                                }
+void ClipPipeline::register_storage_status_endpoint()
+{
 
-                                json response;
-                                // Get storage info from StorageMonitorService
-                                auto storage_info = storage_monitor_service->get_storage_info();
-                                if (!storage_info.has_value())
-                                {
-                                    WEBSERVER_LOG_ERROR("Failed to retrieve storage info");
-                                    throw std::runtime_error("Failed to retrieve storage info");
-                                }
+    m_resources.m_srv.Get(clip_endpoints::STORAGE_STATUS, std::function<nlohmann::json()>([this]() {
+                              WEBSERVER_LOG_INFO("GET {} called", clip_endpoints::STORAGE_STATUS);
+                              if (!m_app)
+                              {
+                                  WEBSERVER_LOG_ERROR("ClipVideoPipeline is not available");
+                                  throw std::runtime_error("ClipVideoPipeline not available");
+                              }
+                              auto storage_monitor_service = m_app->get_extension<StorageMonitorServiceExt>();
+                              if (!storage_monitor_service)
+                              {
+                                  WEBSERVER_LOG_ERROR("StorageMonitorServiceExt extension is not available");
+                                  throw std::runtime_error("StorageMonitorServiceExt extension not available");
+                              }
 
-                                response["total_space"] = storage_info->mount_total_space;
-                                response["available_space"] = storage_info->mount_free_space;
-                                response["used_space"] = storage_info->root_directory_size;
+                              json response;
+                              // Get storage info from StorageMonitorService
+                              auto storage_info = storage_monitor_service->get_storage_info();
+                              if (!storage_info.has_value())
+                              {
+                                  WEBSERVER_LOG_ERROR("Failed to retrieve storage info");
+                                  throw std::runtime_error("Failed to retrieve storage info");
+                              }
 
-                                // Breakdown of storage usage
-                                response["breakdown"]["database"] = storage_info->database_directory_size;
-                                response["breakdown"]["faissdb"] = storage_info->faissdb_directory_size;
-                                response["breakdown"]["thumbnail"] = storage_info->thumbnail_directory_size;
-                                response["breakdown"]["video"] = storage_info->video_directory_size;
-                                response["timestamp"] = std::time(nullptr);
+                              response["total_space"] = storage_info->mount_total_space;
+                              response["available_space"] = storage_info->mount_free_space;
+                              response["used_space"] = storage_info->root_directory_size;
 
-                                return response;
-                            }));
+                              // Breakdown of storage usage
+                              response["breakdown"]["database"] = storage_info->database_directory_size;
+                              response["breakdown"]["faissdb"] = storage_info->faissdb_directory_size;
+                              response["breakdown"]["thumbnail"] = storage_info->thumbnail_directory_size;
+                              response["breakdown"]["video"] = storage_info->video_directory_size;
+                              response["timestamp"] = std::time(nullptr);
+
+                              return response;
+                          }));
 }
 
 void ClipPipeline::unregister_endpoints()
@@ -603,7 +637,7 @@ void ClipPipeline::unregister_endpoints()
     // Remove all CLIP-specific endpoints
     for (const auto &endpoint : clip_endpoints::ALL_ENDPOINTS)
     {
-        m_resources->m_srv->Unregister(endpoint);
+        m_resources.m_srv.Unregister(endpoint);
     }
 
     // Call parent's unregister function
@@ -646,21 +680,17 @@ bool ClipPipeline::processEmbedding(const EmbeddingInfo &embedding_info)
     WEBSERVER_LOG_DEBUG("  Positive Prompt: {}", query_info.m_positive_embedding.prompt);
     WEBSERVER_LOG_DEBUG("  Positive Embedding Size: {}", query_info.m_positive_embedding.embedding.size());
 
-    if (query_info.m_negative_embeddings.empty())
+    if (!query_info.m_negative_embeddings.empty())
     {
-        WEBSERVER_LOG_DEBUG("  No Negative Prompts, using default negative prompt");
-        for (const auto &neg_prompt : m_clip_app_config->query_defaults.default_negative_prompts)
+        for (const auto &neg : query_info.m_negative_embeddings)
         {
-            ClipQueryServiceExt::QueryEmbeddingInfo::EmbeddingData neg_data;
-            neg_data.prompt = neg_prompt;
-            query_info.m_negative_embeddings.push_back(neg_data);
+            WEBSERVER_LOG_DEBUG("  Negative Prompt: {}", neg.prompt);
+            WEBSERVER_LOG_DEBUG("  Negative Embedding Size: {}", neg.embedding.size());
         }
     }
-
-    for (const auto &neg : query_info.m_negative_embeddings)
+    else
     {
-        WEBSERVER_LOG_DEBUG("  Negative Prompt: {}", neg.prompt);
-        WEBSERVER_LOG_DEBUG("  Negative Embedding Size: {}", neg.embedding.size());
+        WEBSERVER_LOG_DEBUG("  No Negative Prompts from user, will automatically handle during search");
     }
 
     WEBSERVER_LOG_DEBUG("  Score Threshold: {}", query_info.m_score_threshold);

@@ -19,6 +19,22 @@ DspBaseCropStage::DspBaseCropStage(std::string name, int output_pool_size, int i
 {
 }
 
+void DspBaseCropStage::set_crop_every_x_frames(int crop_every_x_frames)
+{
+    HAILO_ANALYTICS_LOG_INFO("Stage {}: updating crop_every_x_frames from {} to {}", get_name(), m_crop_every_x_frames,
+                             crop_every_x_frames);
+    m_crop_every_x_frames = crop_every_x_frames;
+    m_frame_counter = 0;
+}
+
+void DspBaseCropStage::setup_pool_notification()
+{
+    if (m_buffer_pool && m_pool_mode == StagePoolMode::BLOCKING)
+    {
+        m_buffer_pool->set_on_release_callback([this](void *) { m_available_buffers_cv.notify_all(); });
+    }
+}
+
 void DspBaseCropStage::prepare_single_crop_dim(HailoBBox bbox, std::vector<dsp_crop_api_t> &crop_resize_dims,
                                                int input_width, int input_height)
 {
@@ -73,49 +89,53 @@ AppStatus DspBaseCropStage::process(BufferPtr data)
     prepare_crops(data, crop_resize_dims);
     std::chrono::steady_clock::time_point prep_end = std::chrono::steady_clock::now();
 
-    std::size_t num_crops_allowed =
-        std::min(crop_resize_dims.size(), (std::size_t)m_buffer_pool->get_available_buffers_count() - 1);
-    crops_params.reserve(num_crops_allowed);
-    output_dsp_buffers.reserve(num_crops_allowed);
-
-    if (m_trace_processing_operations && crop_resize_dims.size() > num_crops_allowed)
-    {
-        HAILO_ANALYTICS_LOG_WARN("{} Not enough buffers! Requested: {}, Available: {}", m_stage_name,
-                                 crop_resize_dims.size(), num_crops_allowed);
-    }
+    crops_params.reserve(crop_resize_dims.size());
+    output_dsp_buffers.reserve(crop_resize_dims.size());
 
     std::chrono::steady_clock::time_point buffer_acq_begin = std::chrono::steady_clock::now();
-    for (std::size_t i = 0; i < num_crops_allowed; ++i)
+    for (std::size_t i = 0; i < crop_resize_dims.size(); ++i)
     {
-        auto &dims = crop_resize_dims[i];
-
-        HailoMediaLibraryBufferPtr cropped_buffer = std::make_shared<hailo_media_library_buffer>();
-        if (m_buffer_pool->acquire_buffer(cropped_buffer) != MEDIA_LIBRARY_SUCCESS)
+        // Check buffer availability BEFORE acquiring to avoid error logs from the pool
+        if (m_buffer_pool->get_available_buffers_count() <= 1)
         {
-            if (m_pool_mode == StagePoolMode::FAIL_ON_EMPTY_POOL)
+            if (m_pool_mode == StagePoolMode::USE_AVAILABLE_BUFFERS)
             {
-                for (auto &buffer : cropped_buffers)
-                {
-                    buffer.reset();
-                }
-                return AppStatus::BUFFER_ALLOCATION_ERROR;
+                HAILO_ANALYTICS_LOG_WARN("{} Not enough buffers! Requested: {}, Acquired: {}", m_stage_name,
+                                         crop_resize_dims.size(), cropped_buffers.size());
+                break;
             }
             else if (m_pool_mode == StagePoolMode::BLOCKING)
             {
                 std::unique_lock<std::mutex> lock(m_buff_pool_mutex);
-                m_available_buffers_cv.wait(lock, [this, cropped_buffer] {
-                    return m_buffer_pool->acquire_buffer(cropped_buffer) == MEDIA_LIBRARY_SUCCESS;
-                });
+                m_available_buffers_cv.wait(lock,
+                                            [this]() { return m_buffer_pool->get_available_buffers_count() > 1; });
             }
-            else
+            else if (m_pool_mode == StagePoolMode::LEAKY)
             {
-                /* Leaky */
                 for (auto &buffer : cropped_buffers)
                 {
                     buffer.reset();
                 }
                 return AppStatus::SUCCESS;
             }
+            else
+            {
+                /* FAIL_ON_EMPTY_POOL */
+                for (auto &buffer : cropped_buffers)
+                {
+                    buffer.reset();
+                }
+                return AppStatus::BUFFER_ALLOCATION_ERROR;
+            }
+        }
+
+        auto &dims = crop_resize_dims[i];
+
+        HailoMediaLibraryBufferPtr cropped_buffer = std::make_shared<hailo_media_library_buffer>();
+        if (m_buffer_pool->acquire_buffer(cropped_buffer) != MEDIA_LIBRARY_SUCCESS)
+        {
+            HAILO_ANALYTICS_LOG_WARN("{} Buffer acquire failed unexpectedly after availability check", m_stage_name);
+            break;
         }
 
         cropped_buffer->copy_metadata_from(data->get_buffer());
@@ -136,13 +156,23 @@ AppStatus DspBaseCropStage::process(BufferPtr data)
     }
     std::chrono::steady_clock::time_point buffer_acq_end = std::chrono::steady_clock::now();
 
+    // If no buffers were acquired, skip cropping and forward the frame
+    if (cropped_buffers.empty())
+    {
+        CroppingMetadataPtr cropping_meta = std::make_shared<CroppingMetadata>(0);
+        data->add_metadata(cropping_meta);
+        send_to_specific_subscriber(m_main_subscriber, data);
+        post_crop(data);
+        return AppStatus::SUCCESS;
+    }
+
     std::chrono::steady_clock::time_point dsp_begin = std::chrono::steady_clock::now();
     HailoMediaLibraryBufferPtr input_buffer = data->get_buffer();
     hailo_dsp_buffer_data_t in_buffer_data = input_buffer->buffer_data->As<hailo_dsp_buffer_data_t>();
     dsp_multi_crop_resize_params_t multi_crop_resize_params = {
         .src = &in_buffer_data.properties,
         .crop_resize_params = crops_params.data(),
-        .crop_resize_params_count = num_crops_allowed,
+        .crop_resize_params_count = cropped_buffers.size(),
         .interpolation = INTERPOLATION_TYPE_BILINEAR,
     };
 
@@ -188,7 +218,7 @@ AppStatus DspBaseCropStage::process(BufferPtr data)
         auto total_time = std::chrono::duration_cast<std::chrono::microseconds>(send_end - total_begin).count();
 
         HAILO_ANALYTICS_LOG_TRACE("{} TIMING [crops={}]: Total={}us | Prep={}us | BufAcq={}us | DSP={}us | Send={}us",
-                                  m_stage_name, num_crops_allowed, total_time, prep_time, buffer_time, dsp_time,
+                                  m_stage_name, cropped_buffers.size(), total_time, prep_time, buffer_time, dsp_time,
                                   send_time);
     }
 

@@ -222,10 +222,9 @@ static GstPadProbeReturn configure_on_new_config(GstPad *sinkpad, GstPadProbeInf
         return GST_PAD_PROBE_OK;
     }
 
-    hailojpegenc->params->encoder_user_config = attached_encoder_config;
-
-    auto new_encoder_config = std::get<jpeg_encoder_config_t>(hailojpegenc->params->encoder_user_config);
     auto old_encoder_config = std::get<jpeg_encoder_config_t>(hailojpegenc->params->encoder_user_config);
+    hailojpegenc->params->encoder_user_config = attached_encoder_config;
+    auto new_encoder_config = std::get<jpeg_encoder_config_t>(hailojpegenc->params->encoder_user_config);
     handle_new_config(hailojpegenc, old_encoder_config, new_encoder_config);
 
     return GST_PAD_PROBE_OK;

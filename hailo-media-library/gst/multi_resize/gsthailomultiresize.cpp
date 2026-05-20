@@ -70,14 +70,11 @@ static void gst_hailo_multi_resize_dispose(GObject *object);
 static void gst_hailo_multi_resize_finalize(GObject *object);
 static void gst_hailo_multi_resize_reset(GstHailoMultiResize *self);
 static void gst_hailo_multi_resize_release_srcpad(GstPad *pad, GstHailoMultiResize *self);
+static GstStateChangeReturn gst_hailo_multi_resize_change_state(GstElement *element, GstStateChange transition);
 
 static gboolean gst_hailo_handle_caps_query(GstHailoMultiResize *self, GstPad *pad, GstQuery *query);
-static gboolean gst_hailo_multi_resize_sink_event(GstPad *pad, GstObject *parent, GstEvent *gst_event);
 static gboolean gst_hailo_set_all_srcpad_caps(GstHailoMultiResize *self,
                                               const config_application_input_streams_t &outputs_config);
-static gboolean intersect_peer_srcpad_caps(GstHailoMultiResize *self, GstPad *sinkpad, GstPad *srcpad);
-static gboolean gst_hailo_multi_resize_on_output_caps_changed(GstHailoMultiResize *self,
-                                                              const config_application_input_streams_t &outputs_config);
 
 enum
 {
@@ -120,6 +117,7 @@ static void gst_hailo_multi_resize_class_init(GstHailoMultiResizeClass *klass)
     gst_element_class_add_static_pad_template(gstelement_class, &src_template);
     gst_element_class_add_static_pad_template(gstelement_class, &sink_template);
 
+    gstelement_class->change_state = GST_DEBUG_FUNCPTR(gst_hailo_multi_resize_change_state);
     gstelement_class->request_new_pad = GST_DEBUG_FUNCPTR(gst_hailo_multi_resize_request_new_pad);
     gstelement_class->release_pad = GST_DEBUG_FUNCPTR(gst_hailo_multi_resize_release_pad);
 
@@ -144,15 +142,28 @@ static void gst_hailo_multi_resize_init(GstHailoMultiResize *multi_resize)
 
     gst_pad_set_chain_function(multi_resize->params->sinkpad, GST_DEBUG_FUNCPTR(gst_hailo_multi_resize_chain));
     gst_pad_set_query_function(multi_resize->params->sinkpad, GST_DEBUG_FUNCPTR(gst_hailo_multi_resize_sink_query));
-    gst_pad_set_event_function(multi_resize->params->sinkpad, GST_DEBUG_FUNCPTR(gst_hailo_multi_resize_sink_event));
 
     GST_PAD_SET_PROXY_CAPS(multi_resize->params->sinkpad.get());
     glib_cpp::ptrs::add_pad_to_element(GST_ELEMENT(multi_resize), multi_resize->params->sinkpad);
 
     MediaLibraryMultiResize::callbacks_t callbacks;
-    callbacks.on_output_resolutions_change = [multi_resize](const config_application_input_streams_t &outputs_res) {
-        // initialize caps negotiation to be passed downstream
-        gst_hailo_multi_resize_on_output_caps_changed(multi_resize, outputs_res);
+    callbacks.on_output_resolutions_change = [multi_resize](const config_application_input_streams_t &outputs_config) {
+        guint num_of_srcpads = multi_resize->params->srcpads_by_names.size();
+        if (num_of_srcpads > outputs_config.resolutions.size())
+        {
+            GST_ERROR_OBJECT(multi_resize, "Number of srcpads (%d) exceeds number of output resolutions (%ld)",
+                             num_of_srcpads, outputs_config.resolutions.size());
+            return;
+        }
+
+        GST_INFO_OBJECT(multi_resize, "Output resolutions change detected, updating srcpad caps");
+        if (!gst_hailo_set_all_srcpad_caps(multi_resize, outputs_config))
+        {
+            GST_ERROR_OBJECT(multi_resize, "Failed to set all srcpad caps on output resolutions change");
+            return;
+        }
+
+        multi_resize->params->outputs_config = outputs_config;
     };
     multi_resize->params->medialib_multi_resize->observe(callbacks);
 }
@@ -261,8 +272,6 @@ static GstFlowReturn gst_hailo_multi_resize_chain(GstPad *pad, GstObject *parent
     }
 
     MultiResizeOutputBuffersMap output_frames;
-    gst_hailo_set_all_srcpad_caps(self, self->params->outputs_config);
-
     GST_DEBUG_OBJECT(self, "Call media library handle frame - GstBuffer offset %ld", GST_BUFFER_OFFSET(buffer));
     media_library_return media_lib_ret =
         self->params->medialib_multi_resize->handle_frame(input_frame_ptr, output_frames);
@@ -354,7 +363,6 @@ static gboolean gst_hailo_set_all_srcpad_caps(GstHailoMultiResize *self,
         }
         auto srcpad_name = self->params->srcpad_names_by_stream_id.at(stream_id);
         auto srcpad = self->params->srcpads_by_names.at(srcpad_name);
-
         caps_result = gst_pad_peer_query_caps(srcpad, query_caps.at(i));
         outcaps = glib_cpp::ptrs::fixate_caps(caps_result);
 
@@ -389,88 +397,6 @@ static gboolean gst_hailo_set_all_srcpad_caps(GstHailoMultiResize *self,
     return TRUE;
 }
 
-static gboolean gst_hailo_multi_resize_on_output_caps_changed(GstHailoMultiResize *self,
-                                                              const config_application_input_streams_t &outputs_config)
-{
-    guint num_of_srcpads = self->params->srcpads_by_names.size();
-    if (num_of_srcpads > outputs_config.resolutions.size())
-    {
-        GST_ERROR_OBJECT(self, "Number of srcpads (%d) exceeds number of output resolutions (%ld)", num_of_srcpads,
-                         outputs_config.resolutions.size());
-        return FALSE;
-    }
-
-    if (!gst_hailo_set_all_srcpad_caps(self, outputs_config))
-    {
-        return FALSE;
-    }
-
-    self->params->outputs_config = outputs_config;
-    return TRUE;
-}
-
-static gboolean gst_hailo_multi_resize_sink_event(GstPad *pad, GstObject *parent, GstEvent *gst_event)
-{
-    GstHailoMultiResize *self = GST_HAILO_MULTI_RESIZE(parent);
-    GstEventPtr event = gst_event;
-    gboolean ret = FALSE;
-    GST_DEBUG_OBJECT(self, "Received event from sinkpad");
-
-    switch (GST_EVENT_TYPE(event))
-    {
-    case GST_EVENT_CUSTOM_DOWNSTREAM: {
-        GST_DEBUG_OBJECT(self, "Received custom event from sinkpad");
-
-        const GstStructure *structure = gst_event_get_structure(event);
-        if (structure == NULL)
-        {
-            return FALSE;
-        }
-
-        // for unknown events, call default handler
-        ret = glib_cpp::ptrs::pad_event_default(pad, parent, event);
-        if (!ret)
-        {
-            GST_ERROR_OBJECT(self, "Failed to handle custom event");
-            return FALSE;
-        }
-    }
-        ret = TRUE;
-        break;
-    default: {
-        /* just call the default handler */
-        ret = glib_cpp::ptrs::pad_event_default(pad, parent, event);
-        break;
-    }
-    }
-    return ret;
-}
-
-static gboolean intersect_peer_srcpad_caps(GstHailoMultiResize *self, GstPad *sinkpad, GstPad *srcpad)
-{
-    GstCapsPtr query_caps, intersect_caps, peercaps;
-    gboolean ret = TRUE;
-    auto srcpad_name = glib_cpp::get_name(srcpad);
-
-    query_caps = gst_caps_new_any();
-
-    /* query the peer with the transformed filter */
-    peercaps = gst_pad_peer_query_caps(srcpad, query_caps);
-    GST_DEBUG_OBJECT(sinkpad, "peercaps %" GST_PTR_FORMAT, peercaps.get());
-
-    /* intersect with the peer caps */
-    intersect_caps = gst_caps_intersect(query_caps, peercaps);
-
-    GST_DEBUG_OBJECT(sinkpad, "intersect_caps %" GST_PTR_FORMAT, intersect_caps.get());
-    // validate intersect caps
-    if (gst_caps_is_empty(intersect_caps))
-    {
-        GST_ERROR_OBJECT(self, "Failed to intersect caps - with srcpad %s and requested ANY", srcpad_name.c_str());
-        ret = FALSE;
-    }
-
-    return ret;
-}
 static gboolean gst_hailo_handle_caps_query(GstHailoMultiResize *self, GstPad *pad, GstQuery *query)
 {
     // get pad name and direction
@@ -501,15 +427,6 @@ static gboolean gst_hailo_handle_caps_query(GstHailoMultiResize *self, GstPad *p
         return FALSE;
     }
 
-    for (auto &[srcpad_name, srcpad] : self->params->srcpads_by_names)
-    {
-        if (!intersect_peer_srcpad_caps(self, pad, srcpad))
-        {
-            GST_ERROR_OBJECT(self, "Failed to intersect caps with srcpad %s", srcpad_name.c_str());
-            return FALSE;
-        }
-    }
-
     // set the caps result
     gst_query_set_caps_result(query, caps_result);
     return TRUE;
@@ -518,15 +435,14 @@ static gboolean gst_hailo_handle_caps_query(GstHailoMultiResize *self, GstPad *p
 static gboolean gst_hailo_multi_resize_sink_query(GstPad *pad, GstObject *parent, GstQuery *query)
 {
     GstHailoMultiResize *self = GST_HAILO_MULTI_RESIZE(parent);
-    GST_DEBUG_OBJECT(self, "Received query from sinkpad");
     gboolean ret;
 
     switch (GST_QUERY_TYPE(query))
     {
     case GST_QUERY_ALLOCATION: {
-        GST_DEBUG_OBJECT(self, "Received allocation query from sinkpad");
         gst_query_add_allocation_meta(query, GST_VIDEO_META_API_TYPE, NULL);
         ret = gst_pad_query_default(pad, parent, query);
+        GST_DEBUG_OBJECT(self, "Received allocation query from sinkpad, returning %d", ret);
         break;
     }
     case GST_QUERY_CAPS: {
@@ -535,7 +451,7 @@ static gboolean gst_hailo_multi_resize_sink_query(GstPad *pad, GstObject *parent
     }
     case GST_QUERY_ACCEPT_CAPS: {
         GstCapsPtr caps = glib_cpp::ptrs::parse_query_accept_caps(query);
-        GST_DEBUG("accept caps %" GST_PTR_FORMAT, caps.get());
+        GST_DEBUG_OBJECT(self, "received accept caps query from sinkpad, caps %" GST_PTR_FORMAT, caps.get());
         gst_query_set_accept_caps_result(query, true);
         ret = TRUE;
         break;
@@ -622,8 +538,6 @@ static GstPad *gst_hailo_multi_resize_request_new_pad(GstElement *element, GstPa
 {
     GstPadPtr srcpad;
     GstHailoMultiResize *self = GST_HAILO_MULTI_RESIZE(element);
-    GST_DEBUG_OBJECT(self, "Request new pad name: %s", name);
-
     GST_OBJECT_LOCK(self);
     srcpad = gst_pad_new_from_template(templ, name);
     GST_OBJECT_UNLOCK(self);
@@ -635,6 +549,8 @@ static GstPad *gst_hailo_multi_resize_request_new_pad(GstElement *element, GstPa
     self->params->srcpads_by_names[srcpad_name] = srcpad;
     self->params->not_connected_srcpad_names.push(srcpad_name);
     srcpad.set_auto_unref(false);
+
+    GST_DEBUG_OBJECT(self, "Create srcpad name: %s(%s)", srcpad_name, name);
     return srcpad;
 }
 
@@ -649,6 +565,24 @@ static void gst_hailo_multi_resize_release_pad(GstElement *element, GstPad *pad)
     }
     std::erase_if(self->params->srcpad_names_by_stream_id,
                   [srcpad_name](const auto &item) { return item.second == srcpad_name; });
-
     glib_cpp::ptrs::remove_pad_from_element(GST_ELEMENT(self), pad);
+}
+
+static GstStateChangeReturn gst_hailo_multi_resize_change_state(GstElement *element, GstStateChange transition)
+{
+    GstHailoMultiResize *self = GST_HAILO_MULTI_RESIZE(element);
+    GstStateChangeReturn result = GST_ELEMENT_CLASS(parent_class)->change_state(element, transition);
+
+    switch (transition)
+    {
+    case GST_STATE_CHANGE_READY_TO_NULL: {
+        GST_DEBUG_OBJECT(self, "GST_STATE_CHANGE_READY_TO_NULL - cleaning multi resize state");
+        self->params->medialib_multi_resize->clean_on_stop();
+        break;
+    }
+    default:
+        break;
+    }
+
+    return result;
 }

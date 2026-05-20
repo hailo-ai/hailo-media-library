@@ -1,10 +1,14 @@
-#include "pipeline.hpp"
+#include "basic_pipeline.hpp"
 #include "common/common.hpp"
-#include <fstream>
+#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
+#include "hailo_analytics/pipeline/routing/tee_stage.hpp"
+#include "hailo_analytics/pipeline/routing/valve_stage.hpp"
+#include "hailo_analytics/pipeline/sinks/app_sink_stage.hpp"
 
 #define TEE_STAGE "vision_tee"
 
 using namespace hailo_analytics::pipeline::sinks;
+using namespace hailo_analytics::pipeline::sources;
 using namespace hailo_analytics::pipeline::overlay;
 using namespace hailo_analytics::pipeline::routing;
 using namespace webserver::pipeline;
@@ -14,8 +18,8 @@ using namespace webserver::resources;
     {ProfileType::Daylight, ProfileType::Lowlight, ProfileType::HighDynamicRange, ProfileType::LowlightBayer,          \
      ProfileType::DenoiseHdr}
 
-BasicPipeline::BasicPipeline(WebserverResourceRepository resources, std::shared_ptr<MediaLibrary> media_library,
-                             std::shared_ptr<RTPConverterStage> webrtc_stage, Architecture platform)
+BasicPipeline::BasicPipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
+                             RTPConverterStage &webrtc_stage, Architecture platform)
     : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight,
                    BASIC_PIPELINE_SUPPORTED_PROFILES)
 {
@@ -71,17 +75,17 @@ void BasicPipeline::build_pipeline()
             .set_stage_name("main_sink")
             .set_queue_size_opt(1)
             .set_leaky_opt(false)
-            .set_process_func([&](hailo_analytics::pipeline::BufferPtr buf) { m_webrtc_stage->process(buf); })
+            .set_process_func([&](hailo_analytics::pipeline::BufferPtr buf) { m_webrtc_stage.process(buf); })
             .buildptr();
     m_app_resources->pipeline =
-        PipelineBuilder()
-            .add_stage<FrontendStage>("frontend", configure_frontend(), StageType::SOURCE)
-            .add_stage<ValveStage>("valve", m_app_resources->valve_stage)
-            .add_stage<FreezeStage>("freeze", m_app_resources->freeze_stage)
-            .add_stage<EncoderStage>("encoder", configure_encoder_and_osd(DEFAULT_STREAM_4K_NAME))
-            .add_stage<TeeStage>("tee", std::make_shared<TeeStage>(TEE_STAGE, 2, false, false))
-            .add_stage<UdpStage>("udp", configure_udp(DEFAULT_STREAM_4K_NAME), StageType::SINK)
-            .add_stage<AppSinkStage>("main_sink", main_sink_stage, StageType::SINK)
+        hailo_analytics::pipeline::PipelineBuilder()
+            .add_stage("frontend", configure_frontend(), hailo_analytics::pipeline::StageType::SOURCE)
+            .add_stage("valve", m_app_resources->valve_stage)
+            .add_stage("freeze", m_app_resources->freeze_stage)
+            .add_stage("encoder", configure_encoder_and_osd(DEFAULT_STREAM_4K_NAME))
+            .add_stage("tee", std::make_shared<TeeStage>(TEE_STAGE, 2, false, false))
+            .add_stage("udp", configure_udp(DEFAULT_STREAM_4K_NAME), hailo_analytics::pipeline::StageType::SINK)
+            .add_stage("main_sink", main_sink_stage, hailo_analytics::pipeline::StageType::SINK)
             .connect_frontend("frontend", DEFAULT_STREAM_4K_NAME, "freeze")
             .connect("freeze", "valve")
             .connect("valve", "encoder")

@@ -1,5 +1,10 @@
 #include "player_service_ext.hpp"
 
+const std::string &VideoStreamingServiceExt::get_session_id() const
+{
+    return m_session_id;
+}
+
 std::shared_ptr<VideoStreamingServiceExt> VideoStreamingServiceExt::create(
     std::shared_ptr<hailo_analytics::pipeline::sinks::RTPConverterStage::RTPReceiver> webrtc_streamer)
 {

@@ -9,11 +9,14 @@ HailortAsyncStage::HailortAsyncStage(std::string name, std::string hef_path, siz
                                      std::string group_id, int batch_size, size_t job_limit, int scheduler_threshold,
                                      bool dynamic_threshold, std::chrono::milliseconds scheduler_timeout,
                                      StagePoolMode pool_mode, float32_t nms_score_threshold,
-                                     size_t nms_max_accumulated_mask_size_multiplier, bool trace_processing_operations)
+                                     std::vector<bool> nms_classes_filter_mask,
+                                     size_t nms_max_accumulated_mask_size_multiplier, bool trace_processing_operations,
+                                     bool use_hailort_service)
     : hailo_analytics::pipeline::ThreadedStage(name, queue_size, false, trace_processing_operations),
-      m_output_pool_size(output_pool_size), m_hef_path(hef_path), m_group_id(group_id), m_batch_size(batch_size),
-      m_scheduler_threshold(scheduler_threshold), m_dynamic_threshold(dynamic_threshold),
-      m_nms_score_threshold(nms_score_threshold),
+      m_output_pool_size(output_pool_size), m_hef_path(hef_path), m_group_id(group_id),
+      m_use_hailort_service(use_hailort_service), m_batch_size(batch_size), m_scheduler_threshold(scheduler_threshold),
+      m_dynamic_threshold(dynamic_threshold), m_nms_score_threshold(nms_score_threshold),
+      m_nms_classes_filter_mask(std::move(nms_classes_filter_mask)),
       m_nms_max_accumulated_mask_size_multiplier(nms_max_accumulated_mask_size_multiplier),
       m_scheduler_timeout(scheduler_timeout), m_jobs_limit(job_limit), m_pool_mode(pool_mode)
 {
@@ -26,7 +29,13 @@ AppStatus HailortAsyncStage::init()
     hailo_vdevice_params_t vdevice_params = {0};
     hailo_init_vdevice_params(&vdevice_params);
     vdevice_params.group_id = m_group_id.c_str();
-
+    vdevice_params.multi_process_service = m_use_hailort_service;
+    HAILO_ANALYTICS_LOG_INFO(
+        "Initializing HailortAsyncStage with hef_path={}, group_id={}, batch_size={}, scheduler_threshold={}, "
+        "dynamic_threshold={}, nms_score_threshold={}, nms_max_accumulated_mask_size_multiplier={}, "
+        "scheduler_timeout={}ms, use_hailort_service={}",
+        m_hef_path, m_group_id, m_batch_size, m_scheduler_threshold, m_dynamic_threshold, m_nms_score_threshold,
+        m_nms_max_accumulated_mask_size_multiplier, m_scheduler_timeout.count(), m_use_hailort_service);
     // Create a vdevice
     auto vdevice_exp = hailort::VDevice::create(vdevice_params);
     if (!vdevice_exp)
@@ -52,6 +61,10 @@ AppStatus HailortAsyncStage::init()
         if (infer_stream.is_nms() && m_nms_score_threshold > 0.0f)
         {
             infer_stream.set_nms_score_threshold(m_nms_score_threshold);
+        }
+        if (infer_stream.is_nms() && !m_nms_classes_filter_mask.empty())
+        {
+            infer_stream.set_nms_classes_filter_mask(m_nms_classes_filter_mask);
         }
         // Set NMS max accumulated mask size if multiplier is specified
         if (m_nms_max_accumulated_mask_size_multiplier > 0)
@@ -95,6 +108,8 @@ AppStatus HailortAsyncStage::init()
         }
     }
 
+    setup_pool_notifications();
+
     // Gather the vstream info for each output tensor
     auto vstream_infos = m_infer_model->hef().get_output_vstream_infos();
     if (!vstream_infos)
@@ -108,6 +123,17 @@ AppStatus HailortAsyncStage::init()
     }
 
     return AppStatus::SUCCESS;
+}
+
+void HailortAsyncStage::setup_pool_notifications()
+{
+    if (m_pool_mode == StagePoolMode::BLOCKING)
+    {
+        for (auto &[tensor_name, pool] : m_tensor_buffer_pools)
+        {
+            pool->set_on_release_callback([this](void *) { m_available_buffers_cv.notify_all(); });
+        }
+    }
 }
 
 AppStatus HailortAsyncStage::deinit()
@@ -175,26 +201,27 @@ AppStatus HailortAsyncStage::acquire_and_set_tensor_buffers(std::unordered_map<s
     // Acquire a buffer for each output tensor
     for (auto &output : m_infer_model->outputs())
     {
-        // Acquire a buffer for this tensor output from the corresponding buffer pool
-        HailoMediaLibraryBufferPtr tensor_buffer = std::make_shared<hailo_media_library_buffer>();
-        BufferPtr tensor_buffer_ptr = std::make_shared<Buffer>(tensor_buffer);
-        if (m_tensor_buffer_pools[output.name()]->acquire_buffer(tensor_buffer) != MEDIA_LIBRARY_SUCCESS)
+        auto &pool = m_tensor_buffer_pools[output.name()];
+
+        // Check buffer availability BEFORE acquiring to avoid error logs from the pool
+        if (pool->get_available_buffers_count() == 0)
         {
             if (m_pool_mode == StagePoolMode::FAIL_ON_EMPTY_POOL)
             {
+                HAILO_ANALYTICS_LOG_WARN("{} Not enough buffers in pool for tensor {}! Requested: {}, Available: {}",
+                                         m_stage_name, output.name(), 1, pool->get_available_buffers_count());
                 return AppStatus::BUFFER_ALLOCATION_ERROR;
             }
             else if (m_pool_mode == StagePoolMode::BLOCKING)
             {
-                HAILO_ANALYTICS_LOG_INFO("{} acquire buffer from buffer pool failed, wait for available buffer",
-                                         m_stage_name);
+                HAILO_ANALYTICS_LOG_INFO("{} no available buffers in pool for tensor {}, waiting...", m_stage_name,
+                                         output.name());
                 std::unique_lock<std::mutex> lock(m_buff_pool_mutex);
-                m_available_buffers_cv.wait(lock, [this, output, tensor_buffer] {
-                    return m_tensor_buffer_pools[output.name()]->acquire_buffer(tensor_buffer) == MEDIA_LIBRARY_SUCCESS;
-                });
+                m_available_buffers_cv.wait(lock, [&pool]() { return pool->get_available_buffers_count() >= 1; });
             }
             else
             {
+                // LEAKY or any other mode: drop frame
                 for (auto &buffer : tensor_buffers)
                 {
                     buffer.second.reset();
@@ -203,7 +230,17 @@ AppStatus HailortAsyncStage::acquire_and_set_tensor_buffers(std::unordered_map<s
             }
         }
 
+        // Acquire a buffer for this tensor output from the corresponding buffer pool
+        HailoMediaLibraryBufferPtr tensor_buffer = std::make_shared<hailo_media_library_buffer>();
+        if (pool->acquire_buffer(tensor_buffer) != MEDIA_LIBRARY_SUCCESS)
+        {
+            HAILO_ANALYTICS_LOG_WARN("{} buffer acquire failed unexpectedly after availability check for tensor {}",
+                                     m_stage_name, output.name());
+            return AppStatus::BUFFER_ALLOCATION_ERROR;
+        }
+
         // Set entry in map
+        BufferPtr tensor_buffer_ptr = std::make_shared<Buffer>(tensor_buffer);
         tensor_buffers[output.name()] = tensor_buffer_ptr;
 
         // Set the HailoRT bindings for the acquired buffer
@@ -487,6 +524,12 @@ HailortAsyncStageBuild::Builder &HailortAsyncStageBuild::Builder::set_nms_score_
     return *this;
 }
 
+HailortAsyncStageBuild::Builder &HailortAsyncStageBuild::Builder::set_nms_classes_filter_mask(std::vector<bool> mask)
+{
+    m_nms_classes_filter_mask = std::move(mask);
+    return *this;
+}
+
 HailortAsyncStageBuild::Builder &HailortAsyncStageBuild::Builder::set_nms_max_accumulated_mask_size_multiplier(
     size_t multiplier)
 {
@@ -496,6 +539,12 @@ HailortAsyncStageBuild::Builder &HailortAsyncStageBuild::Builder::set_nms_max_ac
 HailortAsyncStageBuild::Builder &HailortAsyncStageBuild::Builder::set_trace_opt(bool activate)
 {
     m_trace = activate;
+    return *this;
+}
+
+HailortAsyncStageBuild::Builder &HailortAsyncStageBuild::Builder::set_use_hailort_service(bool use_service)
+{
+    m_use_hailort_service = use_service;
     return *this;
 }
 
@@ -511,7 +560,8 @@ std::shared_ptr<HailortAsyncStage> HailortAsyncStageBuild::Builder::buildptr() c
     return std::make_shared<HailortAsyncStage>(
         m_stage_name.value(), m_hef_path.value(), m_queue_size, m_output_pool_size, m_group_id.value(), m_batch_size,
         m_job_limit, m_scheduler_threshold, m_dynamic_threshold, m_scheduler_timeout, m_pool_mode,
-        m_nms_score_threshold, m_nms_max_accumulated_mask_size_multiplier, m_trace);
+        m_nms_score_threshold, m_nms_classes_filter_mask, m_nms_max_accumulated_mask_size_multiplier, m_trace,
+        m_use_hailort_service);
 }
 
 HailortAsyncStageBuild::Builder HailortAsyncStageBuild::create()
