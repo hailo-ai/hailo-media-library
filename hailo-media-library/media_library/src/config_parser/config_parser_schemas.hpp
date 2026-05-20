@@ -72,36 +72,36 @@ static const nlohmann::json encoding_config_schema_internal = R"(
         ],
         "additionalProperties": false
       },
-      "roi_area" : {
-        "$id": "roi_area",
+      "normalized_roi_t": {
+        "$id": "normalized_roi_t",
         "type": "object",
         "properties": {
-          "enable": {
-            "type": "boolean"
+          "x": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
           },
-          "top": {
-            "type": "integer"
+          "y": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
           },
-          "left": {
-            "type": "integer"
+          "width": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
           },
-          "bottom": {
-            "type": "integer"
-          },
-          "right": {
-            "type": "integer"
-          },
-          "qp_delta": {
-            "type": "integer"
+          "height": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
           }
         },
         "required": [
-          "enable",
-          "top",
-          "left",
-          "bottom",
-          "right",
-          "qp_delta"
+          "x",
+          "y",
+          "width",
+          "height"
         ],
         "additionalProperties": false
       },
@@ -283,12 +283,6 @@ static const nlohmann::json encoding_config_schema_internal = R"(
               },
               "ipcm_area2": {
                 "$ref": "roi"
-              },
-              "roi_area1": {
-                "$ref": "roi_area"
-              },
-              "roi_area2": {
-                "$ref": "roi_area"
               }
             },
             "required": [
@@ -296,9 +290,7 @@ static const nlohmann::json encoding_config_schema_internal = R"(
               "deblocking_filter",
               "intra_area",
               "ipcm_area1",
-              "ipcm_area2",
-              "roi_area1",
-              "roi_area2"
+              "ipcm_area2"
             ],
             "additionalProperties": false
           },
@@ -543,13 +535,40 @@ static const nlohmann::json encoding_config_schema_internal = R"(
               "cycle_monitor"
             ],
             "additionalProperties": false
+          },
+          "smart_encoder": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "background_qp_delta": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 15
+              },
+              "rois": {
+                "type": "array",
+                "maxItems": 10,
+                "items": {
+                  "$ref": "normalized_roi_t"
+                }
+              }
+            },
+            "required": [
+              "enabled",
+              "background_qp_delta",
+              "rois"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
           "config",
           "gop_config",
           "coding_control",
-          "rate_control"
+          "rate_control",
+          "smart_encoder"
         ],
         "additionalProperties": false
       },
@@ -1404,15 +1423,14 @@ static const nlohmann::json ldc_eis_config_schema = R"(
         "min_angle_deg": { "type": "number", "minimum": 0.0, "maximum": 360.0 },
         "max_angle_deg": { "type": "number", "minimum": 0.0, "maximum": 360.0 },
         "shakes_type_buff_size": { "type": "number", "minimum": 1 },
-        "max_extensions_per_thr": { "type": "number" },
-        "min_extensions_per_thr": { "type": "number" }
+        "force_clamp_correction_angles": { "type": "boolean" }
       },
       "additionalProperties": false,
       "required": [
         "enabled", "eis_config_path", "window_size",
         "rotational_smoothing_coefficient", "iir_hpf_coefficient",
         "camera_fov_factor", "line_readout_time", "hdr_exposure_ratio",
-        "min_angle_deg", "max_angle_deg"
+        "min_angle_deg"
       ]
     }
   },
@@ -1473,8 +1491,7 @@ static const nlohmann::json ldc_optical_zoom_config_schema = R"(
       "properties": {
         "enabled": { "type": "boolean" },
         "magnification": { "type": "number" },
-        "max_dewarping_magnification": { "type": "number" },
-        "max_zoom_level": { "type": "number" }
+        "max_dewarping_magnification": { "type": "number" }
       },
       "additionalProperties": false,
       "required": ["magnification", "enabled"]
@@ -1639,6 +1656,10 @@ static const nlohmann::json denoise_config_schema = R"(
           },
           "loopback-count": {
             "type": "number"
+          },
+          "pool-max-buffers": {
+            "type": "integer",
+            "minimum": 1
           },
           "network": {
             "type": "object",
@@ -1971,7 +1992,7 @@ static const nlohmann::json application_analytics_config_schema = R"(
               "type": "object",
               "properties": {
                 "analytics_data_id": { "type": "string" },
-                "scaling_mode": { 
+                "scaling_mode": {
                   "type": "string",
                   "enum": ["STRETCH", "LETTERBOX_MIDDLE", "LETTERBOX_UP_LEFT"]
                 },
@@ -1980,6 +2001,7 @@ static const nlohmann::json application_analytics_config_schema = R"(
                 "original_width_ratio": { "type": "integer" },
                 "original_height_ratio": { "type": "integer" },
                 "max_entries": { "type": "integer" },
+                "mask_size": { "type": "integer", "minimum": 1 },
                 "labels": {
                   "type": "array",
                   "items": {
@@ -1992,7 +2014,7 @@ static const nlohmann::json application_analytics_config_schema = R"(
                   }
                 }
               },
-              "required": ["analytics_data_id", "scaling_mode", "width", "height", "original_width_ratio", "original_height_ratio", "labels", "max_entries"],
+              "required": ["analytics_data_id", "scaling_mode", "width", "height", "original_width_ratio", "original_height_ratio", "labels", "max_entries", "mask_size"],
               "additionalProperties": false
             }
           }
@@ -2046,7 +2068,7 @@ static const nlohmann::json privacy_mask_config_schema_internal = R"(
       }
     },
     "properties": {
-      "privacy_mask": {
+      "masking": {
         "type": "object",
         "properties": {
           "mask_type": {
@@ -2114,12 +2136,27 @@ static const nlohmann::json privacy_mask_config_schema_internal = R"(
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 15
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "delta_ms": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "query_type": {
+                "type": "string",
+                "enum": ["Closest", "Exact", "WithinDelta"]
               }
             },
             "required": [
               "enabled",
               "analytics",
-              "dilation_size"
+              "dilation_size",
+              "timeout_ms",
+              "delta_ms",
+              "query_type"
             ],
             "additionalProperties": false
           }

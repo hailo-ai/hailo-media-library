@@ -389,26 +389,6 @@ void from_json(const nlohmann::json &j, deblocking_filter_t &df_conf)
     LOGGER__MODULE__TRACE(MODULE_NAME, "Successfully loaded deblocking filter configuration");
 }
 
-void to_json(nlohmann::json &j, const coding_roi_area_t &roi_conf)
-{
-    j = nlohmann::json{
-        {"enable", roi_conf.enable}, {"top", roi_conf.top},     {"left", roi_conf.left},
-        {"bottom", roi_conf.bottom}, {"right", roi_conf.right}, {"qp_delta", roi_conf.qp_delta},
-    };
-    LOGGER__MODULE__TRACE(MODULE_NAME, "Successfully Converted coding ROI area configuration to JSON");
-}
-
-void from_json(const nlohmann::json &j, coding_roi_area_t &roi_conf)
-{
-    j.at("enable").get_to(roi_conf.enable);
-    j.at("top").get_to(roi_conf.top);
-    j.at("left").get_to(roi_conf.left);
-    j.at("bottom").get_to(roi_conf.bottom);
-    j.at("right").get_to(roi_conf.right);
-    j.at("qp_delta").get_to(roi_conf.qp_delta);
-    LOGGER__MODULE__TRACE(MODULE_NAME, "Successfully loaded coding ROI area configuration");
-}
-
 void to_json(nlohmann::json &j, const coding_roi_t &intra_conf)
 {
     j = nlohmann::json{
@@ -447,8 +427,7 @@ void to_json(nlohmann::json &j, const coding_control_config_t &cc_conf)
     j = nlohmann::json{
         {"sei_messages", cc_conf.sei_messages}, {"deblocking_filter", cc_conf.deblocking_filter},
         {"intra_area", cc_conf.intra_area},     {"ipcm_area1", cc_conf.ipcm_area1},
-        {"ipcm_area2", cc_conf.ipcm_area2},     {"roi_area1", cc_conf.roi_area1},
-        {"roi_area2", cc_conf.roi_area2},
+        {"ipcm_area2", cc_conf.ipcm_area2},
     };
     LOGGER__MODULE__TRACE(MODULE_NAME, "Successfully Converted coding control configuration to JSON");
 }
@@ -460,8 +439,6 @@ void from_json(const nlohmann::json &j, coding_control_config_t &cc_conf)
     j.at("intra_area").get_to(cc_conf.intra_area);
     j.at("ipcm_area1").get_to(cc_conf.ipcm_area1);
     j.at("ipcm_area2").get_to(cc_conf.ipcm_area2);
-    j.at("roi_area1").get_to(cc_conf.roi_area1);
-    j.at("roi_area2").get_to(cc_conf.roi_area2);
     LOGGER__MODULE__TRACE(MODULE_NAME, "Successfully loaded coding control configuration");
 }
 
@@ -932,6 +909,48 @@ void from_json(const nlohmann::json &j, encoder_monitors_config_t &monitors_conf
     LOGGER__MODULE__TRACE(MODULE_NAME, "Successfully loaded encoder monitors configuration");
 }
 
+//------------------------ normalized_roi_t ------------------------
+
+void to_json(nlohmann::json &j, const normalized_roi_t &roi)
+{
+    j = nlohmann::json{
+        {"x", roi.x},
+        {"y", roi.y},
+        {"width", roi.width},
+        {"height", roi.height},
+    };
+}
+
+void from_json(const nlohmann::json &j, normalized_roi_t &roi)
+{
+    j.at("x").get_to(roi.x);
+    j.at("y").get_to(roi.y);
+    j.at("width").get_to(roi.width);
+    j.at("height").get_to(roi.height);
+}
+
+//------------------------ smart_encoder_config_t ------------------------
+
+void to_json(nlohmann::json &j, const smart_encoder_config_t &smart_enc)
+{
+    j = nlohmann::json{
+        {"enabled", smart_enc.enabled},
+        {"background_qp_delta", smart_enc.background_qp_delta},
+        {"rois", smart_enc.rois},
+    };
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Successfully Converted smart encoder configuration to JSON");
+}
+
+void from_json(const nlohmann::json &j, smart_encoder_config_t &smart_enc)
+{
+    j.at("enabled").get_to(smart_enc.enabled);
+    j.at("background_qp_delta").get_to(smart_enc.background_qp_delta);
+    j.at("rois").get_to(smart_enc.rois);
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Successfully loaded smart encoder configuration");
+}
+
+//------------------------ hailo_encoder_config_t ------------------------
+
 void to_json(nlohmann::json &j, const hailo_encoder_config_t &enc_conf)
 {
     j = nlohmann::json{{"encoding",
@@ -941,7 +960,8 @@ void to_json(nlohmann::json &j, const hailo_encoder_config_t &enc_conf)
                            {"gop_config", enc_conf.gop},
                            {"coding_control", enc_conf.coding_control},
                            {"rate_control", enc_conf.rate_control},
-                           {"monitors_control", enc_conf.monitors_control}}}}}};
+                           {"monitors_control", enc_conf.monitors_control},
+                           {"smart_encoder", enc_conf.smart_encoder}}}}}};
     LOGGER__MODULE__TRACE(MODULE_NAME, "Successfully Converted Hailo encoder configuration to JSON");
 }
 
@@ -953,6 +973,9 @@ void from_json(const nlohmann::json &j, hailo_encoder_config_t &enc_conf)
     j.at("encoding").at("hailo_encoder").at("coding_control").get_to(enc_conf.coding_control);
     j.at("encoding").at("hailo_encoder").at("rate_control").get_to(enc_conf.rate_control);
     j.at("encoding").at("hailo_encoder").at("monitors_control").get_to(enc_conf.monitors_control);
+
+    j.at("encoding").at("hailo_encoder").at("smart_encoder").get_to(enc_conf.smart_encoder);
+
     if (EncoderConfigPresets::get_instance().apply_preset(enc_conf) != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to apply preset to Hailo encoder configuration");
@@ -1052,8 +1075,7 @@ void to_json(nlohmann::json &j, const optical_zoom_config_t &oz_conf)
 {
     j = nlohmann::json{{"enabled", oz_conf.enabled},
                        {"magnification", oz_conf.magnification},
-                       {"max_dewarping_magnification", oz_conf.max_dewarping_magnification},
-                       {"max_zoom_level", oz_conf.max_zoom_level}};
+                       {"max_dewarping_magnification", oz_conf.max_dewarping_magnification}};
 }
 
 void from_json(const nlohmann::json &j, optical_zoom_config_t &oz_conf)
@@ -1061,7 +1083,6 @@ void from_json(const nlohmann::json &j, optical_zoom_config_t &oz_conf)
     j.at("enabled").get_to(oz_conf.enabled);
     j.at("magnification").get_to(oz_conf.magnification);
     oz_conf.max_dewarping_magnification = j.value("max_dewarping_magnification", 100.0); // use 100 as default value
-    oz_conf.max_zoom_level = j.value("max_zoom_level", 40.0);                            // use 40.0 as default value
 }
 
 //------------------------ digital_zoom_config_t ------------------------
@@ -1308,8 +1329,7 @@ void to_json(nlohmann::json &j, const eis_config_t &eis_conf)
                        {"min_angle_deg", eis_conf.min_angle_deg},
                        {"max_angle_deg", eis_conf.max_angle_deg},
                        {"shakes_type_buff_size", eis_conf.shakes_type_buff_size},
-                       {"max_extensions_per_thr", eis_conf.max_extensions_per_thr},
-                       {"min_extensions_per_thr", eis_conf.min_extensions_per_thr}};
+                       {"force_clamp_correction_angles", eis_conf.force_clamp_correction_angles}};
 }
 
 void from_json(const nlohmann::json &j, eis_config_t &eis_conf)
@@ -1324,10 +1344,10 @@ void from_json(const nlohmann::json &j, eis_config_t &eis_conf)
     j.at("line_readout_time").get_to(eis_conf.line_readout_time);
     j.at("hdr_exposure_ratio").get_to(eis_conf.hdr_exposure_ratio);
     j.at("min_angle_deg").get_to(eis_conf.min_angle_deg);
-    j.at("max_angle_deg").get_to(eis_conf.max_angle_deg);
-    eis_conf.shakes_type_buff_size = j.value("shakes_type_buff_size", 300);  // use 300 as default value
-    eis_conf.max_extensions_per_thr = j.value("max_extensions_per_thr", 30); // use 30 as default value
-    eis_conf.min_extensions_per_thr = j.value("min_extensions_per_thr", 0);  // use 0 as default value
+    eis_conf.max_angle_deg = j.value("max_angle_deg", 180.0); // use 180 as default value (unlimited)
+    eis_conf.force_clamp_correction_angles =
+        j.value("force_clamp_correction_angles", false);                    // use false as default value
+    eis_conf.shakes_type_buff_size = j.value("shakes_type_buff_size", 300); // use 300 as default value
 }
 
 //------------------------ gyro_config_t ------------------------
@@ -1599,6 +1619,7 @@ void to_json(nlohmann::json &j, const denoise_config_t &d_conf)
                          {"sensor", d_conf.sensor},
                          {"method", d_conf.denoising_quality},
                          {"loopback-count", d_conf.loopback_count},
+                         {"pool-max-buffers", d_conf.pool_max_buffers},
                          {"network", network_json}}}};
 }
 
@@ -1610,6 +1631,7 @@ void from_json(const nlohmann::json &j, denoise_config_t &d_conf)
     denoise.at("method").get_to(d_conf.denoising_quality);
     denoise.at("loopback-count").get_to(d_conf.loopback_count);
     d_conf.bayer = denoise.value("bayer", false);
+    d_conf.pool_max_buffers = denoise.value("pool-max-buffers", 6);
     if (d_conf.bayer == true)
     {
         denoise.at("network").get_to(d_conf.bayer_network_config);
@@ -1822,6 +1844,7 @@ void to_json(nlohmann::json &j, const semantic_segmentation_analytics_config_t &
         {"original_height_ratio", config.original_height_ratio},
         {"labels", config.labels},
         {"max_entries", config.max_entries},
+        {"mask_size", config.mask_size},
     };
 }
 
@@ -1835,6 +1858,7 @@ void from_json(const nlohmann::json &j, semantic_segmentation_analytics_config_t
     j.at("original_height_ratio").get_to(config.original_height_ratio);
     j.at("labels").get_to(config.labels);
     j.at("max_entries").get_to(config.max_entries);
+    j.at("mask_size").get_to(config.mask_size);
 }
 
 //------------------------ application_analytics_config_t ------------------------
@@ -1987,7 +2011,10 @@ void to_json(nlohmann::json &j, const dynamic_privacy_mask_config_t &dynamic_mas
 {
     j = nlohmann::json{{"enabled", dynamic_mask.enabled},
                        {"analytics", dynamic_mask.analytics},
-                       {"dilation_size", dynamic_mask.dilation_size}};
+                       {"dilation_size", dynamic_mask.dilation_size},
+                       {"timeout_ms", dynamic_mask.timeout_ms},
+                       {"delta_ms", dynamic_mask.delta_ms},
+                       {"query_type", dynamic_mask.query_type}};
 }
 
 void from_json(const nlohmann::json &j, dynamic_privacy_mask_config_t &dynamic_mask)
@@ -1995,6 +2022,9 @@ void from_json(const nlohmann::json &j, dynamic_privacy_mask_config_t &dynamic_m
     j.at("enabled").get_to(dynamic_mask.enabled);
     j.at("analytics").get_to(dynamic_mask.analytics);
     j.at("dilation_size").get_to(dynamic_mask.dilation_size);
+    j.at("timeout_ms").get_to(dynamic_mask.timeout_ms);
+    j.at("delta_ms").get_to(dynamic_mask.delta_ms);
+    j.at("query_type").get_to(dynamic_mask.query_type);
 }
 
 //------------------------ osd ---------------------------
@@ -2941,8 +2971,9 @@ void from_json(const nlohmann::json &j, config_stream_osd_t &osd)
 void to_json(nlohmann::json &j, const config_stream_osd_t &osd)
 {
     nlohmann::json osd_json = {
-        {"dateTime", nlohmann::json::array()}, {"text", nlohmann::json::array()}, {"image", nlohmann::json::array()},
-        // {"custom", nlohmann::json::array()},
+        {"dateTime", nlohmann::json::array()},
+        {"text", nlohmann::json::array()},
+        {"image", nlohmann::json::array()},
     };
 
     for (const auto &overlay_ptr : osd.image_overlays)

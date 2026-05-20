@@ -2,12 +2,15 @@
 analytics_sources = [
     'common_configs.cpp',
     'detection.cpp',
+    'license_plate_recognition.cpp',
     'vision.cpp',
     'overlay.cpp',
-    'analytic_metadata_sender.cpp',
+    'analytic_metadata_zmq_sender.cpp',
+    'analytic_metadata_ws_sender.cpp',
     'tiling.cpp',
     'face_landmarks.cpp',
     'dynamic_privacy_mask.cpp',
+    'dpm_analytics.cpp',
     'reference_camera_app_constructor.cpp'
 ]
 

@@ -23,10 +23,7 @@ class Database
     explicit Database(const std::string &path, SqliteAccessType accesstype = SQLITE_ACCESS_OPEN_CREATE_READ_WRITE);
     virtual ~Database();
 
-    SqliteAccessType get_access_type() const
-    {
-        return m_db_access_type;
-    }
+    SqliteAccessType get_access_type() const;
     bool open();
     bool execute(const std::string &sql);
     bool flush();

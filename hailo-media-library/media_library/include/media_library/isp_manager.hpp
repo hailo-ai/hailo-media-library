@@ -78,6 +78,8 @@ class IspManager
         OFF = 0,
         SDR_TO_HDR = 1,
         HDR_TO_SDR = 2,
+        SDR_TO_PRE_ISP_DENOISE = 4,
+        PRE_ISP_DENOISE_TO_SDR = 5,
     };
 
   private:
@@ -163,7 +165,11 @@ class IspManager
 
     const std::unordered_map<ModePair, IspManager::FastToggleMode, ModePairHash> fast_toggle_mode_map = {
         {{IspManager::Mode::SDR, IspManager::Mode::HDR_NNCORE_STITCH}, IspManager::FastToggleMode::SDR_TO_HDR},
-        {{IspManager::Mode::HDR_NNCORE_STITCH, IspManager::Mode::SDR}, IspManager::FastToggleMode::HDR_TO_SDR}};
+        {{IspManager::Mode::HDR_NNCORE_STITCH, IspManager::Mode::SDR}, IspManager::FastToggleMode::HDR_TO_SDR},
+        {{IspManager::Mode::SDR, IspManager::Mode::PRE_ISP_DENOISE},
+         IspManager::FastToggleMode::SDR_TO_PRE_ISP_DENOISE},
+        {{IspManager::Mode::PRE_ISP_DENOISE, IspManager::Mode::SDR},
+         IspManager::FastToggleMode::PRE_ISP_DENOISE_TO_SDR}};
 
     FastToggleMode get_fast_toggle_mode(Mode switch_to_mode);
     bool prepare_for_fast_toggle(FastToggleMode switch_to_mode);
@@ -190,6 +196,7 @@ class IspManager
     bool start();
     void stop();
     void deinit();
+    void drain_buffers();
     bool put_buffer_into_isp(HailoMediaLibraryBufferPtr hailo_buffer);
     std::optional<HailoMediaLibraryBufferPtr> get_isp_input_buffer(bool is_packed_isp_input = false);
     static bool is_fast_toggle_supported();

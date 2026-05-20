@@ -7,6 +7,11 @@
 
 #include "common_utils.hpp"
 
+Database::SqliteAccessType Database::get_access_type() const
+{
+    return m_db_access_type;
+}
+
 Database::Database(const std::string &path, SqliteAccessType accesstype) : m_db_path(path), m_db_access_type(accesstype)
 {
 }

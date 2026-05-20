@@ -1,7 +1,19 @@
-#include "media_library/examples_common.hpp"
+#include "common/common.hpp"
+#include <algorithm>
+#include <map>
 
 // Track current rotation state
 static rotation_angle_t g_current_rotation = ROTATION_ANGLE_0;
+
+// Store original OSD positions from the initial profile (before any rotation)
+struct overlay_original_pos_t
+{
+    float x;
+    float y;
+    float width; // for image overlays
+};
+// Map: stream_id -> overlay_id -> original position
+static std::map<std::string, std::map<std::string, overlay_original_pos_t>> g_original_osd_positions;
 
 int rotation_angle_to_degrees(rotation_angle_t angle)
 {
@@ -25,46 +37,136 @@ bool is_rotated_90_or_270(rotation_angle_t angle)
     return (angle == ROTATION_ANGLE_90 || angle == ROTATION_ANGLE_270);
 }
 
-void disable_original_osd_and_add_rotated(MediaLibraryPtr media_lib)
+void update_osd_rotation_policy_in_profile(config_profile_t &profile)
 {
-    osd::rgba_color_t white = {255, 255, 255, 255};
-    osd::rgba_color_t dark_red = {102, 0, 51, 255};
-    osd::rgba_color_t black = {0, 0, 0, 255};
-
-    std::string font_path = "/usr/share/fonts/ttf/LiberationMono-Bold.ttf";
-
-    osd::TextOverlay text1_rotated("example_text1", 0.05f, 0.05f, "HailoAI", white, black, 40.0f, 1, 1, font_path, 0,
-                                   osd::rotation_alignment_policy_t::CENTER);
-
-    osd::TextOverlay text2_rotated("example_text2", 0.05f, 0.12f, "camera name", dark_red, black, 40.0f, 1, 1,
-                                   font_path, 0, osd::rotation_alignment_policy_t::CENTER);
-
-    for (auto &entry : media_lib->m_encoders)
+    for (auto &[stream_id, encoded_stream] : profile.encoded_output_streams)
     {
-        auto encoder = entry.second;
-        if (!encoder)
-            continue;
+        // Update text overlays
+        for (auto &text_overlay : encoded_stream.osd.text_overlays)
+        {
+            text_overlay->rotation_alignment_policy = rotation_alignment_policy_t::CENTER;
+        }
 
-        auto blender = encoder->get_osd_blender();
-        if (!blender)
-            continue;
+        // Update datetime overlays
+        for (auto &datetime_overlay : encoded_stream.osd.datetime_overlays)
+        {
+            datetime_overlay->rotation_alignment_policy = rotation_alignment_policy_t::CENTER;
+        }
 
-        // Disable original overlays
-        blender->set_overlay_enabled("example_text1", false);
-        blender->set_overlay_enabled("example_text2", false);
-        blender->set_overlay_enabled("example_image", false);
-        blender->set_overlay_enabled("example_datetime", false);
+        // Update image overlays
+        for (auto &image_overlay : encoded_stream.osd.image_overlays)
+        {
+            image_overlay->rotation_alignment_policy = rotation_alignment_policy_t::CENTER;
+        }
+    }
+}
 
-        // Remove old rotated overlays first (in case they exist)
-        blender->remove_overlay("example_text1");
-        blender->remove_overlay("example_text2");
+// Save original OSD positions for a stream (called once before first rotation)
+void save_original_osd_positions(const std::string &stream_id, const config_stream_osd_t &osd)
+{
+    auto &stream_positions = g_original_osd_positions[stream_id];
 
-        // Add new rotated overlays
-        blender->add_overlay(text1_rotated);
-        blender->add_overlay(text2_rotated);
+    for (const auto &text_overlay : osd.text_overlays)
+    {
+        stream_positions[text_overlay->id] = {text_overlay->x, text_overlay->y, 0.0f};
+    }
+    for (const auto &datetime_overlay : osd.datetime_overlays)
+    {
+        stream_positions[datetime_overlay->id] = {datetime_overlay->x, datetime_overlay->y, 0.0f};
+    }
+    for (const auto &image_overlay : osd.image_overlays)
+    {
+        stream_positions[image_overlay->id] = {image_overlay->x, image_overlay->y, image_overlay->width};
+    }
+}
 
-        blender->set_overlay_enabled("example_text1", true);
-        blender->set_overlay_enabled("example_text2", true);
+// Restore original OSD positions from saved state before applying new adjustments
+void restore_original_osd_positions(const std::string &stream_id, config_stream_osd_t &osd)
+{
+    auto stream_it = g_original_osd_positions.find(stream_id);
+    if (stream_it == g_original_osd_positions.end())
+        return;
+
+    const auto &stream_positions = stream_it->second;
+
+    for (auto &text_overlay : osd.text_overlays)
+    {
+        auto it = stream_positions.find(text_overlay->id);
+        if (it != stream_positions.end())
+        {
+            text_overlay->x = it->second.x;
+            text_overlay->y = it->second.y;
+        }
+    }
+    for (auto &datetime_overlay : osd.datetime_overlays)
+    {
+        auto it = stream_positions.find(datetime_overlay->id);
+        if (it != stream_positions.end())
+        {
+            datetime_overlay->x = it->second.x;
+            datetime_overlay->y = it->second.y;
+        }
+    }
+    for (auto &image_overlay : osd.image_overlays)
+    {
+        auto it = stream_positions.find(image_overlay->id);
+        if (it != stream_positions.end())
+        {
+            image_overlay->x = it->second.x;
+            image_overlay->y = it->second.y;
+        }
+    }
+}
+
+// Adjust OSD positions to fit within new aspect ratio when dimensions are swapped
+void adjust_osd_positions_for_aspect_ratio_swap(const std::string &stream_id, config_stream_osd_t &osd,
+                                                float old_aspect, float new_aspect)
+{
+    (void)old_aspect;
+
+    // First restore original positions so we always adjust from the baseline
+    restore_original_osd_positions(stream_id, osd);
+
+    // In portrait mode (aspect < 1), clamp x positions to fit the narrower frame
+    if (new_aspect >= 1.0f)
+        return; // Landscape — original positions are fine as-is
+
+    float x_scale = new_aspect;
+
+    for (auto &text_overlay : osd.text_overlays)
+    {
+        static constexpr float MAX_X_MARGIN = 0.95f;
+        float max_x = MAX_X_MARGIN * x_scale;
+        if (text_overlay->x > max_x)
+        {
+            std::cout << "  Adjusting text overlay '" << text_overlay->id << "' x: " << text_overlay->x << " -> "
+                      << max_x << std::endl;
+            text_overlay->x = max_x;
+        }
+    }
+
+    for (auto &datetime_overlay : osd.datetime_overlays)
+    {
+        static constexpr float MAX_X_MARGIN = 0.95f;
+        float max_x = MAX_X_MARGIN * x_scale;
+        if (datetime_overlay->x > max_x)
+        {
+            std::cout << "  Adjusting datetime overlay '" << datetime_overlay->id << "' x: " << datetime_overlay->x
+                      << " -> " << max_x << std::endl;
+            datetime_overlay->x = max_x;
+        }
+    }
+
+    for (auto &image_overlay : osd.image_overlays)
+    {
+        static constexpr float MAX_X_MARGIN = 0.95f;
+        float max_x = std::max(0.0f, (MAX_X_MARGIN - image_overlay->width) * x_scale);
+        if (image_overlay->x > max_x)
+        {
+            std::cout << "  Adjusting image overlay '" << image_overlay->id << "' x: " << image_overlay->x << " -> "
+                      << max_x << std::endl;
+            image_overlay->x = max_x;
+        }
     }
 }
 
@@ -101,39 +203,79 @@ void set_rotation_degrees(MediaLibraryPtr media_library, rotation_angle_t rotati
 
     std::cout << "Setting rotation angle to: " << rotation_angle_to_degrees(rotation_angle) << " degrees" << std::endl;
 
+    // Save original OSD positions on first rotation call
+    if (g_original_osd_positions.empty())
+    {
+        for (const auto &[stream_id, encoded_stream] : profile.encoded_output_streams)
+        {
+            save_original_osd_positions(stream_id, encoded_stream.osd);
+        }
+    }
+
     // Only swap width/height when transitioning between 0/180 and 90/270
     if (needs_swap)
     {
         std::cout << "Swapping encoder dimensions..." << std::endl;
-        for (auto &encoded_stream : profile.encoded_output_streams)
+        for (auto &[stream_id, encoded_stream] : profile.encoded_output_streams)
         {
-            if (std::holds_alternative<hailo_encoder_config_t>(encoded_stream.second.encoding))
+            uint32_t old_width = 0, old_height = 0;
+            uint32_t *width_ptr = nullptr;
+            uint32_t *height_ptr = nullptr;
+
+            if (std::holds_alternative<hailo_encoder_config_t>(encoded_stream.encoding))
             {
-                auto &hailo_encoder_config = std::get<hailo_encoder_config_t>(encoded_stream.second.encoding);
+                auto &hailo_encoder_config = std::get<hailo_encoder_config_t>(encoded_stream.encoding);
                 auto &input_stream = hailo_encoder_config.input_stream;
-
-                std::cout << "[" << encoded_stream.first << "] " << input_stream.width << "x" << input_stream.height
-                          << " -> " << input_stream.height << "x" << input_stream.width << std::endl;
-                std::swap(input_stream.width, input_stream.height);
+                old_width = input_stream.width;
+                old_height = input_stream.height;
+                width_ptr = &input_stream.width;
+                height_ptr = &input_stream.height;
             }
-            else if (std::holds_alternative<jpeg_encoder_config_t>(encoded_stream.second.encoding))
+            else if (std::holds_alternative<jpeg_encoder_config_t>(encoded_stream.encoding))
             {
-                auto &jpeg_encoder_config = std::get<jpeg_encoder_config_t>(encoded_stream.second.encoding);
+                auto &jpeg_encoder_config = std::get<jpeg_encoder_config_t>(encoded_stream.encoding);
                 auto &input_stream = jpeg_encoder_config.input_stream;
+                old_width = input_stream.width;
+                old_height = input_stream.height;
+                width_ptr = &input_stream.width;
+                height_ptr = &input_stream.height;
+            }
 
-                std::cout << "[" << encoded_stream.first << " JPEG] " << input_stream.width << "x"
-                          << input_stream.height << " -> " << input_stream.height << "x" << input_stream.width
-                          << std::endl;
-                std::swap(input_stream.width, input_stream.height);
+            if (width_ptr && height_ptr)
+            {
+                std::cout << "[" << stream_id << "] " << old_width << "x" << old_height << " -> " << old_height << "x"
+                          << old_width << std::endl;
+                std::swap(*width_ptr, *height_ptr);
+
+                // Adjust OSD positions for the NEW dimensions (after swap),
+                // always starting from the original saved positions
+                uint32_t new_width = *width_ptr;
+                uint32_t new_height = *height_ptr;
+                float new_aspect = static_cast<float>(new_width) / static_cast<float>(new_height);
+                float old_aspect = static_cast<float>(old_width) / static_cast<float>(old_height);
+                std::cout << "[" << stream_id << "] Adjusting OSD for aspect ratio change (old: " << old_aspect
+                          << " -> new: " << new_aspect << ")" << std::endl;
+                adjust_osd_positions_for_aspect_ratio_swap(stream_id, encoded_stream.osd, old_aspect, new_aspect);
             }
         }
     }
     else
     {
         std::cout << "No dimension swap needed" << std::endl;
+        // Even without a swap, restore original OSD positions in case they were
+        // clamped by a previous rotation (e.g., 90° -> 180° keeps portrait but
+        // we still want correct positions)
+        for (auto &[stream_id, encoded_stream] : profile.encoded_output_streams)
+        {
+            restore_original_osd_positions(stream_id, encoded_stream.osd);
+        }
     }
 
-    // Apply profile override (only once!)
+    // Update OSD rotation policy to CENTER for all overlays
+    update_osd_rotation_policy_in_profile(profile);
+
+    // Apply all changes in one call: rotation + dimensions + adjusted OSD
+    std::cout << "Applying rotation, dimensions, and OSD changes..." << std::endl;
     media_library_return ret = media_library->set_override_parameters(profile);
     if (ret != MEDIA_LIBRARY_SUCCESS)
     {
@@ -146,10 +288,6 @@ void set_rotation_degrees(MediaLibraryPtr media_library, rotation_angle_t rotati
 
     std::cout << "Rotation to " << rotation_angle_to_degrees(rotation_angle) << " degrees applied successfully."
               << std::endl;
-
-    // Handle OSD based on rotation angle
-    std::cout << "Applying rotated OSD overlays..." << std::endl;
-    disable_original_osd_and_add_rotated(media_library);
 }
 
 int main()

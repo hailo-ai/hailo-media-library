@@ -7,9 +7,9 @@ Hailo Media Library
    :width: 150
    :height: 20
 
-.. |hailort| image:: https://img.shields.io/badge/HailoRT-5.2.0-green
+.. |hailort| image:: https://img.shields.io/badge/HailoRT-0.0.0-green
    :target: https://github.com/hailo-ai/hailort
-   :alt: HailoRT 5.2.0
+   :alt: HailoRT 0.0.0
    :height: 20
 
 
@@ -30,24 +30,22 @@ Hailo Media Library
 Overview
 --------
 
-The Hailo Media Library provides media control and handling for the Hailo-15, offering an integrated C++ API set for managing the Hailo-15 vision subsystem. This includes video capture, video encoding, and image correction and enhancement capabilities.
-
-The media library extends the native media interfaces, allowing continued use of v4l2, HailoRT, and GStreamer, while also providing a simpler and unified interface for common media operations in a single framework.
+The Hailo Media Library provides media control and handling for Hailo-15, delivering an integrated set of APIs for managing the Hailo-15 vision subsystem. The library supports video capture, video encoding, on-screen displays (OSD), and image enhancement capabilities.
 
 Highlights
 ----------
-* Frontend C++ API - Stream video from the camera and apply image correction and enhancement features such as dewarp, low light enhancement, and resizing.
-* Encoder C++ API - Encode image buffers to H264 or H265 formats for streaming.
-* DMA Buffer Pool API – Efficiently allocate and manage DMA buffers for high performance video streaming.
+* The media library extends native media interfaces, enabling continued use of v4l2, HailoRT, and GStreamer, while also providing a simpler, unified interface for common media operations within a single framework.
+* It includes analytics APIs that simplify the integration and use of HailoRT for AI inference and vision-based analytics.
 
-Running Examples
-----------------
-For comprehensive examples demonstrating how to use the media library, please refer to the `TAPPAS repository <https://github.com/hailo-ai/tappas/tree/master-vpu>`_.
-The repository includes working examples that showcase how to leverage hardware accelerated capabilities provided by the Media Library.
+Reference Code and Application Examples
+---------------------------------------
+The Hailo Media Library includes reference code and application examples that demonstrate integration and usage through both C++ APIs and GStreamer elements. These examples showcase real‑world use cases and best practices for leveraging Hailo‑15 AI vision capabilities, including:
+• Reference code examples: AI Vision, AI Analytics 
+• Reference applications: Webserver/ Dynamic Privacy Masking (DPM), Face Landmark, Single Stream Processing, Single Stream Object Detection, Dual-sensor Processing, Dual-sensor Face Landmark, Gstreamer Vision Analytics & Encoder
+
+The reference code and applications examples are available in the `Hailo-media-library repository <https://github.com/hailo-ai/hailo-media-library/tree/1.11.0>`
 
 Further Reading
 ---------------
-The Hailo-15 is supported by a rich ecosystem of tools and libraries. To fully leverage these resources, please visit the
+The Hailo-15 is supported by a rich ecosystem of tools and libraries. To fully leverage these resources, visit the
 `Hailo Developer Zone <https://hailo.ai/developer-zone/documentation/>`_.
-
-In addition, we recommend reviewing the `Hailo-15 TAPPAS repository <https://github.com/hailo-ai/tappas/tree/master-vpu>`_, which contains examples and tutorials focused on media library usage.

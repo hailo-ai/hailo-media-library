@@ -15,6 +15,8 @@
 namespace hailo_analytics::pipeline::sources
 {
 
+using EosCallback = std::function<void()>;
+
 class FileSourceStage : public hailo_analytics::pipeline::ThreadedStage
 {
   private:
@@ -28,6 +30,9 @@ class FileSourceStage : public hailo_analytics::pipeline::ThreadedStage
     double m_fps;
     bool m_loop_enabled;
     size_t m_buffer_pool_size;
+
+    // Optional callback invoked when the source reaches end-of-stream
+    EosCallback m_eos_callback = nullptr;
 
   public:
     /**
@@ -63,6 +68,12 @@ class FileSourceStage : public hailo_analytics::pipeline::ThreadedStage
      * @brief Main loop that reads frames from file and sends them to subscribers
      */
     void loop() override;
+
+    /**
+     * @brief Set a callback to be invoked when the source reaches end-of-stream.
+     * @param callback Function to call on EOS (called from the source thread)
+     */
+    void set_eos_callback(EosCallback callback);
 
   private:
     /**

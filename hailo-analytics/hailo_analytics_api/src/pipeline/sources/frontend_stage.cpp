@@ -21,9 +21,9 @@ FrontendStage::~FrontendStage()
     m_stream_subscribers.clear();
 }
 
-AppStatus FrontendStage::create(MediaLibraryFrontendPtr frontend)
+AppStatus FrontendStage::create(MediaLibraryFrontend &frontend)
 {
-    m_frontend = frontend;
+    m_frontend = &frontend;
     return subscribe_output_streams();
 }
 
@@ -113,7 +113,10 @@ AppStatus FrontendStage::stop()
 {
     set_end_of_stream(true);
     m_running_cv.notify_one();
-    m_thread.join();
+    if (m_thread.joinable())
+    {
+        m_thread.join();
+    }
     return deinit();
 }
 
@@ -155,7 +158,7 @@ AppStatus FrontendStage::deinit()
     return AppStatus::SUCCESS;
 }
 
-AppStatus FrontendStage::configure(MediaLibraryFrontendPtr frontend)
+AppStatus FrontendStage::configure(MediaLibraryFrontend &frontend)
 {
     if (m_frontend != nullptr)
     {
