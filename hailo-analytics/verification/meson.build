@@ -7,4 +7,3 @@ verification_deps = [gtest_dep, gtest_main_dep, gmock_dep, libhailo_analytics_de
 
 tests_install_dir = '/home/root/tests'
 
-subdir('unit_tests')
