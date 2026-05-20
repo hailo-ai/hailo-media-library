@@ -38,31 +38,41 @@
  * GstPipeline objects to avoid a deadlock during state transitions.
  */
 
+#include <gst/gst.h>
+#include <cxxopts/cxxopts.hpp>
+#include <glib-object.h>
+#include <glib.h>
+#include <gst/gstformat.h>
+#include <stddef.h>
+#include <tl/expected.hpp>
 #include <condition_variable>
 #include <iostream>
 #include <mutex>
 #include <string>
-
-#include <gst/app/gstappsink.h>
-#include <gst/app/gstappsrc.h>
-#include <gst/gst.h>
-#include <cxxopts/cxxopts.hpp>
+#include <chrono>
+#include <memory>
+#include <utility>
+#include <vector>
 
 #include "media_library/signal_utils.hpp"
+#include "hailo_analytics/analytics/ai_models_config.hpp"
 #include "hailo_analytics/utils/stream_utils.hpp"
-#include "gsthailobuffermeta.hpp"
-
 #include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
 #include "hailo_analytics/analytics/tiling.hpp"
 #include "hailo_analytics/pipeline/overlay/overlay_stage.hpp"
 #include "hailo_analytics/pipeline/sinks/gst_sink_stage.hpp"
 #include "hailo_analytics/pipeline/sources/gst_source_stage.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/analytics/detection.hpp"
+#include "hailo_analytics/analytics/vision.hpp"
 
-#define HOST_IP "10.0.0.2"
+#define HOST_IP hailo_analytics::analytics::vision::get_default_host_ip()
 #define UDP_PORT 5000
 #define STREAM_ID_0 "sink0"
 #define STREAM_ID_1 "sink1"
-#define MEDIALIB_CONFIG_PATH "/etc/imaging/cfg/medialib_configs/ai_example_medialib_config.json"
+#define MEDIALIB_CONFIG_PATH "/etc/imaging/cfg/medialib_configs/face_landmarks_medialib_config.json"
 #define NO_PROFILE_SELECTED ""
 #define TILING_PIPELINE "tiling_detection_pipeline"
 
@@ -296,8 +306,11 @@ static hailo_analytics::pipeline::PipelinePtr build_analytics_pipeline(GstElemen
     auto gst_source = sources::GstSourceStageBuild::create().set_stage_name("gst_source").buildptr();
     gst_source->add_appsink(STREAM_ID_0, appsink);
 
+    hailo_analytics::analytics::tiling::tiling_detection_config_t tiling_cfg;
+    namespace ai_models = hailo_analytics::analytics::ai_models;
+    ai_models::apply_to(ai_models::YOLOV8N, tiling_cfg.detection_config);
     auto tiling_pipeline_status =
-        hailo_analytics::analytics::tiling::generate_tiling_detection_pipeline(TILING_PIPELINE);
+        hailo_analytics::analytics::tiling::generate_tiling_detection_pipeline(TILING_PIPELINE, tiling_cfg);
     if (!tiling_pipeline_status.has_value())
     {
         std::cerr << "Failed to create tiling detection pipeline" << std::endl;

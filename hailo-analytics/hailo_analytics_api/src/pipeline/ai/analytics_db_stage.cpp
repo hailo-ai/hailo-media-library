@@ -1,20 +1,41 @@
+#include <hailort.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <hailo_gst_tensor_metadata.hpp>
+#include <hailo_postprocess_tools/objects/hailo_common.hpp>
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
+#include <media_library/analytics_db.hpp>
+#include <media_library/buffer_pool.hpp>
+#include <media_library/media_library_types.hpp>
+#include <tl/expected.hpp>
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <memory>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/ai/analytics_db_stage.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 namespace hailo_analytics::pipeline::ai
 {
 
 AnalyticsDBStage::AnalyticsDBStage(const std::string &name, size_t queue_size, bool leaky,
                                    const std::string &analytics_data_id, AnalyticsType type,
-                                   bool trace_processing_operations)
+                                   bool trace_processing_operations, const std::string &overflow_analytics_data_id)
     : hailo_analytics::pipeline::ThreadedStage(name, queue_size, leaky, trace_processing_operations),
-      m_analytics_data_id(analytics_data_id), m_type(type)
+      m_analytics_data_id(analytics_data_id), m_type(type), m_overflow_analytics_data_id(overflow_analytics_data_id)
 {
     switch (m_type)
     {
-    case AnalyticsType::INSTANCE_SEGMENTATION:
-        break;
     case AnalyticsType::SEMANTIC_SEGMENTATION:
         break;
     case AnalyticsType::DETECTION:
@@ -50,7 +71,8 @@ std::vector<HailoMediaLibraryBufferPtr> AnalyticsDBStage::collect_tensor_buffers
     return tensor_buffers;
 }
 
-AppStatus AnalyticsDBStage::add_cached_or_empty_semantic_segmentation_entry(BufferPtr data, const std::string &reason)
+AppStatus AnalyticsDBStage::add_cached_or_empty_semantic_segmentation_entry(BufferPtr data,
+                                                                            const std::string & /*reason*/)
 {
     auto &analytics_db = AnalyticsDB::instance();
     auto timestamp = get_timestamp_from_buffer(data);
@@ -128,22 +150,6 @@ tl::expected<detection_analytics_config_t, AppStatus> AnalyticsDBStage::get_dete
     return it->second;
 }
 
-tl::expected<instance_segmentation_analytics_config_t, AppStatus> AnalyticsDBStage::get_instance_segmentation_config()
-    const
-{
-    auto &analytics_db = AnalyticsDB::instance();
-    auto application_analytics_config = analytics_db.get_application_analytics_config();
-
-    auto it = application_analytics_config.instance_segmentation_analytics_config.find(m_analytics_data_id);
-    if (it == application_analytics_config.instance_segmentation_analytics_config.end())
-    {
-        HAILO_ANALYTICS_LOG_ERROR("Instance segmentation analytics config not found for ID: {}", m_analytics_data_id);
-        return tl::unexpected(AppStatus::MEDIA_LIBRARY_ERROR);
-    }
-
-    return it->second;
-}
-
 tl::expected<semantic_segmentation_analytics_config_t, AppStatus> AnalyticsDBStage::get_semantic_segmentation_config()
     const
 {
@@ -208,7 +214,7 @@ std::optional<hailo_semantic_segmentation_mask_t> AnalyticsDBStage::extract_mask
     return std::nullopt; // Mask not found at target index
 }
 
-AppStatus AnalyticsDBStage::process_detection(BufferPtr data, HailoMediaLibraryBufferPtr /*media_lib_buffer*/)
+AppStatus AnalyticsDBStage::process_detection(BufferPtr data)
 {
     auto config = get_detection_config();
     if (!config)
@@ -258,68 +264,8 @@ AppStatus AnalyticsDBStage::process_detection(BufferPtr data, HailoMediaLibraryB
     return AppStatus::SUCCESS;
 }
 
-AppStatus AnalyticsDBStage::process_instance_segmentation(BufferPtr data, HailoMediaLibraryBufferPtr media_lib_buffer)
-{
-    auto config = get_instance_segmentation_config();
-    if (!config)
-    {
-        return config.error();
-    }
-
-    uint32_t ai_width = config->width;
-    uint32_t ai_height = config->height;
-
-    auto hailo_segmetations = hailo_common::get_hailo_segmentations(data->get_roi());
-    std::vector<hailo_detection_with_byte_mask_t> segmentations = {};
-    for (const auto &hailo_segmentation : hailo_segmetations)
-    {
-        hailo_detection_with_byte_mask_t segmentation = hailo_segmentation->get_segmentation();
-
-        float norm_x_min = segmentation.box.x_min;
-        float norm_y_min = segmentation.box.y_min;
-        float norm_x_max = segmentation.box.x_max;
-        float norm_y_max = segmentation.box.y_max;
-
-        uint32_t x_min, y_min, x_max, y_max;
-        convert_bbox_to_clamped_pixel_coords(norm_x_min, norm_y_min, norm_x_max, norm_y_max, ai_width, ai_height, x_min,
-                                             y_min, x_max, y_max);
-
-        segmentation.box.x_min = static_cast<float32_t>(x_min);
-        segmentation.box.y_min = static_cast<float32_t>(y_min);
-        segmentation.box.x_max = static_cast<float32_t>(x_max);
-        segmentation.box.y_max = static_cast<float32_t>(y_max);
-
-        auto roi_width = x_max - x_min;
-        auto roi_height = y_max - y_min;
-        HAILO_ANALYTICS_LOG_TRACE("Segmentation found: label {}, score {}, bbox: [{}, {}, {}, {}], mask size: {}, "
-                                  "ROI width: {}, ROI height: {}",
-                                  segmentation.class_id, segmentation.score, segmentation.box.x_min,
-                                  segmentation.box.y_min, segmentation.box.x_max, segmentation.box.y_max,
-                                  segmentation.mask_size, roi_width, roi_height);
-        segmentations.push_back(segmentation);
-    }
-
-    auto timestamp = get_timestamp_from_buffer(data);
-    auto isp_timestamp = data->get_buffer()->isp_timestamp_ns;
-
-    HAILO_ANALYTICS_LOG_DEBUG("Adding {} segmentations to analytics DB at id {}, timestamp {}", segmentations.size(),
-                              m_analytics_data_id, isp_timestamp);
-
-    auto &analytics_db = AnalyticsDB::instance();
-    InstanceSegmentationAnalyticsData db_data = {
-        .ts = timestamp, .analytics_buffer = segmentations, .medialib_buffer_ptr = media_lib_buffer};
-    auto ret = analytics_db.add_instance_segmentation_entry(m_analytics_data_id, db_data);
-
-    if (ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
-    {
-        HAILO_ANALYTICS_LOG_ERROR("Failed to add entry to analytics DB");
-        return AppStatus::MEDIA_LIBRARY_ERROR;
-    }
-
-    return AppStatus::SUCCESS;
-}
-
-AppStatus AnalyticsDBStage::process_semantic_segmentation(BufferPtr data, HailoMediaLibraryBufferPtr media_lib_buffer)
+AppStatus AnalyticsDBStage::process_semantic_segmentation(BufferPtr data,
+                                                          HailoMediaLibraryBufferPtr /*media_lib_buffer*/)
 {
     auto config = get_semantic_segmentation_config();
     if (!config)
@@ -423,6 +369,10 @@ AppStatus AnalyticsDBStage::process(BufferPtr data)
 {
     HAILO_ANALYTICS_LOG_TRACE("[{}] process() called", m_stage_name);
 
+    // Must run before the type-specific dispatch below: that path has multiple early returns
+    // (no ROI / no masks / no tensor) and the overflow consumer would otherwise block on it.
+    process_overflow_detections(data);
+
     AppStatus status = AppStatus::SUCCESS;
 
     if (m_type == AnalyticsType::SEMANTIC_SEGMENTATION)
@@ -506,32 +456,14 @@ AppStatus AnalyticsDBStage::process(BufferPtr data)
 
         status = process_semantic_segmentation(data, media_lib_buffer);
     }
+    else if (m_type == AnalyticsType::DETECTION)
+    {
+        status = process_detection(data);
+    }
     else
     {
-        // For other analytics types, require tensor metadata
-        std::vector<MetadataPtr> metadata = data->get_metadata_of_type(MetadataType::TENSOR);
-        if (metadata.empty())
-        {
-            HAILO_ANALYTICS_LOG_ERROR("[{}] No TENSOR metadata found in buffer", m_stage_name);
-            return AppStatus::PIPELINE_ERROR;
-        }
-
-        TensorMetadataPtr buffer_metadata_ptr = std::dynamic_pointer_cast<TensorMetadata>(metadata[0]);
-        HailoMediaLibraryBufferPtr media_lib_buffer = buffer_metadata_ptr->get_buffer()->get_buffer();
-        media_lib_buffer->sync_end();
-
-        switch (m_type)
-        {
-        case AnalyticsType::INSTANCE_SEGMENTATION:
-            status = process_instance_segmentation(data, media_lib_buffer);
-            break;
-        case AnalyticsType::DETECTION:
-            status = process_detection(data, media_lib_buffer);
-            break;
-        default:
-            HAILO_ANALYTICS_LOG_ERROR("Unsupported AnalyticsType: {}", static_cast<int>(m_type));
-            return AppStatus::MEDIA_LIBRARY_ERROR;
-        }
+        HAILO_ANALYTICS_LOG_ERROR("Unsupported AnalyticsType: {}", static_cast<int>(m_type));
+        return AppStatus::MEDIA_LIBRARY_ERROR;
     }
 
     if (status != AppStatus::SUCCESS)
@@ -541,6 +473,60 @@ AppStatus AnalyticsDBStage::process(BufferPtr data)
 
     send_to_subscribers(data);
     return AppStatus::SUCCESS;
+}
+
+void AnalyticsDBStage::process_overflow_detections(BufferPtr data)
+{
+    if (m_overflow_analytics_data_id.empty())
+        return;
+    auto roi = data->get_roi();
+    if (!roi)
+        return;
+
+    auto &analytics_db = AnalyticsDB::instance();
+    auto app_config = analytics_db.get_application_analytics_config();
+    auto config_it = app_config.detection_analytics_config.find(m_overflow_analytics_data_id);
+    if (config_it == app_config.detection_analytics_config.end())
+    {
+        HAILO_ANALYTICS_LOG_TRACE("[{}] Overflow analytics_id '{}' not configured, skipping", m_stage_name,
+                                  m_overflow_analytics_data_id);
+        return;
+    }
+
+    const uint32_t width = config_it->second.width;
+    const uint32_t height = config_it->second.height;
+
+    std::vector<hailo_detection_t> overflow;
+    for (auto detection : hailo_common::get_hailo_detections(roi))
+    {
+        bool has_mask = false;
+        for (const auto &nested : detection->get_objects())
+        {
+            if (nested->get_type() == HAILO_CLASS_MASK)
+            {
+                has_mask = true;
+                break;
+            }
+        }
+        if (has_mask)
+            continue;
+        HailoBBox bbox = detection->get_bbox();
+        hailo_detection_t wire;
+        wire.score = detection->get_confidence();
+        wire.class_id = static_cast<uint16_t>(detection->get_class_id());
+        wire.x_min = bbox.xmin() * static_cast<float32_t>(width);
+        wire.y_min = bbox.ymin() * static_cast<float32_t>(height);
+        wire.x_max = bbox.xmax() * static_cast<float32_t>(width);
+        wire.y_max = bbox.ymax() * static_cast<float32_t>(height);
+        overflow.push_back(wire);
+    }
+
+    DetectionAnalyticsData entry{.ts = get_timestamp_from_buffer(data), .analytics_buffer = std::move(overflow)};
+    auto ret = analytics_db.add_detection_entry(m_overflow_analytics_data_id, entry);
+    if (ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        HAILO_ANALYTICS_LOG_ERROR("[{}] Failed to add overflow detection entry to analytics DB", m_stage_name);
+    }
 }
 
 AnalyticsDBStageBuild::Builder &AnalyticsDBStageBuild::Builder::set_stage_name(std::string name)
@@ -580,13 +566,20 @@ AnalyticsDBStageBuild::Builder &AnalyticsDBStageBuild::Builder::set_trace_opt(bo
     return *this;
 }
 
+AnalyticsDBStageBuild::Builder &AnalyticsDBStageBuild::Builder::set_overflow_analytics_data_id(
+    const std::string &overflow_analytics_data_id)
+{
+    m_overflow_analytics_data_id = overflow_analytics_data_id;
+    return *this;
+}
+
 std::shared_ptr<AnalyticsDBStage> AnalyticsDBStageBuild::Builder::buildptr() const
 {
     THROW_IF_MISSING(m_stage_name.has_value(), "set_stage_name");
     THROW_IF_MISSING(m_analytics_data_id.has_value(), "set_analytics_data_id");
 
     return std::make_shared<AnalyticsDBStage>(m_stage_name.value(), m_queue_size, m_leaky, m_analytics_data_id.value(),
-                                              m_type, m_trace);
+                                              m_type, m_trace, m_overflow_analytics_data_id);
 }
 
 AnalyticsDBStageBuild::Builder AnalyticsDBStageBuild::create()

@@ -1,6 +1,11 @@
 #include "video_table.hpp"
-#include <iostream>
+
+#include <sqlite3.h>
+#include <stddef.h>
 #include <cstdint>
+#include <algorithm>
+#include <utility>
+
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
 VideoTable::VideoTable(const std::string &dbFile, SqliteAccessType accesstype) : Database(dbFile, accesstype)

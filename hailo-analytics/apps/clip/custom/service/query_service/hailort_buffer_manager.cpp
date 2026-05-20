@@ -1,5 +1,10 @@
 #include "hailort_buffer_manager.hpp"
 
+#include <hailort.h>
+#include <exception>
+
+#include "common_utils.hpp"
+
 using namespace hailort;
 
 HailortBufferManager::BufferPair::BufferPair(std::shared_ptr<uint8_t> buf, DmaMappedBuffer map)

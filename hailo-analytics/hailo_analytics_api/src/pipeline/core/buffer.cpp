@@ -1,5 +1,10 @@
 #include "hailo_analytics/pipeline/core/buffer.hpp"
 
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
+#include <media_library/buffer_pool.hpp>
+#include <media_library/media_library_buffer.hpp>
+#include <unordered_set>
+
 namespace hailo_analytics::pipeline
 {
 
@@ -7,6 +12,10 @@ namespace hailo_analytics::pipeline
 Metadata::Metadata(MetadataType type) : m_type(type)
 {
 }
+
+Metadata::~Metadata() = default;
+Metadata::Metadata(const Metadata &) = default;
+Metadata &Metadata::operator=(const Metadata &) = default;
 
 MetadataType Metadata::get_type() const
 {
@@ -123,6 +132,34 @@ HailoMediaLibraryBufferPtr Buffer::get_buffer() const
 HailoROIPtr Buffer::get_roi() const
 {
     return m_roi;
+}
+
+void Buffer::set_roi(HailoROIPtr roi)
+{
+    m_roi = std::move(roi);
+}
+
+void Buffer::release_frame_data()
+{
+    if (!m_buffer || !m_buffer->buffer_data)
+    {
+        return;
+    }
+    auto shadow = std::make_shared<hailo_media_library_buffer>();
+    shadow->isp_timestamp_ns = m_buffer->isp_timestamp_ns;
+    shadow->pts = m_buffer->pts;
+    shadow->dts = m_buffer->dts;
+    shadow->duration = m_buffer->duration;
+    // Preserve the trace label set so Perfetto continues to attribute the released
+    // frame to its concurrent streams downstream.
+    shadow->concurrent_stream_ids = m_buffer->concurrent_stream_ids;
+    // Build an empty hailo_buffer_data_t that retains width/height/format so downstream
+    // metadata consumers (analytic_metadata_packager_stage) keep working without holding
+    // any DMA planes. planes_count = 0 keeps the destructor a no-op.
+    shadow->buffer_data = std::make_shared<hailo_buffer_data_t>(
+        m_buffer->buffer_data->width, m_buffer->buffer_data->height, /*planes_count=*/0, m_buffer->buffer_data->format,
+        m_buffer->buffer_data->memory, std::vector<hailo_data_plane_t>{});
+    m_buffer = std::move(shadow);
 }
 
 void Buffer::add_metadata(MetadataPtr metadata)

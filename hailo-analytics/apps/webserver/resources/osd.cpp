@@ -1,6 +1,22 @@
 #include "osd.hpp"
+
+#include <stddef.h>
 #include <iostream>
 #include <regex>
+#include <algorithm>
+#include <exception>
+#include <filesystem>
+#include <initializer_list>
+#include <map>
+#include <stdexcept>
+#include <unordered_map>
+#include <utility>
+
+#include "common/common.hpp"
+#include "common/logger_macros.hpp"
+#include "media_library/cloexec_fstream.hpp"
+#include "resources/common/resources.hpp"
+#include "resources/configs.hpp"
 
 #define IMAGE_PATH "/home/root/apps/webserver/resources/configs/"
 #define FONT_PATH "/usr/share/fonts/ttf/"
@@ -55,7 +71,7 @@ inline nlohmann::json from_osd_config_to_medialib_config(nlohmann::json config)
             medialib_config["osd"][category].push_back(item);
         }
     }
-    return medialib_config["osd"];
+    return medialib_config;
 }
 
 inline nlohmann::json from_medialib_config_to_osd_config(nlohmann::json config)
@@ -153,7 +169,7 @@ OsdResource::OsdResource(std::shared_ptr<EventBus> event_bus, std::shared_ptr<Co
     : Resource(event_bus)
 {
     subscribe_callback(EventType::PIPELINE_READY, EventPriority::EVENT_PRIORITY_HIGH,
-                       [this, configs](ResourceStateChangeNotification notification) {
+                       [this, configs](ResourceStateChangeNotification /*notification*/) {
                            WEBSERVER_LOG_INFO("Received PIPELINE_READY notification");
                            auto default_config = configs->get_osd_and_encoder_default_config();
                            this->m_default_config = default_config.dump();
@@ -185,7 +201,7 @@ OsdResource::OsdResource(std::shared_ptr<EventBus> event_bus, std::shared_ptr<Co
     });
 
     subscribe_callback({EventType::CHANGE_ROTATION, EventType::CHANGE_RESOLUTION}, EventPriority::EVENT_PRIORITY_LOW,
-                       [this](ResourceStateChangeNotification notification) {
+                       [this](ResourceStateChangeNotification /*notification*/) {
                            // renable the osds on the new stream resolution
                            WEBSERVER_LOG_INFO("Received CHANGE_RESOLUTION notification with LOW priority");
                            on_resource_change(EventType::CHANGED_RESOURCE_OSD,
@@ -207,9 +223,9 @@ void OsdResource::update_osds(uint32_t new_width, uint32_t new_height)
 void OsdResource::reset_config()
 {
     auto config = nlohmann::json::parse(m_default_config);
-    m_config = from_medialib_config_to_osd_config(config.at("osd"));
-    m_resolution_conf.width = config["encoding"]["input_stream"]["width"];
-    m_resolution_conf.height = config["encoding"]["input_stream"]["height"];
+    m_config = from_medialib_config_to_osd_config(config.at("osd").at("osd"));
+    m_resolution_conf.width = config["encoding"]["encoding"]["input_stream"]["width"];
+    m_resolution_conf.height = config["encoding"]["encoding"]["input_stream"]["height"];
     m_resolution_conf.rotation = m_default_rotation;
     on_resource_change(EventType::CHANGED_RESOURCE_OSD, std::make_shared<OsdResourceState>(m_config));
     WEBSERVER_LOG_INFO("OSD configuration reset to default");
@@ -507,7 +523,7 @@ void OsdResource::register_upload_endpoint(HTTPServer &srv)
         std::string file_path = std::string(IMAGE_PATH) + filename;
         try
         {
-            std::ofstream ofs(file_path, std::ios::binary);
+            cloexec::ofstream ofs(file_path, std::ios::binary);
             ofs.write(content.c_str(), content.size());
             ofs.close();
             WEBSERVER_LOG_INFO("File saved to: {}", file_path);

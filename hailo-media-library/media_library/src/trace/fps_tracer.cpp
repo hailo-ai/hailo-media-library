@@ -22,7 +22,9 @@
  */
 
 #include "fps_tracer.hpp"
+
 #include <chrono>
+#include <compare>
 
 FpsTracer::FpsTracer(std::chrono::milliseconds window_duration) : m_window_duration(window_duration)
 {

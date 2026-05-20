@@ -1,8 +1,17 @@
 #include "hrt_stitcher.hpp"
-#include "buffer_pool.hpp"
-#include "logger_macros.hpp"
-#include "hailo_media_library_perfetto.hpp"
+
+#include <hailo/hailort.h>
+#include <stdint.h>
+#include <string.h>
+#include <hailo/expected.hpp>
 #include <iostream>
+#include <chrono>
+#include <string_view>
+#include <type_traits>
+#include <utility>
+
+#include "buffer_pool.hpp"
+#include "hailo_media_library_perfetto.hpp"
 
 void TensorInfo::init(int num_exp)
 {

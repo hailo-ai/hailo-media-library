@@ -24,7 +24,7 @@
 
 #ifdef HAVE_PERFETTO
 
-#include <hailo_perfetto.h>
+#include <hailo_perfetto.h> // IWYU pragma: keep // IWYU pragma: export
 
 #define HAILO_ANALYTICS_CATEGORY "hailo_analytics"
 #define HAILO_ANALYTICS_DETAILED_CATEGORY "hailo_analytics_detailed"

@@ -1,8 +1,12 @@
 #include "common.hpp"
-#include <cstring>
-#include <stdio.h>
+
 #include <filesystem>
-#include <mutex>
+#include <fstream>
+#include <stdexcept>
+#include <string>
+
+#include "common/logger_macros.hpp"
+#include "media_library/cloexec_fstream.hpp"
 
 using namespace webserver::common;
 static constexpr const char *TRIPLE_A_CONFIG_PATH = "/usr/bin/3aconfig.json";
@@ -88,7 +92,7 @@ void webserver::common::to_json(nlohmann::json &json, const webserver::common::t
     json = nlohmann::json{{"value", params.value}};
 }
 
-void webserver::common::from_json(const nlohmann::json &json, ae_ranges_t &params)
+void webserver::common::from_json(const nlohmann::json & /*json*/, ae_ranges_t & /*params*/)
 {
     throw std::runtime_error("ae ranges cant be defined by frontend");
 }
@@ -180,7 +184,7 @@ SensorModel webserver::common::get_sensor_type()
     {
         if (entry.path().filename().string().find(SENSOR_PREFIX) != std::string::npos)
         {
-            std::ifstream name_file(entry.path() / "name");
+            cloexec::ifstream name_file(entry.path() / "name");
             std::string name;
             name_file >> name;
             if (name.find(SENSOR_IMX678_NAME) == 0)

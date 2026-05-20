@@ -1,15 +1,21 @@
 #include "gsthailojpeg.hpp"
 
-#include "buffer_pool.hpp"
+#include <gst/gstghostpad.h>
+#include <gst/gstparamspecs.h>
+#include <gst/video/video-format.h>
+#include <stdio.h>
+#include <fstream>
+#include <variant>
+#include <map>
+#include <memory>
+#include <optional>
+
+#include "media_library/buffer_pool.hpp"
 #include "common/gstmedialibcommon.hpp"
 #include "buffer_utils.hpp"
-#include "encoder_config_types.hpp"
-#include <algorithm>
-#include <gst/video/video.h>
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <variant>
+#include "media_library/encoder_config_types.hpp"
+#include "gstmedialibptrs.hpp"
+#include "media_library_types.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailojpegenc_debug_category);
 #define GST_CAT_DEFAULT gst_hailojpegenc_debug_category

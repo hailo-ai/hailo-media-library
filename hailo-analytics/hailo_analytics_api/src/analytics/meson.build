@@ -9,6 +9,7 @@ analytics_sources = [
     'analytic_metadata_ws_sender.cpp',
     'tiling.cpp',
     'face_landmarks.cpp',
+    'face_recognition.cpp',
     'dynamic_privacy_mask.cpp',
     'dpm_analytics.cpp',
     'reference_camera_app_constructor.cpp'

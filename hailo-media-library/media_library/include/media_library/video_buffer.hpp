@@ -1,7 +1,10 @@
 #pragma once
 
-#include <linux/v4l2-subdev.h>
-#include <linux/types.h>
+#include <linux/videodev2.h>
+#include <stddef.h>
+#include <vector>
+#include <algorithm>
+#include <utility>
 
 #include "dma_buffer.hpp"
 #include "media_library_logger.hpp"
@@ -34,6 +37,16 @@ class VideoBuffer
     inline struct v4l2_buffer *get_v4l2_buffer()
     {
         return &m_v4l2_buffer;
+    }
+
+    void swap_plane_fds_with(VideoBuffer &other)
+    {
+        const unsigned int planes = std::min(m_num_planes, other.m_num_planes);
+        for (unsigned int i = 0; i < planes; i++)
+        {
+            std::swap(m_plane_fds[i], other.m_plane_fds[i]);
+            std::swap(m_v4l2_buffer.m.planes[i].m.fd, other.m_v4l2_buffer.m.planes[i].m.fd);
+        }
     }
 
   private:

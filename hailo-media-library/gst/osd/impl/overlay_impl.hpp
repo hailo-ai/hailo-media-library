@@ -23,19 +23,26 @@
 
 #pragma once
 
-#include "media_library/media_library_types.hpp"
+#include <gst/video/video-format.h>
+#include <gst/video/video-frame.h>
+#include <hailo/hailodsp.h>
+#include <stddef.h>
+#include <opencv2/core.hpp>
+#include <tl/expected.hpp>
 #include <memory>
-#include "../osd_types.hpp"
-#include <gst/gst.h>
-#include <gst/video/video.h>
 #include <shared_mutex>
-#include <opencv2/opencv.hpp>
 #include <set>
 #include <vector>
+#include <string>
+#include <tuple>
+
+#include "media_library/media_library_types.hpp"
+#include "../osd_types.hpp"
 
 #define WIDTH_PADDING 10
 
 class OverlayImpl;
+
 using OverlayImplPtr = std::shared_ptr<OverlayImpl>;
 
 mat_dims internal_calculate_text_size(const std::string &label, const std::string &font_path, int font_size,

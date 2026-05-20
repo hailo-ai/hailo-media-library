@@ -28,7 +28,6 @@
 #pragma once
 #include <functional>
 #include <atomic>
-#include <stdexcept>
 
 namespace signal_utils
 {

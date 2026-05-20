@@ -1,4 +1,25 @@
+#include <stdint.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <tl/expected.hpp>
+#include <chrono>
+#include <iostream>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <thread>
+#include <utility>
+#include <variant>
+#include <vector>
+
 #include "common/common.hpp"
+#include "media_library/media_library_types.hpp"
+#include "media_library/signal_utils.hpp"
+#include "media_library/encoder_config_types.hpp"
+#include "media_library/frontend.hpp"
+#include "media_library/media_library.hpp"
+#include "cloexec_fstream.hpp"
 
 bool set_override_parameters(config_profile_t override_profile)
 {
@@ -209,9 +230,10 @@ int main()
     }
     m_media_lib = media_lib_expected.value();
 
-    std::string medialib_config_string = read_string_from_file(config_path);
-    if (m_media_lib->initialize(medialib_config_string) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    if (m_media_lib->initialize(config_path) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         return 1;
+
+    examples::scale_osd_to_output_resolution(m_media_lib);
 
     auto streams = m_media_lib->m_frontend->get_outputs_streams();
     if (streams.has_value())

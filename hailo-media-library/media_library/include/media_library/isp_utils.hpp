@@ -28,6 +28,13 @@
 #pragma once
 
 #include <tl/expected.hpp>
+#include <stddef.h>
+#include <stdint.h>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
 #include "media_library_types.hpp"
 #include "sensor_types.hpp"
 #include "v4l2_ctrl.hpp"
@@ -90,6 +97,7 @@ void set_isp_config_files_path(const std::string &path);
 std::optional<SensorType> get_sensor_type(size_t sensor_index = 0);
 media_library_return setup_hdr(const output_resolution_t &input_resolution, const int stitch_mode);
 media_library_return setup_sdr(const output_resolution_t &input_resolution);
+media_library_return edit_media_server_hdr_compression(bool compression, bool decompression);
 /* When HDR is on, set the offeset to be the time of the frame capture in the sensor, so NNC timings will not effect it
  */
 void set_hdr_forward_timestamp(bool enabled);

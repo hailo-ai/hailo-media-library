@@ -23,14 +23,22 @@
 
 #pragma once
 
-#include "overlay_impl.hpp"
-#include <harfbuzz/hb-ft.h>
 #include <harfbuzz/hb.h>
 #include <freetype/freetype.h>
 #include <freetype/ftstroke.h>
-
+#include <freetype/ftimage.h>
+#include <freetype/fttypes.h>
+#include <hailo/hailodsp.h>
+#include <opencv2/core.hpp>
+#include <tl/expected.hpp>
 #include <utility>
 #include <memory>
+#include <string>
+#include <vector>
+
+#include "overlay_impl.hpp"
+#include "media_library_types.hpp"
+#include "osd_types.hpp"
 
 using ft_library_ptr = std::unique_ptr<FT_LibraryRec_, decltype(&FT_Done_FreeType)>;
 using ft_face_ptr = std::unique_ptr<FT_FaceRec_, decltype(&FT_Done_Face)>;
@@ -41,6 +49,7 @@ using hb_buffer_ptr = std::unique_ptr<hb_buffer_t, decltype(&hb_buffer_destroy)>
 using size_baseline = std::pair<cv::Size, int>;
 
 class SimpleTextOverlayImpl;
+
 using SimpleTextOverlayImplPtr = std::shared_ptr<SimpleTextOverlayImpl>;
 class SimpleTextOverlayImpl final : public OverlayImpl
 {

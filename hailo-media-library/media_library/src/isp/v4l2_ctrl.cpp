@@ -1,14 +1,21 @@
 #include "v4l2_ctrl.hpp"
-#include "sensor_registry.hpp"
 
-#include <cstdint>
+#include <asm/ioctl.h>
+#include <fcntl.h>
+#include <linux/v4l2-controls.h>
+#include <stdio.h>
+#include <sys/ioctl.h>
+#include <sys/types.h>
 #include <cstring>
 #include <optional>
 #include <filesystem>
-#include <fstream>
-#include <type_traits>
 #include <regex>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
+#include "media_library/cloexec_fstream.hpp"
+#include "sensor_registry.hpp"
 #include "media_library_logger.hpp"
 
 #define MODULE_NAME LoggerType::Isp
@@ -37,6 +44,7 @@ const std::unordered_map<Video0Ctrl, std::pair<std::string, uint32_t>> m_video0_
     {Video0Ctrl::WB_GB_GAIN, {"isp_wb_gb_gain", 0}},
     {Video0Ctrl::WB_B_GAIN, {"isp_wb_b_gain", 0}},
     {Video0Ctrl::HDR_RATIOS, {"isp_hdr_ratio", 0}},
+    {Video0Ctrl::BLS_MODE, {"isp_bls_mode", 0}},
     {Video0Ctrl::BLS_RED, {"isp_bls_red", 0}},
     {Video0Ctrl::BLS_GREEN_RED, {"isp_bls_green_red", 0}},
     {Video0Ctrl::BLS_GREEN_BLUE, {"isp_bls_green_blue", 0}},
@@ -45,7 +53,7 @@ const std::unordered_map<Video0Ctrl, std::pair<std::string, uint32_t>> m_video0_
     {Video0Ctrl::DG_GAIN, {"isp_dg_gain", 0}},
     {Video0Ctrl::FAST_TOGGLE, {"", _IOR('D', BASE_VIDIOC_PRIVATE + 8, int)}},
     {Video0Ctrl::FAST_TOGGLE_PREPARE, {"", _IOR('D', BASE_VIDIOC_PRIVATE + 9, int)}},
-    {Video0Ctrl::HDR_FORWARD_TIMESTAMPS, {"timestamp_mode", _IOW('D', BASE_VIDIOC_PRIVATE + 5, bool)}},
+    {Video0Ctrl::ISP_FORWARD_TIMESTAMPS, {"timestamp_mode", _IOW('D', BASE_VIDIOC_PRIVATE + 5, bool)}},
 };
 
 const std::unordered_map<ImxCtrl, std::pair<std::string, uint32_t>> m_imx_ctrl_to_key = {
@@ -98,7 +106,7 @@ std::optional<std::string> find_subdevice_path(const std::string &subdevice_name
     {
         if (entry.path().filename().string().find("v4l-subdev") != std::string::npos)
         {
-            std::ifstream name_file(entry.path() / "name");
+            cloexec::ifstream name_file(entry.path() / "name");
             std::string name;
             std::getline(name_file, name);
             if (name.find(subdevice_name) != std::string::npos)

@@ -7,13 +7,16 @@
 
 // General includes
 #include <algorithm>
+#include <optional>
+#include <string>
+#include <vector>
 
 // Media-Library includes
-#include "media_library/encoder.hpp"
+#include "media_library/media_library.hpp"
 
 // Infra includes
-#include "hailo_analytics/pipeline/core/stage.hpp"
 #include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 #define ENCODER_QUEUE_SIZE_DEFAULT (1)
 
@@ -23,14 +26,24 @@ namespace hailo_analytics::pipeline::codecs
 /**
  * @brief Class representing an encoder stage in the pipeline.
  *
- * This stage encodes video frames using the media library encoder.
+ * This stage encodes video frames using the media library.
  * It receives buffers from upstream stages, encodes them, and passes
  * the encoded data to downstream stages.
+ *
+ * Optionally, the stage can also convert the analytics buffer's HailoROI tree
+ * into typed AI metadata attached to the wrapped medialib buffer's
+ * m_analytics_metadata field, delivering AI results without going through the
+ * AnalyticsDB singleton.
  */
 class EncoderStage : public hailo_analytics::pipeline::ThreadedStage
 {
   private:
-    MediaLibraryEncoder *m_encoder; ///< Non-owning pointer to media library encoder instance.
+    MediaLibraryInterfacePtr m_media_library; ///< Shared MediaLibrary interface instance.
+    output_stream_id_t m_stream_id;           ///< Stream ID for the encoder within the MediaLibrary.
+
+    bool m_attach_analytics_metadata = true;
+
+    void attach_dpm_metadata(hailo_analytics::pipeline::BufferPtr data);
 
   public:
     /**
@@ -45,12 +58,13 @@ class EncoderStage : public hailo_analytics::pipeline::ThreadedStage
                  bool trace_processing_operations = true);
 
     /**
-     * @brief Create the encoder stage with an encoder instance.
+     * @brief Create the encoder stage with a MediaLibrary instance and stream ID.
      *
-     * @param encoder Media library encoder pointer.
+     * @param media_library Shared pointer to the MediaLibrary.
+     * @param stream_id The output stream ID for this encoder.
      * @return AppStatus Status of the creation.
      */
-    AppStatus create(MediaLibraryEncoder &encoder);
+    AppStatus create(MediaLibraryInterfacePtr media_library, const output_stream_id_t &stream_id);
 
     /**
      * @brief Initialize the encoder stage.
@@ -67,20 +81,30 @@ class EncoderStage : public hailo_analytics::pipeline::ThreadedStage
     AppStatus deinit() override;
 
     /**
-     * @brief Configure the encoder stage with an encoder instance.
+     * @brief Configure the encoder stage with a MediaLibrary instance and stream ID.
      *
-     * @param encoder Media library encoder pointer.
+     * @param media_library Shared pointer to the MediaLibrary.
+     * @param stream_id The output stream ID for this encoder.
      * @return AppStatus Status of the configuration.
      */
-    AppStatus configure(MediaLibraryEncoder &encoder);
+    AppStatus configure(MediaLibraryInterfacePtr media_library, const output_stream_id_t &stream_id);
 
     /**
-     * @brief Process a buffer by encoding it.
+     * @brief Enable the ROI -> m_analytics_metadata conversion side-effect on process().
+     *
+     * When enabled, process() walks the analytics buffer's HailoROI tree, builds vectors of
+     * LabeledSemanticMask / LabeledDetection, and writes them onto the wrapped medialib
+     * buffer's m_analytics_metadata field.
+     */
+    void set_attach_analytics_metadata(bool enabled);
+
+    /**
+     * @brief Process a buffer by encoding it (and optionally attaching AI metadata first).
      *
      * @param data Buffer containing the frame to encode.
      * @return AppStatus Status of the processing.
      */
-    AppStatus process(BufferPtr data);
+    AppStatus process(BufferPtr data) override;
 };
 
 /**
@@ -102,6 +126,7 @@ class EncoderStageBuild : public EncoderStage
         size_t m_queue_size = ENCODER_QUEUE_SIZE_DEFAULT;
         bool m_leaky = false;
         bool m_trace = true;
+        bool m_attach_analytics_metadata = true;
 
       public:
         /**
@@ -131,6 +156,13 @@ class EncoderStageBuild : public EncoderStage
          * @return Reference to this builder for chaining.
          */
         Builder &set_trace_opt(bool activate);
+
+        /**
+         * @brief Enable the ROI -> m_analytics_metadata conversion side-effect on the built stage.
+         *
+         * Pixel dimensions for the wire-types come from the buffer itself at process() time.
+         */
+        Builder &set_attach_analytics_metadata(bool enabled = true);
 
         /**
          * @brief Build and return the EncoderStage.

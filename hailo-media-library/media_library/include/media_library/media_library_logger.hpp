@@ -28,22 +28,16 @@
 #endif
 #define SPDLOG_NO_EXCEPTIONS
 
-#include "logger_macros.hpp"
-
-#include <spdlog/sinks/basic_file_sink.h>
-#include <spdlog/sinks/null_sink.h>
-#include <spdlog/sinks/rotating_file_sink.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
-
-#include <ctype.h>
-#include <iomanip>
-#include <iostream>
-#include <map>
+#include <assert.h>
+#include <spdlog/logger.h>
 #include <memory>
-#include <sstream>
-#include <stdint.h>
-#include <string.h>
+#include <cstddef>
+#include <string>
+#include <unordered_map>
+#include <utility>
+
+#include "logger_macros.hpp" // IWYU pragma: export
 
 #define DEFAULT_ROTATE (true)
 #define DEFAULT_MAX_LOG_FILE_SIZE (1024 * 1024) // 1MB
@@ -93,6 +87,8 @@ enum class LoggerType
     AnalyticsDB,
     GstFrontendBin,
     GstEncoderBin,
+    Service,
+    ServiceClient,
 };
 
 class LoggerManager

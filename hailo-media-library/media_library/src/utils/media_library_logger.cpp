@@ -21,16 +21,25 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include "media_library_logger.hpp"
-#include "common.hpp"
-#include "env_vars.hpp"
-#include "spdlog/cfg/env.h"
-#include "spdlog/cfg/helpers-inl.h"
-#include "spdlog/async.h"
 
+#include <spdlog/async_logger.h>
+#include <spdlog/sinks/ansicolor_sink.h>
+#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/null_sink.h>
+#include <spdlog/sinks/rotating_file_sink.h>
+#include <spdlog/sinks/sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <tl/expected.hpp>
 #include <filesystem>
 #include <iostream>
-#include <stdio.h>
-#include <stdlib.h>
+#include <algorithm>
+#include <stdexcept>
+#include <vector>
+
+#include "common.hpp"
+#include "env_vars.hpp"
+#include "spdlog/cfg/helpers-inl.h"
+#include "spdlog/async.h"
 
 #define MEDIALIB_NAME ("hailo_media_library")
 #define MEDIALIB_LOGGER_FILENAME ("medialib.log")
@@ -82,6 +91,8 @@ std::unordered_map<LoggerType, std::string> LoggerManager::logger_names = {
     {LoggerType::AnalyticsDB, "analytics_db"},
     {LoggerType::GstFrontendBin, "gst_frontend_bin"},
     {LoggerType::GstEncoderBin, "gst_encoder_bin"},
+    {LoggerType::Service, "service"},
+    {LoggerType::ServiceClient, "service_client"},
 };
 
 std::unordered_map<LoggerType, std::shared_ptr<spdlog::logger>> LoggerManager::loggers = {};

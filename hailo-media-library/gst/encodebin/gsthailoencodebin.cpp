@@ -21,19 +21,25 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include <dlfcn.h>
 #include <gst/gst.h>
-#include <gst/video/video.h>
 #include <nlohmann/json.hpp>
-#include <unistd.h>
+#include <gst/gsterror.h>
+#include <gst/gstghostpad.h>
+#include <gst/gstparamspecs.h>
+#include <string.h>
+#include <initializer_list>
+#include <map>
+#include <memory>
+#include <optional>
+#include <vector>
 
 #include "common/gstmedialibcommon.hpp"
-#include "config_manager.hpp"
+#include "media_library/config_manager.hpp"
 #include "gsthailoencodebin.hpp"
-#include "encoder_config_types.hpp"
-#include "gst/gstobject.h"
+#include "media_library/encoder_config_types.hpp"
 #include "media_library/media_library_types.hpp"
-#include "media_library_logger.hpp"
+#include "media_library/media_library_logger.hpp"
+#include "config_parser.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailoencodebin_debug_category);
 #define GST_CAT_DEFAULT gst_hailoencodebin_debug_category

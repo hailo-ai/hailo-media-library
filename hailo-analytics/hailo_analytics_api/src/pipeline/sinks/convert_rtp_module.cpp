@@ -1,6 +1,16 @@
-#include <sstream>
+#include <gst/app/gstappsink.h>
+#include <gst/gst.h>
+#include <gst/gstparse.h>
+#include <media_library/buffer_pool.hpp>
+#include <tl/expected.hpp>
+#include <iostream>
+#include <memory>
+#include <string>
+
 #include "hailo_analytics/pipeline/sinks/convert_rtp_module.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/pipeline/sinks/output_module.hpp"
 
 namespace hailo_analytics::pipeline::sinks
 {

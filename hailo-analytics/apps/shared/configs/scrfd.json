@@ -1,0 +1,13 @@
+{
+    "image_width": 640,
+    "image_height": 384,
+    "score_threshold": 0.4,
+    "iou_threshold": 0.4,
+    "anchor_variance": [0.1, 0.2],
+    "anchor_steps": [8, 16, 32],
+    "anchor_min_size": [
+        [16, 32],
+        [64, 128],
+        [256, 512]
+    ]
+}

@@ -52,13 +52,9 @@ class Encoder
     int get_gop_size();
     void force_keyframe();
     void update_stride(uint32_t stride);
-    media_library_return configure(std::string json_string);
-    media_library_return configure(const encoder_config_t &config);
     void set_stream_id(const std::string &stream_id);
     EncoderOutputBuffer get_encoder_header_output_buffer();
-    encoder_config_t get_config();
-    encoder_config_t get_user_config();
-    std::vector<EncoderOutputBuffer> handle_frame(HailoMediaLibraryBufferPtr buf, uint32_t frame_number);
+    std::vector<EncoderOutputBuffer> handle_frame(const HailoMediaLibraryBufferPtr &buf, uint32_t frame_number);
     tl::expected<EncoderOutputBuffer, media_library_return> start();
     tl::expected<EncoderOutputBuffer, media_library_return> finish();
     void stop();

@@ -1,24 +1,61 @@
 #include "isp_manager.hpp"
-#include "pre_isp_denoise.hpp"
-#include <chrono>
-#include <cstdint>
-#include <filesystem>
-#include <unordered_map>
 
+#include <errno.h>
+#include <fcntl.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <tl/expected.hpp>
+#include <sys/time.h>
+#include <array>
+#include <cassert>
+#include <chrono>
+#include <filesystem>
+#include "media_library/cloexec_fstream.hpp"
+#include <unordered_map>
+#include <compare>
+#include <ctime>
+#include <exception>
+#include <fstream> // IWYU pragma: keep
+#include <iomanip>
+#include <iostream>
+#include <span>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "pre_isp_denoise.hpp"
 #include "config_attacher.hpp"
 #include "config_manager.hpp"
 #include "hdr_manager.hpp"
 #include "sensor_registry.hpp"
 #include "buffer_pool.hpp"
 #include "isp_utils.hpp"
-#include "logger_macros.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
 #include "v4l2_ctrl.hpp"
 #include "video_buffer.hpp"
 #include "video_device.hpp"
+#include "media_library_buffer.hpp"
+#include "sensor_types.hpp"
+#include "dsp_utils.hpp"
 
 #define MODULE_NAME LoggerType::Isp
+
+static constexpr uint64_t NS_PER_SEC = 1'000'000'000ULL;
+static constexpr uint64_t NS_PER_USEC = 1'000ULL;
+
+static uint64_t timeval_to_ns(const struct timeval &tv)
+{
+    return static_cast<uint64_t>(tv.tv_sec) * NS_PER_SEC + static_cast<uint64_t>(tv.tv_usec) * NS_PER_USEC;
+}
+
+static struct timeval ns_to_timeval(uint64_t ns)
+{
+    struct timeval tv;
+    tv.tv_sec = static_cast<time_t>(ns / NS_PER_SEC);
+    tv.tv_usec = static_cast<suseconds_t>((ns % NS_PER_SEC) / NS_PER_USEC);
+    return tv;
+}
 
 bool IspManager::ModePair::operator==(const ModePair &other) const
 {
@@ -35,6 +72,13 @@ std::size_t IspManager::ModePairHash::operator()(const ModePair &pair) const
 IspManager::IspManager() : m_loop_running(false), m_current_mode(Mode::UNKNOWN), m_config_manager_interactor(nullptr)
 {
     m_allocator.init(DMA_HEAP_PATH);
+    add_internal_subscribers();
+}
+
+void IspManager::add_internal_subscribers()
+{
+    set_subscriber(static_cast<int>(MODULE_NAME),
+                   [this](HailoMediaLibraryBufferPtr raw_buffer) { run_passthrough(raw_buffer); });
 }
 
 IspManager::~IspManager()
@@ -123,6 +167,8 @@ bool IspManager::mode_has_raw_video_source(Mode mode)
         return true;
     case Mode::HDR_DENOISE:
         return true;
+    case Mode::PRE_ISP_SDR:
+        return true;
     case Mode::UNKNOWN:
         return false;
     default:
@@ -131,48 +177,192 @@ bool IspManager::mode_has_raw_video_source(Mode mode)
     }
 }
 
-bool IspManager::set_mcm_mode(Mode mode, std::optional<bool> is_input_packed)
+bool IspManager::setup_sensor_and_isp(const ModeDescriptor &desc, const frontend_config_t &frontend_config)
 {
-    isp_utils::isp_mcm_mode mcm_mode;
-
-    switch (mode)
+    // Compression / decompression happen in the MCM write / read paths respectively.
+    // If we stream in HDR and one of these paths is used (video6 for write, video10 for read),
+    // the matching flag must be true. Per-mode expectations:
+    //   HDR -> (true, true)
+    //   SDR -> (false, false)
+    const bool hdr_compression = (desc.target_mode == Mode::HDR_DENOISE);
+    if (isp_utils::edit_media_server_hdr_compression(hdr_compression, hdr_compression) != MEDIA_LIBRARY_SUCCESS)
     {
-    case Mode::SDR: {
-        bool dual_sensor = m_config_manager_interactor->is_dual_sensor();
-        mcm_mode = dual_sensor ? isp_utils::ISP_MCM_MODE_MULTI_SENSOR : isp_utils::ISP_MCM_MODE_OFF;
-        break;
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to update HDR compression flags for mode {}",
+                              to_string(desc.target_mode));
+        return false;
     }
-    case Mode::HDR_ISP_STITCH:
-        mcm_mode = isp_utils::ISP_MCM_MODE_OFF;
-        break;
-    case Mode::HDR_NNCORE_STITCH:
-        mcm_mode = isp_utils::ISP_MCM_MODE_STITCHING;
-        break;
-    case Mode::PRE_ISP_DENOISE: {
-        if (!is_input_packed.has_value())
+
+    auto &registry = SensorRegistry::get_instance();
+    if (desc.is_hdr)
+    {
+        auto mode_info =
+            registry.get_sensor_mode_info_hdr(frontend_config.input_config.resolution, frontend_config.hdr_config.dol);
+        if (!mode_info)
         {
-            LOGGER__MODULE__ERROR(MODULE_NAME, "is_input_packed must be provided for PRE_ISP_DENOISE mode");
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get sensor mode info");
             return false;
         }
-        mcm_mode = is_input_packed.value() ? isp_utils::ISP_MCM_MODE_PACKED : isp_utils::ISP_MCM_MODE_INJECTION;
-        break;
-    }
-    case Mode::HDR_DENOISE:
-        mcm_mode = isp_utils::ISP_MCM_MODE_RAW_WRITE;
-        break;
-    case Mode::UNKNOWN:
-    default:
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Cannot determine MCM mode for UNKNOWN mode");
-        return false;
+        auto stitch_mode = HdrManager::get_stitch_mode();
+        if (isp_utils::setup_hdr(frontend_config.input_config.resolution, static_cast<int>(stitch_mode)) !=
+            MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to setup HDR");
+            return false;
+        }
+        return set_v4l2_controls(desc, mode_info->csi_mode);
     }
 
-    LOGGER__MODULE__INFO(MODULE_NAME, "Setting MCM_MODE_SEL to {}", mcm_mode);
-    if (!m_v4l2_ctrl_manager.ext_ctrl_set(get_mcm_ctrl_type(), mcm_mode))
+    auto mode_info = registry.get_sensor_mode_info_sdr(frontend_config.input_config.resolution);
+    if (!mode_info)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set MCM_MODE_SEL to {}", mcm_mode);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get sensor mode info");
+        return false;
+    }
+    if (isp_utils::setup_sdr(frontend_config.input_config.resolution) != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to setup SDR");
+        return false;
+    }
+    return set_v4l2_controls(desc, mode_info->csi_mode);
+}
+
+bool IspManager::set_v4l2_controls(const ModeDescriptor &desc, int csi_mode)
+{
+    if (is_fast_denoise_switch_transition(desc))
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Fast denoise switch transition, skipping V4L2 sensor controls");
+        return true;
+    }
+
+    if (!m_v4l2_ctrl_manager.ext_ctrl_set(get_wdr_ctrl_type(), desc.is_hdr))
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set IMX_WDR");
+        return false;
+    }
+    if (!set_custom_rhs1_from_profile())
+    {
+        return false;
+    }
+    if (!m_v4l2_ctrl_manager.ext_ctrl_set(get_csi_ctrl_type(), csi_mode))
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set CSI_MODE_SEL");
+        return false;
+    }
+    if (!m_v4l2_ctrl_manager.ext_ctrl_set(get_mcm_ctrl_type(), desc.mcm_mode))
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set MCM_MODE_SEL");
+        return false;
+    }
+    return true;
+}
+
+bool IspManager::setup_devices(const ModeDescriptor &desc, const frontend_config_t &frontend_config)
+{
+    if (is_fast_denoise_switch_transition(desc))
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME,
+                             "Fast denoise switch active, keeping raw capture and ISP input devices alive");
+        return true;
+    }
+
+    if (m_is_started)
+    {
+        stop();
+    }
+
+    if (desc.uses_pre_isp_pipeline)
+    {
+        if (!setup_raw_capture_device(frontend_config))
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to setup raw capture device");
+            return false;
+        }
+        if (!setup_isp_input_device(frontend_config))
+        {
+            m_raw_capture_device = nullptr;
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to setup ISP input device");
+            return false;
+        }
+    }
+    else
+    {
+        m_raw_capture_device = nullptr;
+        m_isp_in_device = nullptr;
+    }
+    return true;
+}
+
+bool IspManager::is_fast_denoise_switch_transition(const ModeDescriptor &desc) const
+{
+    if (!m_fast_denoise_switch)
+    {
+        return false;
+    }
+    if (!m_raw_capture_device || !m_isp_in_device)
+    {
+        return false;
+    }
+    if (desc.mcm_mode != isp_utils::ISP_MCM_MODE_INJECTION)
+    {
+        return false;
+    }
+    if (m_current_mcm_mode != isp_utils::ISP_MCM_MODE_INJECTION)
+    {
+        return false;
+    }
+    const Mode current = m_current_mode;
+    const bool current_eligible = current == Mode::PRE_ISP_SDR || current == Mode::PRE_ISP_DENOISE;
+    const bool target_eligible = desc.target_mode == Mode::PRE_ISP_SDR || desc.target_mode == Mode::PRE_ISP_DENOISE;
+    return current_eligible && target_eligible;
+}
+
+bool IspManager::switch_mode(const ModeDescriptor &desc, const frontend_config_t &frontend_config)
+{
+    LOGGER__MODULE__INFO(MODULE_NAME, "Switching to mode {}", to_string(desc.target_mode));
+
+    const bool fast_denoise_path = is_fast_denoise_switch_transition(desc);
+
+    m_fast_toggle_mode = get_fast_toggle_mode(desc.target_mode);
+    if (!prepare_for_fast_toggle(m_fast_toggle_mode))
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to prepare for fast toggle");
         return false;
     }
 
+    if (!setup_sensor_and_isp(desc, frontend_config))
+        return false;
+
+    if (!setup_devices(desc, frontend_config))
+        return false;
+
+    if (desc.is_hdr)
+    {
+        m_ls_ratio = frontend_config.hdr_config.ls_ratio;
+        m_vs_ratio = frontend_config.hdr_config.vs_ratio;
+    }
+
+    m_current_mode = desc.target_mode;
+    m_current_mcm_mode = desc.mcm_mode;
+
+    if (fast_denoise_path)
+    {
+        if (desc.target_mode == Mode::PRE_ISP_SDR)
+        {
+            m_pending_bls_value = 200;
+            m_arm_bls_for_next_raw = true;
+        }
+        else if (desc.target_mode == Mode::PRE_ISP_DENOISE)
+        {
+            m_pending_bls_value = 0;
+            m_arm_bls_for_next_raw = true;
+        }
+    }
+
+    if (m_fast_toggle_mode != FastToggleMode::OFF && !fast_denoise_path)
+        start();
+
+    m_fast_toggle_mode = FastToggleMode::OFF;
+    m_mode_cv.notify_all();
     return true;
 }
 
@@ -188,6 +378,10 @@ bool IspManager::is_input_isp_frame_packed(const frontend_config_t &frontend_con
     if (frontend_config.denoise_config.enabled && frontend_config.denoise_config.bayer)
     {
         return MediaLibraryPreIspDenoise::is_packed_output(frontend_config.denoise_config);
+    }
+    if (frontend_config.denoise_config.fast_denoise_switch)
+    {
+        return false;
     }
     return !frontend_config.hdr_config.enabled;
 }
@@ -253,6 +447,11 @@ HailoMediaLibraryBufferPtr IspManager::hailo_buffer_from_isp_buffer(BufferType b
     HailoMediaLibraryBufferPtr hailo_buffer = std::make_shared<hailo_media_library_buffer>();
     hailo_buffer->create(nullptr, buffer_data_ptr, on_free, isp_buffer);
 
+    if (buffer_type == BufferType::RAW_CAPTURE)
+    {
+        hailo_buffer->isp_timestamp_ns = timeval_to_ns(v4l2_data->timestamp);
+    }
+
     return hailo_buffer;
 }
 
@@ -276,6 +475,11 @@ void IspManager::pull_raw_video_buffers_loop()
         constexpr bool is_packed_format = false;
         auto hailo_buffer = hailo_buffer_from_isp_buffer(BufferType::RAW_CAPTURE, raw_buffer, is_packed_format);
 
+        if (m_arm_bls_for_next_raw.exchange(false))
+        {
+            hailo_buffer->pending_bls_value = m_pending_bls_value;
+        }
+
         if (m_fast_toggle_mode != FastToggleMode::OFF)
         {
             m_config_attacher->attach_fallback_config(hailo_buffer);
@@ -285,12 +489,87 @@ void IspManager::pull_raw_video_buffers_loop()
             m_config_attacher->attach_config(hailo_buffer);
         }
 
-        for (const auto &[module_id, callback] : m_raw_buffer_subscribers)
+        auto subscriber_id = active_subscriber_for_mode(m_current_mode.load());
+        if (!subscriber_id.has_value())
         {
-            if (callback)
-            {
-                callback(hailo_buffer);
-            }
+            continue;
+        }
+        auto it = m_raw_buffer_subscribers.find(*subscriber_id);
+        if (it == m_raw_buffer_subscribers.end() || !it->second)
+        {
+            continue;
+        }
+        it->second(hailo_buffer);
+    }
+}
+
+std::optional<IspManager::SubscriberId> IspManager::active_subscriber_for_mode(Mode mode) const
+{
+    switch (mode)
+    {
+    case Mode::PRE_ISP_SDR:
+        return static_cast<int>(LoggerType::Isp);
+    case Mode::PRE_ISP_DENOISE:
+        return static_cast<int>(LoggerType::Denoise);
+    case Mode::HDR_NNCORE_STITCH:
+        return static_cast<int>(LoggerType::Hdr);
+    case Mode::HDR_DENOISE:
+        return static_cast<int>(LoggerType::Denoise);
+    default:
+        return std::nullopt;
+    }
+}
+
+void IspManager::run_passthrough(HailoMediaLibraryBufferPtr raw_buffer)
+{
+    if (!m_isp_in_device || !m_raw_capture_device)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Passthrough: devices not initialized");
+        return;
+    }
+
+    constexpr bool is_packed_isp_input = false;
+    auto isp_input_opt = get_isp_input_buffer(is_packed_isp_input);
+    if (!isp_input_opt.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Passthrough: failed to acquire ISP input slot");
+        return;
+    }
+    HailoMediaLibraryBufferPtr isp_input_buffer = isp_input_opt.value();
+    auto *slot = static_cast<HDR::VideoBuffer *>(isp_input_buffer->get_on_free_data());
+
+    auto *raw_video_buffer = static_cast<HDR::VideoBuffer *>(raw_buffer->get_on_free_data());
+    if (!raw_video_buffer)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Passthrough: raw buffer has no underlying VideoBuffer");
+        return;
+    }
+
+    const uint32_t plane_count = raw_buffer->get_num_of_planes();
+    if (plane_count != isp_input_buffer->get_num_of_planes())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Passthrough: plane count mismatch (raw: {}, isp_in: {})", plane_count,
+                              isp_input_buffer->get_num_of_planes());
+        return;
+    }
+
+    slot->swap_plane_fds_with(*raw_video_buffer);
+    for (uint32_t i = 0; i < plane_count; ++i)
+    {
+        std::swap(isp_input_buffer->buffer_data->planes[i].fd, raw_buffer->buffer_data->planes[i].fd);
+    }
+
+    isp_input_buffer->pending_bls_value = raw_buffer->pending_bls_value;
+    isp_input_buffer->isp_timestamp_ns = raw_buffer->isp_timestamp_ns;
+    isp_input_buffer->attach_profile(raw_buffer->get_attached_profile());
+
+    if (!put_buffer_into_isp(isp_input_buffer))
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Passthrough: failed to submit ISP input slot");
+        slot->swap_plane_fds_with(*raw_video_buffer);
+        for (uint32_t i = 0; i < plane_count; ++i)
+        {
+            std::swap(isp_input_buffer->buffer_data->planes[i].fd, raw_buffer->buffer_data->planes[i].fd);
         }
     }
 }
@@ -348,42 +627,87 @@ bool IspManager::set_config(const frontend_config_t &frontend_config)
     const bool denoise_enabled = is_pre_isp_denoise_config(frontend_config);
     const bool hdr_ratios_changed =
         m_ls_ratio != frontend_config.hdr_config.ls_ratio || m_vs_ratio != frontend_config.hdr_config.vs_ratio;
-
-    // Determine if we're already in an HDR mode (for HDR-only case, both stitch modes are valid)
     const bool in_hdr_stitch_mode = m_current_mode == Mode::HDR_NNCORE_STITCH || m_current_mode == Mode::HDR_ISP_STITCH;
+
+    if (!hdr_enabled && !denoise_enabled)
+    {
+        m_fast_denoise_switch = frontend_config.denoise_config.fast_denoise_switch;
+    }
+
+    if (m_fast_denoise_switch && denoise_enabled && is_input_isp_frame_packed(frontend_config))
+    {
+        LOGGER__MODULE__WARNING(MODULE_NAME, "fast_denoise_switch is enabled but the denoise profile is VD (packed); "
+                                             "falling back to normal mode switching");
+        m_fast_denoise_switch = false;
+    }
+
+    if (!hdr_enabled && denoise_enabled && m_current_mode == Mode::PRE_ISP_DENOISE && m_is_started)
+    {
+        const auto target_mcm = is_input_isp_frame_packed(frontend_config) ? isp_utils::ISP_MCM_MODE_PACKED
+                                                                           : isp_utils::ISP_MCM_MODE_INJECTION;
+        if (target_mcm != m_current_mcm_mode)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME,
+                                  "Switching between VD and HDM denoise methods at runtime is not supported");
+            return false;
+        }
+    }
 
     if (hdr_enabled && denoise_enabled && needs_mode_switch(m_current_mode == Mode::HDR_DENOISE, m_is_started))
     {
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "switching to hdr denoise");
-        return switch_to_hdr_denoise(frontend_config);
+        if (is_input_isp_frame_packed(frontend_config))
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Setting up isp input device for HDR in packed mode is not supported");
+            return false;
+        }
+        if (HdrManager::get_stitch_mode() == StitchMode::NNCORE)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "HDR denoise is not supported for this platform");
+            return false;
+        }
+        return switch_mode(HDR_DENOISE_DESCRIPTOR, frontend_config);
     }
     else if (hdr_enabled && !denoise_enabled && needs_mode_switch(in_hdr_stitch_mode, m_is_started))
     {
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "switching to hdr");
-        return switch_to_hdr(frontend_config);
+        auto stitch_mode = HdrManager::get_stitch_mode();
+        if (stitch_mode != StitchMode::NNCORE && stitch_mode != StitchMode::ISP)
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Unsupported stitch mode");
+            return false;
+        }
+        const auto &desc =
+            (stitch_mode == StitchMode::NNCORE) ? HDR_NNCORE_STITCH_DESCRIPTOR : HDR_ISP_STITCH_DESCRIPTOR;
+        return switch_mode(desc, frontend_config);
     }
     else if (!hdr_enabled && denoise_enabled &&
              needs_mode_switch(m_current_mode == Mode::PRE_ISP_DENOISE, m_is_started))
     {
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "switching to pre isp denoise");
-        return switch_to_pre_isp_denoise(frontend_config);
+        const auto &desc =
+            is_input_isp_frame_packed(frontend_config) ? PRE_ISP_DENOISE_VD_DESCRIPTOR : PRE_ISP_DENOISE_HDM_DESCRIPTOR;
+        return switch_mode(desc, frontend_config);
     }
-    else if (!hdr_enabled && !denoise_enabled && needs_mode_switch(m_current_mode == Mode::SDR, m_is_started))
+    else if (!hdr_enabled && !denoise_enabled)
     {
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "switching to sdr");
-        return switch_to_sdr();
-    }
-    else if (is_current_mode_hdr() && hdr_ratios_changed)
-    {
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "setting hdr ratios");
-        return set_hdr_ratios(frontend_config.hdr_config.ls_ratio, frontend_config.hdr_config.vs_ratio);
-    }
-    else
-    {
-        LOGGER__MODULE__DEBUG(MODULE_NAME, "Set Config called, but No mode switch required");
-        return true;
+        const bool dual = m_config_manager_interactor->is_dual_sensor();
+        const bool want_pre_isp_sdr = m_fast_denoise_switch && !dual;
+        const Mode target_sdr_mode = want_pre_isp_sdr ? Mode::PRE_ISP_SDR : Mode::SDR;
+        if (needs_mode_switch(m_current_mode == target_sdr_mode, m_is_started))
+        {
+            if (want_pre_isp_sdr)
+            {
+                return switch_mode(SDR_FAST_DENOISE_DESCRIPTOR, frontend_config);
+            }
+            const auto &desc = dual ? SDR_DUAL_SENSOR_DESCRIPTOR : SDR_DESCRIPTOR;
+            return switch_mode(desc, frontend_config);
+        }
     }
 
+    if (is_current_mode_hdr() && hdr_ratios_changed)
+    {
+        return set_hdr_ratios(frontend_config.hdr_config.ls_ratio, frontend_config.hdr_config.vs_ratio);
+    }
+
+    LOGGER__MODULE__DEBUG(MODULE_NAME, "Set Config called, but No mode switch required");
     return true;
 }
 
@@ -435,6 +759,15 @@ void IspManager::stop()
         LOGGER__MODULE__INFO(MODULE_NAME, "ISP input device stream stopped successfully");
     }
 
+    if (m_is_started && is_current_mode_using_pre_isp_pipeline())
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "Disabling ISP_FORWARD_TIMESTAMPS");
+        if (!m_v4l2_ctrl_manager.ctrl_set(v4l2::Video0Ctrl::ISP_FORWARD_TIMESTAMPS, false))
+        {
+            LOGGER__MODULE__WARNING(MODULE_NAME, "Failed to disable ISP_FORWARD_TIMESTAMPS");
+        }
+    }
+
     m_is_started = false;
 }
 
@@ -442,15 +775,25 @@ void IspManager::deinit()
 {
     stop();
 
+    m_fast_denoise_switch = false;
+
     restore_isp_config_files_to_default();
-    switch_to_sdr();
+
+    frontend_config_t sdr_config{};
+    sdr_config.input_config.resolution = m_input_resolution;
+    bool dual = m_config_manager_interactor && m_config_manager_interactor->is_dual_sensor();
+    const auto &desc = dual ? SDR_DUAL_SENSOR_DESCRIPTOR : SDR_DESCRIPTOR;
+    switch_mode(desc, sdr_config);
 
     m_raw_capture_device = nullptr;
     m_isp_in_device = nullptr;
 
+    unset_subscriber(static_cast<int>(MODULE_NAME));
+
     std::unique_lock<std::mutex> lock(m_mode_mutex);
     m_raw_buffer_subscribers.clear();
     m_current_mode = Mode::UNKNOWN;
+    m_current_mcm_mode = isp_utils::ISP_MCM_MODE_OFF;
 }
 
 bool IspManager::fast_toggle_ctrl()
@@ -543,6 +886,15 @@ bool IspManager::start()
             LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to dequeue ISP buffers");
             return false;
         }
+
+        // Tell the kernel to copy the raw-capture buffer timestamp onto the ISP output buffer
+        // instead of stamping "now". Required for EIS.
+        LOGGER__MODULE__INFO(MODULE_NAME, "Enabling ISP_FORWARD_TIMESTAMPS");
+        if (!m_v4l2_ctrl_manager.ctrl_set(v4l2::Video0Ctrl::ISP_FORWARD_TIMESTAMPS, true))
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to enable ISP_FORWARD_TIMESTAMPS");
+            return false;
+        }
         m_loop_running = true;
         m_get_raw_buffers_loop_thread = std::thread(&IspManager::pull_raw_video_buffers_loop, this);
         m_mode_cv.notify_all();
@@ -610,72 +962,13 @@ bool IspManager::set_custom_rhs1_from_profile()
 bool IspManager::is_current_mode_using_pre_isp_pipeline()
 {
     return m_current_mode == Mode::PRE_ISP_DENOISE || m_current_mode == Mode::HDR_DENOISE ||
-           m_current_mode == Mode::HDR_NNCORE_STITCH;
+           m_current_mode == Mode::HDR_NNCORE_STITCH || m_current_mode == Mode::PRE_ISP_SDR;
 }
 
 bool IspManager::is_current_mode_hdr()
 {
     return m_current_mode == Mode::HDR_NNCORE_STITCH || m_current_mode == Mode::HDR_ISP_STITCH ||
            m_current_mode == Mode::HDR_DENOISE;
-}
-
-bool IspManager::switch_to_sdr()
-{
-    LOGGER__MODULE__INFO(MODULE_NAME, "Switching to SDR mode");
-
-    m_fast_toggle_mode = get_fast_toggle_mode(Mode::SDR);
-    if (!prepare_for_fast_toggle(m_fast_toggle_mode))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to prepare for fast toggle");
-        return false;
-    }
-
-    auto &registry = SensorRegistry::get_instance();
-    auto mode_info = registry.get_sensor_mode_info_sdr(m_input_resolution);
-    if (!mode_info)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get sensor mode info for SDR setup");
-        return false;
-    }
-    if (isp_utils::setup_sdr(m_input_resolution) != MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to setup SDR");
-        return false;
-    }
-    if (!m_v4l2_ctrl_manager.ext_ctrl_set(get_wdr_ctrl_type(), false))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set IMX_WDR");
-        return false;
-    }
-    if (!set_custom_rhs1_from_profile())
-    {
-        return false;
-    }
-
-    if (!m_v4l2_ctrl_manager.ext_ctrl_set(get_csi_ctrl_type(), mode_info->csi_mode))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set CSI_MODE_SEL");
-        return false;
-    }
-
-    if (!set_mcm_mode(Mode::SDR))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set MCM mode to SDR");
-        return false;
-    }
-
-    m_current_mode = Mode::SDR;
-    if (m_fast_toggle_mode != FastToggleMode::OFF)
-    {
-        LOGGER__MODULE__INFO(MODULE_NAME, "Starting fast toggle mode");
-        stop();
-        start();
-    }
-    m_raw_capture_device = nullptr;
-    m_isp_in_device = nullptr;
-    m_fast_toggle_mode = FastToggleMode::OFF;
-    m_mode_cv.notify_all();
-    return true;
 }
 
 bool IspManager::set_hdr_ratios(float ls_ratio, float vs_ratio)
@@ -693,245 +986,6 @@ bool IspManager::set_hdr_ratios(float ls_ratio, float vs_ratio)
     }
     m_ls_ratio = ls_ratio;
     m_vs_ratio = vs_ratio;
-    return true;
-}
-
-bool IspManager::switch_to_hdr(const frontend_config_t &frontend_config)
-{
-    auto &registry = SensorRegistry::get_instance();
-    auto stitch_mode = HdrManager::get_stitch_mode();
-    LOGGER__MODULE__INFO(MODULE_NAME, "Switching to HDR mode, stitch mode: {}",
-                         (stitch_mode == StitchMode::NNCORE) ? "NNCORE" : "ISP");
-
-    Mode hdr_mode;
-    if (stitch_mode == StitchMode::ISP)
-    {
-        hdr_mode = Mode::HDR_ISP_STITCH;
-        m_fast_toggle_mode = get_fast_toggle_mode(Mode::HDR_ISP_STITCH);
-    }
-    else if (stitch_mode == StitchMode::NNCORE)
-    {
-        hdr_mode = Mode::HDR_NNCORE_STITCH;
-        m_fast_toggle_mode = get_fast_toggle_mode(Mode::HDR_NNCORE_STITCH);
-    }
-    else
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Unsupported stitch mode");
-        return false;
-    }
-
-    if (!prepare_for_fast_toggle(m_fast_toggle_mode))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to prepare for fast toggle");
-        return false;
-    }
-
-    auto mode_info =
-        registry.get_sensor_mode_info_hdr(frontend_config.input_config.resolution, frontend_config.hdr_config.dol);
-    if (!mode_info)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get sensor mode info for HDR setup");
-        return false;
-    }
-    if (isp_utils::setup_hdr(frontend_config.input_config.resolution, static_cast<int>(stitch_mode)) !=
-        MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to setup HDR");
-        return false;
-    }
-    if (!m_v4l2_ctrl_manager.ext_ctrl_set(get_wdr_ctrl_type(), true))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set IMX_WDR");
-        return false;
-    }
-    if (!set_custom_rhs1_from_profile())
-    {
-        return false;
-    }
-    if (!m_v4l2_ctrl_manager.ext_ctrl_set(get_csi_ctrl_type(), mode_info->csi_mode))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set CSI_MODE_SEL");
-        return false;
-    }
-    if (!set_mcm_mode(hdr_mode))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set MCM mode to HDR");
-        return false;
-    }
-
-    m_ls_ratio = frontend_config.hdr_config.ls_ratio;
-    m_vs_ratio = frontend_config.hdr_config.vs_ratio;
-
-    // no fast toggle
-    if (stitch_mode == StitchMode::ISP)
-    {
-        m_fast_toggle_mode = FastToggleMode::OFF;
-        m_current_mode = Mode::HDR_ISP_STITCH;
-        m_mode_cv.notify_all();
-        m_isp_in_device = nullptr;
-        m_raw_capture_device = nullptr;
-        return true;
-    }
-
-    stop();
-    if (!setup_raw_capture_device(frontend_config))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to setup raw capture device for HDR");
-        return false;
-    }
-    if (!setup_isp_input_device(frontend_config))
-    {
-        m_raw_capture_device = nullptr;
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to setup isp input device for HDR");
-        return false;
-    }
-
-    m_current_mode = Mode::HDR_NNCORE_STITCH;
-    if (m_fast_toggle_mode != FastToggleMode::OFF)
-    {
-        start();
-    }
-    m_fast_toggle_mode = FastToggleMode::OFF;
-    m_mode_cv.notify_all();
-    return true;
-}
-
-bool IspManager::switch_to_pre_isp_denoise(const frontend_config_t &frontend_config)
-{
-    LOGGER__MODULE__INFO(MODULE_NAME, "Setting up SDR configuration for Pre-ISP denoise");
-
-    m_fast_toggle_mode = get_fast_toggle_mode(Mode::PRE_ISP_DENOISE);
-    if (!prepare_for_fast_toggle(m_fast_toggle_mode))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to prepare for fast toggle");
-        return false;
-    }
-
-    auto &registry = SensorRegistry::get_instance();
-    auto mode_info = registry.get_sensor_mode_info_sdr(frontend_config.input_config.resolution);
-    if (!mode_info)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get sensor mode info for Pre-ISP denoise setup");
-        return false;
-    }
-    if (isp_utils::setup_sdr(frontend_config.input_config.resolution) != MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to setup SDR configuration for Pre-ISP denoise");
-        return false;
-    }
-    if (!m_v4l2_ctrl_manager.ext_ctrl_set(get_wdr_ctrl_type(), false))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set IMX_WDR");
-        return false;
-    }
-    if (!set_custom_rhs1_from_profile())
-    {
-        return false;
-    }
-
-    if (!m_v4l2_ctrl_manager.ext_ctrl_set(get_csi_ctrl_type(), mode_info->csi_mode))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set CSI_MODE_SEL");
-        return false;
-    }
-    if (!set_mcm_mode(Mode::PRE_ISP_DENOISE, is_input_isp_frame_packed(frontend_config)))
-    {
-        return false;
-    }
-
-    stop(); // stopping raw capture and isp input devices gracefully before reiniting them
-    if (!setup_raw_capture_device(frontend_config))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to setup raw capture device for SDR");
-        return false;
-    }
-    if (!setup_isp_input_device(frontend_config))
-    {
-        m_raw_capture_device = nullptr;
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to setup isp input device for SDR");
-        return false;
-    }
-
-    m_current_mode = Mode::PRE_ISP_DENOISE;
-    if (m_fast_toggle_mode != FastToggleMode::OFF)
-    {
-        start();
-    }
-    m_fast_toggle_mode = FastToggleMode::OFF;
-    m_mode_cv.notify_all();
-    return true;
-}
-
-bool IspManager::switch_to_hdr_denoise(const frontend_config_t &frontend_config)
-{
-    if (is_input_isp_frame_packed(frontend_config))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Setting up isp input device for HDR in packed mode is not supported");
-        return false;
-    }
-
-    LOGGER__MODULE__INFO(MODULE_NAME, "Setting up HDR configuration for Pre-ISP denoise");
-
-    auto &registry = SensorRegistry::get_instance();
-
-    auto stitch_mode = HdrManager::get_stitch_mode();
-    if (stitch_mode == StitchMode::NNCORE)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "HDR denoise is not supported for this platform");
-        return false;
-    }
-    LOGGER__MODULE__INFO(MODULE_NAME, "Switching to HDR mode, stitch mode: {}",
-                         (stitch_mode == StitchMode::NNCORE) ? "NNCORE" : "ISP");
-
-    auto mode_info =
-        registry.get_sensor_mode_info_hdr(frontend_config.input_config.resolution, frontend_config.hdr_config.dol);
-    if (!mode_info)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get sensor mode info for HDR setup");
-        return false;
-    }
-    if (isp_utils::setup_hdr(frontend_config.input_config.resolution, static_cast<int>(stitch_mode)) !=
-        MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to setup HDR");
-        return false;
-    }
-    if (!m_v4l2_ctrl_manager.ext_ctrl_set(v4l2::ImxCtrl::IMX_WDR, true))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set IMX_WDR");
-        return false;
-    }
-    if (!set_custom_rhs1_from_profile())
-    {
-        return false;
-    }
-    if (!m_v4l2_ctrl_manager.ext_ctrl_set(v4l2::CsiCtrl::CSI_MODE_SEL, mode_info->csi_mode))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set CSI_MODE_SEL");
-        return false;
-    }
-
-    if (!set_mcm_mode(Mode::HDR_DENOISE))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set MCM mode to HDR_DENOISE");
-        return false;
-    }
-    if (!setup_raw_capture_device(frontend_config))
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to setup raw capture device for HDR");
-        return false;
-    }
-    if (!setup_isp_input_device(frontend_config))
-    {
-        m_raw_capture_device = nullptr;
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to setup isp input device for HDR");
-        return false;
-    }
-    m_ls_ratio = frontend_config.hdr_config.ls_ratio;
-    m_vs_ratio = frontend_config.hdr_config.vs_ratio;
-    m_current_mode = Mode::HDR_DENOISE;
-    m_mode_cv.notify_all();
-
     return true;
 }
 
@@ -1084,6 +1138,15 @@ bool IspManager::put_buffer_into_isp(HailoMediaLibraryBufferPtr buffer_to_insert
         LOGGER__MODULE__ERROR(MODULE_NAME, "ISP input device is not initialized");
         return false;
     }
+    HDR::VideoBuffer *isp_buffer = static_cast<HDR::VideoBuffer *>(buffer_to_insert_into_isp->get_on_free_data());
+
+    isp_buffer->get_v4l2_buffer()->timestamp = ns_to_timeval(buffer_to_insert_into_isp->isp_timestamp_ns);
+
+    if (buffer_to_insert_into_isp->pending_bls_value.has_value())
+    {
+        apply_pending_bls(buffer_to_insert_into_isp->pending_bls_value.value());
+        buffer_to_insert_into_isp->pending_bls_value.reset();
+    }
 
     if (!m_isp_in_device->put_buffer(static_cast<HDR::VideoBuffer *>(buffer_to_insert_into_isp->get_on_free_data())))
     {
@@ -1093,6 +1156,54 @@ bool IspManager::put_buffer_into_isp(HailoMediaLibraryBufferPtr buffer_to_insert
     buffer_to_insert_into_isp->clear_on_free_data();
     --m_currently_used_isp_input_frames;
     return true;
+}
+
+void IspManager::apply_pending_bls(int bls_value)
+{
+    LOGGER__MODULE__INFO(MODULE_NAME, "Applying BLS controls on first ISP injection: value={}", bls_value);
+    using v4l2::Video0Ctrl;
+
+    constexpr bool BLS_MODE_USE_FIXED_VALUES = false;
+    if (!m_v4l2_ctrl_manager.ext_ctrl_set(Video0Ctrl::BLS_MODE, BLS_MODE_USE_FIXED_VALUES))
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set BLS_MODE");
+    }
+    auto bls_mode_readback = m_v4l2_ctrl_manager.ext_ctrl_get<bool, Video0Ctrl>(Video0Ctrl::BLS_MODE);
+    if (!bls_mode_readback.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "BLS_MODE readback failed");
+    }
+    else
+    {
+        LOGGER__MODULE__INFO(MODULE_NAME, "BLS readback ctrl {} = {} (expected {})",
+                             static_cast<int>(Video0Ctrl::BLS_MODE), static_cast<int>(bls_mode_readback.value()),
+                             static_cast<int>(BLS_MODE_USE_FIXED_VALUES));
+        assert(bls_mode_readback.value() == BLS_MODE_USE_FIXED_VALUES);
+    }
+
+    uint16_t bls_value16 = static_cast<uint16_t>(bls_value);
+    static constexpr std::array<Video0Ctrl, 4> BLS_CTRLS = {
+        Video0Ctrl::BLS_RED,
+        Video0Ctrl::BLS_GREEN_RED,
+        Video0Ctrl::BLS_GREEN_BLUE,
+        Video0Ctrl::BLS_BLUE,
+    };
+    for (auto ctrl : BLS_CTRLS)
+    {
+        if (!m_v4l2_ctrl_manager.ext_ctrl_set(ctrl, &bls_value16))
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to set BLS control {}", static_cast<int>(ctrl));
+            continue;
+        }
+        auto rb = m_v4l2_ctrl_manager.ext_ctrl_get<uint16_t *, Video0Ctrl>(ctrl);
+        if (!rb.has_value())
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "BLS readback failed for ctrl {}", static_cast<int>(ctrl));
+            continue;
+        }
+        LOGGER__MODULE__INFO(MODULE_NAME, "BLS readback ctrl {} = {} (expected {})", static_cast<int>(ctrl), rb.value(),
+                             bls_value16);
+    }
 }
 
 static std::stringstream get_timestamped_stringstream()
@@ -1131,7 +1242,7 @@ static bool write_to_file(const std::string &file_path, const std::string &file_
 {
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Configuring {} config file", file_path);
 
-    std::ofstream file(file_path);
+    cloexec::ofstream file(file_path);
     if (!file.is_open())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to open file for writing: {}", file_path);
@@ -1264,11 +1375,6 @@ std::optional<int> IspManager::get_raw_capture_pix_format()
         return std::nullopt;
     }
     return m_raw_capture_device->get_pix_fmt();
-}
-
-bool IspManager::is_fast_toggle_supported()
-{
-    return HdrManager::get_stitch_mode() == StitchMode::NNCORE;
 }
 
 bool IspManager::prepare_for_fast_toggle(FastToggleMode fast_toggle_mode)

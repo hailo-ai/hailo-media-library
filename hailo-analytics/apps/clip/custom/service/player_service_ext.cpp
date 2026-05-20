@@ -1,5 +1,10 @@
 #include "player_service_ext.hpp"
 
+#include <exception>
+
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "streaming/webrtc_streamer_ext.hpp"
+
 const std::string &VideoStreamingServiceExt::get_session_id() const
 {
     return m_session_id;

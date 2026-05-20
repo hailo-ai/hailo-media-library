@@ -2,9 +2,12 @@
 
 #include <string_view>
 #include <optional>
-#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
+#include <string>
+
 #include "hailo_analytics/analytics/common_configs.hpp"
 #include "tl/expected.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 namespace hailo_analytics::analytics::detection
 {
@@ -12,17 +15,11 @@ namespace hailo_analytics::analytics::detection
 // Detection pipeline parameters
 inline constexpr std::string_view DETECTION_PIPELINE = "detection_pipeline";
 
-// Detection AI Stage parameters
 inline constexpr std::string_view DETECTION_STAGE = "detection_stage";
-inline constexpr std::string_view DETECTION_BASE_HEF =
-    "/home/root/apps/face_landmarks/resources/hailo_yolov8s_384_640.hef";
 inline constexpr std::string_view DETECTION_GROUP_ID = "device0";
 
-// Detection Postprocess parameters
 inline constexpr std::string_view DETECTION_POST_STAGE = "detection_post";
 inline constexpr std::string_view DETECTION_POST_SO = "/usr/lib/hailo-post-processes/libyolo_hailortpp_post.so";
-inline constexpr std::string_view DETECTION_POST_FUNCTION = "hailo_yolov8s";
-inline constexpr std::string_view DETECTION_POST_CONF = "/home/root/apps/webserver/resources/configs/yolov5.json";
 
 /**
  * @brief Configuration for detection pipeline.

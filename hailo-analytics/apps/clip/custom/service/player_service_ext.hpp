@@ -1,19 +1,14 @@
 #pragma once
 
-#include <iostream>
 #include <memory>
-#include <thread>
 #include <atomic>
 #include <mutex>
-#include <condition_variable>
 #include <string>
 #include <vector>
-#include <fstream>
-#include <chrono>
 
 #include "streaming/mkv_streamer.hpp"
-#include "streaming/webrtc_streamer_ext.hpp"
 #include "hailo_analytics/analytics/reference_camera_app_constructor.hpp"
+#include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
 
 class VideoStreamingServiceExt : public hailo_analytics::analytics::app_constructor::CameraAppExtension
 {

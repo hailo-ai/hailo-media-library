@@ -1,5 +1,5 @@
 ################################################
-# HAILO 15 AI EXAMPLE APP
+# HAILO 15 CLIP APP
 ################################################
 
 # Dependencies
@@ -43,6 +43,7 @@ database_src = [
 custom_pipeline_src = [
   'custom/converter/segmented_mkv_muxer.cpp',
   'custom/streaming/mkv_streamer.cpp',
+  'custom/streaming/mkv_concatenator.cpp',
   'custom/service/player_service_ext.cpp',
   'custom/service/storage_cleanup_service_ext.cpp',
   'custom/service/query_service/clip_text_encoder.cpp',
@@ -104,8 +105,7 @@ executable('clip_app',
 
 # Install config files to /resources/configs/
 install_data(
-  sources: ['resources/configs/clip_app_config.yaml',
-            'resources/configs/yolov8n_personface.json'],
+  sources: ['resources/configs/clip_app_config.yaml'],
   install_dir: clip_install_dir / 'resources/configs'
 )
 
