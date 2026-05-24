@@ -1,0 +1,6 @@
+# Claude Code per-user runtime artifacts — do not commit
+projects/
+memory/
+plans/
+settings.local.json
+.session*
