@@ -1,7 +1,9 @@
 #pragma once
 #include "common/resources.hpp"
 #include "media_library/media_library_types.hpp"
+#include <filesystem>
 #include <shared_mutex>
+#include <string>
 
 // JSON serialization for media_library_throttling_state_t
 NLOHMANN_JSON_SERIALIZE_ENUM(media_library_throttling_state_t,
@@ -18,6 +20,16 @@ namespace webserver
 {
 namespace resources
 {
+inline std::string resolve_relative_to(const std::string &path, const std::string &base_dir)
+{
+    std::filesystem::path candidate(path);
+    if (candidate.is_absolute() || base_dir.empty())
+    {
+        return path;
+    }
+    return (std::filesystem::path(base_dir) / candidate).lexically_normal().string();
+}
+
 class ConfigResourceBase : public Resource
 {
   protected:
@@ -50,15 +62,15 @@ class ConfigResourceMedialib : public ConfigResourceBase
     nlohmann::json m_medialib_config;
     config_profile_t m_current_profile;
     std::vector<ProfileType> m_supported_profiles;
-    bool m_is_hdm_mode = false;
     bool gyro_exist = false;
     mutable std::shared_mutex m_config_mutex;
+    std::string m_medialib_config_path;
+    std::string m_current_profile_path;
 
     tl::expected<nlohmann::json, std::string> enable_gyro_if_exist(nlohmann::json profile);
     tl::expected<nlohmann::json, std::string> extract_frontend_config();
     tl::expected<nlohmann::json, std::string> extract_encoder_config();
     tl::expected<void, std::string> extract_profile_data(const std::string &profile_name);
-    bool check_lowlight_bayer_is_hdm() const;
 
     nlohmann::json build_profile_response() const;
 
@@ -75,6 +87,11 @@ class ConfigResourceMedialib : public ConfigResourceBase
     void update_profile();
     tl::expected<nlohmann::json, std::string> get_profile(const nlohmann::json &profile_name);
     tl::expected<nlohmann::json, std::string> load_config_from_file(const std::string &file_path);
+    std::string get_current_profile_path() const;
+    const std::string &get_medialib_config_path() const
+    {
+        return m_medialib_config_path;
+    }
 };
 }; // namespace resources
 } // namespace webserver

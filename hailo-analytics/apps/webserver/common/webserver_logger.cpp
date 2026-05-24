@@ -20,13 +20,14 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+#include <spdlog/spdlog.h>
+#include <spdlog/logger.h>
+#include <cstdlib>
+#include <memory>
+#include <stdexcept>
+
 #include "media_library/media_library_logger.hpp"
 #include "media_library/common.hpp"
-
-#include <filesystem>
-#include <iostream>
-#include <stdio.h>
-#include <stdlib.h>
 
 #define LOGGER_NAME ("hailo_webserver")
 #define LOGGER_FILENAME ("webserver.log")

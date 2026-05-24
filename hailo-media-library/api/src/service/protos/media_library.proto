@@ -1,0 +1,342 @@
+syntax = "proto3";
+option optimize_for = LITE_RUNTIME;
+
+package media_library_service;
+
+service MediaLibraryService {
+    // Service Management
+    rpc Initialize (InitRequest) returns (MedialibraryStatusReply) {}
+    rpc Uninitialize (UninitializeRequest) returns (MedialibraryStatusReply) {}
+    rpc StartPipeline (StartPipelineRequest) returns (MedialibraryStatusReply) {}
+    rpc StopPipeline (StopPipelineRequest) returns (MedialibraryStatusReply) {}
+    rpc GetPipelineState (GetPipelineStateRequest) returns (GetPipelineStateReply) {}
+    rpc Shutdown (ShutdownRequest) returns (MedialibraryStatusReply) {}
+    rpc KeepAlive (KeepAliveRequest) returns (MedialibraryStatusReply) {}
+    rpc Reconnect (ReconnectRequest) returns (MedialibraryStatusReply) {}
+
+    // Profiles and Configuration
+    rpc GetProfile (GetProfileRequest) returns (GetProfileReply) {}
+    rpc GetCurrentProfile (GetCurrentProfileRequest) returns (GetCurrentProfileReply) {}
+    rpc SetProfile (SetProfileRequest) returns (MedialibraryStatusReply) {}
+    rpc ResetProfiles (ResetProfilesRequest) returns (MedialibraryStatusReply) {}
+    rpc SetAutomaticAlgorithmConfiguration (SetAutomaticAlgorithmConfigRequest) returns (MedialibraryStatusReply) {}
+    rpc SetOverridePersistentSettings (SetOverridePersistentSettingsRequest) returns (MedialibraryStatusReply) {}
+    rpc SetOverrideParameters (SetOverrideParametersRequest) returns (MedialibraryStatusReply) {}
+    rpc SubscribeToPipelineStateChange (SubscribeToPipelineStateChangeRequest) returns (stream PipelineStateChangeEvent) {}
+    rpc BackupProfiles (BackupProfilesRequest) returns (MedialibraryStatusReply) {}
+    rpc SetDefaultBackupFolderPath (SetDefaultBackupFolderPathRequest) returns (MedialibraryStatusReply) {}
+
+    // Frontend / Encoder
+    rpc GetFrontendOutputStreams (GetFrontendOutputStreamsRequest) returns (GetFrontendOutputStreamsReply) {}
+    rpc UnsubscribeAllFromFrontend (UnsubscribeAllFromFrontendRequest) returns (MedialibraryStatusReply) {}
+
+    // Throttling
+    rpc GetThrottlingState (GetThrottlingStateRequest) returns (GetThrottlingStateReply) {}
+    rpc UnsubscribeFromThrottlingStateChange (UnsubscribeFromThrottlingStateChangeRequest) returns (MedialibraryStatusReply) {}
+    rpc SubscribeToThrottlingStateChange (SubscribeToThrottlingStateChangeRequest) returns (stream ThrottlingStateChangeEvent) {}
+    rpc SubscribeToProfileRestricted (SubscribeToProfileRestrictedRequest) returns (stream ProfileRestrictedEvent) {}
+    rpc SubscribeToProfileRestrictionDone (SubscribeToProfileRestrictionDoneRequest) returns (stream ProfileRestrictionDoneEvent) {}
+    rpc SetAutoProfileRestrictionEnabled (SetAutoProfileRestrictionEnabledRequest) returns (MedialibraryStatusReply) {}
+    rpc SetRestrictionFallbackProfile (SetRestrictionFallbackProfileRequest) returns (MedialibraryStatusReply) {}
+    rpc GetAutoProfileRestrictionEnabled (GetAutoProfileRestrictionEnabledRequest) returns (GetAutoProfileRestrictionEnabledReply) {}
+    rpc UnsubscribeFromProfileRestrictionCallbacks (UnsubscribeFromProfileRestrictionCallbacksRequest) returns (MedialibraryStatusReply) {}
+
+    // Buffer Streaming (DMA buffer sharing over gRPC + UDS side-channel)
+    rpc SubscribeToFrontendBufferStream (SubscribeToFrontendBufferStreamRequest) returns (stream BufferMetadata) {}
+    rpc SubscribeToEncoderBufferStream (SubscribeToEncoderBufferStreamRequest) returns (stream BufferMetadata) {}
+    rpc ReleaseBuffer (ReleaseBufferRequest) returns (MedialibraryStatusReply) {}
+    rpc AddBufferToEncoder (AddBufferToEncoderRequest) returns (MedialibraryStatusReply) {}
+}
+
+// ============================================================
+// Enums
+// ============================================================
+
+enum MediaLibraryStatus {
+    PROTO_MEDIA_LIBRARY_SUCCESS = 0;
+    PROTO_MEDIA_LIBRARY_ERROR = 1;
+    PROTO_MEDIA_LIBRARY_INVALID_ARGUMENT = 2;
+    PROTO_MEDIA_LIBRARY_CONFIGURATION_ERROR = 3;
+    PROTO_MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR = 4;
+    PROTO_MEDIA_LIBRARY_DSP_OPERATION_ERROR = 5;
+    PROTO_MEDIA_LIBRARY_UNINITIALIZED = 6;
+    PROTO_MEDIA_LIBRARY_OUT_OF_RESOURCES = 7;
+    PROTO_MEDIA_LIBRARY_ENCODER_ENCODE_ERROR = 8;
+    PROTO_MEDIA_LIBRARY_ENCODER_COULD_NOT_GET_PHYSICAL_ADDRESS = 9;
+    PROTO_MEDIA_LIBRARY_BUFFER_NOT_FOUND = 10;
+    PROTO_MEDIA_LIBRARY_FREETYPE_ERROR = 11;
+    PROTO_MEDIA_LIBRARY_PROFILE_IS_RESTRICTED = 12;
+    PROTO_MEDIA_LIBRARY_PROFILE_VALIDATION_FAILED = 13;
+}
+
+enum PipelineState {
+    PIPELINE_STATE_UNINITIALIZED = 0;
+    PIPELINE_STATE_RUNNING = 1;
+    PIPELINE_STATE_STOPPED = 2;
+}
+
+// ============================================================
+// Category 1: Simple Unary RPC Messages
+// ============================================================
+
+message InitRequest {
+    string config_string = 1;
+    string client_id = 2;
+}
+
+message StartPipelineRequest {
+}
+
+message StopPipelineRequest {
+}
+
+message SetProfileRequest {
+    string profile_name = 1;
+}
+
+message MedialibraryStatusReply {
+    MediaLibraryStatus status = 1;
+    string error_message = 2;
+}
+
+message GetPipelineStateRequest {
+}
+
+message GetPipelineStateReply {
+    MediaLibraryStatus status = 1;
+    string error_message = 2;
+    PipelineState pipeline_state = 3;
+}
+
+message ShutdownRequest {
+    string client_id = 1;
+}
+
+message UninitializeRequest {
+    string client_id = 1;
+}
+
+message KeepAliveRequest {
+    string client_id = 1;
+}
+
+message ReconnectRequest {
+    string client_id = 1;
+}
+
+message SetAutomaticAlgorithmConfigRequest {
+    string config = 1;
+}
+
+message SetOverridePersistentSettingsRequest {
+    bool value = 1;
+}
+
+message ResetProfilesRequest {
+}
+
+message SetAutoProfileRestrictionEnabledRequest {
+    bool enabled = 1;
+}
+
+message SetRestrictionFallbackProfileRequest {
+    string profile_name = 1;
+}
+
+message GetAutoProfileRestrictionEnabledRequest {
+}
+
+message GetAutoProfileRestrictionEnabledReply {
+    MediaLibraryStatus status = 1;
+    bool enabled = 2;
+}
+
+message BackupProfilesRequest {
+}
+
+message SetDefaultBackupFolderPathRequest {
+    string path = 1;
+}
+
+message UnsubscribeFromProfileRestrictionCallbacksRequest {
+}
+
+// ============================================================
+// Category 2: Profile Query/Mutation RPC Messages
+// ============================================================
+
+message SetOverrideParametersRequest {
+    string profile_json = 1;
+}
+
+message GetProfileRequest {
+    string profile_name = 1;
+}
+
+message GetProfileReply {
+    MediaLibraryStatus status = 1;
+    string error_message = 2;
+    string profile_json = 3;
+}
+
+message GetCurrentProfileRequest {
+}
+
+message GetCurrentProfileReply {
+    MediaLibraryStatus status = 1;
+    string error_message = 2;
+    string profile_json = 3;
+}
+
+// ============================================================
+// Category 2b: Frontend / Encoder RPC Messages
+// ============================================================
+
+message GetFrontendOutputStreamsRequest {
+}
+
+message FrontendOutputStream {
+    string id = 1;
+    uint32 width = 2;
+    uint32 height = 3;
+    uint32 target_fps = 4;
+    float current_fps = 5;
+    string srcpad_name = 6;
+}
+
+message GetFrontendOutputStreamsReply {
+    MediaLibraryStatus status = 1;
+    string error_message = 2;
+    repeated FrontendOutputStream streams = 3;
+}
+
+message UnsubscribeAllFromFrontendRequest {
+}
+
+// ============================================================
+// Category 3: Throttling
+// ============================================================
+
+enum ThrottlingState {
+    THROTTLING_STATE_UNINITIALIZED = 0;
+    THROTTLING_STATE_FULL_PERFORMANCE = 1;
+    THROTTLING_STATE_COOLING = 2;
+    THROTTLING_STATE_S0 = 3;
+    THROTTLING_STATE_S1 = 4;
+    THROTTLING_STATE_S2 = 5;
+    THROTTLING_STATE_S3 = 6;
+    THROTTLING_STATE_S4 = 7;
+}
+
+message GetThrottlingStateRequest {
+}
+
+message GetThrottlingStateReply {
+    MediaLibraryStatus status = 1;
+    string error_message = 2;
+    ThrottlingState throttling_state = 3;
+}
+
+message UnsubscribeFromThrottlingStateChangeRequest {
+}
+
+// ============================================================
+// Category 4: Server-Streaming RPC Messages (callbacks)
+// ============================================================
+
+message SubscribeToPipelineStateChangeRequest {
+}
+
+message PipelineStateChangeEvent {
+    PipelineState state = 1;
+}
+
+message SubscribeToProfileRestrictedRequest {
+}
+
+message ProfileRestrictedEvent {
+    string previous_profile_json = 1;
+    string new_profile_json = 2;
+}
+
+message SubscribeToProfileRestrictionDoneRequest {
+}
+
+message ProfileRestrictionDoneEvent {
+}
+
+message SubscribeToThrottlingStateChangeRequest {
+}
+
+message ThrottlingStateChangeEvent {
+    ThrottlingState state = 1;
+}
+
+// ============================================================
+// Category 5: Buffer Streaming Messages (DMA buffer over gRPC)
+// ============================================================
+
+// Per-plane metadata
+message PlaneMetadata {
+    uint32 bytesperline = 1;    // Stride (bytes per line)
+    uint32 bytesused = 2;       // Plane size in bytes
+}
+
+// Full buffer metadata sent via gRPC server-streaming RPC.
+// Flows through EventStreamBroker<BufferMetadata> on the server side
+// and EventStreamReader<BufferMetadata> on the client side.
+message BufferMetadata {
+    uint64 buffer_id = 1;       // Unique ID for this buffer sharing instance
+    uint32 width = 2;
+    uint32 height = 3;
+    uint32 format = 4;          // HailoFormat enum value
+    uint32 planes_count = 5;
+    repeated PlaneMetadata planes = 6;
+
+    // Stream identification
+    string stream_id = 7;       // Which output stream this buffer belongs to
+    uint32 encoded_data_size = 8; // Size of encoded payload (for encoder output)
+
+    // Presentation timestamp
+    uint64 pts = 9;
+    uint64 isp_timestamp_ns = 10;
+
+    // ISP / Auto-Exposure metadata
+    int32 isp_ae_fps = 11;
+    bool isp_ae_converged = 12;
+    uint64 isp_ae_integration_time = 13;
+    uint32 isp_ae_average_luma = 14;
+
+    // Video Stabilization Measurement (VSM)
+    int32 vsm_dx = 15;
+    int32 vsm_dy = 16;
+
+    // Buffer identification
+    uint32 buffer_index = 17;
+
+    // Motion detection
+    bool motion_detected = 18;
+
+    // Optical zoom
+    float optical_zoom_magnification = 19;
+
+    // Concurrent stream IDs
+    repeated string concurrent_stream_ids = 20;
+}
+
+message ReleaseBufferRequest {
+    uint64 buffer_id = 1;
+}
+
+message AddBufferToEncoderRequest {
+    uint64 buffer_id = 1;
+    string stream_id = 2;
+}
+
+message SubscribeToFrontendBufferStreamRequest {
+    string client_id = 1;
+}
+
+message SubscribeToEncoderBufferStreamRequest {
+    string client_id = 1;
+}

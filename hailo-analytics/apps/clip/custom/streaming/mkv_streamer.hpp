@@ -1,6 +1,9 @@
 #pragma once
 
-#include "gst/gstsample.h"
+#include <gst/gst.h>
+#include <glib.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <string>
 #include <vector>
 #include <functional>
@@ -10,8 +13,6 @@
 #include <mutex>
 #include <condition_variable>
 #include <queue>
-#include <gst/gst.h>
-#include <gst/app/gstappsink.h>
 
 // Video file information structure
 struct VideoFile

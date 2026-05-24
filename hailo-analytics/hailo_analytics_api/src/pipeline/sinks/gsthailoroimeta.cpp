@@ -7,6 +7,7 @@
 #include "hailo_analytics/pipeline/sinks/gsthailoroimeta.hpp"
 
 #include <string.h>
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
 
 static gboolean gst_hailo_roi_meta_init(GstMeta *meta, gpointer params, GstBuffer *buffer);
 static void gst_hailo_roi_meta_free(GstMeta *meta, GstBuffer *buffer);

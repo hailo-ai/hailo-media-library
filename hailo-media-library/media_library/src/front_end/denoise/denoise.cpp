@@ -22,32 +22,28 @@
  */
 
 #include "denoise.hpp"
+
+#include <time.h>
+#include <tl/expected.hpp>
+#include <sys/types.h>
+#include <string>
+#include <vector>
+#include <shared_mutex>
+#include <queue>
+#include <mutex>
+#include <thread>
+#include <condition_variable>
+#include <utility>
+
 #include "hailort_denoise.hpp"
 #include "snapshot.hpp"
 #include "buffer_pool.hpp"
-#include "config_parser.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
 #include "media_library_utils.hpp"
 #include "hailo_media_library_perfetto.hpp"
 #include "perfetto_fps_tracer.hpp"
-
-#include <iostream>
-#include <linux/v4l2-controls.h>
-#include <linux/v4l2-subdev.h>
-#include <stdint.h>
-#include <string>
-#include <sys/ioctl.h>
-#include <time.h>
-#include <tl/expected.hpp>
-#include <vector>
-#include <shared_mutex>
-#include <chrono>
-#include <ctime>
-#include <queue>
-#include <mutex>
-#include <thread>
-#include <condition_variable>
+#include "media_library_buffer.hpp"
 
 #define MODULE_NAME LoggerType::Denoise
 
@@ -81,7 +77,8 @@ media_library_return MediaLibraryDenoise::init(const denoise_config_t &denoise_c
     m_should_queue_dummy_loopback_buffer = true;
     prepare_hailort_instance(denoise_configs);
     if (!m_hailort_denoise->set_config(denoise_configs, hailort_configs.device_id, HAILORT_SCHEDULER_THRESHOLD,
-                                       HAILORT_SCHEDULER_TIMEOUT, HAILORT_SCHEDULER_BATCH_SIZE))
+                                       HAILORT_SCHEDULER_TIMEOUT, HAILORT_SCHEDULER_BATCH_SIZE,
+                                       hailort_configs.use_hailort_service))
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to init hailort with device_id: {}", hailort_configs.device_id);
         return media_library_return::MEDIA_LIBRARY_CONFIGURATION_ERROR;
@@ -130,7 +127,7 @@ media_library_return MediaLibraryDenoise::configure(HailoMediaLibraryBufferPtr i
                           denoise_configs.enabled, denoise_configs.bayer, denoise_configs.loopback_count);
 
     bool enabled_changed = m_initialized != is_enabled(denoise_configs);
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Configuration state - enabled_changed: {}, is_enabled: {}", enabled_changed,
+    LOGGER__MODULE__TRACE(MODULE_NAME, "Configuration state - enabled_changed: {}, is_enabled: {}", enabled_changed,
                           is_enabled(denoise_configs));
 
     if (!enabled_changed && !denoise_configs.enabled)
@@ -361,6 +358,28 @@ void MediaLibraryDenoise::inference_callback_thread()
             SnapshotManager::get_instance().take_snapshot("denoise", output_buffer);
         }
 
+        if (m_hailort_denoise->type() == HailortAsyncDenoiseType::PreISPVd)
+        {
+            auto feedback = get_output_buffer(bindings, HailortAsyncDenoisePreISPVd::OUTPUT_BAYER_CHANNEL);
+            if (feedback)
+            {
+                SnapshotManager::get_instance().take_snapshot("pre_isp_feedback_bayer", feedback, true);
+            }
+        }
+        else if (m_hailort_denoise->type() == HailortAsyncDenoiseType::PreISPHdm)
+        {
+            auto feedback_fusion = get_output_buffer(bindings, HailortAsyncDenoisePreISPHdm::OUTPUT_FUSION_CHANNEL);
+            if (feedback_fusion)
+            {
+                SnapshotManager::get_instance().take_snapshot("pre_isp_feedback_fusion_output", feedback_fusion, true);
+            }
+            auto feedback_gamma = get_output_buffer(bindings, HailortAsyncDenoisePreISPHdm::OUTPUT_GAMMA_CHANNEL);
+            if (feedback_gamma)
+            {
+                SnapshotManager::get_instance().take_snapshot("pre_isp_feedback_gamma_output", feedback_gamma, true);
+            }
+        }
+
         LOGGER__MODULE__TRACE(MODULE_NAME, "Inference callback processed successfully");
     }
 }
@@ -538,6 +557,7 @@ media_library_return MediaLibraryDenoise::initialize_loopback_buffers(const Tens
     if (m_should_queue_dummy_loopback_buffer)
     {
         m_should_queue_dummy_loopback_buffer = false;
+        initialize_dummy_loopback_buffers(loopback_buffers);
         for (int i = 0; i < m_loopback_limit; i++)
         {
             queue_loopback_buffer(loopback_buffers);

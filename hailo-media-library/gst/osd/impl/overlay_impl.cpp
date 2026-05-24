@@ -22,13 +22,28 @@
  */
 
 #include "overlay_impl.hpp"
-#include "common/gstmedialibcommon.hpp"
+
+#include <opencv2/core.hpp>
+#include <opencv2/core/utils/filesystem.hpp> // IWYU pragma: keep
+#include <opencv2/freetype.hpp>
+#include <glib-object.h>
+#include <glib.h>
+#include <gst/gst.h>
+#include <gst/video/gstvideometa.h>
+#include <gst/video/video-converter.h>
+#include <gst/video/video-info.h>
+#include <opencv2/imgproc.hpp>
+#include <exception>
+#include <mutex>
+
 #include "buffer_utils/buffer_utils.hpp"
 #include "media_library/media_library_logger.hpp"
 #include "media_library/threadpool.hpp"
-
-#include <opencv2/core/utils/filesystem.hpp>
-#include <opencv2/freetype.hpp>
+#include "dma_memory_allocator.hpp"
+#include "dsp_utils.hpp"
+#include "gstmedialibptrs.hpp"
+#include "media_library_types.hpp"
+#include "osd_types.hpp"
 
 #define MODULE_NAME LoggerType::Osd
 

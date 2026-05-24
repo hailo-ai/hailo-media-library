@@ -35,7 +35,7 @@
 #include "media_library_types.hpp"
 #include "privacy_mask_types.hpp"
 #include "buffer_pool.hpp"
-#include "analytics_db.hpp"
+#include "analytics_metadata.hpp"
 
 /** @defgroup privacy_mask_definitions MediaLibrary Privacy Mask CPP
  * API definitions
@@ -228,7 +228,7 @@ class PrivacyMask
     std::vector<dsp_dynamic_privacy_mask_roi_t> m_dynamic_masks_rois;
 
     tl::expected<PrivacyMasksPtr, media_library_return> get_updated_privacy_masks(
-        const config_encoded_output_stream_t &masking_config, uint64_t isp_timestamp_ns);
+        const config_encoded_output_stream_t &masking_config, HailoMediaLibraryBufferPtr input_buffer);
     size_t get_adjusted_frame_width(size_t width);
     size_t get_adjusted_frame_height(size_t height);
     bool should_adjust_buffer_pool(HailoMediaLibraryBufferPtr input_buffer);
@@ -236,24 +236,13 @@ class PrivacyMask
 
     media_library_return update_info(const config_encoded_output_stream_t &masking_config);
     media_library_return update_static_mask(const config_encoded_output_stream_t &masking_config);
+
     media_library_return update_dynamic_mask(const config_encoded_output_stream_t &masking_config,
-                                             uint64_t isp_timestamp_ns);
-    // Helper methods for different analytics types
-    media_library_return process_instance_segmentation_masks(const AnalyticsQueryOptions &opts,
-                                                             const application_analytics_config_t &analytics_config,
-                                                             const std::string &analytics_data_id,
-                                                             const std::vector<std::string> &masked_labels,
-                                                             const size_t dilation_size);
-    media_library_return process_semantic_segmentation_masks(const AnalyticsQueryOptions &opts,
-                                                             const application_analytics_config_t &analytics_config,
-                                                             const std::string &analytics_data_id,
-                                                             const std::vector<std::string> &masked_labels,
-                                                             const size_t dilation_size);
-    media_library_return process_detection_masks(const AnalyticsQueryOptions &opts,
-                                                 const application_analytics_config_t &analytics_config,
-                                                 const std::string &analytics_data_id,
-                                                 const std::vector<std::string> &masked_labels,
-                                                 const size_t dilation_size);
+                                             HailoMediaLibraryBufferPtr input_buffer);
+    media_library_return update_dynamic_mask_from_buffer(const config_encoded_output_stream_t &masking_config,
+                                                         HailoMediaLibraryBufferPtr input_buffer);
+    media_library_return update_dynamic_mask_from_db(const config_encoded_output_stream_t &masking_config,
+                                                     HailoMediaLibraryBufferPtr input_buffer);
 
   public:
     PrivacyMask();

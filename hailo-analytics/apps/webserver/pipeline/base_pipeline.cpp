@@ -1,13 +1,50 @@
+#include <unistd.h>
+#include <media_library/encoder_config_types.hpp>
+#include <media_library/media_library.hpp>
+#include <media_library/media_library_api_types.hpp>
+#include <nlohmann/json.hpp>
+#include <tl/expected.hpp>
+#include <iostream>
+#include <thread>
+#include <algorithm>
+#include <chrono>
+#include <exception>
+#include <functional>
+#include <iterator>
+#include <map>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "pipeline.hpp"
 #include "common/common.hpp"
 #include "media_library/analytics_db.hpp"
-#include <fstream>
-#include <thread>
+#include "resources/encoder.hpp"
+#include "media_library/cloexec_fstream.hpp"
+#include "common/logger_macros.hpp"
+#include "hailo_analytics/pipeline/codecs/encoder_stage.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/pipeline/overlay/overlay_stage.hpp"
+#include "hailo_analytics/pipeline/routing/valve_stage.hpp"
+#include "hailo_analytics/pipeline/sinks/output_module.hpp"
+#include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
+#include "hailo_analytics/pipeline/sinks/udp_stage.hpp"
+#include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
+#include "pipeline/isp_blender.hpp"
+#include "resources/common/event_bus.hpp"
+#include "resources/common/events_utils.hpp"
+#include "resources/common/repository.hpp"
+#include "resources/common/resources.hpp"
+#include "hailo_analytics/analytics/vision.hpp"
 
 #define FRONTEND_STAGE "frontend_stage"
 #define ENCODER_NAME(str) (std::string(str) + "_encoder")
 #define UDP_NAME(str) (std::string(str) + "_udp")
-#define HOST_IP "10.0.0.2"
+#define HOST_IP hailo_analytics::analytics::vision::get_default_host_ip()
 #define HOST_PORT "5000"
 #define TEE_STAGE "vision_tee"
 
@@ -22,12 +59,13 @@ using namespace webserver::resources;
 
 #define EVENT_SUBSCRIBER_ID "base_pipeline_subscriber"
 
-BasePipeline::BasePipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
+BasePipeline::BasePipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
                            RTPConverterStage &webrtc_stage, Architecture platform, ProfileType default_profile,
                            std::vector<ProfileType> supported_profiles)
-    : m_resources(resources), m_app_resources(std::make_shared<AppResources>(media_library)),
-      m_webrtc_stage(webrtc_stage), m_supported_profiles(supported_profiles), m_default_profile(default_profile)
+    : m_resources(resources), m_app_resources(std::make_shared<AppResources>()), m_webrtc_stage(webrtc_stage),
+      m_supported_profiles(supported_profiles), m_default_profile(default_profile)
 {
+    m_app_resources->media_library = media_library;
     WEBSERVER_LOG_INFO("initializing Pipeline with platform: {}", ARCHITECTURE_STRING(platform));
     m_app_resources->platform = platform;
     m_current_profile_type = default_profile;
@@ -51,24 +89,24 @@ BasePipeline::~BasePipeline()
 
 void BasePipeline::configure_profile_restriction_handlers()
 {
-    m_app_resources->media_library.set_restriction_fallback_profile(this->get_profile_name_by_type(
+    m_app_resources->media_library->set_restriction_fallback_profile(this->get_profile_name_by_type(
         ProfileType::Daylight)); // Set Daylight as the fallback profile when restriction occurs
 
     // Disable automatic profile switching on restriction
-    m_app_resources->media_library.set_auto_profile_restriction_enabled(false);
+    m_app_resources->media_library->set_auto_profile_restriction_enabled(false);
 
     // Register on_profile_restricted callback
-    m_app_resources->media_library.subscribe_to_profile_restricted(
+    m_app_resources->media_library->subscribe_to_profile_restricted(
         [this](const config_profile_t &previous_profile, const config_profile_t &new_profile) {
             on_pipeline_profile_restricted(previous_profile, new_profile);
         });
 
     // Register on_profile_restriction_done callback
-    m_app_resources->media_library.subscribe_to_profile_restriction_done(
+    m_app_resources->media_library->subscribe_to_profile_restriction_done(
         [this]() { on_pipeline_profile_restriction_done(); });
 
     // Register throttling state change callback to emit throttling state updates
-    m_app_resources->media_library.subscribe_to_throttling_state_change(
+    m_app_resources->media_library->subscribe_to_throttling_state_change(
         [this](media_library_throttling_state_t throttling_state) {
             WEBSERVER_LOG_INFO("Throttling state changed to: {}", static_cast<int>(throttling_state));
             m_resources.m_event_bus->notify(EventType::THROTTLING_STATE_UPDATE,
@@ -76,7 +114,7 @@ void BasePipeline::configure_profile_restriction_handlers()
         });
 
     // Emit initial throttling state
-    auto initial_throttling_state_exp = m_app_resources->media_library.get_throttling_state();
+    auto initial_throttling_state_exp = m_app_resources->media_library->get_throttling_state();
     if (initial_throttling_state_exp.has_value())
     {
         media_library_throttling_state_t initial_throttling_state = initial_throttling_state_exp.value();
@@ -103,7 +141,7 @@ void BasePipeline::init(ProfileType profile_type)
         std::string profile_name = this->get_profile_name_by_type(profile_to_check);
         try
         {
-            auto profile = m_app_resources->media_library.get_profile(profile_name);
+            auto profile = m_app_resources->media_library->get_profile(profile_name);
             if (!profile.has_value())
             {
                 WEBSERVER_LOG_WARNING("Profile {} not found in media library config, removing it", profile_name);
@@ -135,11 +173,11 @@ void BasePipeline::init(ProfileType profile_type)
     }
 
     std::string profile_to_set = this->get_profile_name_by_type(m_current_profile_type);
-    media_library_return set_profile_status = m_app_resources->media_library.set_profile(profile_to_set);
+    media_library_return set_profile_status = m_app_resources->media_library->set_profile(profile_to_set);
     if (set_profile_status == MEDIA_LIBRARY_PROFILE_IS_RESTRICTED)
     {
         WEBSERVER_LOG_WARN("Profile {} is restricted due to thermal conditions", profile_to_set);
-        auto fallback_profile = m_app_resources->media_library.get_current_profile();
+        auto fallback_profile = m_app_resources->media_library->get_current_profile();
         if (fallback_profile.has_value())
         {
             WEBSERVER_LOG_INFO("Fallback to profile {} due to thermal conditions", fallback_profile.value().name);
@@ -159,7 +197,7 @@ void BasePipeline::init(ProfileType profile_type)
     // Notify the event bus about profiles change
     // Use m_current_profile_type and profile_to_set directly: get_current_profile().name may still
     // reflect the previous pipeline's profile if the media library hasn't updated profile_in_use yet.
-    auto expected_profile = m_app_resources->media_library.get_current_profile();
+    auto expected_profile = m_app_resources->media_library->get_current_profile();
     if (!expected_profile.has_value())
     {
         WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -183,8 +221,8 @@ void BasePipeline::uninitialize()
     // Unsubscribe from media library callbacks to prevent callbacks on destroyed objects
     if (m_app_resources)
     {
-        m_app_resources->media_library.unsubscribe_from_profile_restriction_callbacks();
-        m_app_resources->media_library.unsubscribe_from_throttling_state_change();
+        m_app_resources->media_library->unsubscribe_from_profile_restriction_callbacks();
+        m_app_resources->media_library->unsubscribe_from_throttling_state_change();
     }
 
     unregister_endpoints();
@@ -205,13 +243,6 @@ void BasePipeline::start()
 {
     WEBSERVER_LOG_INFO("Starting Pipeline");
     std::cout << "Starting Pipeline..." << std::endl;
-    // encoder changes all the time so the encoder resource get a pointer to pull the encoder config when its wants
-    auto status = m_app_resources->media_library.start_pipeline();
-    if (status != media_library_return::MEDIA_LIBRARY_SUCCESS)
-    {
-        WEBSERVER_LOG_ERROR("Failed to start media library pipeline, status: {}", status);
-        throw std::runtime_error("Failed to start media library pipeline");
-    }
     auto status_pipe = m_app_resources->pipeline->start();
     if (status_pipe != AppStatus::SUCCESS)
     {
@@ -225,7 +256,7 @@ void BasePipeline::start()
 
     m_resources.m_event_bus->notify(EventType::RESET_ISP, std::make_shared<EmptyState>(EmptyState()));
 
-    auto expected_profile = m_app_resources->media_library.get_current_profile();
+    auto expected_profile = m_app_resources->media_library->get_current_profile();
     if (!expected_profile.has_value())
     {
         WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -251,15 +282,9 @@ void BasePipeline::stop()
         WEBSERVER_LOG_ERROR("Failed to stop pipeline, status: {}", static_cast<int>(status_pipe));
         throw std::runtime_error("Failed to stop pipeline");
     }
-    auto status = m_app_resources->media_library.stop_pipeline();
-    if (status != media_library_return::MEDIA_LIBRARY_SUCCESS)
-    {
-        WEBSERVER_LOG_ERROR("Failed to stop media library pipeline, status: {}", status);
-        throw std::runtime_error("Failed to stop media library pipeline");
-    }
     // Clear analytics DB first to release buffer pool references before stopping stages
     AnalyticsDB::instance().clear_db();
-    status = m_app_resources->media_library.shutdown();
+    auto status = m_app_resources->media_library->shutdown();
     if (status != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         WEBSERVER_LOG_ERROR("Failed to shutdown media library, status: {}", status);
@@ -270,7 +295,7 @@ void BasePipeline::stop()
 
 static bool is_hdr_profile(ProfileType type)
 {
-    return type == ProfileType::HighDynamicRange || type == ProfileType::DenoiseHdr;
+    return type == ProfileType::HighDynamicRange || type == ProfileType::AiIspGen3_1;
 }
 
 void BasePipeline::subscribe_callbacks()
@@ -301,7 +326,7 @@ void BasePipeline::subscribe_callbacks()
 
     m_resources.m_event_bus->subscribe(
         EVENT_SUBSCRIBER_ID, {EventType::CHANGE_RESOLUTION, EventType::CHANGE_ROTATION},
-        EventPriority::EVENT_PRIORITY_VERY_HIGH, [this](ResourceStateChangeNotification notification) {
+        EventPriority::EVENT_PRIORITY_VERY_HIGH, [this](ResourceStateChangeNotification /*notification*/) {
             WEBSERVER_LOG_INFO("handeling before reset notification");
             m_resources.m_event_bus->notify(EventType::CHANGE_VALVE, std::make_shared<ProfileValveState>(false));
         });
@@ -317,14 +342,14 @@ void BasePipeline::subscribe_callbacks()
         });
     m_resources.m_event_bus->subscribe(
         EVENT_SUBSCRIBER_ID, {EventType::CHANGE_RESOLUTION, EventType::CHANGE_ROTATION},
-        EventPriority::EVENT_PRIORITY_LOW, [this](ResourceStateChangeNotification notification) {
+        EventPriority::EVENT_PRIORITY_LOW, [this](ResourceStateChangeNotification /*notification*/) {
             WEBSERVER_LOG_INFO("handeling after reset notification");
             m_resources.m_event_bus->notify(EventType::RESET_ISP, std::make_shared<EmptyState>(EmptyState()));
             m_resources.m_event_bus->notify(EventType::CHANGE_VALVE, std::make_shared<ProfileValveState>(true));
         });
     m_resources.m_event_bus->subscribe(
         EVENT_SUBSCRIBER_ID, EventType::SWITCH_PROFILE, EventPriority::EVENT_PRIORITY_LOW,
-        [this](ResourceStateChangeNotification notification) {
+        [this](ResourceStateChangeNotification /*notification*/) {
             if (!m_hdr_valve_active)
                 return;
             m_hdr_valve_active = false;
@@ -335,19 +360,19 @@ void BasePipeline::subscribe_callbacks()
         });
     m_resources.m_event_bus->subscribe(
         EVENT_SUBSCRIBER_ID, EventType::RESET_CONFIG, EventPriority::EVENT_PRIORITY_HIGH,
-        [this](ResourceStateChangeNotification notification) {
+        [this](ResourceStateChangeNotification /*notification*/) {
             WEBSERVER_LOG_INFO("Resetting pipeline config to default");
             m_resources.m_event_bus->notify(EventType::SWITCH_PROFILE,
                                             std::make_shared<ProfileTypeState>(this->m_default_profile_type));
 
-            auto res = m_app_resources->media_library.reset_profiles();
+            auto res = m_app_resources->media_library->reset_profiles();
             if (res != media_library_return::MEDIA_LIBRARY_SUCCESS)
             {
                 WEBSERVER_LOG_ERROR("Failed to revert profiles overrides error: {}", res);
                 throw std::runtime_error("Failed to revert profiles overrides");
             }
 
-            auto current_profile = m_app_resources->media_library.get_current_profile().value();
+            auto current_profile = m_app_resources->media_library->get_current_profile().value();
             std::string reset_profile_name = this->get_profile_name_by_type(m_current_profile_type);
             m_resources.m_event_bus->notify(EventType::PROFILE_UPDATE, std::make_shared<ProfileState>(ProfileStateData{
                                                                            current_profile, m_current_profile_type,
@@ -359,7 +384,7 @@ std::shared_ptr<FrontendStage> BasePipeline::configure_frontend()
 {
     WEBSERVER_LOG_INFO("Configuring frontend");
     m_app_resources->frontend = std::make_shared<FrontendStage>(FRONTEND_STAGE, 1, false, false);
-    AppStatus frontend_config_status = m_app_resources->frontend->configure(*m_app_resources->media_library.m_frontend);
+    AppStatus frontend_config_status = m_app_resources->frontend->configure(m_app_resources->media_library);
     if (frontend_config_status != AppStatus::SUCCESS)
     {
         std::cerr << "Failed to configure frontend " << FRONTEND_STAGE << std::endl;
@@ -375,7 +400,7 @@ std::shared_ptr<EncoderStage> BasePipeline::configure_encoder_and_osd(const std:
     std::string enc_name = ENCODER_NAME(stream_name);
     m_app_resources->encoders[enc_name] = std::make_shared<EncoderStage>(enc_name, 3, true);
     AppStatus enc_config_status =
-        m_app_resources->encoders[enc_name]->configure(*m_app_resources->media_library.m_encoders[stream_name]);
+        m_app_resources->encoders[enc_name]->configure(m_app_resources->media_library, stream_name);
     if (enc_config_status != AppStatus::SUCCESS)
     {
         std::cerr << "Failed to configure encoder " << enc_name << std::endl;
@@ -402,7 +427,7 @@ std::shared_ptr<UdpStage> BasePipeline::configure_udp(const std::string &stream_
 
 std::string BasePipeline::read_string_from_file(const char *file_path)
 {
-    std::ifstream file_to_read;
+    cloexec::ifstream file_to_read;
     file_to_read.open(file_path);
     if (!file_to_read.is_open())
         throw std::runtime_error("config path is not valid");

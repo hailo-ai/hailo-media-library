@@ -23,12 +23,20 @@
 
 #pragma once
 
+#include <hailo/hailodsp.h>
+#include <tl/expected.hpp>
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "background_text_overlay_impl.hpp"
 #include "overlay_impl.hpp"
 #include "simple_text_overlay_impl.hpp"
-#include <optional>
+#include "media_library_types.hpp"
+#include "osd_types.hpp"
 
 class TextOverlayImpl;
+
 using TextOverlayImplPtr = std::shared_ptr<TextOverlayImpl>;
 class TextOverlayImpl : public OverlayImpl
 {

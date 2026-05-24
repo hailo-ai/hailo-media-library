@@ -9,7 +9,9 @@ sinks_sources = [
     'app_sink_stage.cpp',
     'websocket_sink_stage.cpp',
     'gst_sink_stage.cpp',
-    'gsthailoroimeta.cpp'
+    'gsthailoroimeta.cpp',
+    'file_sink_stage.cpp',
+    'file_sink_module.cpp'
 ]
 
 # ZMQ dep

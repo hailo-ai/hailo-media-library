@@ -22,8 +22,14 @@
  */
 #pragma once
 
-#include "gstmedialibptrs.hpp"
+#include <glib-object.h>
+#include <glib.h>
+#include <gst/gst.h>
+#include <gst/video/gstvideoencoder.h>
+#include <sys/types.h>
 #include <string>
+
+#include "gstmedialibptrs.hpp"
 
 namespace gstmedialibcommon
 {

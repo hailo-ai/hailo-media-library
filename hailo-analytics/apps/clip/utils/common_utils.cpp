@@ -1,12 +1,24 @@
 #include <algorithm>
 #include "common_utils.hpp"
+#include "media_library/cloexec_fstream.hpp"
+// libav/* must come after common_utils.hpp so its <cstdint>/<stdint.h> have
+// already defined UINT64_C — libavutil/common.h #errors out otherwise.
+#include <libavcodec/codec_id.h>
+#include <libavcodec/codec_par.h>
+#include <libavutil/avutil.h>
+#include <libavutil/dict.h>
+#include <libavutil/log.h>
+#include <linux/sysinfo.h>
+#include <stdio.h>
+#include <exception>
+#include <new>
 
 namespace FileSysUtils
 {
 
 std::string read_file(const std::string &filename)
 {
-    std::ifstream file(filename);
+    cloexec::ifstream file(filename);
     if (!file.is_open())
     {
         throw std::runtime_error("Could not open file: " + filename);

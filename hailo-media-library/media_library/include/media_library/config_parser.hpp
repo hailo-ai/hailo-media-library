@@ -174,3 +174,15 @@ class ConfigParser
     class Impl; // internal implementation class
     std::unique_ptr<Impl> m_impl;
 };
+
+/**
+ * @brief Parse a flattened config profile JSON (with _content-suffixed keys)
+ *
+ * The JSON flattener inlines file references with a _content suffix
+ * (e.g. sensor_config_content). This function reads those keys.
+ * Use from_json(config_profile_t) for canonical keys (without _content suffix).
+ *
+ * @param[in] j - the flattened JSON object
+ * @return config_profile_t
+ */
+config_profile_t parse_flattened_config_profile(const nlohmann::json &j);

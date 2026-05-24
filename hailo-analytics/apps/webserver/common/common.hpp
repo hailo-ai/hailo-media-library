@@ -1,7 +1,10 @@
 #pragma once
-#include <iostream>
-#include <filesystem>
 #include <nlohmann/json.hpp>
+#include <stdint.h>
+#include <string>
+#include <unordered_map>
+#include <utility>
+
 #include "media_library/media_library_api_types.hpp"
 
 #define V4L2_DEVICE_NAME "/dev/video0"
@@ -102,7 +105,10 @@ enum class pipeline_t
     CLIP,
     ProfileManager,
     FaceLandmarks,
-    DynamicPrivacyMask
+    DynamicPrivacyMask,
+    LicensePlate,
+    // Internal-only Detection variant without the WebSocket metadata sender; not user-selectable.
+    DetectionInternal,
 };
 
 NLOHMANN_JSON_SERIALIZE_ENUM(pipeline_t, {{pipeline_t::Basic, "Off"},
@@ -110,22 +116,22 @@ NLOHMANN_JSON_SERIALIZE_ENUM(pipeline_t, {{pipeline_t::Basic, "Off"},
                                           {pipeline_t::CLIP, "Clip text search"},
                                           {pipeline_t::ProfileManager, "Profile Manager"},
                                           {pipeline_t::FaceLandmarks, "Face Landmarks"},
-                                          {pipeline_t::DynamicPrivacyMask, "Dynamic Privacy Mask"}})
+                                          {pipeline_t::DynamicPrivacyMask, "Dynamic Privacy Mask"},
+                                          {pipeline_t::LicensePlate, "License Plate Recognition"}})
 
 enum class ProfileType
 {
     Daylight,
-    Lowlight,
+    AiIspGen1,
     HighDynamicRange,
-    LowlightBayer,
-    DenoiseHdr,
+    AiIspGen2,
+    AiIspGen3,
+    AiIspGen3_1,
 };
 
 NLOHMANN_JSON_SERIALIZE_ENUM(ProfileType, {{ProfileType::Daylight, "Daylight"},
-                                           {ProfileType::Lowlight, "AI-ISP Gen1"},
+                                           {ProfileType::AiIspGen1, "AI-ISP Gen1"},
                                            {ProfileType::HighDynamicRange, "High Dynamic Range"},
-                                           {ProfileType::LowlightBayer, "AI-ISP Gen2"},
-                                           {ProfileType::DenoiseHdr, "Denoise HDR"}})
-
-std::string profile_type_to_display_name(ProfileType type, bool is_hdm);
-ProfileType display_name_to_profile_type(const std::string &name);
+                                           {ProfileType::AiIspGen2, "AI-ISP Gen2"},
+                                           {ProfileType::AiIspGen3, "AI-ISP Gen3"},
+                                           {ProfileType::AiIspGen3_1, "AI-ISP Gen3.1"}})

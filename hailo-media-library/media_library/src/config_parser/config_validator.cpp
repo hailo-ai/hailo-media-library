@@ -1,10 +1,16 @@
-#include <filesystem>
-#include <fstream>
-#include <openssl/sha.h>
+#include <ctype.h>
+#include <openssl/evp.h>
+#include <tl/expected.hpp>
 #include <iomanip>
-#include <sstream>
-#include <set>
 #include <chrono>
+#include <algorithm>
+#include <ctime>
+#include <exception>
+#include <optional>
+#include <stdexcept>
+#include <vector>
+#include <ostream>
+
 #include "config_validator.hpp"
 #include "media_library_logger.hpp"
 #include "files_utils.hpp"
@@ -24,21 +30,12 @@ const std::string ARCHITECTURE_FIELD = "architecture";
 
 media_library_return ConfigValidator::get_architecture(std::string &architecture)
 {
-    std::ifstream file(MACHINE_FILE_PATH);
-    if (!file.is_open())
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to open machine file: {}", MACHINE_FILE_PATH);
-        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
-    }
-
-    std::string line;
     auto file_content_opt = files_utils::read_string_from_file(MACHINE_FILE_PATH);
     if (!file_content_opt.has_value())
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to read file: {}", MACHINE_FILE_PATH);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-    line = file_content_opt.value();
+    std::string line = file_content_opt.value();
     auto to_lower = [](const std::string &str) {
         std::string lower_str = str;
         std::transform(lower_str.begin(), lower_str.end(), lower_str.begin(), ::tolower);
@@ -309,15 +306,17 @@ media_library_return ConfigValidator::validate_meta_data(const nlohmann::json &j
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Calculated content hash: {}", hash);
     if (hash != expected_hash)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Content hash mismatch. Expected: {}, Calculated: {}", expected_hash, hash);
-        LOGGER__MODULE__ERROR(
+        LOGGER__MODULE__WARN(MODULE_NAME, "Content hash mismatch. Expected: {}, Calculated: {}", expected_hash, hash);
+        LOGGER__MODULE__WARN(
             MODULE_NAME,
             "\nThe configuration file's content hash does not match the expected value.\n"
             "This may indicate that the configuration has been altered or corrupted.\n"
             "To enforce this validation, please ensure the 'content_hash' field in the 'metadata' section is correct.");
-        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-    LOGGER__MODULE__DEBUG(MODULE_NAME, "Content hash validation successful: {}", hash);
+    else
+    {
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "Content hash validation successful: {}", hash);
+    }
     return MEDIA_LIBRARY_SUCCESS;
 }
 

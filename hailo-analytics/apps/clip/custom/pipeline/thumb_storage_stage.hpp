@@ -1,26 +1,25 @@
 #pragma once
 
+#include <stddef.h>
+#include <media_library/buffer_pool.hpp>
 // General includes
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <iostream>
-#include <filesystem>
-#include <fstream>
 #include <chrono>
-#include <sstream>
 #include <thread>
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
+#include <optional>
+#include <tuple>
+#include <vector>
 
+#include "media_library/cloexec_fstream.hpp"
 // Infra includes
 #include "hailo_analytics/pipeline/core/stage.hpp"
 #include "hailo_analytics/pipeline/core/buffer.hpp"
-#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "thumbnail_table.hpp"
-#include "sql_factory.hpp"
-#include "common_utils.hpp"
 
 namespace fs = std::filesystem;
 
@@ -34,7 +33,7 @@ using hailo_analytics::pipeline::SizeMetadataPtr;
 
 #define THUMB_STORAGE_QUEUE_SIZE_DEFAULT 10
 
-#define THUMB_DB_FLASH_INTERVAL_MS 1500
+#define THUMB_DB_FLASH_INTERVAL_MS 4000
 #define THUMB_DB_FLASH_MIN_SIZE 50
 
 constexpr const char *THUMB_TEMP_PATH = "clip_cache_storage/thumbnail";
@@ -79,9 +78,9 @@ class ThumStorageStage : public hailo_analytics::pipeline::ThreadedStage
     // Thread execution function
     void database_access();
 
-    bool write_encoded_data(HailoMediaLibraryBufferPtr buffer, uint32_t size, std::ofstream &output_file);
+    bool write_encoded_data(HailoMediaLibraryBufferPtr buffer, uint32_t size, cloexec::ofstream &output_file);
 
-    std::ofstream create_file(const std::string &dir_path, const std::string &filename);
+    cloexec::ofstream create_file(const std::string &dir_path, const std::string &filename);
 
     int64_t get_current_epochmilliseconds();
 

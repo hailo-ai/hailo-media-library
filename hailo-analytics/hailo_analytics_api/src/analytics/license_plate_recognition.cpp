@@ -1,13 +1,25 @@
 #include "hailo_analytics/analytics/license_plate_recognition.hpp"
+#include "hailo_analytics/analytics/ai_models_config.hpp"
+
+#include <hailort.h>
+#include <stdint.h>
+#include <bits/std_abs.h>
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
+#include <tl/expected.hpp>
+#include <unordered_map>
+#include <unordered_set>
+#include <chrono>
+#include <memory>
+#include <utility>
+
 #include "hailo_analytics/pipeline/core/pipeline_database.hpp"
 #include "hailo_analytics/pipeline/routing/callback_stage.hpp"
 #include "hailo_postprocess_tools/objects/hailo_common.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
-#include <algorithm>
-#include <cmath>
-#include <stdexcept>
-#include <unordered_map>
-#include <unordered_set>
+#include "hailo_analytics/pipeline/ai/ai_stage.hpp"
+#include "hailo_analytics/pipeline/ai/postprocess_stage.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
 
 namespace hailo_analytics::analytics::license_plate_recognition
 {
@@ -389,6 +401,8 @@ void bbox_crop_config_t::merge_from(const bbox_crop_config_t &other)
         pool_mode = *other.pool_mode;
     if (other.crop_every_x_frames)
         crop_every_x_frames = *other.crop_every_x_frames;
+    if (other.release_input_after_dsp)
+        release_input_after_dsp = *other.release_input_after_dsp;
 }
 
 void bbox_crop_config_t::apply_to(cropping_stages::BBoxCropStageBuild::Builder &b) const
@@ -421,6 +435,8 @@ void bbox_crop_config_t::apply_to(cropping_stages::BBoxCropStageBuild::Builder &
         b.set_pool_mode_opt(*pool_mode);
     if (crop_every_x_frames)
         b.set_crop_every_x_frames(*crop_every_x_frames);
+    if (release_input_after_dsp)
+        b.set_release_input_after_dsp(*release_input_after_dsp);
 }
 
 // ============================================================================
@@ -473,7 +489,6 @@ ocr_config_t ocr_base_config()
 
     // Set default AI stage configs
     config.ai_config.stage_name = std::string(OCR_STAGE);
-    config.ai_config.hef_path = std::string(OCR_BASE_HEF);
     config.ai_config.queue_size = 5;
     config.ai_config.output_pool_size = 50;
     config.ai_config.group_id = std::string(OCR_GROUP_ID);
@@ -482,6 +497,7 @@ ocr_config_t ocr_base_config()
     config.ai_config.scheduler_threshold = 1;
     config.ai_config.dynamic_threshold = false;
     config.ai_config.scheduler_timeout = std::chrono::milliseconds(100);
+    config.ai_config.scheduler_priority = HAILO_SCHEDULER_PRIORITY_MAX - 2;
     config.ai_config.pool_mode = hailo_analytics::pipeline::StagePoolMode::BLOCKING;
     config.ai_config.trace = true;
 
@@ -491,6 +507,8 @@ ocr_config_t ocr_base_config()
     config.post_config.queue_size = 5;
     config.post_config.leaky = false;
     config.post_config.trace = true;
+
+    hailo_analytics::analytics::ai_models::apply_to(hailo_analytics::analytics::ai_models::PADDLE_OCR, config);
 
     return config;
 }
@@ -527,6 +545,8 @@ bbox_crop_ocr_config_t base_config()
     config.bbox_crop_config.trace = true;
     config.bbox_crop_config.pool_mode = hailo_analytics::pipeline::StagePoolMode::BLOCKING;
     config.bbox_crop_config.crop_every_x_frames = 1;
+    // Drop the FHD ref once DSP crops are done to save memory.
+    config.bbox_crop_config.release_input_after_dsp = true;
 
     // Set default OCR configs (reuse ocr_base_config)
     config.ocr_config = ocr_base_config();

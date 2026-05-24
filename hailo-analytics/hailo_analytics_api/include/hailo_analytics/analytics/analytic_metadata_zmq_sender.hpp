@@ -1,14 +1,14 @@
 #pragma once
 
+#include <stddef.h>
 #include <optional>
 #include <string>
-#include <unordered_set>
-#include <functional>
-#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
+
 #include "hailo_analytics/pipeline/codecs/analytic_metadata_packager_stage.hpp"
 #include "hailo_analytics/pipeline/sinks/zmq_comm_stage.hpp"
-#include "hailo_postprocess_tools/objects/hailo_objects.hpp"
 #include "tl/expected.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 namespace hailo_analytics::analytics::analytic_metadata_zmq_sender
 {

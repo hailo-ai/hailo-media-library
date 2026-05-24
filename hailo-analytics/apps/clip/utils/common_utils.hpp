@@ -1,5 +1,9 @@
 #pragma once
 
+// IWYU pragma: begin_exports
+// Umbrella for clip-app utilities — .cpp consumers (common_utils.cpp,
+// clip_text_encoder.cpp, etc.) rely on these transitively.
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -8,6 +12,8 @@
 #include <fstream>
 #include <chrono>
 #include <sstream>
+#include <tuple>
+#include <utility>
 #include <vector>
 #include <functional>
 #include <thread>
@@ -24,6 +30,7 @@
 #include <fcntl.h>
 
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+// IWYU pragma: end_exports
 
 constexpr const char *VOLATILE_PATH = "/var/volatile";
 
@@ -56,8 +63,10 @@ std::vector<std::string> get_all_file_names(const std::string &dir_path, bool in
 
 extern "C"
 {
+// IWYU pragma: begin_exports
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
+    // IWYU pragma: end_exports
 }
 
 namespace CodecUtils

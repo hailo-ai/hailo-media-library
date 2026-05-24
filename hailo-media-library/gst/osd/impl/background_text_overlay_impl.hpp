@@ -23,9 +23,18 @@
 
 #pragma once
 
+#include <hailo/hailodsp.h>
+#include <opencv2/core.hpp>
+#include <tl/expected.hpp>
+#include <memory>
+#include <vector>
+
 #include "overlay_impl.hpp"
+#include "media_library_types.hpp"
+#include "osd_types.hpp"
 
 class BackgroundTextOverlayImpl;
+
 using BackgroundTextOverlayImplPtr = std::shared_ptr<BackgroundTextOverlayImpl>;
 
 /* Helper overlay for background color */

@@ -23,9 +23,18 @@
 
 #pragma once
 
+#include <hailo/hailodsp.h>
+#include <tl/expected.hpp>
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "overlay_impl.hpp"
+#include "media_library_types.hpp"
+#include "osd_types.hpp"
 
 class ImageOverlayImpl;
+
 using ImageOverlayImplPtr = std::shared_ptr<ImageOverlayImpl>;
 
 class ImageOverlayImpl : public OverlayImpl

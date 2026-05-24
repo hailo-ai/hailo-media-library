@@ -1,17 +1,10 @@
 #pragma once
 
+#include <stddef.h>
 // General includes
 #include <atomic>
-#include <chrono>
-#include <condition_variable>
-#include <fstream>
-#include <functional>
-#include <iostream>
 #include <memory>
-#include <mutex>
 #include <optional>
-#include <shared_mutex>
-#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -56,6 +49,7 @@ enum class StagePoolMode
 };
 
 class Stage;
+
 using StagePtr = std::shared_ptr<Stage>;
 
 /**
@@ -90,6 +84,8 @@ class Stage
      */
     Stage(std::string name, bool trace_processing_operations = true);
     virtual ~Stage() = default;
+    Stage(const Stage &) = delete;
+    Stage &operator=(const Stage &) = delete;
 
     /**
      * @brief Gets the name of this stage.
@@ -183,8 +179,12 @@ class ThreadedStage : public Stage
     bool m_leaky;
     std::vector<QueuePtr> m_queues;
 
-    // Subscribers
+    // Subscribers; m_subscriber_stream_ids is parallel to m_subscribers (same size invariant). The
+    // stream id is optional — set when the connection was registered with a per-stream key (e.g.
+    // PipelineBuilder::connect(src, stream_id, dst) or connect_frontend), nullopt otherwise. Used
+    // by stages like SplitStreamsStage to dispatch buffers to a specific subscriber by stream id.
     std::vector<StagePtr> m_subscribers;
+    std::vector<std::optional<std::string>> m_subscriber_stream_ids;
 
   public:
     /**
@@ -220,7 +220,10 @@ class ThreadedStage : public Stage
     /**
      * @brief Adds a subscriber and creates the connecting queue.
      * @param subscriber The stage to subscribe to this stage's output
-     * @param stream_id Optional stream identifier (currently unused)
+     * @param stream_id Optional stream identifier — populated when this connection is meant to
+     *                  be addressed by a per-stream key downstream (e.g. SplitStreamsStage routes
+     *                  passengers by stream id). Throws std::invalid_argument if a subscriber
+     *                  with this stream id is already registered for this stage.
      *
      * Registers the subscriber and instructs it to create an input queue for receiving
      * buffers from this stage.
@@ -305,6 +308,18 @@ class ThreadedStage : public Stage
     void send_to_specific_subscriber(std::string stage_name, BufferPtr data);
 
     /**
+     * @brief Sends a buffer to the subscriber registered with the given stream id.
+     * @param stream_id The stream id used at connect time (3-arg connect or connect_frontend)
+     * @param data The buffer to send
+     *
+     * Walks the parallel subscriber/stream-id vectors and pushes to the first match. Logs an
+     * error and no-ops if no match is found — callers (e.g. SplitStreamsStage) are expected to
+     * have validated the stream-id roster at init() time, so a runtime miss is a programming
+     * error, not a recoverable condition.
+     */
+    void send_to_subscriber_by_stream_id(const std::string &stream_id, BufferPtr data);
+
+    /**
      * @brief Sets the end-of-stream flag and manages queue flushing.
      * @param end_of_stream If true, flushes all queues; if false, resets all queues
      *
@@ -321,6 +336,15 @@ class ThreadedStage : public Stage
     const std::vector<StagePtr> &get_subscribers() const
     {
         return m_subscribers;
+    }
+
+    /**
+     * @brief Get the per-subscriber stream ids (parallel to get_subscribers()).
+     * @return Vector of optional stream ids; nullopt for connections registered without a key.
+     */
+    const std::vector<std::optional<std::string>> &get_subscriber_stream_ids() const
+    {
+        return m_subscriber_stream_ids;
     }
 };
 using ThreadedStagePtr = std::shared_ptr<ThreadedStage>;

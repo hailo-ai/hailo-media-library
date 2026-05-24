@@ -3,6 +3,8 @@
  * Distributed under the LGPL license (https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt)
  **/
 #include "common/nms.hpp"
+
+#include <sys/types.h>
 #include <algorithm>
 
 namespace common

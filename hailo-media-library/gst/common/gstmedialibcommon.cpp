@@ -22,12 +22,16 @@
  */
 #include "gstmedialibcommon.hpp"
 
-#include <fstream>
-#include <sstream>
+#include <gst/app/gstappsrc.h>
+#include <gst/gstbufferpool.h>
+#include <fstream> // IWYU pragma: keep
+#include "media_library/cloexec_fstream.hpp"
+#include <sstream> // IWYU pragma: keep
+#include <stdexcept>
 
 std::string gstmedialibcommon::read_json_string_from_file(const std::string &file_path)
 {
-    std::ifstream file_to_read;
+    cloexec::ifstream file_to_read;
     file_to_read.open(file_path);
     if (!file_to_read.is_open())
         throw std::runtime_error("config path is not valid");

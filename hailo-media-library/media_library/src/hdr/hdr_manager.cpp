@@ -1,7 +1,6 @@
 #include "hdr_manager.hpp"
-#include "hdr_manager_impl.hpp"
 
-#include "media_library_types.hpp"
+#include "hdr_manager_impl.hpp"
 
 HdrManager::HdrManager(IspManager &isp_manager) : m_impl(std::make_unique<Impl>(isp_manager))
 {

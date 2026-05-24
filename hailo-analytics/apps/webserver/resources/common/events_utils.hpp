@@ -1,12 +1,15 @@
 #pragma once
 #include <nlohmann/json.hpp>
+#include <stdint.h>
 #include <memory>
 #include <vector>
 #include <string>
 #include <functional>
 #include <stdexcept>
-#include <optional>
-#include "media_library/media_library_types.hpp"
+#include <tuple>
+#include <utility>
+#include <variant>
+
 #include "media_library/media_library_api_types.hpp"
 #include "common/common.hpp"
 #include "common/logger_macros.hpp"

@@ -1,7 +1,10 @@
 #include "hailo_analytics/pipeline/core/queue.hpp"
-#include "hailo_analytics/perfetto/hailo_analytics_perfetto.hpp"
-#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+
 #include <media_library/buffer_pool.hpp>
+#include <utility>
+
+#include "hailo_analytics/perfetto/hailo_analytics_perfetto.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
 
 namespace hailo_analytics::pipeline
 {
@@ -30,13 +33,13 @@ class QueueTracing
     {
     }
 
-    void track_queue_size(size_t size)
+    void track_queue_size([[maybe_unused]] size_t size)
     {
         HAILO_ANALYTICS_TRACE_COUNTER(m_counter_name, size, HAILO_ANALYTICS_QUEUE_LEVEL_TRACK,
                                       HAILO_ANALYTICS_CATEGORY);
     }
 
-    void track_frame_dropped(uint64_t isp_timestamp_ns)
+    void track_frame_dropped([[maybe_unused]] uint64_t isp_timestamp_ns)
     {
         HAILO_ANALYTICS_TRACE_EVENT(m_frame_dropped_event_name, HAILO_ANALYTICS_PROCESSING_TRACK,
                                     HAILO_ANALYTICS_DETAILED_CATEGORY, "isp_timestamp_ms", isp_timestamp_ns / 1000000);

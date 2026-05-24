@@ -1,18 +1,14 @@
 #pragma once
 
-#include "faiss_table.hpp"
-#include "thumbnail_table.hpp"
-#include "video_table.hpp"
-#include "faiss_factory.hpp"
-
-#include <thread>
+#include <tl/expected.hpp>
+#include <stddef.h>
 #include <unordered_map>
 #include <memory>
 #include <string>
-#include <mutex>
 #include <shared_mutex>
-#include <functional>
-#include <tl/expected.hpp>
+#include <vector>
+
+#include "database.hpp"
 
 // Configuration struct for database creation
 struct DatabaseConfig

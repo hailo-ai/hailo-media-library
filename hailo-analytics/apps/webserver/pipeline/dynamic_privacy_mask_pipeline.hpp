@@ -1,7 +1,16 @@
 #pragma once
-#include <atomic>
+#include <media_library/media_library.hpp>
 #include <memory>
+#include <string>
+#include <vector>
+
 #include "pipeline/pipeline.hpp"
+#include "hailo_analytics/analytics/dpm_analytics.hpp"
+#include "hailo_analytics/pipeline/cropping/bbox_crop_stage.hpp"
+#include "common/common.hpp"
+#include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
+#include "resources/common/events_utils.hpp"
+#include "resources/common/repository.hpp"
 
 namespace webserver
 {
@@ -11,7 +20,7 @@ namespace pipeline
 class DynamicPrivacyMaskPipeline : public BasePipeline
 {
   public:
-    DynamicPrivacyMaskPipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
+    DynamicPrivacyMaskPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
                                RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H);
     virtual std::string pipeline_name() const override;
     void start() override;
@@ -25,7 +34,11 @@ class DynamicPrivacyMaskPipeline : public BasePipeline
     void callback_handle_profile_switch(ResourceStateChangeNotification notif) override;
 
   private:
-    std::shared_ptr<std::atomic<int>> m_shared_max_detections;
+    void apply_label_set(std::vector<std::string> labels);
+
+    std::shared_ptr<hailo_analytics::analytics::dpm_analytics::DetectorLabelFilter> m_detector_filter;
+    std::shared_ptr<hailo_analytics::pipeline::cropping::BBoxCropStage> m_segmentor;
+    std::vector<std::string> m_user_labels;
 };
 
 } // namespace pipeline

@@ -1,17 +1,32 @@
 #include "gsthailovision.hpp"
 
+#include <gst/gst.h>
+#include <gst/gstcompat.h>
+#include <gst/gsterror.h>
+#include <gst/gstformat.h>
+#include <gst/gstparamspecs.h>
+#include <stddef.h>
+#include <nlohmann/json.hpp>
+#include <tl/expected.hpp>
 #include <string>
 #include <unordered_map>
+#include <exception>
+#include <functional>
+#include <initializer_list>
+#include <map>
+#include <memory>
+#include <optional>
+#include <utility>
+#include <vector>
 
-#include <gst/gst.h>
 #include "utils/buffer_forwarder.hpp"
 #include "utils/gst_pipeline_utils.hpp"
 #include "utils/medialib_instance_registry.hpp"
-
 #include "gstmedialibcommon.hpp"
 #include "gstmedialibptrs.hpp"
-#include "media_library/frontend.hpp"
 #include "media_library/media_library.hpp"
+#include "encoder_config_types.hpp"
+#include "media_library/media_library_api_types.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailo_vision_debug);
 #define GST_CAT_DEFAULT gst_hailo_vision_debug
@@ -519,7 +534,7 @@ static bool validate_srcpads_against_profile(GstHailoVision *self, const config_
         if (profile.encoded_output_streams.find(stream_id) == profile.encoded_output_streams.end())
         {
             GST_ERROR_OBJECT(self, "stream-id '%s' not found in current profile. Available: %s", stream_id.c_str(),
-                             hailo::gst_api::format_aviallable_streams_ids(profile).c_str());
+                             hailo::gst_api::format_available_streams_ids(profile).c_str());
             return false;
         }
     }

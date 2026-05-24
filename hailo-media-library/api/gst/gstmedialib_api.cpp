@@ -10,6 +10,8 @@
 #endif
 
 #include <gst/gst.h>
+#include <glib.h>
+#include <gst/gstpluginfeature.h>
 
 #include "vision/gsthailovision.hpp"
 #include "encoder/gsthailoencoder.hpp"

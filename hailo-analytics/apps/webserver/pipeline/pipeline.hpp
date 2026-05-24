@@ -1,7 +1,7 @@
 #pragma once
 #include "pipeline/isp_blender.hpp"
 #include "resources/common/repository.hpp"
-#include "media_library/frontend.hpp"
+#include "media_library/media_library.hpp"
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "hailo_analytics/pipeline/codecs/encoder_stage.hpp"
 #include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
@@ -11,35 +11,40 @@
 #include "hailo_analytics/pipeline/routing/freeze_stage.hpp"
 #include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
 
-namespace hailo_analytics::analytics::dpm_analytics
-{
-struct SharedLabels;
-}
-
 #define DEFAULT_STREAM_4K_NAME "sink0"
 
 #define BASIC_DAYLIGHT_PROFILE_NAME "Daylight_Basic"
-#define BASIC_LOWLIGHT_PROFILE_NAME "Lowlight_Basic"
+#define BASIC_AI_ISP_GEN1_PROFILE_NAME "AI_ISP_Gen1_Basic"
 #define BASIC_HDR_PROFILE_NAME "High_Dynamic_Range_Basic"
-#define BASIC_LOWLIGHT_BAYER_PROFILE_NAME "Lowlight_Bayer_Basic"
-#define BASIC_DENOISE_HDR_PROFILE_NAME "Denoise_Hdr_Basic"
+#define BASIC_AI_ISP_GEN2_PROFILE_NAME "AI_ISP_Gen2_Basic"
+#define BASIC_AI_ISP_GEN3_PROFILE_NAME "AI_ISP_Gen3_Basic"
+#define BASIC_AI_ISP_GEN3_1_PROFILE_NAME "AI_ISP_Gen3_1_Basic"
 
 #define DETECTION_DAYLIGHT_PROFILE_NAME "Daylight_Detection"
-#define DETECTION_LOWLIGHT_PROFILE_NAME "Lowlight_Detection"
+#define DETECTION_AI_ISP_GEN1_PROFILE_NAME "AI_ISP_Gen1_Detection"
 #define DETECTION_HDR_PROFILE_NAME "High_Dynamic_Range_Detection"
-#define DETECTION_LOWLIGHT_BAYER_PROFILE_NAME "Lowlight_Bayer_Detection"
+#define DETECTION_AI_ISP_GEN2_PROFILE_NAME "AI_ISP_Gen2_Detection"
+#define DETECTION_AI_ISP_GEN3_PROFILE_NAME "AI_ISP_Gen3_Detection"
 
 #define FACE_LANDMARKS_DAYLIGHT_PROFILE_NAME "Daylight_FaceLandmarks"
-#define FACE_LANDMARKS_LOWLIGHT_PROFILE_NAME "Lowlight_FaceLandmarks"
+#define FACE_LANDMARKS_AI_ISP_GEN1_PROFILE_NAME "AI_ISP_Gen1_FaceLandmarks"
 #define FACE_LANDMARKS_HDR_PROFILE_NAME "High_Dynamic_Range_FaceLandmarks"
-#define FACE_LANDMARKS_LOWLIGHT_BAYER_PROFILE_NAME "Lowlight_Bayer_FaceLandmarks"
+#define FACE_LANDMARKS_AI_ISP_GEN2_PROFILE_NAME "AI_ISP_Gen2_FaceLandmarks"
+#define FACE_LANDMARKS_AI_ISP_GEN3_PROFILE_NAME "AI_ISP_Gen3_FaceLandmarks"
 
 #define CLIP_PROFILE_NAME "Daylight_Clip"
 
+#define LICENSE_PLATE_DAYLIGHT_PROFILE_NAME "Daylight_LicensePlate"
+#define LICENSE_PLATE_AI_ISP_GEN1_PROFILE_NAME "AI_ISP_Gen1_LicensePlate"
+#define LICENSE_PLATE_HDR_PROFILE_NAME "High_Dynamic_Range_LicensePlate"
+#define LICENSE_PLATE_AI_ISP_GEN2_PROFILE_NAME "AI_ISP_Gen2_LicensePlate"
+#define LICENSE_PLATE_AI_ISP_GEN3_PROFILE_NAME "AI_ISP_Gen3_LicensePlate"
+
 #define DPM_DAYLIGHT_PROFILE_NAME "Daylight_DynamicPrivacyMask"
-#define DPM_LOWLIGHT_PROFILE_NAME "Lowlight_DynamicPrivacyMask"
+#define DPM_AI_ISP_GEN1_PROFILE_NAME "AI_ISP_Gen1_DynamicPrivacyMask"
 #define DPM_HDR_PROFILE_NAME "High_Dynamic_Range_DynamicPrivacyMask"
-#define DPM_LOWLIGHT_BAYER_PROFILE_NAME "Lowlight_Bayer_DynamicPrivacyMask"
+#define DPM_AI_ISP_GEN2_PROFILE_NAME "AI_ISP_Gen2_DynamicPrivacyMask"
+#define DPM_AI_ISP_GEN3_PROFILE_NAME "AI_ISP_Gen3_DynamicPrivacyMask"
 
 using namespace hailo_analytics::pipeline::sinks;
 using namespace hailo_analytics::pipeline::overlay;
@@ -54,7 +59,7 @@ namespace pipeline
 
 struct AppResources
 {
-    MediaLibrary &media_library;
+    MediaLibraryPtr media_library;
     std::shared_ptr<FrontendStage> frontend;
     std::shared_ptr<ValveStage> valve_stage;
     std::shared_ptr<FreezeStage> freeze_stage;
@@ -63,13 +68,12 @@ struct AppResources
     hailo_analytics::pipeline::PipelinePtr pipeline;
     Architecture platform;
     std::shared_ptr<IspBlender> m_isp_blender;
-    std::shared_ptr<hailo_analytics::analytics::dpm_analytics::SharedLabels> segment_labels;
 };
 
 class BasePipeline
 {
   public:
-    BasePipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
+    BasePipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
                  RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H,
                  ProfileType default_profile = ProfileType::Daylight, std::vector<ProfileType> supported_profiles = {});
     virtual ~BasePipeline();

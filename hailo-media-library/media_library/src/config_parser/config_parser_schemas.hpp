@@ -215,7 +215,7 @@ static const nlohmann::json encoding_config_schema_internal = R"(
             "properties": {
               "gop_size": {
                 "type": "integer",
-                "minimum": 0
+                "minimum": 1
               },
               "b_frame_qp_delta": {
                 "type": "integer"
@@ -553,12 +553,19 @@ static const nlohmann::json encoding_config_schema_internal = R"(
                 "items": {
                   "$ref": "normalized_roi_t"
                 }
+              },
+              "analytics_labels": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "required": [
               "enabled",
               "background_qp_delta",
-              "rois"
+              "rois",
+              "analytics_labels"
             ],
             "additionalProperties": false
           }
@@ -597,40 +604,21 @@ static const nlohmann::json encoding_config_schema_internal = R"(
     "properties": {
       "encoding": {
         "type": "object",
-        "oneOf": [
-          {
-            "type": "object",
-            "properties": {
-              "hailo_encoder": {
-                "$ref": "hailo_encoder"
-              },
-              "input_stream": {
-                "$ref": "input_stream"
-              }
-            },
-            "required": [
-              "input_stream",
-              "hailo_encoder"
-            ],
-            "additionalProperties": false
+        "properties": {
+          "hailo_encoder": {
+            "$ref": "hailo_encoder"
           },
-          {
-            "type": "object",
-            "properties": {
-              "jpeg_encoder": {
-                "$ref": "jpeg_encoder"
-              },
-              "input_stream": {
-                "$ref": "input_stream"
-              }
-            },
-            "required": [
-              "input_stream",
-              "jpeg_encoder"
-            ],
-            "additionalProperties": false
+          "jpeg_encoder": {
+            "$ref": "jpeg_encoder"
+          },
+          "input_stream": {
+            "$ref": "input_stream"
           }
-        ]
+        },
+        "required": [
+          "input_stream"
+        ],
+        "additionalProperties": false
       }
     },
     "required" : [
@@ -1594,6 +1582,9 @@ static const nlohmann::json hailort_config_schema = R"(
         "properties": {
           "device-id": {
             "type": "string"
+          },
+          "use-hailort-service": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false,
@@ -1646,6 +1637,9 @@ static const nlohmann::json denoise_config_schema = R"(
             "type": "boolean"
           },
           "bayer": {
+            "type": "boolean"
+          },
+          "fast_denoise_switch": {
             "type": "boolean"
           },
           "sensor": {
@@ -1951,38 +1945,15 @@ static const nlohmann::json application_analytics_config_schema = R"(
                   }
                 }
               },
-              "required": ["analytics_data_id", "scaling_mode", "width", "height", "original_width_ratio", "original_height_ratio", "labels", "max_entries"],
-              "additionalProperties": false
-            }
-          },
-          "instance_segmentation": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "analytics_data_id": { "type": "string" },
-                "scaling_mode": { 
-                  "type": "string",
-                  "enum": ["STRETCH", "LETTERBOX_MIDDLE", "LETTERBOX_UP_LEFT"]
-                },
-                "width": { "type": "integer" },
-                "height": { "type": "integer" },
-                "original_width_ratio": { "type": "integer" },
-                "original_height_ratio": { "type": "integer" },
-                "max_entries": { "type": "integer" },
-                "labels": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "label": { "type": "string" },
-                      "id": { "type": "integer" }
-                    },
-                    "required": ["label", "id"]
-                  }
-                }
+              "required": ["analytics_data_id", "labels"],
+              "dependencies": {
+                "scaling_mode":         ["width", "height", "original_width_ratio", "original_height_ratio", "max_entries"],
+                "width":                ["scaling_mode", "height", "original_width_ratio", "original_height_ratio", "max_entries"],
+                "height":               ["scaling_mode", "width", "original_width_ratio", "original_height_ratio", "max_entries"],
+                "original_width_ratio": ["scaling_mode", "width", "height", "original_height_ratio", "max_entries"],
+                "original_height_ratio":["scaling_mode", "width", "height", "original_width_ratio", "max_entries"],
+                "max_entries":          ["scaling_mode", "width", "height", "original_width_ratio", "original_height_ratio"]
               },
-              "required": ["analytics_data_id", "scaling_mode", "width", "height", "original_width_ratio", "original_height_ratio", "labels", "max_entries"],
               "additionalProperties": false
             }
           },
@@ -2001,7 +1972,6 @@ static const nlohmann::json application_analytics_config_schema = R"(
                 "original_width_ratio": { "type": "integer" },
                 "original_height_ratio": { "type": "integer" },
                 "max_entries": { "type": "integer" },
-                "mask_size": { "type": "integer", "minimum": 1 },
                 "labels": {
                   "type": "array",
                   "items": {
@@ -2014,7 +1984,15 @@ static const nlohmann::json application_analytics_config_schema = R"(
                   }
                 }
               },
-              "required": ["analytics_data_id", "scaling_mode", "width", "height", "original_width_ratio", "original_height_ratio", "labels", "max_entries", "mask_size"],
+              "required": ["analytics_data_id", "labels"],
+              "dependencies": {
+                "scaling_mode":         ["width", "height", "original_width_ratio", "original_height_ratio", "max_entries"],
+                "width":                ["scaling_mode", "height", "original_width_ratio", "original_height_ratio", "max_entries"],
+                "height":               ["scaling_mode", "width", "original_width_ratio", "original_height_ratio", "max_entries"],
+                "original_width_ratio": ["scaling_mode", "width", "height", "original_height_ratio", "max_entries"],
+                "original_height_ratio":["scaling_mode", "width", "height", "original_width_ratio", "max_entries"],
+                "max_entries":          ["scaling_mode", "width", "height", "original_width_ratio", "original_height_ratio"]
+              },
               "additionalProperties": false
             }
           }
@@ -2110,53 +2088,59 @@ static const nlohmann::json privacy_mask_config_schema_internal = R"(
           "dynamic_privacy_mask": {
             "type": "object",
             "properties": {
-              "enabled": {
-                "type": "boolean"
-              },
+              "enabled": { "type": "boolean" },
+              "dilation_size": { "type": "integer", "minimum": 0, "maximum": 15 },
               "analytics": {
                 "type": "array",
                 "items": {
                   "type": "object",
                   "properties": {
-                    "analytics_data_id": {
-                      "type": "string"
-                    },
-                    "masked_labels": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
+                    "analytics_data_id": { "type": "string" },
+                    "masked_labels": { "type": "array", "items": { "type": "string" } }
                   },
-                  "required": ["analytics_data_id", "masked_labels"],
+                  "required": ["masked_labels"],
                   "additionalProperties": false
                 }
               },
-              "dilation_size": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 15
-              },
-              "timeout_ms": {
-                "type": "integer",
-                "minimum": 1
-              },
-              "delta_ms": {
-                "type": "integer",
-                "minimum": 1
-              },
-              "query_type": {
-                "type": "string",
-                "enum": ["Closest", "Exact", "WithinDelta"]
+              "timeout_ms": { "type": "integer", "minimum": 1 },
+              "delta_ms":   { "type": "integer", "minimum": 1 },
+              "query_type": { "type": "string", "enum": ["Closest", "Exact", "WithinDelta"] },
+              "masked_labels": { "type": "array", "items": { "type": "string" } },
+              "label_to_class_id": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": { "type": "string" },
+                    "id":    { "type": "integer", "minimum": 0 }
+                  },
+                  "required": ["label", "id"],
+                  "additionalProperties": false
+                }
               }
             },
-            "required": [
-              "enabled",
-              "analytics",
-              "dilation_size",
-              "timeout_ms",
-              "delta_ms",
-              "query_type"
+            "required": ["enabled", "dilation_size"],
+            "oneOf": [
+              {
+                "required": ["analytics", "timeout_ms", "delta_ms", "query_type"],
+                "not": {
+                  "anyOf": [
+                    { "required": ["masked_labels"] },
+                    { "required": ["label_to_class_id"] }
+                  ]
+                }
+              },
+              {
+                "required": ["masked_labels", "label_to_class_id"],
+                "not": {
+                  "anyOf": [
+                    { "required": ["analytics"] },
+                    { "required": ["timeout_ms"] },
+                    { "required": ["delta_ms"] },
+                    { "required": ["query_type"] }
+                  ]
+                }
+              }
             ],
             "additionalProperties": false
           }

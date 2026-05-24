@@ -1,19 +1,23 @@
 Hailo Media Library
 ===================
 
+.. attention:: 
+   **Deprecation Notice: Yocto Kirkstone Support**
+   This repository currently supports the **Yocto Kirkstone** release. Hailo plans migrating to **Yocto Scarthgap** starting with media-library **v1.14** (Target: Q4 2026).
+
 .. |gstreamer| image:: https://img.shields.io/badge/gstreamer-1.20-blue
    :target: https://gstreamer.freedesktop.org/
    :alt: Gstreamer 1.20
    :width: 150
    :height: 20
 
-.. |hailort| image:: https://img.shields.io/badge/HailoRT-5.2.0-green
+.. |hailort| image:: https://img.shields.io/badge/HailoRT-5.3.0-green
    :target: https://github.com/hailo-ai/hailort
-   :alt: HailoRT 5.2.0
+   :alt: HailoRT 5.3.0
    :height: 20
 
 
-.. |license| image:: https://img.shields.io/badge/License-LGPLv2.1-green
+.. |license| image:: https://img.shields.io/badge/License-MIT-yellow.svg
    :target: https://github.com/hailo-ai/hailo-media-library/blob/master/LICENSE
    :alt: License: LGPL v2.1
    :height: 20

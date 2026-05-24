@@ -1,16 +1,15 @@
 #pragma once
 
-// general includes
-#include <iostream>
+#include <nlohmann/json.hpp>
+#include <tl/expected.hpp>
 #include <memory>
-#include <filesystem>
+#include <chrono>
+#include <map>
+#include <string>
+#include <vector>
 
 // medialibrary includes
 #include "media_library/frontend.hpp"
-#include "media_library/signal_utils.hpp"
-
-// infra includes
-#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
 #include "hailo_analytics/analytics/reference_camera_app_constructor.hpp"
 #include "hailo_analytics/pipeline/sinks/udp_stage.hpp"
@@ -25,35 +24,11 @@
 #include "hailo_analytics/pipeline/routing/tracker_traffic_ctrl_stage.hpp"
 #include "hailo_analytics/pipeline/routing/tee_stage.hpp"
 #include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
-
-// custom infra include
-#include "pipeline/thumb_storage_stage.hpp"
-#include "pipeline/faiss_storage_stage.hpp"
-#include "pipeline/cache_stage.hpp"
-#include "pipeline/clip_image_preprocess.hpp"
-#include "pipeline/video_storage_stage.hpp"
-#include "pipeline/full_frame_bbox_injector_stage.hpp"
-#include "database_manager.hpp"
-
-// Extensions includes
-#include "service/query_service/query_service_ext.hpp"
-#include "service/query_service/clip_text_encoder.hpp"
-#include "streaming/webrtc_streamer_ext.hpp"
-#include "service/player_service_ext.hpp"
-#include "service/storage_monitor_service_ext.hpp"
-#include "service/storage_cleanup_service_ext.hpp"
-#include "service/storage_cleanup_strategy.hpp"
-#include "service/app_control_service_ext.hpp"
-
 // others
-#include "clip_app_config_parser.hpp"
-#include "common_utils.hpp"
-#include <iostream>
-#include <memory>
-#include <filesystem>
-
-// App defines
-#include "clip_pipeline_ai_defines.hpp"
+#include "clip_app_config.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/pipeline/sinks/output_module.hpp"
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;

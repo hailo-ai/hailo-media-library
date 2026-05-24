@@ -95,7 +95,8 @@
             "smart_encoder": {
                 "enabled": false,
                 "background_qp_delta": 10,
-                "rois": []
+                "rois": [],
+                "analytics_labels": []
             }
         },
         "input_stream": {

@@ -1,17 +1,9 @@
 #pragma once
 
-#include <string>
-#include <thread>
-#include <mutex>
-#include <atomic>
-#include <functional>
-#include <chrono>
-#include <sys/statvfs.h>
 #include <tl/expected.hpp>
-#include "common_utils.hpp"
+#include <stddef.h>
+
 #include "hailo_analytics/analytics/reference_camera_app_constructor.hpp"
-#include "hailo_analytics/pipeline/routing/tracker_traffic_ctrl_stage.hpp"
-#include "clip_pipeline_ai_defines.hpp"
 
 class AppControlServiceExt : public hailo_analytics::analytics::app_constructor::CameraAppExtension
 {

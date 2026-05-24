@@ -1,6 +1,22 @@
+#include <hailodsp.h>
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
+#include <media_library/buffer_pool.hpp>
+#include <media_library/dsp_utils.hpp>
+#include <media_library/media_library_buffer.hpp>
+#include <media_library/media_library_types.hpp>
+#include <cstddef>
+#include <memory>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/cropping/tiling_stage.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/pipeline/cropping/dsp_cropping.hpp"
 
 namespace hailo_analytics::pipeline::cropping
 {
@@ -18,6 +34,12 @@ TilingCropStage::TilingCropStage(std::string name, int output_pool_size, int inp
 
 AppStatus TilingCropStage::init()
 {
+    AppStatus base_status = DspBaseCropStage::init();
+    if (base_status != AppStatus::SUCCESS)
+    {
+        return base_status;
+    }
+
     auto bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width(m_output_width);
     m_buffer_pool =
         std::make_shared<MediaLibraryBufferPool>(m_output_width, m_output_height, HAILO_FORMAT_NV12, m_output_pool_size,
@@ -65,21 +87,18 @@ HailoBBox TilingCropStage::get_crop_bbox(int index)
     }
 }
 
-void TilingCropStage::post_crop(BufferPtr input_buffer)
+void TilingCropStage::post_crop(BufferPtr /*input_buffer*/)
 {
-    (void)input_buffer;
     // No post-crop processing needed for tiling
 }
 
-void TilingCropStage::pre_crop(BufferPtr input_buffer)
+void TilingCropStage::pre_crop(BufferPtr /*input_buffer*/)
 {
-    (void)input_buffer;
     // No pre-crop processing needed for tiling
 }
 
-HailoROIPtr TilingCropStage::get_crop_roi(int index)
+HailoROIPtr TilingCropStage::get_crop_roi(int /*index*/)
 {
-    (void)index;
     return nullptr;
 }
 

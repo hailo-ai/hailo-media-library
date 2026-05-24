@@ -1,26 +1,22 @@
 #pragma once
 
+#include <stddef.h>
 // General includes
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <iostream>
-#include <filesystem>
-#include <fstream>
-#include <chrono>
-#include <sstream>
 #include <thread>
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
 #include <vector>
+#include <optional>
 
 // Infra includes
 #include "hailo_analytics/pipeline/core/stage.hpp"
 #include "hailo_analytics/pipeline/core/buffer.hpp"
 #include "video_table.hpp"
 #include "converter/segmented_mkv_muxer.hpp"
-#include "sql_factory.hpp"
 
 // Using declarations for pipeline types
 using hailo_analytics::pipeline::BufferPtr;
@@ -32,10 +28,6 @@ constexpr const char *VIDEO_TEMP_PATH = "clip_cache_storage/video";
 
 #define VIDEO_STORAGE_QUEUE_SIZE_DEFAULT 50
 #define VIDEO_DURATION_SECONDS_DEFAULT 15
-
-#include <deque>
-#include <cstdint>
-#include <algorithm>
 
 class VideoStorageStage : public hailo_analytics::pipeline::ThreadedStage
 {
@@ -93,7 +85,7 @@ class VideoStorageStage : public hailo_analytics::pipeline::ThreadedStage
 
   private:
     static void segment_mkv_callback(const char *filename, uint32_t duration_ms, uint64_t start_time_epoch_ms,
-                                     [[maybe_unused]] uint32_t segment_index, void *user_data);
+                                     uint32_t /*segment_index*/, void *user_data);
 
     static void mkv_callback_debug(const char *filename, uint32_t duration_ms, uint64_t start_time_epoch_ms,
                                    uint32_t segment_index);

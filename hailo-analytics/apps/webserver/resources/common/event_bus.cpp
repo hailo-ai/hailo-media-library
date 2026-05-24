@@ -1,5 +1,10 @@
 #include "event_bus.hpp"
 
+#include <algorithm>
+#include <thread>
+
+#include "resources/common/events_utils.hpp"
+
 uint64_t EventBus::generate_registration_id()
 {
     return m_next_registration_id.fetch_add(1, std::memory_order_relaxed);
