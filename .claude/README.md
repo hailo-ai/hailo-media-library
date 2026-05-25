@@ -1,3 +1,44 @@
+# Claude × Hailo Media Library
+
+An agentic layer on top of `hailo-media-library`. It lets you explore docs, build and modify Media Library applications, and debug running deployments on the H15 board through Claude, without needing
+deep knowledge of the codebase.
+
+
+## Prerequisites
+
+- Claude Code installed and authenticated.
+- This repo cloned locally. Run `claude` from the repo root — the skills and agents under `.claude/` load automatically.
+- An H15 SBC reachable over ethernet.
+- The Yocto SDK installed on the host (only required for `/cross-compile`
+  and `/deploy`).
+
+## How to use it
+
+Just describe what you want in plain English. Claude scans the skills
+list on every prompt and invokes the matching one.
+You can also call a skill directly with `/skill-name` when you want to be explicit.
+
+Examples:
+
+```
+> what does the detection app do?
+  → runs /explain-pipeline
+
+> explain this pipeline, add a FHD(1920×1080@30FPS) stream, replace the detection network to be YOLOv8n and deploy it to my connected h15l
+  → runs /explain-pipeline, then /add-stream then /get-model and /swap-model, /cross-compile, /deploy
+
+> is the board overheating?
+  → runs /board-status
+```
+
+## Documentation
+
+The user guides shipped with this repo (under `docs/guides/`) are read
+on demand by the `doc-explorer` agent and cited with page numbers when
+referenced.
+
+---
+
 ## Skills
 
 ### Connection
