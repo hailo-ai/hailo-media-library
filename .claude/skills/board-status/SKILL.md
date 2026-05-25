@@ -1,6 +1,6 @@
 ---
 name: board-status
-description: Snapshot the H15 SBC's runtime health — chip temperature, power consumption, CPU load, DRAM use, NN core utilization, and the running app's PID. Use when the user asks "is the board OK", "is it overheating", "how loaded is the chip", "why is FPS low", or before/after a long demo to check how hot it's running and how much it's drawing. Read-only over SSH; no app restart.
+description: Snapshot the H15 SBC's runtime health — chip temperature, power consumption, CPU load, DRAM use, NN core utilization, DSP utilization, and the running app's PID. Use when the user asks "is the board OK", "is it overheating", "how loaded is the chip", "why is FPS low", or before/after a long demo to check how hot it's running and how much it's drawing. Read-only over SSH; no app restart.
 tools: Bash, Read, Agent
 ---
 
@@ -85,6 +85,10 @@ The board identifies its own SBC revision via `/etc/build-info`'s `MACHINE` fiel
      hailortcli scan 2>&1 | head -5
      hailortcli fw-control identify 2>&1 | grep -E "Firmware|Serial|Board" | head -5
 
+     echo "=== dsp ==="
+     (stdbuf -oL dsp-utilization 2>/dev/null & p=$!; sleep 2; kill $p 2>/dev/null) \
+       | awk "/[0-9]+(\.[0-9]+)?[[:space:]]*%/{last=\$0} END{if(last)print last; else print \"N/A\"}"
+
      echo "=== running apps ==="
      pgrep -af "_case_study|hailort_server|hailoencodebin|hailofrontend|camera-viewer-server"
    '
@@ -111,6 +115,7 @@ SOC power: <N.NN> W
 CPU (4c):  load <1m> / <5m> / <15m>   id <X>% sy <Y>%
 Memory:    <avail> MiB available of <total> MiB
 NN core:   <N> device(s), FW <ver>
+DSP:       <X>% utilization
 Running:   <app cmd line>
 ```
 
