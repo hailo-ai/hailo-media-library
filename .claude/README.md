@@ -7,7 +7,7 @@ deep knowledge of the codebase.
 ## Prerequisites
 
 - Claude Code installed and authenticated.
-- This repo cloned locally. Run `claude` from the repo root — the skills and agents under `.claude/` load automatically.
+- This repo cloned locally. Run `claude` from the repo root. Skills and agents under `.claude/` load automatically.
 - An H15 SBC reachable over ethernet.
 - The Yocto SDK installed on the host (only required for `/cross-compile`
   and `/deploy`).
