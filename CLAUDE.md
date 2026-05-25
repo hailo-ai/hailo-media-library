@@ -1,8 +1,7 @@
 # Claude & hailo-media-library integration
 
 A customer-facing AI layer on top of the media-library repo. 
-The goal is to let VPU customers explore docs, build and modify applications, and debug running deployments through Claude -
-without needing deep knowledge of the code base.
+The goal is to let VPU customers explore docs, build and modify applications, and debug running deployments through Claude - without needing deep knowledge of the code base.
 
 ## On every prompt — check for a relevant skill first
 
@@ -16,17 +15,15 @@ when no skill fits.
 | Phase | Examples |
 |---|---|
 | **Connection** | `/connect` |
-| **Explore** | `/explain-pipeline` |
+| **Explore** | `/explain-pipeline`, `/get-model`|
 | **Modification** | `/add-stream`, `/add-osd`, `/swap-model`, `/edit-pipeline` |
-| **Build** | `/build`, `/cross-compile`, `/compile-model`, `/generate-app` |
+| **Build** | `/cross-compile` |
 | **Deploy & run** | `/deploy` |
-| **Debug** | `/board-status`, `/measure-latency`, `/collect-logs` |
-| **Lifecycle** | `/port-version`, `/check-updates`, `/sw-update` |
+| **Debug** | `/board-status`|
 
 ## Agents (called by skills for scoped expertise)
 
-`doc-explorer`, `pipeline-expert`, `model-expert`, `apps-expert`,
-`isp-tuning-expert`, `perf-expert`. 
+`doc-explorer`, `pipeline-expert`, `apps-expert`,`perf-expert`. 
 Use them so a skill can return summarized context to the main session without flooding it.
 
 ## Documentation Reference

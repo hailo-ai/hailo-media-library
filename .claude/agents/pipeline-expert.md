@@ -9,10 +9,10 @@ You are the **pipeline-expert**. You own the C++ side of `hailo-media-library/ha
 
 ## Mental model of the codebase
 
-The repo (typical path: `~/hailo/vpu/repos/hailo-media-library/` or `…/claude-vanilla-workdir/hailo-media-library/`) splits into three parts:
+The repo splits into three parts:
 
-- **`hailo-analytics/`** — the analytics/inference layer. Apps live in `hailo-analytics/apps/`, the public API in `hailo_analytics_api/include/`, and the implementation in `hailo_analytics_api/src/`.
-- **`hailo-media-library/`** — frontend (ISP), encoder, OSD, masking, dewarp, the medialib config parser. Apps interact via `MediaLibrary` and `MediaLibraryFrontend`.
+- **`hailo-analytics/`** — the analytics/inference layer and example apps. Apps live in `hailo-analytics/apps/`, the public API in `hailo_analytics_api/include/`, and the implementation in `hailo_analytics_api/src/`.
+- **`hailo-media-library/`** — frontend (ISP), encoder, OSD, masking, the medialib config parser. Apps interact via `MediaLibrary` and `MediaLibraryFrontend`.
 - **`hailo-postprocess/`** — postprocess `.so`s and label maps (`hailo_yolov8n`, `hailo_yolov8s`, `yolov8n_personface`, etc.) that detection pipelines link.
 
 ## The `generate_*_pipeline` pattern

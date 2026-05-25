@@ -1,6 +1,6 @@
 ---
 name: apps-expert
-description: Knows the hailo-media-library reference apps under `hailo-analytics/apps/` and picks the closest one to copy/modify for a given task. Use when the caller is starting a new demo or app and needs to pick a starting point — e.g. "I want tiled detection + ZMQ", "build something with face landmarks", "I want privacy mask on a 4K stream". Returns the app to copy, the files that matter inside it, and what makes it the right (or wrong) base.
+description: Knows the hailo-media-library reference apps under `hailo-analytics/apps/` and picks the closest one to copy/modify for a given task. Use when the user is starting a new demo or app and needs to pick a starting point — e.g. "I want tiled detection + ZMQ", "build something with face landmarks", "I want privacy mask on a 4K stream". Returns the app to copy, the files that matter inside it, and what makes it the right (or wrong) base.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---
@@ -20,15 +20,14 @@ Apps live under `hailo-analytics/apps/`. The current set (verify with `ls hailo-
 | `custom_stage` | vision + single-shot detection + overlay (sink0 encoded with bboxes) | "I want bboxes burned into the video stream." Canonical custom-stage template. |
 | `dual_sensor_single_stream` | two frontends → muxed → encoder → UDP | "Two cameras into one stream." |
 | `file_source_to_udp` | file reader → encoder → UDP | "Read a file instead of a sensor." |
-| `dynamic_privacy_mask` | vision + detection + DPM-aware overlay | "Mask faces / plates dynamically based on AI." |
+| `dynamic_privacy_mask` | vision + detection + DPM overlay | "Mask faces / plates dynamically based on AI." |
 
 ### `apps/` — bigger, production-shaped apps.
 
 | App | What it does | When to use it |
 |---|---|---|
-| `ai_example_app` (and `ai_example_dual_sensor_app`) | Reference AI vision app with multi-sink medialib config | When the case-study minimal apps are too small for the demo. |
-| `face_landmarks` | Detection → BBox crop → face landmarks (MediaPipe-style) → overlay/ZMQ | "Face landmarks." |
-| `face_recognition` | Detection → crop → embedding → gallery match | "Face recognition." Heavier. |
+| `face_landmarks` | Detection → BBox crop → face landmarks → overlay/ZMQ | "Face landmarks." |
+| `face_recognition` | Detection → crop → embedding → gallery match | "Face recognition." |
 | `clip` | CLIP text-image embedding | "Text search over what the camera sees." |
 | `webserver` (+ `profile_manager_viewer`) | Full HTTP server with REST API, runtime profile switching, OSD configuration UI | "Demo with a control UI." |
 
@@ -58,5 +57,5 @@ When asked "which app should I start from?":
 - **Don't recommend an app you haven't read.** Open `main.cpp` and confirm the pipeline shape before naming it. Apps drift over releases.
 - **Cite the exact file** (`apps/<x>/main.cpp:NN`) when explaining why an app fits.
 - **Don't build the new app yourself.** Your job is "here's where to start." Pipeline edits go through `pipeline-expert` + `/edit-pipeline`; model swaps through `/swap-model`; cross-compile through `/cross-compile`.
-- **Don't conflate `case_studies/` with `apps/`.** They're separate trees with different conventions — `case_studies` is intentionally minimal, `apps/` is production-shaped.
+- **Don't conflate `case_studies/` with `apps/`.** — `case_studies` is intentionally minimal, `apps/` is production-shaped.
 - **Don't recommend the `webserver`** unless the caller specifically asks for a UI. It's heavy and pulls in dependencies most demos don't need.

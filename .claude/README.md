@@ -50,5 +50,4 @@ expertise. Their full definitions are in [`agents/`](agents/).
 | [`doc-explorer`](agents/doc-explorer.md) | Reads the official Hailo PDF user guides (media library, imaging, OS, model zoo, HailoRT, board quickstarts) and returns concise excerpts with page citations. Never invents content. |
 | [`pipeline-expert`](agents/pipeline-expert.md) | Owns the pipeline architecture — `generate_*_pipeline` patterns, stage types, frontend/encoder/UDP wiring, tiling+detection+aggregator structure, ZMQ metadata sender. Returns concrete `file:line` citations. |
 | [`apps-expert`](agents/apps-expert.md) | Knows the reference apps under `hailo-analytics/apps/` and picks the closest one to copy/modify for a given task. Returns the app path, the files that matter inside it, and what makes it the right (or wrong) base. |
-| [`perf-expert`](agents/perf-expert.md) | Knows the H15 SoC's performance envelope — NN throughput, NoC bandwidth, DRAM/CMA budget, encoder throughput, MIPI/ISP pixel rate, thermal & power. Answers "can the chip do X simultaneously?" with grounded numbers. |
 
