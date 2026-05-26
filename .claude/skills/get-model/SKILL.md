@@ -6,7 +6,7 @@ tools: WebFetch, Bash, Read, Agent
 
 # /get-model — pick a HEF from the model zoo and download it
 
-The public model zoo lists, per board (H15L / H15H) and task, all the compiled HEFs Hailo ships, with their **accuracy** (Float mAP / Hardware mAP), **throughput** (FPS @ batch 1/8), **input resolution**, **params (M)** and **OPS (G)**. Picking a model is a tradeoff between accuracy and OPS/params — bigger usually means more accurate and slower. `/get-model` reads that table, narrows it to a few good candidates given the user's preference, and downloads the chosen HEF.
+The public model zoo lists, per board (H15L / H15H) and task, all the compiled HEFs Hailo ships, with their **accuracy** (Float mAP / Hardware mAP), **throughput** (FPS @ batch 1/8), **input resolution**, **params (M)** and **OPS (G)**. Picking a model is a tradeoff between accuracy and OPS/params — bigger (of the same model family) usually means more accurate and slower(less FPS and higher latency). `/get-model` reads that table, narrows it to a few good candidates given the user's preference, and downloads the chosen HEF.
 
 ## Inputs to ask the user
 
@@ -14,7 +14,7 @@ The public model zoo lists, per board (H15L / H15H) and task, all the compiled H
 - **Mode**:
   - *Swap* — replace the model currently used in a known pipeline (e.g. detection: `yolov8s` → ?). Need the current model name.
   - *New* — pick a model for a task not in the current pipeline (e.g. face_recognition, pose_estimation).
-- **Preference**: "more accurate" / "faster" / "smaller (lower power)" / "balanced". Don't ask if obvious from the user's request.
+- **Preference**: "more accurate" / "faster" / "smaller (lower power)" / "balanced". Don't ask if obvious from the user's request. Faster means higher FPS and lower latency
 
 ## Procedure
 
@@ -47,13 +47,8 @@ The public model zoo lists, per board (H15L / H15H) and task, all the compiled H
 
 6. **Tell the user what's next.**
    - *Swap*: hand off to **/swap-model** with the new HEF path and the model family (so the right postprocess function + JSON get wired in).
-   - *New pipeline*: hand off to **/edit-pipeline** (or **/generate-app** if it's a fresh app) with the HEF + task name.
+   - *New pipeline*: hand off to **/edit-pipeline** with the HEF + task name.
    Mention that **/deploy** will be needed to push the HEF to the board (default destination is the app's `resources/` dir).
-
-## What to delegate
-
-- "What postprocess function and JSON does this new architecture need?" → **model-expert**. Especially important when crossing architectures (yolov8 → yolov11).
-- "Will this fit in the SoC's budget alongside the rest of the pipeline?" → **perf-expert**, using the table's OPS/FPS as input.
 
 ## Gotchas
 
