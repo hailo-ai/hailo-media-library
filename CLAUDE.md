@@ -35,6 +35,7 @@ User guides shipped with this repo, at `docs/guides/`:
 | **Media library / demo building** | `docs/guides/hailo_media_library_1.11.0_user_guide.pdf` |
 | **ISP / imaging bugs** | `docs/guides/hailo_imaging_1.11.0_user_guide.pdf` |
 | **OS / boot / system config** | `docs/guides/hailo_os_user_guide_1.11.0.pdf` |
-| **Board setup / quickstart** | `docs/guides/hailo15l_sbc_2.x_quick_start_guide_1.2.pdf` |
+| **Board setup / quickstart (H15L)** | `docs/guides/hailo15l_sbc_2.x_quick_start_guide_1.2.pdf` |
+| **Board setup / quickstart (H15H)** | `docs/guides/hailo15h_sbc_2.x_quick_start_guide_1.2.pdf` |
 
 When a session involves one of these workflows, use 'doc-explorer' to read the relevant PDF at the start.
