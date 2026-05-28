@@ -20,6 +20,7 @@ when no skill fits.
 | **Build** | `/cross-compile` |
 | **Deploy & run** | `/deploy` |
 | **Debug** | `/board-status`|
+| **Lifecycle** | `/sw-update` |
 
 ## Agents (called by skills for scoped expertise)
 

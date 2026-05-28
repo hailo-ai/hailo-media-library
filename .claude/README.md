@@ -81,6 +81,13 @@ referenced.
 |---|---|
 | [`/board-status`](skills/board-status/) | Snapshot the board's runtime health — temperature, power, CPU load, DRAM use, NN core utilization. Read-only over SSH. |
 
+### Lifecycle
+
+| Skill | What it does |
+|---|---|
+| [`/sw-update`](skills/sw-update/) | Update the board's sw version according to the quick-start guide. |
+
+
 ## Agents
 
 Agents are not invoked directly — skills call them when they need scoped
