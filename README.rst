@@ -48,7 +48,7 @@ The reference code and applications examples are available in the `Hailo-media-l
 Agentic workflow
 ---------------------------------------
 This repo ships with Claude skills and agents (defined under `.claude/ <.claude/>`_) that turn multi-page procedures into single commands:
-explain a pipeline (/explain-pipeline), modify it (/add-stream, /swap-model, /add-osd), build and deploy to the board (/cross-compile, /deploy), and debug at runtime (/board-status).
+explain a pipeline (/explain-pipeline), modify it (/add-stream, /swap-model, /add-overlay), build and deploy to the board (/cross-compile, /deploy), and debug at runtime (/board-status). Between SDK releases, /update-claude-beta pulls newer skills/agents from the dedicated `hailo15-agentic-coding <https://github.com/hailo-ai/hailo15-agentic-coding>`_ repo.
 You don't need deep knowledge of the codebase to build an app demo or modify one to fit your requirements.
 
 `.claude/README.md <.claude/README.md>`_ 

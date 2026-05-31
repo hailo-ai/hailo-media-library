@@ -3,6 +3,8 @@
 An agentic layer on top of `hailo-media-library`. It lets you explore docs, build and modify Media Library applications, and debug running deployments on the H15 board through Claude, without needing
 deep knowledge of the codebase.
 
+> **Updates.** This repo is updated with each Hailo SDK release. For more frequent, beta releases of the Claude-related skills, agents, and tooling, see the dedicated repo: <https://github.com/hailo-ai/hailo15-agentic-coding>. Run [`/update-claude-beta`](skills/update-claude-beta/) to pull those newer files into this checkout.
+
 
 ## Prerequisites
 
@@ -58,7 +60,7 @@ referenced.
 | Skill | What it does |
 |---|---|
 | [`/add-stream`](skills/add-stream/) | Add another output stream. Edits the application/profile JSON and pushes to the board. |
-| [`/add-osd`](skills/add-osd/) | Add, modify, or remove AI analytics overlays (bboxes, masks, landmarks). Burned into the stream on-board or drawn host-side. |
+| [`/add-overlay`](skills/add-overlay/) | Add, modify, or remove AI analytics overlays (bboxes, masks, landmarks). Burned into the stream on-board or drawn host-side. |
 | [`/swap-model`](skills/swap-model/) | Replace the AI model in an app with a different HEF (e.g. YOLOv8s → YOLOv8n).|
 | [`/edit-pipeline`](skills/edit-pipeline/) | Modify the pipeline of an existing app. |
 | [`/get-model`](skills/get-model/) | Propose and download a HEF from the public Hailo Model Zoo|
@@ -80,6 +82,12 @@ referenced.
 | Skill | What it does |
 |---|---|
 | [`/board-status`](skills/board-status/) | Snapshot the board's runtime health — temperature, power, CPU load, DRAM use, NN core utilization. Read-only over SSH. |
+
+### Maintenance
+
+| Skill | What it does |
+|---|---|
+| [`/update-claude-beta`](skills/update-claude-beta/) | Pull newer beta versions of skills/agents/`CLAUDE.md` from <https://github.com/hailo-ai/hailo15-agentic-coding> if its `HEAD` is committed after this repo's. Overwrites matching files; never deletes local-only files; never auto-commits. |
 
 ## Agents
 
