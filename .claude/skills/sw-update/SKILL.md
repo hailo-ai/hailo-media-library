@@ -184,6 +184,8 @@ Watch the file (`tail -f /tmp/swupdate_logs.txt`) while Phase A4 runs — that's
 
 ### A4 — Kick off the update
 
+**Tell the user the flash is starting and give an ETA before kicking off**, so they know what to expect and that the SSH drop is normal — e.g. *"Starting the OTA update now — the board will reboot, pull the image over TFTP, apply it, and reboot back. This takes about **6–7 minutes** (longer on a slow network); I'll report when it's back up."* (~6 min on H15L gigabit; H15H ~7 min for its larger multi-mode flash. Path B/UART runs longer — call it ~10–15 min plus the manual steps.)
+
 ```bash
 sshpass -p root ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
   -o PreferredAuthentications=password -o PubkeyAuthentication=no \
@@ -241,6 +243,7 @@ Report:
 - `active_boot_image_offset = 0x00000000` for single-image (slot A).
 - `uptime` shows a recent boot.
 - `BUILD_TIME` / `IMAGE_NAME` in `/etc/build-info` confirms the fresh rootfs.
+- `IMAGE_NAME` also signals whether this is a **dev image** vs a release build — drives the camera-viewer auto-offer in the final "Hailo Camera Viewer" section. Release rootfs recipe is `core-image-minimal`; a dev image carries a `dev` token (e.g. `core-image-dev-…` / `hailo-core-image-dev-…`).
 
 ### A7 — Cleanup
 
@@ -480,14 +483,44 @@ Report the new `VERSION` (matches target — **`VERSION`, not `VERSION_ID`**), m
 
 ---
 
-## Next step — Hailo Camera Viewer (guide §3.1, optional, same on both boards, same after either path)
+## Next step — Hailo Camera Viewer (guide §3.1, same on both boards, same after either path)
 
-`/sw-update` ends at the version check. To see the camera afterward, §3.1 is three on-board commands:
+`/sw-update` ends at the version check. What happens next depends on whether a **dev image** or a **release image** was installed.
+
+### Detect dev vs release image
+
+The normal release rootfs recipe is **`core-image-minimal`**; a **development image** carries a `dev` token in its name (e.g. `core-image-dev-hailo15-sbc-…` / `hailo-core-image-dev-…`). Read it from `/etc/build-info` (already fetched in A6/B8 — equivalently the rootfs `core-image-*.ext4.gz` filename inside the package):
 ```bash
-setup_hailo_sensor.sh    # auto-detects sensor + lens, symlinks /etc/imaging/cfg/medialib_configs to the right hailo15l/hailo15h tree
-camera-viewer-server     # serves the web UI on board port 80; launch detached (setsid … </dev/null &)
+sshpass -p root ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  -o PreferredAuthentications=password -o PubkeyAuthentication=no root@10.0.0.1 \
+  'grep "^IMAGE_NAME" /etc/build-info' \
+  | grep -iqE 'core-image-dev|(^|[-_])dev([-_]|$)' && echo "DEV_IMAGE" || echo "RELEASE_IMAGE"
 ```
-Then open `http://10.0.0.1/#/` in a host browser; click **Play** (§3.2). **`setup_hailo_sensor.sh` is mandatory** — without it `camera-viewer-server` crashes with `Configuration architecture '<other>' does not match current architecture '<this board>'`, because the shipped default config is for the other arch. Don't hand-pick a sensor/lens config — let the setup script detect it (it found imx678 + theia_sl410m on both reference boards).
+
+### RELEASE image → do nothing automatic
+
+The viewer is still available manually (commands below); only bring it up if the user asks.
+
+### DEV image → SUGGEST the camera viewer (suggest only — NEVER run without explicit permission)
+
+Ask the user, e.g.: *"This is a dev image — want me to start the Hailo Camera Viewer so you can see the camera live?"*
+
+- **If the user agrees**, run the two on-board commands, then open the viewer on the host:
+  ```bash
+  SSH="sshpass -p root ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -o PreferredAuthentications=password -o PubkeyAuthentication=no root@10.0.0.1"
+  # 1. sensor + lens auto-detect / config symlink — MANDATORY and BLOCKING (must finish before the server starts)
+  $SSH 'setup_hailo_sensor.sh'
+  # 2. start the web server DETACHED so it survives the ssh session
+  #    (setsid + </dev/null — a bare nohup/& still leaks SIGHUP when the ssh session ends)
+  $SSH 'setsid camera-viewer-server >/var/log/camera-viewer.log 2>&1 </dev/null &'
+  # 3. open the viewer in the host browser
+  xdg-open 'http://10.0.0.1/#/' >/dev/null 2>&1 &
+  ```
+  Then the user clicks **Play** (§3.2). Don't claim the server "auto-started" — you launched it; if you find it already running, ask/check `systemd` rather than assuming.
+- **If the user declines**, stop here and leave the board idle.
+
+**Why `setup_hailo_sensor.sh` is mandatory:** without it `camera-viewer-server` crashes with `Configuration architecture '<other>' does not match current architecture '<this board>'`, because the shipped default config is for the other arch. Don't hand-pick a sensor/lens config — let the setup script detect it (found imx678 + theia_sl410m on both reference boards). Config symlinks live at `/etc/imaging/cfg/medialib_configs` and do **NOT** survive a reflash, so `setup_hailo_sensor.sh` must be re-run on every fresh image.
 
 ## What success looks like
 
