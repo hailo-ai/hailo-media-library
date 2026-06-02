@@ -4,6 +4,18 @@
  **/
 #include "hailo_postprocess_tools/objects/json_config.hpp"
 
+#include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/error/en.h>
+#include <rapidjson/error/error.h>
+#include <rapidjson/filereadstream.h>
+#include <rapidjson/reader.h>
+#include <rapidjson/schema.h>
+#include <rapidjson/stringbuffer.h>
+#include <stdexcept>
+
+#include "hailo_postprocess_tools/logger/hailo_postprocess_logger.hpp"
+
 namespace common
 {
 
@@ -17,8 +29,8 @@ bool validate_json_with_schema(rapidjson::FileReadStream stream, const char *jso
     rapidjson::Reader reader;
     if (!reader.Parse(stream, validator) && reader.GetParseErrorCode() != rapidjson::kParseErrorTermination)
     {
-        std::cerr << "JSON error (offset " << static_cast<unsigned>(reader.GetErrorOffset())
-                  << "): " << GetParseError_En(reader.GetParseErrorCode()) << std::endl;
+        HAILO_POSTPROCESS_LOG_ERROR("JSON error (offset {}): {}", static_cast<unsigned>(reader.GetErrorOffset()),
+                                    GetParseError_En(reader.GetParseErrorCode()));
         throw std::runtime_error("Input is not a valid JSON");
     }
 
@@ -28,14 +40,14 @@ bool validate_json_with_schema(rapidjson::FileReadStream stream, const char *jso
     }
     else
     {
-        std::cerr << "Input JSON is invalid" << std::endl;
+        HAILO_POSTPROCESS_LOG_ERROR("Input JSON is invalid");
         rapidjson::StringBuffer sb;
         validator.GetInvalidSchemaPointer().StringifyUriFragment(sb);
-        std::cerr << "Invalid schema: " << sb.GetString() << std::endl;
-        std::cerr << "Invalid keyword: " << validator.GetInvalidSchemaKeyword() << std::endl;
+        HAILO_POSTPROCESS_LOG_ERROR("Invalid schema: {}", sb.GetString());
+        HAILO_POSTPROCESS_LOG_ERROR("Invalid keyword: {}", validator.GetInvalidSchemaKeyword());
         sb.Clear();
         validator.GetInvalidDocumentPointer().StringifyUriFragment(sb);
-        std::cerr << "Invalid document: " << sb.GetString() << std::endl;
+        HAILO_POSTPROCESS_LOG_ERROR("Invalid document: {}", sb.GetString());
         throw std::runtime_error("json config file doesn't follow schema rules");
     }
     return false;

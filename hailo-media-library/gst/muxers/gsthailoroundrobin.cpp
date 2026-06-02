@@ -10,6 +10,12 @@
  */
 
 #include "gsthailoroundrobin.hpp"
+
+#include <gst/gstparamspecs.h>
+#include <unistd.h>
+#include <string>
+#include <utility>
+
 #include "gst_hailo_stream_meta.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailo_round_robin_debug);

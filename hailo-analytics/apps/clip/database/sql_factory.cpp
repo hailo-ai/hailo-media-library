@@ -1,5 +1,13 @@
 #include "sql_factory.hpp"
 
+#include <mutex>
+#include <utility>
+
+#include "faiss_table.hpp"
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "thumbnail_table.hpp"
+#include "video_table.hpp"
+
 DatabaseConfig::DatabaseConfig(DatabaseTable table_type, const std::string &file_path,
                                Database::SqliteAccessType access_type)
     : table(table_type), db_file_path(file_path), db_access_type(access_type)

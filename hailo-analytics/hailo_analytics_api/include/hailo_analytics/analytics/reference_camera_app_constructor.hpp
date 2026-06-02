@@ -12,7 +12,6 @@
 
 // third-party includes
 #include <tl/expected.hpp>
-#include <cxxopts/cxxopts.hpp>
 
 // medialibrary includes
 #include "hailo_analytics/pipeline/core/pipeline.hpp"

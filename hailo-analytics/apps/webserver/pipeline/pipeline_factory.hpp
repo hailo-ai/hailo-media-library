@@ -1,11 +1,20 @@
 #pragma once
 
+#include <media_library/media_library.hpp>
+#include <memory>
+#include <mutex>
+#include <vector>
+
 #include "hailo_analytics/pipeline/core/stage.hpp"
 #include "pipeline.hpp"
 #include "resources/common/repository.hpp"
 #include "common/common.hpp"
-#include <memory>
-#include <mutex>
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/overlay/overlay_stage.hpp"
+#include "hailo_analytics/pipeline/routing/valve_stage.hpp"
+#include "hailo_analytics/pipeline/sinks/output_module.hpp"
+#include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
+#include "resources/common/events_utils.hpp"
 
 using namespace hailo_analytics::pipeline::sinks;
 using namespace hailo_analytics::pipeline::overlay;
@@ -26,6 +35,7 @@ class PipelineFactory
     hailo_analytics::pipeline::AppStatus set_override_persistent_settings(bool value);
 
   private:
+    void handle_detections_requirement(bool requires_detections);
     void handle_pipeline_change_event(ResourceStateChangeNotification notification);
     std::unique_ptr<BasePipeline> create_pipeline(const pipeline_t &pipeline_type);
     AppStatus switch_pipeline(const pipeline_t &pipeline_type, bool start_pipeline = true);
@@ -40,6 +50,7 @@ class PipelineFactory
     std::unique_ptr<BasePipeline> m_current_pipeline;
     mutable std::mutex m_pipeline_mutex;
     std::unique_ptr<RTPConverterStage> m_webrtc_stage;
+    bool m_detections_required = false;
 };
 
 } // namespace webserver::pipeline

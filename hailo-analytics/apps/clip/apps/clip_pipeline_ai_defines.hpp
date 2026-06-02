@@ -5,6 +5,7 @@
 #include <vector>
 #include <cstdint>
 #include "hailo_postprocess_tools/objects/hailo_objects.hpp"
+#include "hailo_analytics/analytics/vision.hpp"
 
 namespace app
 {
@@ -62,11 +63,6 @@ inline const std::string clip_app_config = "/home/root/apps/clip/resources/confi
 
 inline const std::string clip_storage_mount_point = "/var/volatile";
 
-// YOLOv8 model paths and names
-inline const std::string yolo_hef = "/home/root/apps/face_landmarks/resources/hailo_yolov8n_384_640.hef";
-inline const std::string yolo_post_so = "/usr/lib/hailo-post-processes/libyolo_hailortpp_post.so";
-inline const std::string yolo_func_name = "hailo_yolov8n";
-inline const std::string yolo_config = "/home/root/apps/clip/resources/configs/yolov8n_personface.json";
 } // namespace paths
 
 /**
@@ -98,7 +94,7 @@ inline const std::string thumbnail_prefix = "thumbnail_vga";
  */
 namespace net
 {
-inline const std::string host_ip = "10.0.0.2";
+inline const std::string host_ip = hailo_analytics::analytics::vision::get_default_host_ip();
 inline constexpr int udp_port_4k = 5000;
 } // namespace net
 

@@ -1,22 +1,39 @@
 // general includes
-#include <cstdio>
-#include <fstream>
-#include <iostream>
-#include <map>
 #include <nlohmann/json.hpp>
 #include <tl/expected.hpp>
 #include <cxxopts/cxxopts.hpp>
+#include <stdlib.h>
+#include <media_library/media_library.hpp>
+#include <media_library/media_library_api_types.hpp>
+#include <cstdio>
+#include <iostream>
+#include <map>
+#include <chrono>
+#include <condition_variable>
+#include <initializer_list>
+#include <iterator>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
+#include "media_library/cloexec_fstream.hpp"
 // medialibrary includes
 #include "media_library/signal_utils.hpp"
-
 // infra includes
+#include "config_path_utils.hpp"
 #include "lpr_pipeline_builder.hpp"
 #include "hailo_analytics/analytics/vision.hpp"
 #include "hailo_analytics/analytics/analytic_metadata_zmq_sender.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_analytics/utils/profile_utils.hpp"
 #include "hailo_analytics/pipeline/sources/frontend_stage_from_file.hpp"
 #include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
 
 // constants
 static constexpr const char *VISION_PIPELINE = "vision_pipeline";
@@ -24,11 +41,12 @@ static constexpr const char *TILING_PIPELINE = "tiling_pipeline";
 static constexpr const char *OCR_PIPELINE = "ocr_pipeline";
 static constexpr const char *ANALYTIC_META_SENDER_PIPELINE = "analytic_metadata_sender_pipeline";
 static constexpr const char *APP_NAME = "lpr_app";
-static constexpr const char *HOST_IP = "10.0.0.2";
+static const std::string HOST_IP = hailo_analytics::analytics::vision::get_default_host_ip();
 static constexpr const char *VISION_SINK = "sink0";
 static constexpr const char *AI_SINK = "sink2";
 static constexpr const char *NO_PROFILE_SELECTED = "";
-static constexpr const char *MEDIALIB_CONFIG_PATH = "/etc/imaging/cfg/medialib_configs/ai_example_medialib_config.json";
+static constexpr const char *MEDIALIB_CONFIG_PATH =
+    "/etc/imaging/cfg/medialib_configs/face_landmarks_medialib_config.json";
 
 enum class ArgumentType
 {
@@ -170,7 +188,7 @@ struct AppResources
 
 std::string read_string_from_file(const char *file_path)
 {
-    std::ifstream file_to_read;
+    cloexec::ifstream file_to_read;
     file_to_read.open(file_path);
     if (!file_to_read.is_open())
         throw std::runtime_error(std::string("config path (") + file_path + ") is not valid");
@@ -190,7 +208,7 @@ std::string write_temp_json(const std::string &name, const nlohmann::json &conte
                             std::vector<std::string> &temp_files)
 {
     std::string path = "/tmp/lpr_" + name + ".json";
-    std::ofstream out(path);
+    cloexec::ofstream out(path);
     if (!out.is_open())
     {
         throw std::runtime_error("Failed to write temp config file: " + path);
@@ -250,7 +268,8 @@ std::string prepare_config_for_file_mode(const std::string &config_string, int w
 
 void configure_media_library(std::shared_ptr<AppResources> app_resources)
 {
-    std::string medialib_config_string = read_string_from_file(app_resources->medialib_config_path.c_str());
+    std::string medialib_config_string = apps::utils::resolve_relative_refs(
+        read_string_from_file(app_resources->medialib_config_path.c_str()), app_resources->medialib_config_path);
 
     if (!app_resources->file_path.empty())
     {
@@ -273,7 +292,7 @@ void configure_media_library(std::shared_ptr<AppResources> app_resources)
     }
     if (app_resources->profile_name != NO_PROFILE_SELECTED)
     {
-        app_resources->media_library->set_profile(app_resources->profile_name);
+        hailo_analytics::utils::set_initial_profile(app_resources->media_library, app_resources->profile_name);
     }
 }
 
@@ -294,7 +313,7 @@ hailo_analytics::pipeline::PipelinePtr create_vision_pipeline_from_file(std::sha
                                   .buildptr();
 
     hailo_analytics::pipeline::AppStatus frontend_config_status =
-        frontend_from_file->configure(*app_resources->media_library->m_frontend);
+        frontend_from_file->configure(app_resources->media_library);
     if (frontend_config_status != hailo_analytics::pipeline::AppStatus::SUCCESS)
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to configure frontend from file");
@@ -320,9 +339,9 @@ hailo_analytics::pipeline::PipelinePtr create_vision_pipeline_from_file(std::sha
 
     for (const auto &[stream_id, output_config] : vision_config.outputs)
     {
-        MediaLibraryEncoderPtr encoder = app_resources->media_library->m_encoders[stream_id];
         std::string output_pipeline_name = std::string(VISION_PIPELINE) + "_output_" + stream_id;
-        auto output_result = vision::generate_vision_output_pipeline(encoder, output_pipeline_name, output_config);
+        auto output_result = vision::generate_vision_output_pipeline(app_resources->media_library, stream_id,
+                                                                     output_pipeline_name, output_config);
         if (!output_result.has_value())
         {
             HAILO_ANALYTICS_LOG_ERROR("Failed to create vision output pipeline for {}", stream_id);
@@ -363,7 +382,7 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
         vision_config.outputs.erase(AI_SINK);
         vision_config.outputs[VISION_SINK].udp_config.host = app_resources->host_ip;
         auto vision_pipeline_status = hailo_analytics::analytics::vision::generate_vision_pipeline(
-            *app_resources->media_library, VISION_PIPELINE, vision_config);
+            app_resources->media_library, VISION_PIPELINE, vision_config);
         if (!vision_pipeline_status.has_value())
         {
             HAILO_ANALYTICS_LOG_ERROR("Failed to create vision pipeline");
@@ -434,7 +453,7 @@ int main(int argc, char *argv[])
 
     // register signal SIGINT and signal handler
     signal_utils::SignalHandler signal_handler(false);
-    signal_handler.register_signal_handler([]([[maybe_unused]] int signal) {
+    signal_handler.register_signal_handler([](int /*signal*/) {
         std::cout << "Stopping Pipeline..." << std::endl;
         HAILO_ANALYTICS_LOG_INFO("Stopping Pipeline...");
         g_stop_cv.notify_all();

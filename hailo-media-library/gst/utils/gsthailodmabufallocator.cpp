@@ -19,10 +19,12 @@
  */
 
 #include "gsthailodmabufallocator.hpp"
+
 #include <sys/ioctl.h>
 #include <fcntl.h>
+#include <gst/gst.h>
+#include <linux/dma-heap.h>
 
-#include <iostream>
 #define DEVPATH "/dev/dma_heap/hailo_media_buf,cma"
 
 G_DEFINE_TYPE(GstHailoDmabufAllocator, gst_hailo_dmabuf_allocator, GST_TYPE_DMABUF_ALLOCATOR);

@@ -26,20 +26,25 @@
  **/
 #pragma once
 
-#include "media_library/media_library.hpp"
-#include "media_library/utils.hpp"
-#include "media_library/media_library_types.hpp"
-#include "media_library/signal_utils.hpp"
-#include <fstream>
+#include <tl/expected.hpp>
+#include <stdint.h>
+#include <unistd.h>
 #include <optional>
 #include <iostream>
-#include <sstream>
-#include <tl/expected.hpp>
-#include <signal.h>
 #include <map>
-#include <thread>
-#include <cstring>
 #include <string>
+#include <functional>
+#include <memory>
+#include <stdexcept>
+#include <utility>
+#include <vector>
+
+#include "media_library/media_library.hpp"
+#include "media_library/media_library_types.hpp"
+#include "media_library/buffer_pool.hpp"
+#include "media_library/encoder.hpp"
+#include "media_library/frontend.hpp"
+#include "media_library/cloexec_fstream.hpp"
 
 // ============================================================================
 // Compile-time configuration macros
@@ -71,7 +76,7 @@
 // ============================================================================
 
 inline MediaLibraryPtr m_media_lib;
-inline std::map<output_stream_id_t, std::ofstream> m_output_files;
+inline std::map<output_stream_id_t, cloexec::ofstream> m_output_files;
 inline std::optional<config_profile_t> m_user_profile;
 inline const std::string config_path = "/etc/imaging/cfg/medialib_configs/frontend_api_example_config.json";
 inline const std::string jpeg_config_path = "/etc/imaging/cfg/medialib_configs/frontend_api_example_jpeg_config.json";
@@ -112,7 +117,7 @@ inline std::string get_output_file_with_prefix(const std::string &prefix, const 
     return "/home/root/" + prefix + "_" + id + suffix;
 }
 
-inline void write_encoded_data(HailoMediaLibraryBufferPtr buffer, uint32_t size, std::ofstream &output_file)
+inline void write_encoded_data(HailoMediaLibraryBufferPtr buffer, uint32_t size, cloexec::ofstream &output_file)
 {
     char *data = (char *)buffer->get_plane_ptr(0);
     if (!data)
@@ -125,13 +130,8 @@ inline void write_encoded_data(HailoMediaLibraryBufferPtr buffer, uint32_t size,
 
 inline void delete_output_file(std::string output_file)
 {
-    std::ofstream fp(output_file.c_str(), std::ios::out | std::ios::binary);
-    if (!fp.good())
-    {
-        std::cout << "Error occurred at writing time!" << std::endl;
-        return;
-    }
-    fp.close();
+    // Truncate any existing file without leaving an open fd around.
+    unlink(output_file.c_str());
 }
 
 inline void subscribe_elements(MediaLibraryPtr media_lib)
@@ -196,7 +196,7 @@ namespace examples
 struct Resources
 {
     MediaLibraryPtr media_lib;
-    std::map<output_stream_id_t, std::ofstream> output_files;
+    std::map<output_stream_id_t, cloexec::ofstream> output_files;
 
     void cleanup();
 };
@@ -204,8 +204,15 @@ struct Resources
 void setup_signal_handler(Resources *resources);
 std::string read_file_to_string(const std::string &filepath);
 void connect_frontend_to_encoders(MediaLibrary &media_lib);
-void subscribe_to_encoded_output(MediaLibrary &media_lib, std::map<output_stream_id_t, std::ofstream> &output_files,
+void subscribe_to_encoded_output(MediaLibrary &media_lib, std::map<output_stream_id_t, cloexec::ofstream> &output_files,
                                  const std::string &output_prefix);
 bool initialize_pipeline(Resources &resources, const std::string &config_path, const std::string &output_prefix);
+
+// Scale pixel-sized text/datetime overlay fields by `scale`.
+void scale_osd_pixel_fields(config_stream_osd_t &osd, double scale);
+
+// Rescale OSD pixel fields to each stream's encoder height, using the
+// profile's sensor input height as the reference.
+media_library_return scale_osd_to_output_resolution(MediaLibraryPtr media_lib);
 
 } // namespace examples

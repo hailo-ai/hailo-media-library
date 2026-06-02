@@ -1,18 +1,35 @@
 // general includes
-#include <fstream>
-#include <iostream>
 #include <tl/expected.hpp>
 #include <cxxopts/cxxopts.hpp>
+#include <algorithm>
+#include <stdlib.h>
+#include <media_library/media_library.hpp>
+#include <media_library/media_library_api_types.hpp>
+#include <iostream>
+#include <chrono>
+#include <condition_variable>
+#include <iterator>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
+#include "media_library/cloexec_fstream.hpp"
 // medialibrary includes
 #include "media_library/signal_utils.hpp"
-
 // infra includes
 #include "face_landmarks_pipeline_builder.hpp"
 #include "hailo_analytics/analytics/vision.hpp"
 #include "hailo_analytics/analytics/analytic_metadata_zmq_sender.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_analytics/utils/platform_utils.hpp"
+#include "hailo_analytics/utils/profile_utils.hpp"
 #include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
+#include "hailo_analytics/analytics/face_landmarks.hpp"
+#include "hailo_analytics/analytics/tiling.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
 
 // Pipeline names
 static constexpr const char *SENSOR0_VISION_PIPELINE = "sensor0_vision_pipeline";
@@ -26,7 +43,7 @@ static constexpr const char *APP_NAME = "face_landmarks_dual_sensor_app";
 static constexpr const char *AI_SINK = "sink2";
 
 // Default config paths
-static constexpr const char *HOST_IP = "10.0.0.2";
+static const std::string HOST_IP = hailo_analytics::analytics::vision::get_default_host_ip();
 static constexpr const char *NO_PROFILE_SELECTED = "";
 static constexpr const char *MEDIALIB_CONFIG_PATH_SENSOR_0 =
     "/etc/imaging/cfg/medialib_configs/face_landmarks_dual_sensor_medialib_config_sensor_0.json";
@@ -36,6 +53,8 @@ static constexpr const char *MEDIALIB_CONFIG_PATH_SENSOR_1 =
 // Port allocation
 static constexpr int SENSOR0_BASE_PORT = 5000;
 static constexpr int SENSOR1_BASE_PORT = 5100;
+
+static constexpr uint32_t TARGET_AI_FRAMERATE = 15;
 
 enum class ArgumentType
 {
@@ -176,7 +195,7 @@ struct AppResources
 
 std::string read_string_from_file(const char *file_path)
 {
-    std::ifstream file_to_read;
+    cloexec::ifstream file_to_read;
     file_to_read.open(file_path);
     if (!file_to_read.is_open())
         throw std::runtime_error(std::string("config path (") + file_path + ") is not valid");
@@ -190,7 +209,6 @@ void configure_media_library(std::shared_ptr<AppResources> app_resources)
 {
     for (int i = 0; i < AppResources::NUM_SENSORS; ++i)
     {
-        std::string config_string = read_string_from_file(app_resources->instances[i].medialib_config_path.c_str());
         auto media_lib_expected = MediaLibrary::create();
         if (!media_lib_expected.has_value())
         {
@@ -198,7 +216,7 @@ void configure_media_library(std::shared_ptr<AppResources> app_resources)
             throw std::runtime_error("Failed to create media library for sensor " + std::to_string(i));
         }
         app_resources->instances[i].media_library = media_lib_expected.value();
-        if (app_resources->instances[i].media_library->initialize(config_string) !=
+        if (app_resources->instances[i].media_library->initialize(app_resources->instances[i].medialib_config_path) !=
             media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
             std::cout << "Failed to initialize media library for sensor " << i << std::endl;
@@ -206,20 +224,32 @@ void configure_media_library(std::shared_ptr<AppResources> app_resources)
         }
         if (app_resources->instances[i].profile_name != NO_PROFILE_SELECTED)
         {
-            app_resources->instances[i].media_library->set_profile(app_resources->instances[i].profile_name);
+            hailo_analytics::utils::set_initial_profile(app_resources->instances[i].media_library,
+                                                        app_resources->instances[i].profile_name);
         }
     }
 }
 
-void create_pipeline(std::shared_ptr<AppResources> app_resources)
+// Crop divisor that holds AI inference at ~TARGET_AI_FRAMERATE for the AI_SINK stream.
+static size_t ai_crop_every_x_frames(const std::vector<frontend_output_stream_t> &streams)
 {
-    hailo_analytics::pipeline::PipelineBuilder pip_builder;
+    for (const auto &stream : streams)
+    {
+        if (stream.id == AI_SINK)
+        {
+            return std::max<size_t>(1, stream.target_fps / TARGET_AI_FRAMERATE);
+        }
+    }
+    HAILO_ANALYTICS_LOG_ERROR("Could not find AI_SINK stream '{}' among frontend output streams", AI_SINK);
+    throw std::runtime_error("Could not find AI_SINK stream among frontend output streams");
+}
 
-    // ================================================================
-    // SENSOR 0: Face landmarks AI pipeline
-    // ================================================================
-    auto &sensor0_media_library = *app_resources->instances[0].media_library;
-    auto sensor0_streams = sensor0_media_library.m_frontend->get_outputs_streams();
+/* Sensor 0 = face landmarks AI pipeline (vision -> tiling -> landmarks -> ZMQ sender). */
+static void build_sensor0_ai_chain(hailo_analytics::pipeline::PipelineBuilder &pip_builder,
+                                   std::shared_ptr<AppResources> app_resources)
+{
+    auto sensor0_media_library = app_resources->instances[0].media_library;
+    auto sensor0_streams = sensor0_media_library->get_frontend_output_streams();
     if (!sensor0_streams.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to get output streams for sensor 0");
@@ -243,8 +273,15 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
         throw std::runtime_error("Failed to create vision pipeline for sensor 0");
     }
 
+    // Both the detection and landmarks crop stages run on the AI_SINK stream, so each
+    // downsamples to ~TARGET_AI_FRAMERATE by the same divisor.
+    const size_t crop_every_x_frames = ai_crop_every_x_frames(sensor0_streams.value());
+
     // Tiling pipeline (YOLO person/face detection)
-    auto tiling_pipeline = face_landmarks_app::build_tiling_pipeline(TILING_PIPELINE);
+    auto tiling_cfg = face_landmarks_app::default_tiling_config();
+    tiling_cfg.tiling_config.crop_every_x_frames = crop_every_x_frames;
+    auto tiling_pipeline =
+        hailo_analytics::analytics::tiling::generate_tiling_detection_pipeline(TILING_PIPELINE, tiling_cfg);
     if (!tiling_pipeline.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create tiling pipeline");
@@ -252,7 +289,10 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     }
 
     // Face landmarks pipeline
-    auto landmarks_pipeline = face_landmarks_app::build_landmarks_pipeline(LANDMARKS_PIPELINE);
+    auto landmarks_cfg = face_landmarks_app::default_landmarks_config();
+    landmarks_cfg.bbox_crop_config.crop_every_x_frames = crop_every_x_frames;
+    auto landmarks_pipeline =
+        hailo_analytics::analytics::face_landmarks::generate_bbox_landmarks_pipeline(LANDMARKS_PIPELINE, landmarks_cfg);
     if (!landmarks_pipeline.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create landmarks pipeline");
@@ -276,7 +316,6 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
         throw std::runtime_error("Failed to create analytic metadata sender pipeline");
     }
 
-    // Add sensor 0 pipelines
     pip_builder.add_stage(sensor0_vision_pipeline.value(), hailo_analytics::pipeline::StageType::SOURCE)
         .add_stage(tiling_pipeline.value())
         .add_stage(landmarks_pipeline.value())
@@ -286,12 +325,14 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     pip_builder.connect_frontend(SENSOR0_VISION_PIPELINE, AI_SINK, TILING_PIPELINE);
     pip_builder.connect(TILING_PIPELINE, LANDMARKS_PIPELINE);
     pip_builder.connect(LANDMARKS_PIPELINE, ANALYTIC_META_SENDER_PIPELINE);
+}
 
-    // ================================================================
-    // SENSOR 1: Simple vision pipeline (all streams encoded to UDP)
-    // ================================================================
-    auto &sensor1_media_library = *app_resources->instances[1].media_library;
-    auto sensor1_streams = sensor1_media_library.m_frontend->get_outputs_streams();
+/* Sensor 1 = simple vision pipeline (all streams encoded to UDP, no AI). */
+static void build_sensor1_stream_chain(hailo_analytics::pipeline::PipelineBuilder &pip_builder,
+                                       std::shared_ptr<AppResources> app_resources)
+{
+    auto sensor1_media_library = app_resources->instances[1].media_library;
+    auto sensor1_streams = sensor1_media_library->get_frontend_output_streams();
     if (!sensor1_streams.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to get output streams for sensor 1");
@@ -313,12 +354,16 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
         throw std::runtime_error("Failed to create vision pipeline for sensor 1");
     }
 
-    // Add sensor 1 pipeline (standalone, no AI processing)
     pip_builder.add_stage(sensor1_vision_pipeline.value(), hailo_analytics::pipeline::StageType::SOURCE);
+}
 
-    // ================================================================
-    // Build combined pipeline
-    // ================================================================
+void create_pipeline(std::shared_ptr<AppResources> app_resources)
+{
+    hailo_analytics::pipeline::PipelineBuilder pip_builder;
+
+    build_sensor0_ai_chain(pip_builder, app_resources);
+    build_sensor1_stream_chain(pip_builder, app_resources);
+
     app_resources->pipeline = pip_builder.build(APP_NAME, true);
 }
 
@@ -385,10 +430,17 @@ int main(int argc, char *argv[])
     // Required for dual sensor framerate logic
     setenv("MEDIALIB_USE_DIV_FRAMERATE_LOGIC", "1", 1);
 
-    // Configure both media libraries
+    // This app is dual-sensor only: refuse to run unless every sensor is connected.
+    if (!hailo_analytics::utils::validate_all_sensors_are_present(AppResources::NUM_SENSORS))
+    {
+        HAILO_ANALYTICS_LOG_ERROR("This app is intended for running with {} sensors, not all are currently connected",
+                                  AppResources::NUM_SENSORS);
+        throw std::runtime_error("This app requires " + std::to_string(AppResources::NUM_SENSORS) +
+                                 " sensors, not all are currently connected");
+    }
+
     configure_media_library(app_resources);
 
-    // Create combined pipeline
     create_pipeline(app_resources);
 
     // Start pipeline

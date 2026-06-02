@@ -1,14 +1,9 @@
 
 #pragma once
-#include <memory>
-#include <string>
-#include <iostream>
-#include <vector>
-#include <unordered_map>
-#include <chrono>
-#include <utility>
+#include <infer_model.hpp>
+#include <vdevice.hpp>
+
 #include "hailort_buffer_manager.hpp"
-#include "hailo/hailort.hpp"
 #include "common_utils.hpp"
 
 // Custom status enum for HailortService

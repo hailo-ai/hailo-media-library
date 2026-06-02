@@ -1,7 +1,20 @@
 #pragma once
+#include <stdint.h>
+#include <media_library/media_library_types.hpp>
+#include <nlohmann/json.hpp>
+#include <osd_types.hpp>
+#include <functional>
+#include <memory>
+#include <string>
+#include <type_traits>
+#include <vector>
+
 #include "common/resources.hpp"
-#include "osd.hpp"
 #include "configs.hpp"
+#include "common/httplib/httplib_utils.hpp"
+#include "resources/common/event_bus.hpp"
+#include "resources/common/events_utils.hpp"
+#include "resources/osd.hpp"
 
 namespace webserver
 {

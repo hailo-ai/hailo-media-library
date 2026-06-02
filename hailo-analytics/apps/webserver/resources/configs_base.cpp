@@ -1,4 +1,12 @@
+#include <nlohmann/json.hpp>
+#include <memory>
+#include <stdexcept>
+#include <string>
+
 #include "configs.hpp"
+#include "common/logger_macros.hpp"
+#include "resources/common/event_bus.hpp"
+#include "resources/common/resources.hpp"
 
 webserver::resources::ConfigResourceBase::ConfigResourceBase(std::shared_ptr<EventBus> event_bus) : Resource(event_bus)
 {
@@ -26,22 +34,22 @@ nlohmann::json webserver::resources::ConfigResourceBase::get_frontend_default_co
 
 nlohmann::json webserver::resources::ConfigResourceBase::get_encoder_default_config()
 {
-    if (m_encoder_osd_default_config["encoding"].empty())
+    if (m_encoder_osd_default_config["encoding"]["encoding"].empty())
     {
         WEBSERVER_LOG_ERROR("Failed to get default encoder config");
         throw std::runtime_error("Failed to get default encoder config");
     }
-    return m_encoder_osd_default_config["encoding"];
+    return m_encoder_osd_default_config["encoding"]["encoding"];
 }
 
 nlohmann::json webserver::resources::ConfigResourceBase::get_osd_default_config()
 {
-    if (m_encoder_osd_default_config["osd"].empty())
+    if (m_encoder_osd_default_config["osd"]["osd"].empty())
     {
         WEBSERVER_LOG_ERROR("Failed to get default osd config");
         throw std::runtime_error("Failed to get default osd config");
     }
-    return m_encoder_osd_default_config["osd"];
+    return m_encoder_osd_default_config["osd"]["osd"];
 }
 
 nlohmann::json webserver::resources::ConfigResourceBase::get_osd_and_encoder_default_config()

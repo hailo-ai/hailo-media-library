@@ -2,7 +2,7 @@
 
 #include "hdr_manager.hpp"
 #include "media_library_logger.hpp"
-#include "media_library_types.hpp"
+#include "isp_manager.hpp"
 
 class HdrManager::Impl
 {

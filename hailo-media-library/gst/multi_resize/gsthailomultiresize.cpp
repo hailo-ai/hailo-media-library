@@ -26,8 +26,8 @@
 #include "gst/gstcaps.h"
 #include "gstmedialibptrs.hpp"
 #include "media_library/privacy_mask.hpp"
-#include "media_library_types.hpp"
-#include "multi_resize.hpp"
+#include "media_library/media_library_types.hpp"
+#include "media_library/multi_resize.hpp"
 #include <algorithm>
 #include <gst/video/video.h>
 #include <tl/expected.hpp>

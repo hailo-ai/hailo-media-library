@@ -3,6 +3,7 @@ medialib_include_dirs += [include_directories('.')]
 config_parser_sources = files(
     'config_parser.cpp',
     'json_flattener.cpp',
+    'json_ref_utils.cpp',
     'config_validator.cpp',
     'media_lib_types.cpp',
     'encoder_config_presets.cpp',

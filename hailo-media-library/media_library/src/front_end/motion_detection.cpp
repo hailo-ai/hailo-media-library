@@ -1,18 +1,20 @@
+#include <stdint.h>
+#include <time.h>
+#include <string>
+#include <vector>
+#include <algorithm>
+#include <memory>
+#include <unordered_map>
+
 #include "media_library_types.hpp"
 #include "multi_resize.hpp"
 #include "opencv2/imgproc.hpp"
-#include "opencv2/core/core.hpp"
-
 #include "buffer_pool.hpp"
 #include "dsp_utils.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_utils.hpp"
 #include "motion_detection.hpp"
-#include <stdint.h>
-#include <string>
-#include <time.h>
-#include <tl/expected.hpp>
-#include <vector>
+#include "media_library_buffer.hpp"
 
 #define MODULE_NAME LoggerType::MotionDetection
 

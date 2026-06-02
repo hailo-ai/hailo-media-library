@@ -4,13 +4,8 @@
  **/
 #pragma once
 
-#include <set>
-#include <vector>
-#include <string>
-
 #include "hailo_postprocess_tools/objects/hailo_objects.hpp"
-#include "hailo_postprocess_tools/objects/hailo_common.hpp"
-#include "xtensor/xarray.hpp"
+#include "hailo_postprocess_tools/objects/hailo_tensors.hpp"
 
 #define MEDIAPIPE_LANDMARK_COUNT 468
 

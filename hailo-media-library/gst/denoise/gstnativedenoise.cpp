@@ -21,16 +21,26 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include "gstnativedenoise.hpp"
+
+#include <gst/gstcompat.h>
+#include <gst/gstparamspecs.h>
+#include <gst/video/gstvideometa.h>
+#include <gst/video/video-info.h>
+#include <chrono>
+#include <functional>
+#include <utility>
+
 #include "common/gstmedialibcommon.hpp"
 #include "gstmedialibptrs.hpp"
 #include "media_library/config_parser.hpp"
 #include "media_library/snapshot.hpp"
 #include "hailo_media_library_perfetto.hpp"
 #include "buffer_utils/buffer_utils.hpp"
-#include "hailo_v4l2/hailo_v4l2_meta.h"
 #include "media_library/media_library_types.hpp"
-#include <gst/video/video.h>
-#include <tl/expected.hpp>
+#include "buffer_pool.hpp"
+#include "dsp_utils.hpp"
+#include "media_library_buffer.hpp"
+#include "post_isp_denoise.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailo_denoise_debug);
 #define GST_CAT_DEFAULT gst_hailo_denoise_debug

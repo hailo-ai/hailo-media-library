@@ -1,6 +1,14 @@
 #include "gsthailodspbufferpoolutils.hpp"
+
+#include <gst/gstbufferpool.h>
+#include <gst/video/video-info.h>
+#include <stddef.h>
+#include <memory>
+#include <utility>
+
 #include "dsp/gsthailodspbufferpool.hpp"
 #include "common/gstmedialibcommon.hpp"
+#include "gstmedialibptrs.hpp"
 
 gboolean gst_is_hailo_dsp_pool_type(GstBufferPool *pool)
 {

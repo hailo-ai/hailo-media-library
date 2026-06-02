@@ -28,15 +28,13 @@
 
 #pragma once
 
-#include <thread>
-#include <fstream>
-#include <memory>
-#include <functional>
 #include <gst/gst.h>
-#include <tl/expected.hpp>
-#include "media_library/post_isp_denoise.hpp"
+#include <glib-object.h>
+#include <glib.h>
+#include <string>
+
 #include "media_library/media_library_types.hpp"
-#include "common/gstmedialibcommon.hpp"
+#include "gstmedialibptrs.hpp"
 
 G_BEGIN_DECLS
 

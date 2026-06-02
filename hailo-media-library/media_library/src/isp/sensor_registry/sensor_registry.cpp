@@ -1,12 +1,16 @@
 #include "sensor_registry.hpp"
-#include "media_library_logger.hpp"
-
-#include "sensor_capabilities.hpp"
 
 #include <filesystem>
 #include <optional>
-#include <fstream>
 #include <regex>
+#include <map>
+#include <set>
+#include <vector>
+
+#include "media_library/cloexec_fstream.hpp"
+#include "media_library_logger.hpp"
+#include "sensor_capabilities.hpp"
+#include "dsp_utils.hpp"
 
 #define MODULE_NAME LoggerType::Isp
 
@@ -39,7 +43,7 @@ std::optional<SensorRegistry::SensorDeviceInfo> SensorRegistry::get_sensor_devic
     {
         if (entry.path().filename().string().find("v4l-subdev") != std::string::npos)
         {
-            std::ifstream name_file(entry.path() / "name");
+            cloexec::ifstream name_file(entry.path() / "name");
             std::string name;
             std::getline(name_file, name);
 
@@ -169,10 +173,10 @@ std::optional<SensorModeInfo> SensorRegistry::get_sensor_mode_info(SensorType se
 }
 
 std::optional<SensorModeInfo> SensorRegistry::get_sensor_mode_info_hdr(const output_resolution_t &input_resolution,
-                                                                       hdr_dol_t hdr_mode) const
+                                                                       hdr_dol_t hdr_mode, size_t sensor_index) const
 {
     // Detect sensor and resolution
-    auto sensor_type = detect_sensor_type();
+    auto sensor_type = detect_sensor_type(sensor_index);
     if (!sensor_type)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to detect sensor type");
@@ -190,11 +194,11 @@ std::optional<SensorModeInfo> SensorRegistry::get_sensor_mode_info_hdr(const out
     return get_sensor_mode_info(sensor_type.value(), SensorModeKey(resolution.value(), hdr_mode));
 }
 
-std::optional<SensorModeInfo> SensorRegistry::get_sensor_mode_info_sdr(
-    const output_resolution_t &input_resolution) const
+std::optional<SensorModeInfo> SensorRegistry::get_sensor_mode_info_sdr(const output_resolution_t &input_resolution,
+                                                                       size_t sensor_index) const
 {
     // Detect sensor and resolution
-    auto sensor_type = detect_sensor_type();
+    auto sensor_type = detect_sensor_type(sensor_index);
     if (!sensor_type)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to detect sensor type");
@@ -217,9 +221,9 @@ bool SensorRegistry::is_supported(SensorCapabilities capabilities, Resolution re
     return (capabilities.supported_resolutions.find(resolution) != capabilities.supported_resolutions.end());
 }
 
-std::optional<int> SensorRegistry::get_pixel_format()
+std::optional<int> SensorRegistry::get_pixel_format(size_t sensor_index)
 {
-    auto sensor = detect_sensor_type();
+    auto sensor = detect_sensor_type(sensor_index);
     if (!sensor.has_value())
     {
         return std::nullopt;

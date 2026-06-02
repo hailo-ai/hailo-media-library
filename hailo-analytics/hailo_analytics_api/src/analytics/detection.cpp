@@ -1,5 +1,15 @@
 #include "hailo_analytics/analytics/detection.hpp"
-#include <stdexcept>
+
+#include <hailort.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <tl/expected.hpp>
+#include <chrono>
+#include <memory>
+
+#include "hailo_analytics/pipeline/ai/ai_stage.hpp"
+#include "hailo_analytics/pipeline/ai/postprocess_stage.hpp"
+#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
 
 namespace hailo_analytics::analytics::detection
 {
@@ -12,7 +22,6 @@ detection_config_t base_config()
 
     // Set default AI stage configs
     config.ai_config.stage_name = std::string(DETECTION_STAGE);
-    config.ai_config.hef_path = std::string(DETECTION_BASE_HEF);
     config.ai_config.queue_size = 5;
     config.ai_config.output_pool_size = 50;
     config.ai_config.group_id = std::string(DETECTION_GROUP_ID);
@@ -21,14 +30,13 @@ detection_config_t base_config()
     config.ai_config.scheduler_threshold = 5;
     config.ai_config.dynamic_threshold = false;
     config.ai_config.scheduler_timeout = std::chrono::milliseconds(100);
+    config.ai_config.scheduler_priority = HAILO_SCHEDULER_PRIORITY_MAX - 1;
     config.ai_config.pool_mode = hailo_analytics::pipeline::StagePoolMode::BLOCKING;
     config.ai_config.trace = true;
 
     // Set default postprocess configs
     config.post_config.stage_name = std::string(DETECTION_POST_STAGE);
     config.post_config.so_path = std::string(DETECTION_POST_SO);
-    config.post_config.function_name = std::string(DETECTION_POST_FUNCTION);
-    config.post_config.config_path = std::string(DETECTION_POST_CONF);
     config.post_config.queue_size = 5;
     config.post_config.leaky = false;
     config.post_config.trace = true;

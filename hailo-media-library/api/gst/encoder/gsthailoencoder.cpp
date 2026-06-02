@@ -9,17 +9,32 @@
  **/
 #include "gsthailoencoder.hpp"
 
+#include <gst/gst.h>
+#include <gst/gsterror.h>
+#include <gst/gstformat.h>
+#include <gst/gstparamspecs.h>
+#include <gst/video/video-info.h>
+#include <gst/video/video.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <tl/expected.hpp>
 #include <memory>
 #include <string>
+#include <map>
+#include <optional>
+#include <utility>
+#include <variant>
 
 #include "utils/gst_pipeline_utils.hpp"
 #include "utils/medialib_instance_registry.hpp"
-
 #include "buffer_utils.hpp"
 #include "gsthailobuffermeta.hpp"
 #include "gstmedialibcommon.hpp"
 #include "gstmedialibptrs.hpp"
 #include "media_library/media_library.hpp"
+#include "buffer_pool.hpp"
+#include "encoder_config_types.hpp"
+#include "media_library/media_library_api_types.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailo_api_encoder_debug);
 #define GST_CAT_DEFAULT gst_hailo_api_encoder_debug
@@ -429,7 +444,6 @@ static media_library_return gst_hailo_api_encoder_subscribe_to_output(GstHailoAp
 
             GstPad *srcpad = GST_VIDEO_ENCODER_SRC_PAD(encoder);
             ensure_stream_started(self, encoder, srcpad);
-
             gst_pad_push(srcpad, gst_buf);
             GST_DEBUG_OBJECT(self, "output callback: pushed encoded buffer to src pad for stream-id '%s'",
                              self->params->stream_id.c_str());
@@ -731,7 +745,9 @@ static GstFlowReturn gst_hailo_api_encoder_handle_frame(GstVideoEncoder *encoder
 
     int reneg_result = check_renegotiation(self, encoder, attached_profile);
     if (reneg_result == RENEG_DROP)
+    {
         return gst_video_encoder_finish_frame(encoder, frame);
+    }
 
     renegotiate_output_codec_if_needed(self, encoder, attached_profile);
 

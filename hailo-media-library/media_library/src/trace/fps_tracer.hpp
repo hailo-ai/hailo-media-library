@@ -24,7 +24,6 @@
 #pragma once
 
 #include <stddef.h>
-#include <stdint.h>
 #include <chrono>
 #include <mutex>
 

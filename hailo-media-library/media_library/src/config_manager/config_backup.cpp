@@ -1,16 +1,17 @@
 #include "config_backup.hpp"
+
+#include <nlohmann/json.hpp>
+#include <tl/expected.hpp>
+#include <filesystem>
+#include <initializer_list>
+#include <map>
+#include <system_error>
+
 #include "config_parser.hpp"
 #include "config_validator.hpp"
 #include "media_library_types.hpp"
-#include "logger_macros.hpp"
 #include "files_utils.hpp"
-#include <nlohmann/json.hpp>
-#include <filesystem>
-#include <iomanip>
-#include <sstream>
-#include <cmath>
-#include <climits>
-#include <tl/expected.hpp>
+#include "media_library_logger.hpp"
 
 #define MODULE_NAME LoggerType::Config
 using json = nlohmann::json;

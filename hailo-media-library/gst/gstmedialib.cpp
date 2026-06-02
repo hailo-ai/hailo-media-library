@@ -24,6 +24,10 @@
 #include <config.h>
 #endif
 
+#include <gst/gst.h>
+#include <glib.h>
+#include <gst/gstpluginfeature.h>
+
 #include "buffer_utils/gsthailobuffermeta.hpp"
 #include "hailo_encoder/gsthailoencoder.hpp"
 #include "osd/gsthailoosd.hpp"
@@ -38,7 +42,6 @@
 #include "upload/gsthailoupload.hpp"
 #include "image_freeze/gsthailoimagefreeze.hpp"
 #include "config_attacher/gsthailoconfigattacher.hpp"
-#include <gst/gst.h>
 
 static gboolean media_library_plugin_init(GstPlugin *plugin)
 {

@@ -1,12 +1,15 @@
 #pragma once
 #include <nlohmann/json.hpp>
+#include <stdint.h>
 #include <memory>
 #include <vector>
 #include <string>
 #include <functional>
 #include <stdexcept>
-#include <optional>
-#include "media_library/media_library_types.hpp"
+#include <tuple>
+#include <utility>
+#include <variant>
+
 #include "media_library/media_library_api_types.hpp"
 #include "common/common.hpp"
 #include "common/logger_macros.hpp"
@@ -52,7 +55,6 @@ enum class EventType
     CHANGE_FLIP,
     CHANGE_ROTATION,
     CHANGE_DEWARP,
-    CHANGE_FREEZE,
     CHANGE_VALVE,
     CHANGE_EIS,
     CHANGE_DIS,
@@ -82,7 +84,6 @@ NLOHMANN_JSON_SERIALIZE_ENUM(EventType, {{EventType::CHANGED_RESOURCE_WEBPAGE, "
                                          {EventType::CHANGE_FLIP, "change_flip"},
                                          {EventType::CHANGE_ROTATION, "change_rotation"},
                                          {EventType::CHANGE_DEWARP, "change_dewarp"},
-                                         {EventType::CHANGE_FREEZE, "change_freeze"},
                                          {EventType::CHANGE_VALVE, "change_valve"},
                                          {EventType::CHANGE_DIS, "change_dis"},
                                          {EventType::CHANGE_EIS, "change_eis"},
@@ -169,12 +170,6 @@ class ProfileRotationState : public ValueState<std::string>
 };
 
 class ProfileDewarpState : public ValueState<bool>
-{
-  public:
-    using ValueState<bool>::ValueState;
-};
-
-class ProfileFreezeState : public ValueState<bool>
 {
   public:
     using ValueState<bool>::ValueState;
@@ -269,10 +264,10 @@ using ResourceStateVariant =
     std::variant<std::shared_ptr<ResourceState>, std::shared_ptr<ProfileNameState>, std::shared_ptr<ProfileTypeState>,
                  std::shared_ptr<ProfileFPSState>, std::shared_ptr<ProfileResolutionState>,
                  std::shared_ptr<ProfileFlipState>, std::shared_ptr<ProfileRotationState>,
-                 std::shared_ptr<ProfileDewarpState>, std::shared_ptr<ProfileFreezeState>,
-                 std::shared_ptr<ProfileValveState>, std::shared_ptr<ProfileDisState>, std::shared_ptr<ProfileEisState>,
-                 std::shared_ptr<AiResourceState>, std::shared_ptr<ProfileDigitalZoomState>,
-                 std::shared_ptr<ProfileDigitalZoomRoiState>, std::shared_ptr<ProfileGrayscaleState>>;
+                 std::shared_ptr<ProfileDewarpState>, std::shared_ptr<ProfileValveState>,
+                 std::shared_ptr<ProfileDisState>, std::shared_ptr<ProfileEisState>, std::shared_ptr<AiResourceState>,
+                 std::shared_ptr<ProfileDigitalZoomState>, std::shared_ptr<ProfileDigitalZoomRoiState>,
+                 std::shared_ptr<ProfileGrayscaleState>>;
 
 class ResourceStateChangeNotification
 {

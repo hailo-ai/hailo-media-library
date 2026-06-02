@@ -1,6 +1,26 @@
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <tl/expected.hpp>
+#include <chrono>
+#include <iostream>
+#include <map>
+#include <memory>
+#include <string>
+#include <thread>
+#include <vector>
+
 #include "common/common.hpp"
 #include "media_library/privacy_mask.hpp"
-#include "media_library/privacy_mask_types.hpp"
+#include "media_library/buffer_pool.hpp"
+#include "media_library/media_library_types.hpp"
+#include "osd.hpp"
+#include "osd_types.hpp"
+#include "media_library/signal_utils.hpp"
+#include "media_library/encoder.hpp"
+#include "media_library/frontend.hpp"
+#include "media_library/media_library.hpp"
+#include "cloexec_fstream.hpp"
 
 bool add_static_privacy_masks(PrivacyMaskBlenderPtr privacy_mask_blender)
 {
@@ -188,9 +208,10 @@ int main()
         return 1;
     m_media_lib = media_lib_expected.value();
 
-    std::string medialib_config_string = read_string_from_file(config_path);
-    if (m_media_lib->initialize(medialib_config_string) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    if (m_media_lib->initialize(config_path) != media_library_return::MEDIA_LIBRARY_SUCCESS)
         return 1;
+
+    examples::scale_osd_to_output_resolution(m_media_lib);
 
     // Standard file setup
     auto streams = m_media_lib->m_frontend->get_outputs_streams();

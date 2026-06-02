@@ -28,16 +28,21 @@
 
 #pragma once
 
-#include "media_library/post_isp_denoise.hpp"
-#include "common/gstmedialibcommon.hpp"
-#include <fstream>
 #include <gst/gst.h>
+#include <glib-object.h>
+#include <glib.h>
+#include <stddef.h>
 #include <memory>
 #include <string>
-#include <vector>
 #include <queue>
 #include <mutex>
 #include <condition_variable>
+
+#include "media_library/post_isp_denoise.hpp"
+#include "config_parser.hpp"
+#include "denoise.hpp"
+#include "gstmedialibptrs.hpp"
+#include "media_library_types.hpp"
 
 G_BEGIN_DECLS
 

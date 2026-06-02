@@ -1,23 +1,22 @@
 #pragma once
 
-#include <cstddef>
+#include <tl/expected.hpp>
+#include <tokenizers_cpp.h>
+#include <sys/types.h>
 #include <cstdint>
-#include <iostream>
 #include <vector>
 #include <string>
-#include <chrono>
 #include <mutex>
-#include <thread>
 #include <map>
 #include <set>
 #include <optional>
-#include <tl/expected.hpp>
-#include <tokenizers_cpp.h>
+#include <atomic>
+#include <condition_variable>
+#include <memory>
+#include <utility>
 
 #include "text_encoder.hpp" // Include the base class
 #include "hailort_service.hpp"
-#include "common_utils.hpp"
-#include "clip_pipeline_ai_defines.hpp"
 
 #define TOKEN_START_ID 49406
 #define TOKEN_END_ID 49407

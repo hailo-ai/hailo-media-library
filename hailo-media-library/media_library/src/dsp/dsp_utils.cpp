@@ -21,6 +21,10 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include "dsp_utils.hpp"
+
+#include <hailo/hailodsp.h>
+#include <sys/types.h>
+
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
 #include "dma_memory_allocator.hpp"
@@ -399,6 +403,43 @@ dsp_status perform_crop_and_resize(dsp_image_properties_t *input_image_propertie
 }
 
 /**
+ * Perform a full-frame DSP-side copy from src to dst. Both buffers must have
+ * identical width, height and format. dsp_crop handles per-plane stride so
+ * the src and dst may have different bytes_per_line.
+ */
+dsp_status perform_dsp_copy(hailo_buffer_data_t *input_buffer_data, hailo_buffer_data_t *output_buffer_data)
+{
+    if (device == NULL)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Perform DSP copy ERROR: Device is NULL");
+        return DSP_UNINITIALIZED;
+    }
+
+    hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
+    hailo_dsp_buffer_data_t output_dsp_buffer_data = output_buffer_data->As<hailo_dsp_buffer_data_t>();
+
+    dsp_roi_t roi = {.start_x = 0,
+                     .start_y = 0,
+                     .end_x = static_cast<uint32_t>(input_buffer_data->width),
+                     .end_y = static_cast<uint32_t>(input_buffer_data->height)};
+    dsp_crop_params_t crop_params = {
+        .src = &input_dsp_buffer_data.properties,
+        .dst = &output_dsp_buffer_data.properties,
+        .src_roi = roi,
+        .dst_roi = roi,
+    };
+
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_copy", DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    dsp_status status = dsp_crop(device, &crop_params);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    if (status != DSP_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "DSP copy command failed with status {}", status);
+    }
+    return status;
+}
+
+/**
  * Perform DSP Resize
  * This function calls the DSP library to perform resize on a given buffer.
  * DSP will place the result in the output buffer.
@@ -615,9 +656,10 @@ dsp_status perform_dsp_frontend_process(const dsp_frontend_params_t &frontend_pa
         frontend_params.multi_crop_resize_params->crop_resize_params->crop->end_x,
         frontend_params.multi_crop_resize_params->crop_resize_params->crop->end_y);
     dsp_status status;
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_frontend_process", DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_frontend_process", MULTI_RESIZE_THREADED_TRACK,
+                                          MEDIA_LIBRARY_DETAILED_CATEGORY);
     status = dsp_frontend_process(device, &frontend_params);
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(MULTI_RESIZE_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
     return status;
 }
 
@@ -684,9 +726,9 @@ dsp_status perform_dsp_dewarp(dsp_image_properties_t *input_image_properties,
                               dsp_interpolation_type_t interpolation)
 {
     dsp_status status;
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_dewarp", DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_dewarp", DEWARP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
     status = dsp_dewarp(device, input_image_properties, output_image_properties, mesh, interpolation);
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DEWARP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
     return status;
 }
 
@@ -731,10 +773,10 @@ dsp_status perform_dsp_dewarp(hailo_buffer_data_t *input_buffer_data, hailo_buff
     hailo_dsp_buffer_data_t input_dsp_buffer_data = input_buffer_data->As<hailo_dsp_buffer_data_t>();
     hailo_dsp_buffer_data_t output_dsp_buffer_data = output_buffer_data->As<hailo_dsp_buffer_data_t>();
     dsp_status status;
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_dewarp", DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN("dsp_dewarp", DEWARP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
     status =
         dsp_dewarp(device, &input_dsp_buffer_data.properties, &output_dsp_buffer_data.properties, mesh, interpolation);
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DSP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(DEWARP_THREADED_TRACK, MEDIA_LIBRARY_DETAILED_CATEGORY);
     return status;
 }
 

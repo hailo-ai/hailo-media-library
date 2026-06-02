@@ -1,6 +1,26 @@
+#include <hailodsp.h>
+#include <stddef.h>
+#include <hailo_postprocess_tools/objects/hailo_common.hpp>
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
+#include <media_library/buffer_pool.hpp>
+#include <media_library/dsp_utils.hpp>
+#include <media_library/media_library_buffer.hpp>
+#include <media_library/media_library_types.hpp>
+#include <algorithm>
+#include <atomic>
+#include <memory>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/cropping/bbox_crop_stage.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/pipeline/cropping/dsp_cropping.hpp"
 
 namespace hailo_analytics::pipeline::cropping
 {
@@ -19,12 +39,13 @@ BBoxCropStage::BBoxCropStage(std::string name, int output_pool_size, int input_w
                              std::vector<std::string> labels, size_t queue_size, bool leaky,
                              bool trace_processing_operations, StagePoolMode pool_mode, size_t crop_every_x_frames,
                              bool use_letterbox, dsp_letterbox_alignment_t letterbox_alignment,
-                             dsp_color_t letterbox_color)
+                             dsp_color_t letterbox_color, size_t max_crops, bool release_input_after_dsp)
     : DspBaseCropStage(name, output_pool_size, input_width, input_height, output_width, output_height, main_sub_name,
                        sub_sub_name, queue_size, leaky, trace_processing_operations, pool_mode, crop_every_x_frames,
-                       get_scaling_mode_from_letterbox(use_letterbox, letterbox_alignment), letterbox_color),
-      m_target_labels(labels), m_use_letterbox(use_letterbox), m_letterbox_alignment(letterbox_alignment),
-      m_letterbox_color(letterbox_color)
+                       get_scaling_mode_from_letterbox(use_letterbox, letterbox_alignment), letterbox_color,
+                       release_input_after_dsp),
+      m_target_labels(std::make_shared<const std::vector<std::string>>(std::move(labels))), m_max_crops(max_crops),
+      m_use_letterbox(use_letterbox), m_letterbox_alignment(letterbox_alignment), m_letterbox_color(letterbox_color)
 {
     HAILO_ANALYTICS_LOG_INFO(
         "{} Constructor: use_letterbox={}, scaling_mode={}, color=(y={}, u={}, v={})", name, use_letterbox,
@@ -33,8 +54,34 @@ BBoxCropStage::BBoxCropStage(std::string name, int output_pool_size, int input_w
         letterbox_color.y, letterbox_color.u, letterbox_color.v);
 }
 
+void BBoxCropStage::set_labels(std::vector<std::string> labels)
+{
+    std::atomic_store(&m_target_labels, std::make_shared<const std::vector<std::string>>(std::move(labels)));
+}
+
+std::shared_ptr<const std::vector<std::string>> BBoxCropStage::get_labels() const
+{
+    return std::atomic_load(&m_target_labels);
+}
+
+void BBoxCropStage::set_max_crops(size_t max_crops)
+{
+    m_max_crops.store(max_crops, std::memory_order_relaxed);
+}
+
+size_t BBoxCropStage::get_max_crops() const
+{
+    return m_max_crops.load(std::memory_order_relaxed);
+}
+
 AppStatus BBoxCropStage::init()
 {
+    AppStatus base_status = DspBaseCropStage::init();
+    if (base_status != AppStatus::SUCCESS)
+    {
+        return base_status;
+    }
+
     auto bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width(m_output_width);
     m_buffer_pool =
         std::make_shared<MediaLibraryBufferPool>(m_output_width, m_output_height, HAILO_FORMAT_NV12, m_output_pool_size,
@@ -55,18 +102,35 @@ void BBoxCropStage::prepare_crops(BufferPtr input_buffer, std::vector<dsp_crop_a
     int input_height = buffer->buffer_data->height;
     HailoROIPtr roi = input_buffer->get_roi();
 
+    auto labels_snapshot = std::atomic_load(&m_target_labels);
+    const std::vector<std::string> &active_labels = *labels_snapshot;
+    const size_t max_crops = m_max_crops.load(std::memory_order_relaxed);
+
+    std::vector<std::pair<HailoDetectionPtr, float>> matched;
     for (auto detection : hailo_common::get_hailo_detections(roi))
     {
-        std::string detection_label = detection->get_label();
-        if (std::find(m_target_labels.begin(), m_target_labels.end(), detection_label) != m_target_labels.end())
-        {
-            auto detection_bbox = detection->get_bbox();
+        const std::string &detection_label = detection->get_label();
+        if (std::find(active_labels.begin(), active_labels.end(), detection_label) == active_labels.end())
+            continue;
+        HailoBBox bbox = detection->get_bbox();
+        float score = bbox.width() * bbox.height() * detection->get_confidence();
+        matched.emplace_back(detection, score);
+    }
 
-            m_detection_crops_bbox.push_back(detection_bbox);
-            m_detection_rois.push_back(detection);
+    if (matched.size() > max_crops)
+    {
+        std::partial_sort(matched.begin(), matched.begin() + max_crops, matched.end(),
+                          [](const auto &a, const auto &b) { return a.second > b.second; });
+        matched.resize(max_crops);
+    }
 
-            prepare_single_crop_dim(detection_bbox, crop_resize_dims, input_width, input_height);
-        }
+    for (const auto &[detection, score] : matched)
+    {
+        (void)score;
+        HailoBBox detection_bbox = detection->get_bbox();
+        m_detection_crops_bbox.push_back(detection_bbox);
+        m_detection_rois.push_back(detection);
+        prepare_single_crop_dim(detection_bbox, crop_resize_dims, input_width, input_height);
     }
 }
 
@@ -96,15 +160,13 @@ HailoROIPtr BBoxCropStage::get_crop_roi(int index)
     }
 }
 
-void BBoxCropStage::pre_crop(BufferPtr input_buffer)
+void BBoxCropStage::pre_crop(BufferPtr /*input_buffer*/)
 {
-    (void)input_buffer;
-    // No pre-crop processing needed for tiling
+    // No pre-crop processing needed
 }
 
-void BBoxCropStage::post_crop(BufferPtr input_buffer)
+void BBoxCropStage::post_crop(BufferPtr /*input_buffer*/)
 {
-    (void)input_buffer;
     m_detection_crops_bbox.clear();
     m_detection_rois.clear();
 }
@@ -156,7 +218,7 @@ BBoxCropStageBuild::Builder &BBoxCropStageBuild::Builder::set_sub_sub_name(std::
 }
 BBoxCropStageBuild::Builder &BBoxCropStageBuild::Builder::set_labels(std::vector<std::string> labels)
 {
-    m_labels = labels;
+    m_labels = std::move(labels);
     return *this;
 }
 BBoxCropStageBuild::Builder &BBoxCropStageBuild::Builder::set_queue_size(size_t size)
@@ -194,6 +256,18 @@ BBoxCropStageBuild::Builder &BBoxCropStageBuild::Builder::set_letterbox_opt(dsp_
     return *this;
 }
 
+BBoxCropStageBuild::Builder &BBoxCropStageBuild::Builder::set_max_crops(size_t max_crops)
+{
+    m_max_crops = max_crops;
+    return *this;
+}
+
+BBoxCropStageBuild::Builder &BBoxCropStageBuild::Builder::set_release_input_after_dsp(bool enable)
+{
+    m_release_input_after_dsp = enable;
+    return *this;
+}
+
 std::shared_ptr<BBoxCropStage> BBoxCropStageBuild::Builder::buildptr() const
 {
     THROW_IF_MISSING(m_stage_name.has_value(), "set_stage_name");
@@ -206,10 +280,11 @@ std::shared_ptr<BBoxCropStage> BBoxCropStageBuild::Builder::buildptr() const
     THROW_IF_MISSING(m_sub_sub_name.has_value(), "set_sub_sub_name");
     THROW_IF_MISSING(m_labels.has_value(), "set_labels");
 
-    return std::make_shared<BBoxCropStage>(
-        m_stage_name.value(), m_output_pool_size, m_input_width, m_input_height, m_output_width, m_output_height,
-        m_main_sub_name.value(), m_sub_sub_name.value(), m_labels.value(), m_queue_size, m_leaky, m_trace, m_pool_mode,
-        m_crop_every_x_frames, m_use_letterbox, m_letterbox_alignment, m_letterbox_color);
+    return std::make_shared<BBoxCropStage>(m_stage_name.value(), m_output_pool_size, m_input_width, m_input_height,
+                                           m_output_width, m_output_height, m_main_sub_name.value(),
+                                           m_sub_sub_name.value(), m_labels.value(), m_queue_size, m_leaky, m_trace,
+                                           m_pool_mode, m_crop_every_x_frames, m_use_letterbox, m_letterbox_alignment,
+                                           m_letterbox_color, m_max_crops, m_release_input_after_dsp);
 }
 
 BBoxCropStageBuild::Builder BBoxCropStageBuild::create()

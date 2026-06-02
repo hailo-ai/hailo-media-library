@@ -1,17 +1,23 @@
 #include "video_device.hpp"
-#include "logger_macros.hpp"
-#include "hailo_media_library_perfetto.hpp"
-#include "sensor_registry.hpp"
 
 #include <string.h>
-#include <thread>
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <limits.h>
 #include <sys/epoll.h>
+#include <errno.h>
+#include <sys/time.h>
+#include <thread>
+#include <chrono>
+#include <compare>
+#include <optional>
+#include <utility>
+
+#include "hailo_media_library_perfetto.hpp"
+#include "media_library/media_library_utils.hpp"
+#include "sensor_registry.hpp"
+#include "media_library_types.hpp"
 
 namespace HDR
 {
@@ -308,14 +314,8 @@ bool VideoDevice::init(const std::string &device_path, const std::string name, D
         }
     }
 
-    if (!start_stream())
-    {
-        LOGGER__MODULE__ERROR(LOGGER_TYPE, "{}: unable to start stream!", m_name);
-        goto err_startStream;
-    }
     m_initialized = true;
     return true;
-err_startStream:
 err_queueBuffers:
     destroy_buffers();
 err_initBuffers:
@@ -453,12 +453,14 @@ bool VideoDevice::get_buffer(VideoBuffer **o_buffer, bool add_to_used_count)
     HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN(perfetto::DynamicString(m_dequeue_event_name), VIDEO_DEV_THREADED_TRACK,
                                           MEDIA_LIBRARY_CATEGORY);
     ioctl_ret = ioctl(m_fd, VIDIOC_DQBUF, &buf);
-    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(VIDEO_DEV_THREADED_TRACK, MEDIA_LIBRARY_CATEGORY);
     if (ioctl_ret != 0)
     {
+        HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(VIDEO_DEV_THREADED_TRACK, MEDIA_LIBRARY_CATEGORY);
         LOGGER__MODULE__ERROR(LOGGER_TYPE, "{}: VIDIOC_DQBUF failed, err {}, ioctl_ret {}", m_name, errno, ioctl_ret);
         return false;
     }
+    HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(VIDEO_DEV_THREADED_TRACK, MEDIA_LIBRARY_CATEGORY, "isp_timestamp_ms",
+                                        media_library_timeval_to_ms(buf.timestamp));
 
     if (buf.index >= m_buffers.size())
     {

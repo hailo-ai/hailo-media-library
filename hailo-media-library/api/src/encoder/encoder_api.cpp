@@ -20,8 +20,19 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+#include <stddef.h>
+#include <tl/expected.hpp>
+#include <memory>
+#include <string>
+
 #include "media_library/encoder.hpp"
-#include "encoder_api_internal.hpp"
+#include "encoder_api_impl.hpp"
+#include "buffer_pool.hpp"
+#include "config_manager.hpp"
+#include "encoder_config_types.hpp"
+#include "media_library_types.hpp"
+#include "osd.hpp"
+#include "privacy_mask.hpp"
 
 tl::expected<MediaLibraryEncoderPtr, media_library_return> MediaLibraryEncoder::create(
     const output_stream_id_t &stream_id)

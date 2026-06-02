@@ -1,13 +1,22 @@
 // General includes
-#include <algorithm>
-
-// Media-Library includes
-#include "media_library/encoder.hpp"
+#include <gst/gst.h>
+#include <stddef.h>
+#include <tl/expected.hpp>
+#include <atomic>
+#include <memory>
+#include <optional>
+#include <string>
+#include <thread>
+#include <vector>
 
 // Infra includes
 #include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/pipeline/sinks/convert_rtp_module.hpp"
+#include "hailo_analytics/pipeline/sinks/output_module.hpp"
 
 namespace hailo_analytics::pipeline::sinks
 {

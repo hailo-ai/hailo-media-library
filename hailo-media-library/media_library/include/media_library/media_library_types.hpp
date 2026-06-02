@@ -26,18 +26,29 @@
  **/
 
 #pragma once
-#include "dis_common.h"
-#include "dsp_utils.hpp"
-#include "encoder_config_types.hpp"
-#include "imaging/aaa_config_types.hpp"
-#include <cstdint>
 #include <tl/expected.hpp>
-#include <functional>
+#include <nlohmann/json.hpp>
+#include <hailo/hailodsp.h>
+#include <hailo/hailodsp_base.h>
+#include <limits.h>
+#include <sys/types.h>
+#include <cstdint>
 #include <string>
 #include <ctime>
 #include <optional>
 #include <map>
-#include <nlohmann/json.hpp>
+#include <algorithm>
+#include <memory>
+#include <unordered_map>
+#include <utility>
+#include <variant>
+#include <vector>
+
+#include "dis_common.h"
+#include "dsp_utils.hpp"
+#include "encoder_config_types.hpp"
+#include "imaging/aaa_config_types.hpp"
+#include "media_library_buffer.hpp"
 
 /** @defgroup media_library_types_definitions MediaLibrary Types CPP API definitions
  *  @{
@@ -61,6 +72,7 @@ enum media_library_return
     MEDIA_LIBRARY_FREETYPE_ERROR,
     MEDIA_LIBRARY_PROFILE_IS_RESTRICTED,
     MEDIA_LIBRARY_PROFILE_VALIDATION_FAILED,
+    MEDIA_LIBRARY_SENSOR_BUSY,
 
     /** Max enum value to maintain ABI Integrity */
     MEDIA_LIBRARY_MAX = INT_MAX
@@ -207,6 +219,7 @@ struct isp_t
 struct hailort_t
 {
     std::string device_id;
+    bool use_hailort_service = false;
 };
 
 enum hdr_dol_t
@@ -264,18 +277,7 @@ struct feedback_network_config_t
 
 struct bayer_network_config_t
 {
-    bool operator==(const bayer_network_config_t &other) const
-    {
-        return (network_path == other.network_path) && (bayer_channel == other.bayer_channel) &&
-               (feedback_bayer_channel == other.feedback_bayer_channel) && (dgain_channel == other.dgain_channel) &&
-               (bls_channel == other.bls_channel) && (output_bayer_channel == other.output_bayer_channel) &&
-               (input_fusion_feedback == other.input_fusion_feedback) &&
-               (input_gamma_feedback == other.input_gamma_feedback) &&
-               (output_fusion_feedback == other.output_fusion_feedback) &&
-               (output_gamma_feedback == other.output_gamma_feedback) &&
-               (skip0_fusion_channel == other.skip0_fusion_channel) &&
-               (skip1_fusion_channel == other.skip1_fusion_channel);
-    }
+    bool operator==(const bayer_network_config_t &other) const;
     std::string network_path;
     std::string bayer_channel;
     std::string feedback_bayer_channel;
@@ -864,6 +866,7 @@ struct denoise_config_t
     static bool is_persistent;
     bool enabled;
     bool bayer;
+    bool fast_denoise_switch;
     std::string sensor;
     denoise_method_t denoising_quality;
     uint32_t loopback_count;
@@ -875,6 +878,7 @@ struct denoise_config_t
     {
         enabled = false;
         bayer = false;
+        fast_denoise_switch = false;
         sensor = "imx678";
         denoising_quality = DENOISE_METHOD_VD2;
         loopback_count = 1;
@@ -885,6 +889,7 @@ struct denoise_config_t
     {
         enabled = denoise_configs.enabled;
         bayer = denoise_configs.bayer;
+        fast_denoise_switch = denoise_configs.fast_denoise_switch;
         sensor = denoise_configs.sensor;
         denoising_quality = denoise_configs.denoising_quality;
         loopback_count = denoise_configs.loopback_count;
@@ -901,6 +906,7 @@ struct denoise_config_t
         {
             enabled = other.enabled;
             bayer = other.bayer;
+            fast_denoise_switch = other.fast_denoise_switch;
             sensor = other.sensor;
             denoising_quality = other.denoising_quality;
             loopback_count = other.loopback_count;
@@ -947,6 +953,11 @@ struct label_t
 {
     std::string label;
     uint32_t id;
+
+    bool operator==(const label_t &other) const
+    {
+        return label == other.label && id == other.id;
+    }
 };
 
 typedef struct
@@ -985,7 +996,6 @@ typedef struct
 enum class AnalyticsType
 {
     DETECTION,
-    INSTANCE_SEGMENTATION,
     SEMANTIC_SEGMENTATION,
 
     /** Max enum value to maintain ABI Integrity */
@@ -1014,18 +1024,6 @@ struct detection_analytics_config_t
     size_t max_entries;
 };
 
-struct instance_segmentation_analytics_config_t
-{
-    std::string analytics_data_id;
-    ScalingMode scaling_mode;
-    uint32_t width;
-    uint32_t height;
-    uint32_t original_width_ratio;
-    uint32_t original_height_ratio;
-    std::vector<label_t> labels;
-    size_t max_entries;
-};
-
 struct semantic_segmentation_analytics_config_t
 {
     std::string analytics_data_id;
@@ -1036,14 +1034,12 @@ struct semantic_segmentation_analytics_config_t
     uint32_t original_height_ratio;
     std::vector<label_t> labels;
     size_t max_entries;
-    size_t mask_size;
 };
 
 struct application_analytics_config_t
 {
     static bool is_persistent;
     std::unordered_map<std::string, detection_analytics_config_t> detection_analytics_config;
-    std::unordered_map<std::string, instance_segmentation_analytics_config_t> instance_segmentation_analytics_config;
     std::unordered_map<std::string, semantic_segmentation_analytics_config_t> semantic_segmentation_analytics_config;
 
     void override(const application_analytics_config_t &other)
@@ -1051,7 +1047,6 @@ struct application_analytics_config_t
         if (is_persistent)
         {
             detection_analytics_config = other.detection_analytics_config;
-            instance_segmentation_analytics_config = other.instance_segmentation_analytics_config;
             semantic_segmentation_analytics_config = other.semantic_segmentation_analytics_config;
         }
     }
@@ -1209,16 +1204,26 @@ struct dynamic_privacy_mask_config_t
 {
     static bool is_persistent;
     bool enabled;
-    std::vector<analytics_entry_t> analytics;
     size_t dilation_size;
+
+    // Schema's oneOf keeps a profile from carrying both these legacy DB-flow fields AND the
+    // buffer-form fields below.
+    std::vector<analytics_entry_t> analytics;
     uint32_t timeout_ms;
     uint32_t delta_ms;
     AnalyticsQueryType query_type;
 
+    // label_to_class_id maps each YOLO label to the segmentor class_mask child index expected
+    // for it — enables the blender to drop the wrong wire-type per detection (a person
+    // detection has both a vehicle and a person_face mask attached; only id=1 should pass).
+    std::vector<std::string> masked_labels;
+    std::vector<label_t> label_to_class_id;
+
     bool operator==(const dynamic_privacy_mask_config_t &other) const
     {
-        return enabled == other.enabled && analytics == other.analytics && dilation_size == other.dilation_size &&
-               timeout_ms == other.timeout_ms && delta_ms == other.delta_ms && query_type == other.query_type;
+        return enabled == other.enabled && dilation_size == other.dilation_size && analytics == other.analytics &&
+               timeout_ms == other.timeout_ms && delta_ms == other.delta_ms && query_type == other.query_type &&
+               masked_labels == other.masked_labels && label_to_class_id == other.label_to_class_id;
     }
 };
 

@@ -22,7 +22,6 @@
  */
 
 #include "perfetto_fps_tracer.hpp"
-#include "hailo_media_library_perfetto.hpp"
 
 PerfettoFpsTracer::PerfettoFpsTracer(const std::string &track_name, std::chrono::milliseconds window_duration)
     : FpsTracer(window_duration)

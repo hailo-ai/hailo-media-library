@@ -1,9 +1,20 @@
 #pragma once
+#include <stddef.h>
+#include <stdint.h>
+#include <nlohmann/json.hpp>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
 #include "common/resources.hpp"
 #include "media_library/privacy_mask_types.hpp"
-#include "media_library/privacy_mask.hpp"
 #include "media_library/media_library_types.hpp"
 #include "configs.hpp"
+#include "common/httplib/httplib_utils.hpp"
+#include "resources/common/event_bus.hpp"
+#include "resources/common/events_utils.hpp"
 
 using namespace privacy_mask_types;
 

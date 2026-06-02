@@ -27,11 +27,16 @@
 
 #pragma once
 
-#include "hailo/hailodsp.h"
-#include "media_library_buffer.hpp"
 #include <stdint.h>
+#include <hailo/hailodsp_base.h>
+#include <stddef.h>
 #include <vector>
 #include <optional>
+#include <memory>
+#include <utility>
+
+#include "hailo/hailodsp.h"
+#include "media_library_buffer.hpp"
 
 #define MIN_ISP_AE_FPS_FOR_DIS (20)
 
@@ -123,6 +128,9 @@ dsp_status release_device();
 dsp_status acquire_device();
 dsp_status create_hailo_dsp_buffer(size_t size, void **buffer, bool dma = false);
 void release_hailo_dsp_buffer(void *buffer);
+
+/** Full-frame DSP copy (src and dst must have identical dimensions and format). */
+dsp_status perform_dsp_copy(hailo_buffer_data_t *input_buffer_data, hailo_buffer_data_t *output_buffer_data);
 
 dsp_status perform_resize(hailo_buffer_data_t *input_buffer_data, hailo_buffer_data_t *output_buffer_data,
                           dsp_interpolation_type_t dsp_interpolation_type,

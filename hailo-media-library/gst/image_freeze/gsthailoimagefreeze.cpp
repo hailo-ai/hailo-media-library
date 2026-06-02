@@ -22,14 +22,21 @@
  */
 
 #include "gsthailoimagefreeze.hpp"
+
 #include <gst/gst.h>
-#include <gst/video/video.h>
-#include <gst/gstbuffer.h>
-#include <memory.h>
-#include <tl/expected.hpp>
+#include <gst/gstparamspecs.h>
+#include <gst/video/video-info.h>
+#include <string.h>
+#include <memory>
+#include <utility>
+
+#include <hailo/hailodsp_base.h>
 #include "common/gstmedialibcommon.hpp"
 #include "buffer_utils/buffer_utils.hpp"
-#include "hailo_v4l2/hailo_v4l2_meta.h"
+#include "media_library/dsp_utils.hpp"
+#include "buffer_pool.hpp"
+#include "media_library_buffer.hpp"
+#include "media_library_types.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailo_image_freeze_debug);
 #define GST_CAT_DEFAULT gst_hailo_image_freeze_debug
@@ -120,9 +127,18 @@ static void gst_hailo_image_freeze_set_property(GObject *object, guint property_
     switch (property_id)
     {
     case PROP_FREEZE: {
-        GST_INFO_OBJECT(self, "Setting freeze property to %d and freeing old frame", g_value_get_boolean(value));
-        self->params->frozen_buffer = nullptr; // reset current frame
-        self->params->m_freeze = g_value_get_boolean(value);
+        bool new_freeze = g_value_get_boolean(value);
+        GST_INFO_OBJECT(self, "Setting freeze property to %d", new_freeze);
+        GST_OBJECT_LOCK(self);
+        if (self->params->m_freeze != new_freeze)
+        {
+            // Drop the cached snapshot on every state transition so the next
+            // freeze cycle captures a fresh frame rather than replaying a
+            // stale one. Re-asserting the same state is a no-op.
+            self->params->frozen_buffer = nullptr;
+            self->params->m_freeze = new_freeze;
+        }
+        GST_OBJECT_UNLOCK(self);
         break;
     }
     default:
@@ -138,7 +154,9 @@ static void gst_hailo_image_freeze_get_property(GObject *object, guint property_
     switch (property_id)
     {
     case PROP_FREEZE: {
+        GST_OBJECT_LOCK(self);
         g_value_set_boolean(value, self->params->m_freeze);
+        GST_OBJECT_UNLOCK(self);
         break;
     }
     default:
@@ -155,10 +173,10 @@ static gboolean gst_hailo_image_freeze_sink_event(GstPad *pad, GstObject *parent
         GstHailoImageFreeze *self = GST_HAILO_IMAGE_FREEZE(parent);
         GST_DEBUG_OBJECT(self, "Received caps event from sinkpad");
         GstCapsPtr caps = glib_cpp::ptrs::parse_event_caps(event);
-        if (GstFlowReturn ret = create_and_initialize_buffer_pools(self, caps); ret != GST_FLOW_OK)
+        if (create_and_initialize_buffer_pools(self, caps) != GST_FLOW_OK)
         {
             GST_ERROR_OBJECT(self, "Failed to create buffer pool after caps event");
-            return ret;
+            return FALSE;
         }
     }
 
@@ -177,20 +195,31 @@ static GstFlowReturn create_and_initialize_buffer_pools(GstHailoImageFreeze *sel
     size_t width = GST_VIDEO_INFO_WIDTH(&info);
     size_t height = GST_VIDEO_INFO_HEIGHT(&info);
 
+    GST_OBJECT_LOCK(self);
     if (self->params->m_buffer_pool != nullptr && self->params->m_buffer_pool->get_width() == width &&
         self->params->m_buffer_pool->get_height() == height)
     {
+        GST_OBJECT_UNLOCK(self);
         return GST_FLOW_OK;
     }
 
     GST_INFO_OBJECT(self, "Creating buffer pool with width %zu and height %zu", width, height);
+    // Any cached snapshot was allocated from the old pool at the old
+    // dimensions; pushing it downstream under the new caps would mismatch
+    // size/stride. Drop it so the next frozen frame is recaptured.
+    self->params->frozen_buffer = nullptr;
+    // Match the stride convention used by dewarp / multi_resize so the
+    // snapshot pool is compatible with upstream DSP-aligned buffers.
+    auto bytes_per_line = dsp_utils::get_dsp_desired_stride_from_width(width);
     self->params->m_buffer_pool = std::make_shared<MediaLibraryBufferPool>(
-        width, height, HAILO_FORMAT_NV12, 1, HAILO_MEMORY_TYPE_DMABUF, "image_freeze_output");
+        width, height, HAILO_FORMAT_NV12, 1, HAILO_MEMORY_TYPE_DMABUF, bytes_per_line, "image_freeze_output");
     if (self->params->m_buffer_pool->init() != MEDIA_LIBRARY_SUCCESS)
     {
         GST_ERROR_OBJECT(self, "ImageFreeze element Failed to init buffer pool");
+        GST_OBJECT_UNLOCK(self);
         return GST_FLOW_ERROR;
     }
+    GST_OBJECT_UNLOCK(self);
 
     return GST_FLOW_OK;
 }
@@ -200,11 +229,17 @@ static GstFlowReturn gst_hailo_image_freeze_chain(GstPad *pad, GstObject *parent
     GstBufferPtr buffer = gst_buffer;
     GstHailoImageFreeze *self = GST_HAILO_IMAGE_FREEZE(parent);
 
+    // Serialize property toggles against the in-flight snapshot. Released
+    // before any GstBuffer wrapping/push so we never hold the object lock
+    // across downstream peer operations.
+    GST_OBJECT_LOCK(self);
     GST_DEBUG_OBJECT(self, "Chain - Received buffer from sinkpad. freeze: %d", self->params->m_freeze);
 
+    HailoMediaLibraryBufferPtr snapshot_to_emit;
     if (self->params->m_freeze)
     {
-        HailoMediaLibraryBufferPtr input_buffer = hailo_buffer_from_gst_buffer(buffer, gst_pad_get_current_caps(pad));
+        GstCapsPtr current_caps = gst_pad_get_current_caps(pad);
+        HailoMediaLibraryBufferPtr input_buffer = hailo_buffer_from_gst_buffer(buffer, current_caps.get());
         if (!self->params->frozen_buffer)
         {
             GST_INFO_OBJECT(self, "Freezing buffer, creating new buffer and copying data");
@@ -212,40 +247,43 @@ static GstFlowReturn gst_hailo_image_freeze_chain(GstPad *pad, GstObject *parent
             if (self->params->m_buffer_pool->acquire_buffer(self->params->frozen_buffer) != MEDIA_LIBRARY_SUCCESS)
             {
                 GST_ERROR_OBJECT(self, "Failed to acquire buffer to freeze");
+                GST_OBJECT_UNLOCK(self);
                 return GST_FLOW_ERROR;
             }
 
-            for (size_t i = 0; i < input_buffer->get_num_of_planes(); i++)
+            dsp_status copy_status = dsp_utils::perform_dsp_copy(input_buffer->buffer_data.get(),
+                                                                 self->params->frozen_buffer->buffer_data.get());
+            if (copy_status != DSP_SUCCESS)
             {
-                void *input_plane = input_buffer->get_plane_ptr(i);
-                void *freeze_plane = self->params->frozen_buffer->get_plane_ptr(i);
-
-                memcpy(freeze_plane, input_plane, input_buffer->get_plane_size(i));
+                GST_ERROR_OBJECT(self, "DSP copy into frozen buffer failed with status %d", copy_status);
+                self->params->frozen_buffer = nullptr;
+                GST_OBJECT_UNLOCK(self);
+                return GST_FLOW_ERROR;
             }
+            self->params->frozen_buffer->copy_metadata_from(input_buffer);
         }
         else
         {
-            GST_DEBUG_OBJECT(self, "Reusing frozen buffer");
-            GstCapsPtr caps = gst_pad_get_current_caps(pad);
-            GstBufferPtr frozen_buffer = gst_buffer_from_hailo_buffer(self->params->frozen_buffer, caps);
-
-            // Preserve the metadata from the old buffer
-            GstClockTime pts = GST_BUFFER_PTS(buffer);
-            GstClockTime dts = GST_BUFFER_DTS(buffer);
-            GstClockTime duration = GST_BUFFER_DURATION(buffer);
-
-            // Replace the buffer
-            buffer = std::move(frozen_buffer);
-
-            // Restore the metadata in the new buffer
-            GST_BUFFER_PTS(buffer) = pts;
-            GST_BUFFER_DTS(buffer) = dts;
-            GST_BUFFER_DURATION(buffer) = duration;
+            snapshot_to_emit = self->params->frozen_buffer;
         }
     }
     else
     {
         GST_DEBUG_OBJECT(self, "Not freezing, passing buffer as is");
+    }
+    GST_OBJECT_UNLOCK(self);
+
+    if (snapshot_to_emit)
+    {
+        GstCapsPtr current_caps = gst_pad_get_current_caps(pad);
+        GstBufferPtr frozen_buffer = gst_buffer_from_hailo_buffer(snapshot_to_emit, current_caps.get());
+        GstClockTime pts = GST_BUFFER_PTS(buffer);
+        GstClockTime dts = GST_BUFFER_DTS(buffer);
+        GstClockTime duration = GST_BUFFER_DURATION(buffer);
+        buffer = std::move(frozen_buffer);
+        GST_BUFFER_PTS(buffer) = pts;
+        GST_BUFFER_DTS(buffer) = dts;
+        GST_BUFFER_DURATION(buffer) = duration;
     }
 
     return glib_cpp::ptrs::push_buffer_to_pad(self->params->srcpad, buffer);
