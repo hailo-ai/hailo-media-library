@@ -76,6 +76,7 @@ referenced.
 | Skill | What it does |
 |---|---|
 | [`/deploy`](skills/deploy/) | Push artifacts (binary, configs, HEFs) to the H15 and verify the app runs.|
+| [`/run-app`](skills/run-app/) | Run an app on the board and display it — launches it detached with a long `-t`, then points the host-side analytic viewer at each sink (one per UDP port).|
 
 ### Debug
 

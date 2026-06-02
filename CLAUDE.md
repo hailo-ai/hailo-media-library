@@ -18,7 +18,7 @@ when no skill fits.
 | **Explore** | `/explain-pipeline`, `/get-model`|
 | **Modification** | `/add-stream`, `/add-overlay`, `/swap-model`, `/edit-pipeline` |
 | **Build** | `/cross-compile` |
-| **Deploy & run** | `/deploy` |
+| **Deploy & run** | `/deploy`, `/run-app` |
 | **Debug** | `/board-status`|
 | **Maintenance** | `/update-claude-beta` |
 
