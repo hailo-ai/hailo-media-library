@@ -101,5 +101,6 @@ expertise. Their full definitions are in [`agents/`](agents/).
 | [`pipeline-expert`](agents/pipeline-expert.md) | Owns the pipeline architecture - `generate_*_pipeline` patterns, stage types, frontend/encoder/UDP wiring, tiling+detection+aggregator structure, ZMQ metadata sender. Returns concrete `file:line` citations. |
 | [`apps-expert`](agents/apps-expert.md) | Knows the reference apps under `hailo-analytics/apps/` and picks the closest one to copy/modify for a given task. Returns the app path, the files that matter inside it, and what makes it the right (or wrong) base. |
 
-⚠️ Disclaimer
+#### ⚠️ Disclaimer
+
 Certain files in this repository are intended to support optional use with Claude Code or other compatible AI development tools. Use of Claude is optional and requires the user’s own Claude account, subscription, credentials or API key, and is subject to the applicable Anthropic / Claude terms. Hailo does not provide Claude access, does not control Claude or its outputs, and is not responsible for AI-generated outputs. Any AI-generated code, configuration, commands, scripts, recommendations or deployment steps should be independently reviewed, tested and validated by the user before use. Users should not submit confidential information, personal data, credentials, keys, secrets or other sensitive information to Claude unless they are authorized to do so under their own arrangements and applicable law.
