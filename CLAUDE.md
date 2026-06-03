@@ -21,7 +21,6 @@ when no skill fits.
 | **Deploy & run** | `/deploy`, `/run-app` |
 | **Debug** | `/board-status`|
 | **Lifecycle** | `/sw-update` |
-| **Maintenance** | `/update-claude-beta` |
 
 ## Agents (called by skills for scoped expertise)
 
