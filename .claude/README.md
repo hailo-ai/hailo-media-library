@@ -1,15 +1,15 @@
-# Claude × Hailo Media Library
+# hailo15-agentic-coding
 
 An agentic layer on top of `hailo-media-library`. It lets you explore docs, build and modify Media Library applications, and debug running deployments on the H15 board through Claude, without needing
 deep knowledge of the codebase.
 
-> **Updates.** This repo is updated with each Hailo SDK release. For more frequent, beta releases of the Claude-related skills, agents, and tooling, see the dedicated repo: <https://github.com/hailo-ai/hailo15-agentic-coding>. Run [`/update-claude-beta`](skills/update-claude-beta/) to pull those newer files into this checkout.
+> **Updates.** The [`hailo15-agentic-coding`](https://github.com/hailo-ai/hailo15-agentic-coding) repo holds the most up-to-date skills, agents, and tooling. `hailo-media-library` ships a copy under `.claude/` that is updated with each Hailo VPU SDK release; run [`/update-claude-beta`](skills/update-claude-beta/) from the media-library checkout to pull the newer files.
 
 
 ## Prerequisites
 
 - Claude Code installed and authenticated.
-- This repo cloned locally. Run `claude` from the repo root. Skills and agents under `.claude/` load automatically.
+- These files available under `.claude/` of your `hailo-media-library` checkout (they ship with it). Run `claude` from the repo root - skills and agents load automatically.
 - An H15 SBC reachable over ethernet.
 - The Yocto SDK installed on the host (only required for `/cross-compile`
   and `/deploy`).
@@ -35,7 +35,7 @@ Examples:
 
 ## Documentation
 
-The user guides shipped with this repo (under `docs/guides/`) are read
+The user guides shipped with `hailo-media-library` (under `docs/guides/`) are read
 on demand by the `doc-explorer` agent and cited with page numbers when
 referenced.
 
@@ -76,28 +76,30 @@ referenced.
 | Skill | What it does |
 |---|---|
 | [`/deploy`](skills/deploy/) | Push artifacts (binary, configs, HEFs) to the H15 and verify the app runs.|
-| [`/run-app`](skills/run-app/) | Run an app on the board and display it — launches it detached with a long `-t`, then points the host-side analytic viewer at each sink (one per UDP port).|
+| [`/run-app`](skills/run-app/) | Run an app on the board and display it.|
 
 ### Debug
 
 | Skill | What it does |
 |---|---|
-| [`/board-status`](skills/board-status/) | Snapshot the board's runtime health — temperature, power, CPU load, DRAM use, NN core utilization. Read-only over SSH. |
+| [`/board-status`](skills/board-status/) | Snapshot the board's runtime health - temperature, power, CPU load, DRAM use, NN core utilization. Read-only over SSH. |
 
 ### Maintenance
 
 | Skill | What it does |
 |---|---|
-| [`/update-claude-beta`](skills/update-claude-beta/) | Pull newer beta versions of skills/agents/`CLAUDE.md` from <https://github.com/hailo-ai/hailo15-agentic-coding> if its `HEAD` is committed after this repo's. Overwrites matching files; never deletes local-only files; never auto-commits. |
+| [`/update-claude-beta`](skills/update-claude-beta/) | Pull newer beta versions of skills/agents/`CLAUDE.md` from <https://github.com/hailo-ai/hailo15-agentic-coding> if its `HEAD` is committed after this repo's. Overwrites matching files.|
 
 ## Agents
 
-Agents are not invoked directly — skills call them when they need scoped
+Agents are not invoked directly - skills call them when they need scoped
 expertise. Their full definitions are in [`agents/`](agents/).
 
 | Agent | Role |
 |---|---|
 | [`doc-explorer`](agents/doc-explorer.md) | Reads the official Hailo PDF user guides (media library, imaging, OS, model zoo, HailoRT, board quickstarts) and returns concise excerpts with page citations. Never invents content. |
-| [`pipeline-expert`](agents/pipeline-expert.md) | Owns the pipeline architecture — `generate_*_pipeline` patterns, stage types, frontend/encoder/UDP wiring, tiling+detection+aggregator structure, ZMQ metadata sender. Returns concrete `file:line` citations. |
+| [`pipeline-expert`](agents/pipeline-expert.md) | Owns the pipeline architecture - `generate_*_pipeline` patterns, stage types, frontend/encoder/UDP wiring, tiling+detection+aggregator structure, ZMQ metadata sender. Returns concrete `file:line` citations. |
 | [`apps-expert`](agents/apps-expert.md) | Knows the reference apps under `hailo-analytics/apps/` and picks the closest one to copy/modify for a given task. Returns the app path, the files that matter inside it, and what makes it the right (or wrong) base. |
 
+⚠️ Disclaimer
+Certain files in this repository are intended to support optional use with Claude Code or other compatible AI development tools. Use of Claude is optional and requires the user’s own Claude account, subscription, credentials or API key, and is subject to the applicable Anthropic / Claude terms. Hailo does not provide Claude access, does not control Claude or its outputs, and is not responsible for AI-generated outputs. Any AI-generated code, configuration, commands, scripts, recommendations or deployment steps should be independently reviewed, tested and validated by the user before use. Users should not submit confidential information, personal data, credentials, keys, secrets or other sensitive information to Claude unless they are authorized to do so under their own arrangements and applicable law.
