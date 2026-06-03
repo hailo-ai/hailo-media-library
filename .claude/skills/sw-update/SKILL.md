@@ -6,16 +6,13 @@ tools: Bash, Read, Write, Edit
 
 # /sw-update — flash a Hailo-15 SBC with a new SW image
 
-End-to-end driver for the SBC software image update. **Two paths, picked automatically in Phase 0:**
+End-to-end driver for the SBC software image update. **Two paths, picked automatically by the Phase 0.4 probe:** Path A — OTA (DEFAULT, OS Guide §§8.1–8.7, board pulls the `.swu` over TFTP and applies it in-place) and Path B — UART recovery (FALLBACK, quick-start guides §2.3), used only when the OTA preflight probe fails or Path A flashes but the board never comes back.
 
-- **Path A — OTA (DEFAULT).** Documented in the Hailo OS User Guide §§8.1–8.7. The board pulls the `.swu` from a TFTP server on the host and applies it in-place — no DIP switches, no button presses, no UART involvement. Total time ~6 min for the H15L 1.11.0 package over gigabit. Works whenever the board is currently SSH-reachable, has `/etc/run_swupdate.sh`, and has a previously-initialized single-image partition layout.
-- **Path B — UART recovery (FALLBACK).** Documented in the H15L/H15H quick-start guides §2.3. Hardware-in-the-loop: half host commands, half "please flip the DIP switch and press reset." Used only when Path A's preflight probe fails (board unreachable, OTA script missing, partition layout broken, or A/B-only board on eMMC where OTA isn't supported), or when Path A flashes but the board fails to come back.
+**Hardware-damage warning: flashing the wrong board's package will brick the SBC** — the Phase 0.2 target guard runs before either path. The UART path additionally has wiring damage risks on H15H (see Phase B4).
 
-Both paths carry a **hardware-damage warning** for one common reason: **flashing the wrong board's package will brick the SBC**. The Phase 0 target guard exists for this and runs before either path. The UART path additionally has wiring damage risks on H15H (1.8V jumper, no Vcc — see Path B Phase B4).
+## Board parameter matrix
 
-## Board parameter matrix — the single source of truth
-
-Determine `$BOARD` ∈ {`h15l`, `h15h`} in Phase 0, then read every step down that column.
+Determine `$BOARD` ∈ {`h15l`, `h15h`} in Phase 0, then use that column wherever a step references the matrix. Hardware specifics (DIP positions, wiring, U-Boot menu, program commands) are spelled out per-board inside the Path B phases — they are not duplicated here.
 
 | Parameter | **H15L** | **H15H** |
 |---|---|---|
@@ -24,27 +21,17 @@ Determine `$BOARD` ∈ {`h15l`, `h15h`} in Phase 0, then read every step down th
 | **Board ID (reliable, version-independent):** `/sys/devices/soc0/machine` | `Hailo-15l` | `Hailo-15` |
 | os-release `NAME` (varies by release — **do NOT use for board detection**) | 1.11.0: `Hailo15l` • 1.10.1: `HAILO Hailo-15` • etc. | 1.11.0: `Hailo15` • older releases vary |
 | **OTA `.swu` filename** | `hailo-update-image-hailo15l-sbc.swu` | `hailo-update-image-hailo15-sbc.swu` |
-| OTA dual-image (`-d`) supported? | **No** (OS Guide §8.11 — A/B not yet supported on eMMC) | Yes (out of scope for this skill — single-image only) |
 | --- | --- | --- |
-| **(Path B only — UART recovery)** | | |
-| Quick-start guide section | hailo15l §2.3 | hailo15h §2.3 |
-| Serial link | micro-USB → SBC **J1** (FTDI `0403:6015` **on the SBC**) | **UART1 adapter board** → SBC **J4** pins 14/16/18 (FTDI **on the adapter**, e.g. `0403:6001`) |
-| DIP SW1 — UART boot | `1=ON, 2=OFF` | `1=ON, 2=OFF` *(same)* |
-| DIP SW1 — normal boot | `1=ON, 2=ON` (both ON) | **`1=OFF, 2=OFF` (both OFF)** |
+| **(Path B only — package files, consumed by 0.2 + B2)** | | |
 | Recovery FW file | `hailo15l_uart_recovery_fw.bin` | `hailo15_uart_recovery_fw.bin` |
-| Recovery loader flag | **`--h15l`** | *(none)* |
-| Program command | `hailo15_emmc_program … --uart-baud-rate 921600` | `hailo15_spi_flash_program … --uart-load` (**no baud arg**) |
 | SCU bins | `hailo15l_scu_bl.bin`, `hailo15l_scu_fw.bin` | `hailo15_scu_bl.bin`, `hailo15_scu_fw.bin` |
 | Shared program bins | `scu_bl_cfg_a.bin`, `u-boot.dtb.signed`, `u-boot-spl.bin`, `u-boot-initial-env`, `customer_certificate.bin`, `u-boot-tfa.itb` | *(same names)* |
 | swupdate payload (Path B U-Boot pulls) | `fitImage`, `swupdate-image-hailo15l-sbc.ext4.gz`, `hailo-update-image-hailo15l-sbc.swu` | `fitImage`, `swupdate-image-hailo15-sbc.ext4.gz`, `hailo-update-image-hailo15-sbc.swu` |
-| U-Boot menu pick | **"eMMC Board Init"** | **"SD Card Board Init"** |
-
-> The **swupdate `fitImage` filename collides** between boards (both just `fitImage`) — when restaging the TFTP root for Path B, always overwrite it from the correct package. Path A only needs the `.swu`, not the `fitImage` / `ext4.gz`.
 
 ## Inputs to ask the user
 
-- **Board variant** (required): `h15l` or `h15h`. Infer from `/sys/devices/soc0/machine` on a reachable board (returns `Hailo-15l` / `Hailo-15`, **version-independent**) or from the package filename token (`hailo15l` / `hailo15h`). Do **not** infer from os-release `NAME` — it changes between releases (e.g. 1.10.1 says `"HAILO Hailo-15"`, 1.11.0 says `"Hailo15l"`).
-- **Package path** (required): absolute path to `hailo_vision_processor_sw_package_<version>_<token>*.tar.gz` (token = `hailo15l` or `hailo15h`), or to a directory where it's **already extracted** (contains `tools/` + `prebuilt/sbc/`, e.g. `~/hailo/h15l_1_11/` or `~/hailo/h15h_1_11/`). A tarball extracts to `<package-dir>/sw-update-work/`; an already-extracted dir is used in place. If the user doesn't specify, glob `~/hailo/<board>_*/...<token>*.tar.gz` and present matches.
+- **Board variant** (required): `h15l` or `h15h`. Ask, or infer as in Phase 0.1 (board's machine string / package filename token).
+- **Package path** (required): absolute path to `hailo_vision_processor_sw_package_<version>_<token>*.tar.gz` (token = `hailo15l` or `hailo15h`), or to a directory where it's **already extracted** (contains `tools/` + `prebuilt/sbc/`). A tarball extracts to `<package-dir>/sw-update-work/`; an already-extracted dir is used in place.
 
 > Automated package download (Developer Zone auth) is out of scope. The user supplies the package path.
 
@@ -122,9 +109,7 @@ sshpass -p root ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 
 
 If the user explicitly asks for UART recovery despite a passing probe (e.g. they want to validate the recovery procedure), honour it — go to Path B.
 
-### 0.5 Host OS sanity
-
-Verified on Ubuntu 22.04 LTS. Warn (don't abort) on other distros.
+### 0.5 `sudo` constraint
 
 > **`sudo` runs in the USER's terminal, not the skill's.** Commands the skill issues over its own non-interactive shell have no TTY/askpass, so `sudo` fails silently. Path A's only `sudo` need is the one-time tftpd-hpa install (and only if not already installed). Path B's `watch chmod` and `picocom` must be run by the user in their own terminal.
 
@@ -171,7 +156,7 @@ nmcli connection up "<name>"
 
 ### A3 — Start the UDP log listener (background)
 
-The board streams swupdate's TFTP-progress + install/error lines to UDP 12345 during the post-reboot update phase.
+The board streams swupdate's TFTP-progress + install/error lines to UDP 12345 during the post-reboot update phase (port customisable via `-p` to `run_swupdate.sh`).
 
 ```bash
 nc -u -l -k 12345 > /tmp/swupdate_logs.txt &
@@ -188,11 +173,10 @@ Watch the file (`tail -f /tmp/swupdate_logs.txt`) while Phase A4 runs — that's
 
 Rules for the announcement:
 - Use exactly **"ETA is ~X minutes"** — not paraphrases like "the board will be unreachable for ~X minutes".
-- Put it on its own line (bolded), not buried mid-paragraph or in a table.
 - **Repeat the ETA line in the post-kickoff status summary** — that's the message the user actually reads; an ETA that only appears before the tool call is easy to miss.
 - No confirmation pause needed — announce and proceed in the same turn. If the estimate changes mid-flight (e.g. slow TFTP), report the revised ETA immediately.
 
-ETA values: ~6 min on H15L gigabit with tftpd-hpa; H15H ~7 min for its larger multi-mode flash; **~7–8 min when the TFTP server falls back to 512-byte blocks (~1.9 MB/s — e.g. a minimal Python TFTP server on a Windows host)**. Path B/UART runs longer — call it ~10–15 min plus the manual steps.
+ETA values: ~6 min on H15L gigabit; ~7 min on H15H (larger multi-mode flash). Path B/UART runs longer — call it ~10–15 min plus the manual steps.
 
 ```bash
 sshpass -p root ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
@@ -252,6 +236,7 @@ Report:
 - `uptime` shows a recent boot.
 - `BUILD_TIME` / `IMAGE_NAME` in `/etc/build-info` confirms the fresh rootfs.
 - `IMAGE_NAME` also signals whether this is a **dev image** vs a release build — drives the camera-viewer auto-offer in the final "Hailo Camera Viewer" section. Release rootfs recipe is `core-image-minimal`; a dev image carries a `dev` token (e.g. `core-image-dev-…` / `hailo-core-image-dev-…`).
+- Board boots autonomously on subsequent power cycles.
 
 ### A7 — Cleanup
 
@@ -268,9 +253,9 @@ Failure modes and remediation:
 - **Script returned non-zero / SSH command fails before reboot** → check `Failed to set swupdate_server_ip in U-Boot environment` or `/etc/fw_env.config` issues in the script output. Often just a path/permissions issue on the board, not a flash failure. Retry once.
 - **TFTP progress stalls at 0% or never starts** → host firewall (`sudo ufw status`; if active `sudo ufw allow 69/udp`), `tftpd-hpa` not actually serving (`systemctl status tftpd-hpa`), `/var/lib/tftpboot` perms (`ls -la`), or `.swu` not at the path the script requested.
 - **TFTP completes but swupdate errors** (e.g. `SWUPDATE failed`, `corrupted image`, `signature verification failed`) → wrong-board `.swu` or a truncated `.swu` (re-verify SHA-256 against the source). The target guard in 0.2 should have caught wrong-board, but verify.
-- **`SWUPDATE successful` but board never returns** (SSH poll keeps timing out past ~8 min) → the new image isn't booting. The board is now in a state where its boot config has been pointed at a freshly-written image that doesn't come up. This is the cue to **fall back to Path B (UART recovery)** to reflash from cold. The OS Guide §8.3 says SCU will eventually drop to UART recovery automatically after exhausting retries — but if you've waited and nothing's come back, switch to Path B and proceed with the hardware procedure there. Keep `/var/lib/tftpboot` populated; Path B's Phase B2 step 7 will need the fuller payload (`fitImage` + `.ext4.gz` + `.swu`). **Don't burn time on serial *diagnosis* first** (picocom boot log to see *why* it hung) — go straight to Path B *recovery* flashing a known-good release back.
+- **`SWUPDATE successful` but board never returns** (SSH poll keeps timing out past ~8 min) → the new image isn't booting — **fall back to Path B (UART recovery)** to reflash from cold. The OS Guide §8.3 says SCU eventually drops to UART recovery automatically after exhausting retries, but driving Path B is faster than waiting. Keep `/var/lib/tftpboot` populated; Phase B2 needs the fuller payload (`fitImage` + `.ext4.gz` + `.swu`). **Don't burn time on serial *diagnosis* first** — go straight to Path B *recovery* flashing a known-good release back.
 
-If Path A succeeds, skip Path B entirely and go to "What success looks like".
+If Path A succeeds, skip Path B entirely — A6's checks define success; continue at "Next step — Hailo Camera Viewer".
 
 ---
 
@@ -287,7 +272,7 @@ Hardware-in-the-loop. Half host commands, half "please flip the DIP switch and p
    ```
    > Tools may already be installed in a **virtualenv**. Check `command -v uart_boot_fw_loader hailo15_emmc_program hailo15_spi_flash_program` first; if they resolve, skip the `pip install`.
 
-2. **FTDI udev rule** — best-effort only; **the real permission fix is the Phase B3 watch-chmod**, because the doc's rule targets the wrong subsystem (see Gotchas). If absent, add it:
+2. **FTDI udev rule** — best-effort only; **the real permission fix is the Phase B3 watch-chmod**, because the doc's rule targets `SUBSYSTEM=="usb"`, not the `tty` node `ftdi_sio` actually creates. If absent, add it:
    ```bash
    echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="0403", ATTR{idProduct}=="6015", MODE="0666"' | sudo tee -a /etc/udev/rules.d/99-usb.rules
    sudo udevadm control --reload && sudo udevadm trigger && sudo adduser $USER plugdev
@@ -298,23 +283,15 @@ Hardware-in-the-loop. Half host commands, half "please flip the DIP switch and p
 
 (If Path A already set up tftpd-hpa: it's still running, just add the extra files.)
 
-> **Use plain `cp` — do NOT prefix `sudo`.** `/var/lib/tftpboot` is `777` (A1 set it), so the skill's non-interactive shell can replace files directly regardless of file owner. Prefixing `sudo` makes the copy **fail silently** (no TTY/askpass — see 0.5), leaving a STALE payload in place — the canonical `.swu` can silently keep a *previous flash's wrong-version* image.
+> **Use plain `cp` (never `sudo`), overwrite ALL THREE files every time, and verify content — not presence.** `/var/lib/tftpboot` is `777` (A1 set it); a `sudo`-prefixed copy **fails silently** in the skill's non-interactive shell (see 0.5) and leaves a STALE payload. And the names collide two ways — `fitImage` across *boards*, all three files across *versions* — so a prior flash can leave a different-version payload under the exact same canonical name. The loop below copies-then-compares, so it self-heals; as a backstop, re-run the `cmp` on the `.swu` just before driving the U-Boot menu in B7 (it's the file that actually gets flashed).
 
 ```bash
 # tftpd-hpa already configured by Path A; if coming here directly, run A1's sudo tee block first.
-# NB: plain cp (NOT sudo) — the dir is 777; sudo would silently no-op and leave stale files.
 for f in fitImage <swupdate-image-...ext4.gz> <hailo-update-image-...swu>; do
   cp -v "<work-dir>/prebuilt/sbc/$f" /var/lib/tftpboot/
   cmp -s "<work-dir>/prebuilt/sbc/$f" "/var/lib/tftpboot/$f" && echo "  MATCH $f" || echo "  DIFFER $f"
 done
 ```
-
-> **Overwrite `fitImage` AND the `.swu` every time — and verify content, not just presence.** The names collide two ways: `fitImage` across *boards*, and `fitImage` / `.ext4.gz` / `.swu` across *versions* — a prior OTA or flash may have left a different-version payload under the exact same canonical name. The loop above copies-then-compares, so it self-heals — but if a copy is skipped or `sudo`'d, you'd flash the old image with no error. Worse, the unrelated files (`fitImage`, `.ext4.gz`) can still report `MATCH` while only the `.swu` is stale, which *looks* like a clean payload. Backstop — confirm the canonical `.swu` matches the source before driving the menu:
-> ```bash
-> SWU=<hailo-update-image-...swu>
-> cmp -s "<work-dir>/prebuilt/sbc/$SWU" "/var/lib/tftpboot/$SWU" \
->   && echo "  canonical .swu OK" || echo "  canonical .swu STALE/WRONG — re-copy before proceeding"
-> ```
 
 ## Phase B3 — Permission keeper (HARD PAUSE, set up BEFORE any USB)
 
@@ -382,7 +359,7 @@ If absent on **H15L**: DIP wrong, cable in the USB-A port instead of uUSB J1, or
 > - Silent, process in `D` state, `/dev/ttyUSB0` gone → FTDI lost its tty. Check `lsusb` + `/dev/ttyUSB0`; reset + replug rather than blind retry. Some LED flicker / brief ttyUSB0 disappearance mid-transfer is normal re-enumeration.
 > - **`could not connect to the recovery agent`** → the boot ROM only listens on UART for a short window after reset. **Hard-pause, have the user press RESET, then re-run the loader immediately.** (Also verify DIP `1=ON, 2=OFF`, and on H15H that Rx/Tx aren't swapped.) Expected on the first try if time elapsed since the last reset. **To dodge it entirely: run the loader as the very next action after B4's power-on+RESET `done`** — don't interleave other host checks; if the loader runs within ~30s of the RESET it connects first try.
 
-**Load recovery FW over UART** (`$BOARD` filename + flag from the matrix):
+**Load recovery FW over UART** (note: the `--h15l` flag is H15L-only):
 ```bash
 cd <work-dir>
 # H15L:
@@ -483,7 +460,7 @@ for i in $(seq 1 180); do
   echo "[$(date +%H:%M:%S)] waiting for booted OS (SSH)…"; sleep 5
 done
 ```
-Report the new `VERSION` (matches target — **`VERSION`, not `VERSION_ID`**), machine (`Hailo-15l`/`Hailo-15`), and active boot offset (`0x00000000` for single-image). The changed host key is expected, not a security event. See `/connect`.
+Report the new `VERSION` (matches target — **`VERSION`, not `VERSION_ID`**), machine (`Hailo-15l`/`Hailo-15`), and active boot offset (`0x00000000` for single-image). The changed host key is expected, not a security event. See `/connect`. Adjacent green LEDs staying lit through boot is the visual healthy-boot sign; the board should boot autonomously on subsequent power cycles.
 
 **Cleanup.** Leave the work dir in place. Tell the user the picocom session can close (`Ctrl-A Ctrl-X`) and the **Phase B3 watch-chmod loop can now stop** (`Ctrl-C`).
 
@@ -528,48 +505,14 @@ Ask the user, e.g.: *"This is a dev image — want me to start the Hailo Camera 
 
 **Why `setup_hailo_sensor.sh` is mandatory:** without it `camera-viewer-server` crashes with `Configuration architecture '<other>' does not match current architecture '<this board>'`, because the shipped default config is for the other arch. Don't hand-pick a sensor/lens config — let the setup script detect it. Config symlinks live at `/etc/imaging/cfg/medialib_configs` and do **NOT** survive a reflash, so `setup_hailo_sensor.sh` must be re-run on every fresh image.
 
-## What success looks like
-
-- `sshpass -p root ssh ... root@10.0.0.1 'grep "^VERSION=" /etc/os-release'` returns the new version (after clearing the old host key).
-- `/sys/devices/soc0/boot_info/active_boot_image_offset` returns `0x00000000` (single-image, slot A).
-- Board boots autonomously on power cycle.
-- On Path A: total elapsed wall-time ≈ 6 min on H15L (longer on slower networks).
-- On Path B: adjacent green LEDs stay lit during boot.
-
 ## Gotchas
 
-### Both paths
-- **Wrong board's package bricks the SBC.** The Phase 0.2 target guard (token vs `$BOARD`) is non-negotiable. `hailo15l` ≠ `hailo15h` binaries.
-- **os-release uses `VERSION=`, not `VERSION_ID=`.** Grep `^VERSION=`. The `NAME=` field **varies by release** (1.10.1 says `"HAILO Hailo-15"`, 1.11.0 says `"Hailo15l"`) — never rely on it for board detection. **Use `/sys/devices/soc0/machine`** (`Hailo-15l` / `Hailo-15`), which is version-independent.
-- **Post-flash SSH fails twice (expected):** changed host key → `ssh-keygen -R 10.0.0.1`; then password-only auth → `sshpass -p root` with `UserKnownHostsFile=/dev/null`. See `/connect`.
+(Traps are documented inline at their point of use; only these aren't.)
 - **Ethernet must be 10.0.0.0/24, no DHCP switch**: the SBC is static `10.0.0.1`, no DHCP client.
 - **U-Boot/swupdate TFTP only reads `/var/lib/tftpboot`** (tftpd-hpa `--secure` chroots there).
-- **Same-version OTA is still a real flash** — components are written, fw_env updated, rootfs resized. Not a no-op. Useful for corruption recovery.
-
-### Path A (OTA)
-- **`-b` (batch) is mandatory.** Without it the script blocks forever on a yes/no prompt and spams stdout with "Invalid input". No `--yes` alias — only `-b`.
-- **A/B dual-image (`-d`) is NOT supported on H15L eMMC** (OS Guide §8.11). The skill stays in single-image mode. On H15H A/B is permitted by the doc but out of scope here.
-- **The post-flash boot offset is `0x00000000`** for single-image flashes (slot A only). Don't expect it to "flip."
-- **UDP logs on 12345 are the only window** into the post-reboot apply phase. Start the listener BEFORE invoking `run_swupdate.sh`. Customisable via `-p` to the script.
-- **§8.5 partition-init version-match constraint does NOT apply** to subsequent OTAs — only to the one-time partition init (which already happened in production and this skill doesn't redo).
-- **Lua "swupdate_handlers not found" trace noise is harmless** — swupdate falls through to native handlers and still succeeds.
-- **H15H: `mtd-interface.c : cannot attach mtd0` printed as `SWUPDATE failed [0]` is BENIGN** (see A5). It fires once per swupdate mode (H15H runs three) as a NAND/UBI probe that doesn't apply to SPI-flash+SD, then the mode succeeds anyway. Don't abort on it; don't let a failure-watcher grep match it.
-- **The stale-canonical-`.swu` trap applies to Path A too** — A1's `cp` + sha256-vs-source guards it, but only because it re-verifies content. tftpboot's `hailo-update-image-hailo15-sbc.swu` is reused across versions/boards; a prior flash leaves a different-version image under the same name. Never skip A1's sha256 MATCH check, and never `sudo` the `cp` (no-ops in the skill shell — see B2).
-- **If SWUPDATE reports success but the board never returns** → fall back to Path B. The SCU will eventually drop to UART recovery automatically (OS Guide §8.3), but driving Path B is faster than waiting.
-
-### Path B (UART recovery)
-- **DIP for normal boot is opposite per board:** H15L = both **ON**, H15H = both **OFF**. UART-boot DIP is the same (`1=ON, 2=OFF`).
-- **H15H serial is on the adapter board, not the SBC.** `/dev/ttyUSB0` depends on the **adapter's** USB to the host (appears independent of SBC power); the adapter FTDI may be `0403:6001` (not the SBC's `6015`). **1.8V jumper + GND/Rx/Tx only, never Vcc** — wrong voltage or Vcc damages the device. A **swapped Rx/Tx** gives a live `/dev/ttyUSB0` but a dead link.
-- **"could not connect to the recovery agent"** (H15H, but applies generally): the boot-ROM UART listen window is short — RESET then re-run the loader immediately.
-- **921600 vs 115200** (H15L): `hailo15_emmc_program` uses 921600; picocom uses 115200. H15H `hailo15_spi_flash_program` takes no baud arg (`--uart-load`).
-- **The `fitImage` name collides across boards** — always overwrite from the correct package and byte-verify when re-staging.
-- **The doc's udev rule does NOT fix tty permissions** (`SUBSYSTEM=="usb"` vs the `tty` node `ftdi_sio` creates; and on H15H the PID may differ). The **Phase B3 watch-chmod** is the real fix and must survive every re-enumeration.
-- **Verify by SSH, not ping (B8).** The swupdate rescue image answers ping at `10.0.0.1` mid-flash and at each reboot; only an SSH that returns `VERSION=` proves the flashed OS booted. A ping loop reports success far too early.
-- **A stale same-named payload flashes silently (B2).** TFTP filenames collide across *versions*, not just boards — a prior OTA can leave a wrong-version `.swu` under the canonical name. Re-verify the canonical `.swu` content against the source, and never `sudo` the `cp` (it no-ops in the skill shell and leaves the old file).
-- **Sequence the loader right after B4's RESET** to land in the boot-ROM listen window and avoid the "could not connect to the recovery agent" first-try failure.
+- **A/B dual-image (`-d`) is NOT supported on H15L eMMC** (OS Guide §8.11); on H15H it's permitted by the doc but out of scope — this skill stays single-image, so the post-flash boot offset is always `0x00000000` (don't expect it to "flip").
+- **§8.5 partition-init version-match constraint does NOT apply** to subsequent OTAs — only to the one-time partition init (already done in production; this skill doesn't redo it).
 
 ## What to delegate
 
 - "The board still doesn't come up after flash" → `doc-explorer` on the recovery-mechanism section (H15L §2.3.2 / H15H §2.3.2) — the recovery procedure is Path B, so a persistent failure even after running Path B is likely hardware (storage, power, DIP, or H15H adapter wiring), not software.
-- "OTA worked but I want to understand what got written" → the SWUpdate UDP log in `/tmp/swupdate_logs.txt` shows every installed stream and offset (e.g. `hailo15l_scu_fw.bin` at offset 32768 on `/dev/mmcblk1boot0`, `u-boot-tfa.itb` at offset 344064, then `fitImage` + rootfs install + `resize2fs` + `update_fw_env.sh`).
-- "Which sensor modules can I plug in next?" → §5.1 (supported modules / Approved Vendor List) — out of scope here.
