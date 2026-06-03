@@ -1,6 +1,6 @@
 # Claude & hailo-media-library integration
 
-A customer-facing AI layer on top of the media-library repo. 
+A layer on top of the media-library repo. 
 The goal is to let VPU customers explore docs, build and modify applications, and debug running deployments through Claude - without needing deep knowledge of the code base.
 
 ## On every prompt — check for a relevant skill first
