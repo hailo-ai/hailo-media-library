@@ -123,3 +123,7 @@ For any non-detection swap, read the matching `analytics/<name>.hpp` (constants)
 - **Postprocess function must match HEF tensor name.** Wrong pairing = silent zero output (no detections, no landmarks, empty mask), no error.
 - **Don't override `iou_threshold` from the JSON** expecting it to take effect for `hailo_yolov*` — it doesn't.
 - **H15H HEFs are NHWC, not NV12.** The media library expects NV12 frames at the AI stage; an unchanged NHWC H15H HEF will not work in a media-library pipeline. Always verify with `hailortcli parse-hef` (step 0) and warn the user.
+
+## Offer to run
+
+When this skill's work is complete, ask the user (AskUserQuestion) whether they want to run the app now and see it live. If yes, invoke the **/run-app** skill.

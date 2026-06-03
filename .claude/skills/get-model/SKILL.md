@@ -84,3 +84,4 @@ What the user preferences map to, concretely:
 - *"Swap detection from yolov8s to something faster (higher FPS) on H15L"* → use the table; shortlist `yolov8n` (same family, ~2× FPS@B1) and `yolov6n` (different family, similar FPS). Skip step 3 — latency not asked for. Download `yolov8n.hef`, hand off to `/swap-model`.
 - *"Swap detection to something with lower latency on H15L"* → use the table to shortlist 2–3 candidates, then `WebFetch` each candidate's `<model>_profiler_results_compiled_runtime_data.html#/model-details` page and read the Batch 1 latency. Present the shortlist with latency (ms) per candidate. Download chosen, hand off to `/swap-model`.
 - *"Add face recognition to the face-landmarks pipeline on H15L"* → fetch `HAILO15L_face_recognition.rst`, shortlist `arcface_mobilefacenet` (high FPS) and `arcface_r50` (higher mAP). Download chosen HEF, hand off to `/edit-pipeline`.
+

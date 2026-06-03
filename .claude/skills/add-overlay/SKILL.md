@@ -225,3 +225,7 @@ If the user wants to ship a demo where customers see the analytics without insta
 - [ ] If A: `vision_config.outputs.erase(AI_SINK)` kept; overlay config built via `base_overlay_vision_output_config(AI_SINK)` (NOT default); minimal OpenCV link set; cross-compiled and deployed.
 - [ ] If B: ZMQ sender pipeline still wired in `main.cpp`; viewer launched before board app; SEI parser bug patched if you see the spam.
 - [ ] User visually confirmed the overlay on the right UDP port (`5000 + sink_num*2`).
+
+## Offer to run
+
+When this skill's work is complete, ask the user (AskUserQuestion) whether they want to run the app now and see it live. If yes, invoke the **/run-app** skill.

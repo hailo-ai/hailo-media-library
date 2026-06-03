@@ -95,3 +95,7 @@ The canonical minimal example is `apps/case_studies/custom_stage/main.cpp` — c
 - **Each `ThreadedStage` spawns a thread.** The H15 has 4 CPU cores. Long chains with many threaded stages contend — prefer a pre-built §10.6 stage over a custom one when possible, and tune queue sizes (§10.2.4) so the cheap stages don't starve the expensive ones.
 - **`build()` validates connections, not semantics.** It throws on unknown stage names, but it does NOT check that buffer payloads are compatible between connected stages. Wiring a stage that expects detections after one that produces only raw frames compiles fine and runs to silence.
 - **Resource ownership across helpers.** When two `generate_*_pipeline` helpers can both consume the same underlying resource (e.g. a sink's `EncoderStage`, or a `FrontendStage` output stream), only one can own it. The common case: `generate_vision_pipeline` auto-claims encoders for every sink listed in `vision_config.outputs`; if another helper needs that encoder, leave the sink out of `outputs`.
+
+## Offer to run
+
+When this skill's work is complete, ask the user (AskUserQuestion) whether they want to run the app now and see it live. If yes, invoke the **/run-app** skill.

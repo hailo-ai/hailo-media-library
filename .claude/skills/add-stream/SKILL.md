@@ -60,3 +60,7 @@ Use the next free `sinkN` (one greater than the current highest) as the stream I
 - Total pixel-rate across all streams is bounded by ISP/DSP throughput. Adding a 4K@30 alongside an existing pipeline that also has 4K@30 may not fit. If unsure, check with **perf-expert**.
 - If the app's `main.cpp` does `vision_config.outputs.erase("sinkN")` for the *new* stream you just added, it won't produce UDP output. Read `main.cpp` before declaring done.
 - Profile directories differ by board+sensor — for H15L+imx678 it's `/etc/imaging/cfg/hailo15l/imx678/theia_sl410m/4k/profiles/<profile>/...`. Don't hardcode; resolve from the medialib config.
+
+## Offer to run
+
+When this skill's work is complete, ask the user (AskUserQuestion) whether they want to run the app now and see it live. If yes, invoke the **/run-app** skill.
