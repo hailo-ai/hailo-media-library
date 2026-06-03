@@ -184,7 +184,17 @@ Watch the file (`tail -f /tmp/swupdate_logs.txt`) while Phase A4 runs — that's
 
 ### A4 — Kick off the update
 
-**Tell the user the flash is starting and give an ETA before kicking off**, so they know what to expect and that the SSH drop is normal — e.g. *"Starting the OTA update now — the board will reboot, pull the image over TFTP, apply it, and reboot back. This takes about **6–7 minutes** (longer on a slow network); I'll report when it's back up."* (~6 min on H15L gigabit; H15H ~7 min for its larger multi-mode flash. Path B/UART runs longer — call it ~10–15 min plus the manual steps.)
+**Announce the flash with the literal phrase "ETA is ~X minutes", on its own prominent line** — e.g.:
+
+> **Starting the SW update to \<version\>. ETA is ~7 minutes.**
+
+Rules for the announcement (user-validated phrasing):
+- Use exactly **"ETA is ~X minutes"** — not paraphrases like "the board will be unreachable for ~X minutes".
+- Put it on its own line (bolded), not buried mid-paragraph or in a table.
+- **Repeat the ETA line in the post-kickoff status summary** — that's the message the user actually reads; an ETA that only appears before the tool call is easy to miss.
+- No confirmation pause needed — announce and proceed in the same turn. If the estimate changes mid-flight (e.g. slow TFTP), report the revised ETA immediately.
+
+ETA values: ~6 min on H15L gigabit with tftpd-hpa; H15H ~7 min for its larger multi-mode flash; **~7–8 min when the TFTP server falls back to 512-byte blocks (~1.9 MB/s — e.g. a minimal Python TFTP server on a Windows host)**. Path B/UART runs longer — call it ~10–15 min plus the manual steps.
 
 ```bash
 sshpass -p root ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
