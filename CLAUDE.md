@@ -16,11 +16,12 @@ when no skill fits.
 |---|---|
 | **Connection** | `/connect` |
 | **Explore** | `/explain-pipeline`, `/get-model`|
-| **Modification** | `/add-stream`, `/add-osd`, `/swap-model`, `/edit-pipeline` |
+| **Modification** | `/add-stream`, `/add-overlay`, `/swap-model`, `/edit-pipeline` |
 | **Build** | `/cross-compile` |
-| **Deploy & run** | `/deploy` |
+| **Deploy & run** | `/deploy`, `/run-app` |
 | **Debug** | `/board-status`|
 | **Lifecycle** | `/sw-update` |
+| **Maintenance** | `/update-claude-beta` |
 
 ## Agents (called by skills for scoped expertise)
 

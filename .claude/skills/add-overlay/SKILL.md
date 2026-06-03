@@ -1,10 +1,10 @@
 ---
-name: add-osd
+name: add-overlay
 description: Add, modify, or remove AI analytics overlay (bboxes, masks, landmarks, etc.) on a hailo-media-library encoded stream. Two paths — (A) board-side burn-in via OverlayStage, (B) host-side drawing by analytic_viewer. Use when the user asks for any analytics overlay or "see the bboxes/masks/landmarks". MUST ask whether the overlay should be drawn on board (burned into UDP stream) or on host (display-only by analytic_viewer) before proceeding.
 tools: Read, Write, Edit, Bash, Grep, Agent
 ---
 
-# /add-osd — manage analytics overlays
+# /add-overlay — manage analytics overlays
 
 "Analytics overlay" here covers any visual rendering of an AI pipeline's output: detection bboxes, segmentation masks, face/pose landmarks, dynamic privacy masks (DPM), license plate text, recognition labels, and so on. The mechanism is the same regardless of analytics type — only the data being drawn differs.
 
@@ -37,7 +37,7 @@ Do not skip this question even if the user said "OSD" — that word is overloade
 
 ## Path A — OverlayStage (analytics burn-in on board)
 
-**When to use:** the user wants AI analytics output **rendered on the board** so every UDP receiver sees it, including plain players like `gst-launch-1.0`. This requires a `main.cpp` change + cross-compile + redeploy. Replaces (or augments) the host-side analytic_viewer.
+**When to use:** the user wants AI analytics output **rendered on the board** so every UDP receiver sees it — including the plain `analytic_viewer` run without a ZMQ subscription, since the overlays are already baked into the encoded stream. This requires a `main.cpp` change + cross-compile + redeploy. Replaces (or augments) host-side analytics drawing.
 
 ### What it is
 
@@ -96,11 +96,13 @@ To switch to board-side burn-in:
 
 5. **Deploy.** Push the binary; configs are unchanged.
 
-6. **Verify with a plain player.** Since the analytics output is *in the bitstream*, use any H264/RTP receiver, no analytic_viewer:
+6. **Verify with `analytic_viewer` (no ZMQ subscription).** The overlay is already in the bitstream, so launch the viewer with only the UDP port — omit `--analytic-data-port` so it does no host-side drawing on top:
    ```bash
-   gst-launch-1.0 udpsrc port=5004 caps='application/x-rtp,encoding-name=H264' \
-     ! rtph264depay ! avdec_h264 ! videoconvert ! autovideosink sync=false
+   source /home/oreny/hailo/venvs/analytic_viewer/bin/activate
+   cd /home/oreny/hailo/vpu/repos/hailo-media-library/tools/analytic_viewer
+   python app_analytic_draw_client.py --udp-port <udp_port>
    ```
+   Confirm the overlays are visible. Because nothing is being drawn host-side, anything you see is what every other UDP receiver gets too.
 
 ### overlay_config_t fields you can override
 
@@ -182,18 +184,6 @@ The encoded stream is unchanged — anyone *else* receiving the same UDP port se
 
 4. **Start the board app** (after the viewer is listening — UDP is fire-and-forget).
 
-### Known viewer bug
-
-`app_analytic_draw_client.py` has a SEI-probe parser that does:
-```python
-nals = map_info.data.split(b'\x00\x00\x01')
-```
-This raises `AttributeError: 'memoryview' object has no attribute 'split'` repeatedly. Fix:
-```python
-nals = bytes(map_info.data).split(b'\x00\x00\x01')
-```
-The viewer still works through ZMQ even with the error spamming, but the SEI-embedded metadata path is broken until patched. Edit `tools/analytic_viewer/app_analytic_draw_client.py` line ~255 in the local clone.
-
 ### Trade-offs vs Path A
 
 | Aspect | Path A (board burn-in) | Path B (host viewer) |
@@ -235,3 +225,7 @@ If the user wants to ship a demo where customers see the analytics without insta
 - [ ] If A: `vision_config.outputs.erase(AI_SINK)` kept; overlay config built via `base_overlay_vision_output_config(AI_SINK)` (NOT default); minimal OpenCV link set; cross-compiled and deployed.
 - [ ] If B: ZMQ sender pipeline still wired in `main.cpp`; viewer launched before board app; SEI parser bug patched if you see the spam.
 - [ ] User visually confirmed the overlay on the right UDP port (`5000 + sink_num*2`).
+
+## Offer to run
+
+When this skill's work is complete, ask the user (AskUserQuestion) whether they want to run the app now and see it live. If yes, invoke the **/run-app** skill.

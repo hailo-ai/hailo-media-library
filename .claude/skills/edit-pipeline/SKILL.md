@@ -24,7 +24,7 @@ Most apps in this repo (`single_stream`, the vision case studies, etc.) build th
 | "stream to a different host or port"   | edit the `udp` sink's `host` / `port` in the profile JSON               |
 | "change bitrate / encoder profile"     | edit the per-sink `encoder_sinkN.json`                                   |
 | "use a different HEF"                  | **/swap-model**                                                          |
-| "draw bboxes on the video"             | **/add-osd**                                                             |
+| "draw bboxes on the video"             | **/add-overlay**                                                         |
 
 **Heuristic:** if the answer to "does the *topology* of stages change?" is no — only counts, parameters, or destinations change — it's a JSON edit. Read the app's `main.cpp` for ~30 seconds first: if `create_pipeline()` is a single `generate_*_pipeline()` call, the pipeline lives in JSON, not C++.
 
@@ -82,7 +82,7 @@ The canonical minimal example is `apps/case_studies/custom_stage/main.cpp` — c
 
 - **/add-stream** — first stop for anything that's just "more streams" / "new sinkN" / different resolution. Handles JSON edits, per-sink file generation, and the on-board push.
 - **/swap-model** — HEF-only changes (config struct on `HailortAsyncStage`, not topology).
-- **/add-osd** — just drawing bboxes / labels on the frame.
+- **/add-overlay** — just drawing bboxes / labels on the frame.
 - **/explain-pipeline** — if the user needs help articulating the current topology before deciding.
 - **pipeline-expert** — cross-sink frame correlation (`MuxerStage`/`DemuxerStage`).
 - **doc-explorer** — a specific stage's parameter list (§10.6).
@@ -95,3 +95,7 @@ The canonical minimal example is `apps/case_studies/custom_stage/main.cpp` — c
 - **Each `ThreadedStage` spawns a thread.** The H15 has 4 CPU cores. Long chains with many threaded stages contend — prefer a pre-built §10.6 stage over a custom one when possible, and tune queue sizes (§10.2.4) so the cheap stages don't starve the expensive ones.
 - **`build()` validates connections, not semantics.** It throws on unknown stage names, but it does NOT check that buffer payloads are compatible between connected stages. Wiring a stage that expects detections after one that produces only raw frames compiles fine and runs to silence.
 - **Resource ownership across helpers.** When two `generate_*_pipeline` helpers can both consume the same underlying resource (e.g. a sink's `EncoderStage`, or a `FrontendStage` output stream), only one can own it. The common case: `generate_vision_pipeline` auto-claims encoders for every sink listed in `vision_config.outputs`; if another helper needs that encoder, leave the sink out of `outputs`.
+
+## Offer to run
+
+When this skill's work is complete, ask the user (AskUserQuestion) whether they want to run the app now and see it live. If yes, invoke the **/run-app** skill.

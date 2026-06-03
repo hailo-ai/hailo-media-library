@@ -86,3 +86,7 @@ ssh root@<board> '
 - **The metadata content_hash will reject your edits** unless you set `HAILO_MEDIA_LIB_SKIP_METADATA_CONFIG_VALIDATION=1`. Tell the user this isn't a workaround for production — for a long-lived deployment, regenerate hashes with the Tuning tool.
 - **Don't push to `/usr/`** unless you know what you're doing — it can shadow the board image's libs and break unrelated tools. Apps and resources live under `/home/root/apps/`; configs under `/etc/imaging/cfg/`.
 - **Don't run a HEF whose postprocess `.so` isn't on the board.** If pushing a custom postprocess, push the `.so` to `/usr/lib/hailo-post-processes/` too.
+
+## Offer to run
+
+When this skill's work is complete, ask the user (AskUserQuestion) whether they want to run the app now and see it live. If yes, invoke the **/run-app** skill.

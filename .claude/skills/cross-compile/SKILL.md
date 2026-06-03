@@ -19,7 +19,7 @@ The Yocto SDK ships a full sysroot with all hailo-media-library libs prebuilt. F
    ```
    /opt/poky/4.0.23/                    # default install location
    ```
-   If no SDK is installed, install it from the BSP package — look for `.../prebuilt/sbc/sdk/poky-glibc-x86_64-core-image-minimal-armv8a-hailo15<arch>-sbc-toolchain-*.sh`. It's a 2.5 GB self-extractor:
+   If the search fails (no `environment-setup-armv8a-poky-linux` found in the usual places), **ask the user where the toolchain is located** before proceeding — do not assume a path or jump to installing a new SDK. Only if the user confirms no SDK is installed, install it from the BSP package — look for `.../prebuilt/sbc/sdk/poky-glibc-x86_64-core-image-minimal-armv8a-hailo15<arch>-sbc-toolchain-*.sh`. It's a 2.5 GB self-extractor:
    ```bash
    <installer>.sh -y -d <destination-path>
    ```
@@ -62,14 +62,14 @@ Each tree has a slightly different build, all per §6.2–§6.4:
 
 # hailo-media-library (§6.2)
 cd hailo-media-library
-meson setup build --buildtype=debug --prefix=/usr -Dplatform=15h   # or -Dplatform=15l
+meson setup build --buildtype=release --prefix=/usr -Dplatform=15h   # or -Dplatform=15l
 ninja -C build
 DESTDIR=/tmp/install ninja -C build install
 scp -r /tmp/install/* root@<target-ip>:/
 
 # hailo-analytics (§6.3) — heavier, can OOM
 cd hailo-analytics
-meson setup build --buildtype=debug --prefix=/usr -Dplatform=15h \
+meson setup build --buildtype=release --prefix=/usr -Dplatform=15h \
   -Dapps_install_dir=/home/root/apps
 ninja -C build -j 10 -l 10           # job-limit prevents memory exhaustion
 DESTDIR=/tmp/install ninja -C build install
@@ -77,7 +77,7 @@ scp -r /tmp/install/* root@<target-ip>:/
 
 # hailo-postprocess (§6.4)
 cd hailo-postprocess
-meson setup build --buildtype=debug --prefix=/usr -Dplatform=15h \
+meson setup build --buildtype=release --prefix=/usr -Dplatform=15h \
   -Dpost_processes_install_dir=/usr/lib/hailo-post-processes/
 ninja -C build
 DESTDIR=/tmp/install ninja -C build install

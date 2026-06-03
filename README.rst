@@ -45,10 +45,10 @@ The Hailo Media Library includes reference code and application examples that de
 
 The reference code and applications examples are available in the `Hailo-media-library repository <https://github.com/hailo-ai/hailo-media-library/tree/1.11.0>`
 
-Agentic workflow
+Agentic coding
 ---------------------------------------
 This repo ships with Claude skills and agents (defined under `.claude/ <.claude/>`_) that turn multi-page procedures into single commands:
-explain a pipeline (/explain-pipeline), modify it (/add-stream, /swap-model, /add-osd), build and deploy to the board (/cross-compile, /deploy), and debug at runtime (/board-status).
+explain a pipeline (/explain-pipeline), modify it (/add-stream, /swap-model, /add-overlay), build and deploy to the board (/cross-compile, /deploy), run an app and display it in the analytic viewer (/run-app), and debug at runtime (/board-status). Between SDK releases, /update-claude-beta pulls newer skills/agents from the dedicated `hailo15-agentic-coding <https://github.com/hailo-ai/hailo15-agentic-coding>`_ repo.
 You don't need deep knowledge of the codebase to build an app demo or modify one to fit your requirements.
 
 `.claude/README.md <.claude/README.md>`_ 
