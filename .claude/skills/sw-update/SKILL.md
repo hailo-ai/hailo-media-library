@@ -24,13 +24,11 @@ Determine `$BOARD` ∈ {`h15l`, `h15h`} in Phase 0, then read every step down th
 | **Board ID (reliable, version-independent):** `/sys/devices/soc0/machine` | `Hailo-15l` | `Hailo-15` |
 | os-release `NAME` (varies by release — **do NOT use for board detection**) | 1.11.0: `Hailo15l` • 1.10.1: `HAILO Hailo-15` • etc. | 1.11.0: `Hailo15` • older releases vary |
 | **OTA `.swu` filename** | `hailo-update-image-hailo15l-sbc.swu` | `hailo-update-image-hailo15-sbc.swu` |
-| **OTA validated end-to-end?** | ✅ 2026-05-31 (1.11.0) | ✅ 2026-06-02, both directions (1.11.0 ↔ 1.10.1) — see H15H-specific notes in A5 |
 | OTA dual-image (`-d`) supported? | **No** (OS Guide §8.11 — A/B not yet supported on eMMC) | Yes (out of scope for this skill — single-image only) |
 | --- | --- | --- |
 | **(Path B only — UART recovery)** | | |
 | Quick-start guide section | hailo15l §2.3 | hailo15h §2.3 |
 | Serial link | micro-USB → SBC **J1** (FTDI `0403:6015` **on the SBC**) | **UART1 adapter board** → SBC **J4** pins 14/16/18 (FTDI **on the adapter**, e.g. `0403:6001`) |
-| `/dev/ttyUSB0` appears | at **SBC power-on** | when the **adapter's USB** is plugged into the host (independent of SBC power) |
 | DIP SW1 — UART boot | `1=ON, 2=OFF` | `1=ON, 2=OFF` *(same)* |
 | DIP SW1 — normal boot | `1=ON, 2=ON` (both ON) | **`1=OFF, 2=OFF` (both OFF)** |
 | Recovery FW file | `hailo15l_uart_recovery_fw.bin` | `hailo15_uart_recovery_fw.bin` |
@@ -95,8 +93,8 @@ sshpass -p root ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 
 
 - Use `VERSION=` for the version comparison (present on every release).
 - Use `/sys/devices/soc0/machine` (not `NAME=`) to confirm board variant.
-- If `VERSION` matches the target: report it and **ask whether to reflash anyway**. Same-version OTA is still a real flash (validated: components are written, fw_env updated, rootfs resized) — useful for recovery-from-corruption scenarios. If the user declines, exit.
-- If `VERSION` is older than the target → upgrade path. If newer than the target → downgrade path (validated 1.11.0 → 1.10.1 works the same way; ~5 min). OTA is version-agnostic — both directions go through the same Path A.
+- If `VERSION` matches the target: report it and **ask whether to reflash anyway**. Same-version OTA is still a real flash (components are written, fw_env updated, rootfs resized) — useful for recovery-from-corruption scenarios. If the user declines, exit.
+- If `VERSION` is older than the target → upgrade path. If newer than the target → downgrade path (works the same way; ~5 min). OTA is version-agnostic — both directions go through the same Path A.
 
 ### 0.4 **OTA viability probe (PATH SELECTOR)**
 
@@ -119,7 +117,7 @@ sshpass -p root ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 
 
 - `PROBE_SSH_OK` absent → board unreachable. **Path B (UART recovery).**
 - `PROBE_OTA_SCRIPT_MISSING` → board is on a pre-OTA firmware. **Path B.**
-- Partitions are NOT a clean single-image layout — i.e. blank / A/B-initialized / corrupt → **Path B.** A clean single-image layout = exactly one boot partition + one rootfs partition on the boot device. **Match the shape, not a hardcoded device index.** Both `mmcblk1p1,mmcblk1p2` and `mmcblk0p1,mmcblk0p2` are valid — the mmcblk number is just enumeration order and is NOT board-fixed. (Validated 2026-06-02: an H15H probed as `mmcblk1p1,mmcblk1p2` — the "H15L" pattern — and OTA'd fine both directions. An earlier version of this rule hardcoded H15H=`mmcblk0` and would have wrongly routed this board to Path B.)
+- Partitions are NOT a clean single-image layout — i.e. blank / A/B-initialized / corrupt → **Path B.** A clean single-image layout = exactly one boot partition + one rootfs partition on the boot device. **Match the shape, not a hardcoded device index.** Both `mmcblk1p1,mmcblk1p2` and `mmcblk0p1,mmcblk0p2` are valid — the mmcblk number is just enumeration order and is NOT board-fixed (an H15H can legitimately probe as `mmcblk1`; hardcoding per-board indexes wrongly routes healthy boards to Path B).
 - All three OK → **Path A (default, jump to Phase A1).**
 
 If the user explicitly asks for UART recovery despite a passing probe (e.g. they want to validate the recovery procedure), honour it — go to Path B.
@@ -188,7 +186,7 @@ Watch the file (`tail -f /tmp/swupdate_logs.txt`) while Phase A4 runs — that's
 
 > **Starting the SW update to \<version\>. ETA is ~7 minutes.**
 
-Rules for the announcement (user-validated phrasing):
+Rules for the announcement:
 - Use exactly **"ETA is ~X minutes"** — not paraphrases like "the board will be unreachable for ~X minutes".
 - Put it on its own line (bolded), not buried mid-paragraph or in a table.
 - **Repeat the ETA line in the post-kickoff status summary** — that's the message the user actually reads; an ETA that only appears before the tool call is easy to miss.
@@ -202,7 +200,7 @@ sshpass -p root ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 
   root@10.0.0.1 "/etc/run_swupdate.sh -b -r $SWU -s 10.0.0.2"
 ```
 
-> **`-b` (batch mode) is MANDATORY.** Without it, `run_swupdate.sh` blocks on a `read -p "...continue? (yes/no)"` prompt and the non-interactive shell spams "Invalid input. Please enter 'yes' or 'no'." forever (one early-validation run hit this and produced a 250 MB output file before being killed). There is no `--yes` flag — only `-b`.
+> **`-b` (batch mode) is MANDATORY** — without it the script blocks forever on an interactive yes/no prompt, flooding stdout. There is no `--yes` flag — only `-b`.
 
 The script returns within ~1 second after setting U-Boot env (`swupdate_server_ip`) and calling `set_sw_image.sh remote_update`. Then the board reboots — SSH drops.
 
@@ -225,7 +223,7 @@ Healthy progress markers in `/tmp/swupdate_logs.txt` along the way:
 - `[INFO ] : SWUPDATE successful ! SWUPDATE successful !`
 - `SWUpdate finished` → `Rebooting...`
 
-> **H15H runs THREE swupdate modes in sequence, not one** (validated 2026-06-02): `init-partitions-single` → `init-scu-bl` → `copy-a` (the last writes the ~650 MB rootfs to slot A). Each mode emits its OWN `SWUPDATE successful ! / SWUpdate was successful !`, so **the first success is NOT "done"** — wait for `SWUpdate finished` → `Rebooting...` after the `copy-a` mode. (H15L is single-mode: just `init-partitions-single`.)
+> **H15H runs THREE swupdate modes in sequence, not one**: `init-partitions-single` → `init-scu-bl` → `copy-a` (the last writes the ~650 MB rootfs to slot A). Each mode emits its OWN `SWUPDATE successful ! / SWUpdate was successful !`, so **the first success is NOT "done"** — wait for `SWUpdate finished` → `Rebooting...` after the `copy-a` mode. (H15L is single-mode: just `init-partitions-single`.)
 >
 > **On H15H, each mode opens with a scary-but-BENIGN line — do NOT treat it as failure:**
 > ```
@@ -270,7 +268,7 @@ Failure modes and remediation:
 - **Script returned non-zero / SSH command fails before reboot** → check `Failed to set swupdate_server_ip in U-Boot environment` or `/etc/fw_env.config` issues in the script output. Often just a path/permissions issue on the board, not a flash failure. Retry once.
 - **TFTP progress stalls at 0% or never starts** → host firewall (`sudo ufw status`; if active `sudo ufw allow 69/udp`), `tftpd-hpa` not actually serving (`systemctl status tftpd-hpa`), `/var/lib/tftpboot` perms (`ls -la`), or `.swu` not at the path the script requested.
 - **TFTP completes but swupdate errors** (e.g. `SWUPDATE failed`, `corrupted image`, `signature verification failed`) → wrong-board `.swu` or a truncated `.swu` (re-verify SHA-256 against the source). The target guard in 0.2 should have caught wrong-board, but verify.
-- **`SWUPDATE successful` but board never returns** (SSH poll keeps timing out past ~8 min) → the new image isn't booting. The board is now in a state where its boot config has been pointed at a freshly-written image that doesn't come up. This is the cue to **fall back to Path B (UART recovery)** to reflash from cold. The OS Guide §8.3 says SCU will eventually drop to UART recovery automatically after exhausting retries — but if you've waited and nothing's come back, switch to Path B and proceed with the hardware procedure there. Keep `/var/lib/tftpboot` populated; Path B's Phase B2 step 7 will need the fuller payload (`fitImage` + `.ext4.gz` + `.swu`). **Don't burn time on serial *diagnosis* first** (picocom boot log to see *why* it hung) — go straight to Path B *recovery* flashing a known-good release back. Validated 2026-06-01: an H15H bricked by a 1.9.0 OTA downgrade was recovered to 1.11.0 via Path B without ever diagnosing the hang.
+- **`SWUPDATE successful` but board never returns** (SSH poll keeps timing out past ~8 min) → the new image isn't booting. The board is now in a state where its boot config has been pointed at a freshly-written image that doesn't come up. This is the cue to **fall back to Path B (UART recovery)** to reflash from cold. The OS Guide §8.3 says SCU will eventually drop to UART recovery automatically after exhausting retries — but if you've waited and nothing's come back, switch to Path B and proceed with the hardware procedure there. Keep `/var/lib/tftpboot` populated; Path B's Phase B2 step 7 will need the fuller payload (`fitImage` + `.ext4.gz` + `.swu`). **Don't burn time on serial *diagnosis* first** (picocom boot log to see *why* it hung) — go straight to Path B *recovery* flashing a known-good release back.
 
 If Path A succeeds, skip Path B entirely and go to "What success looks like".
 
@@ -280,8 +278,6 @@ If Path A succeeds, skip Path B entirely and go to "What success looks like".
 
 Hardware-in-the-loop. Half host commands, half "please flip the DIP switch and press reset" — pause at each physical step and wait for a typed `done`. Use only when Phase 0.4 routed here, or Path A failed past the point of returning.
 
-> The phases below mirror the previous (UART-only) version of this skill, validated end-to-end on H15L (2026-05-27) and H15H (2026-05-27), and again as **OTA-brick recovery** on H15H (2026-06-01): a board left unbootable by an OTA *downgrade* was flashed back to a known-good release this way.
-
 ## Phase B1 — Host setup (one-time per host, idempotent)
 
 1. **Install board tools.**
@@ -289,7 +285,7 @@ Hardware-in-the-loop. Half host commands, half "please flip the DIP switch and p
    pip install <work-dir>/tools/hailo15_board_tools-*-py3-none-any.whl
    sudo apt-get update && sudo apt-get install -y u-boot-tools tftpd-hpa picocom sshpass
    ```
-   > Tools may already be in a **virtualenv** (on the reference host: `~/hailo/venv1`). Check `command -v uart_boot_fw_loader hailo15_emmc_program hailo15_spi_flash_program` first; if they resolve, skip the `pip install`.
+   > Tools may already be installed in a **virtualenv**. Check `command -v uart_boot_fw_loader hailo15_emmc_program hailo15_spi_flash_program` first; if they resolve, skip the `pip install`.
 
 2. **FTDI udev rule** — best-effort only; **the real permission fix is the Phase B3 watch-chmod**, because the doc's rule targets the wrong subsystem (see Gotchas). If absent, add it:
    ```bash
@@ -302,7 +298,7 @@ Hardware-in-the-loop. Half host commands, half "please flip the DIP switch and p
 
 (If Path A already set up tftpd-hpa: it's still running, just add the extra files.)
 
-> **Use plain `cp` — do NOT prefix `sudo`.** `/var/lib/tftpboot` is `777` (A1 set it), so the skill's non-interactive shell can replace files directly regardless of file owner. Prefixing `sudo` makes the copy **fail silently** (no TTY/askpass — see 0.5), leaving a STALE payload in place. This bit us on 2026-06-01: a `sudo cp` no-op'd and the canonical `.swu` kept the *previous flash's wrong-version* image.
+> **Use plain `cp` — do NOT prefix `sudo`.** `/var/lib/tftpboot` is `777` (A1 set it), so the skill's non-interactive shell can replace files directly regardless of file owner. Prefixing `sudo` makes the copy **fail silently** (no TTY/askpass — see 0.5), leaving a STALE payload in place — the canonical `.swu` can silently keep a *previous flash's wrong-version* image.
 
 ```bash
 # tftpd-hpa already configured by Path A; if coming here directly, run A1's sudo tee block first.
@@ -384,7 +380,7 @@ If absent on **H15L**: DIP wrong, cable in the USB-A port instead of uUSB J1, or
 >
 > **Hang/no-connect signatures:**
 > - Silent, process in `D` state, `/dev/ttyUSB0` gone → FTDI lost its tty. Check `lsusb` + `/dev/ttyUSB0`; reset + replug rather than blind retry. Some LED flicker / brief ttyUSB0 disappearance mid-transfer is normal re-enumeration.
-> - **`could not connect to the recovery agent`** → the boot ROM only listens on UART for a short window after reset. **Hard-pause, have the user press RESET, then re-run the loader immediately.** (Also verify DIP `1=ON, 2=OFF`, and on H15H that Rx/Tx aren't swapped.) Expected on the first try if time elapsed since the last reset. **To dodge it entirely: run the loader as the very next action after B4's power-on+RESET `done`** — don't interleave other host checks. On 2026-06-01 (H15H) it connected first try because <30s had elapsed since the RESET.
+> - **`could not connect to the recovery agent`** → the boot ROM only listens on UART for a short window after reset. **Hard-pause, have the user press RESET, then re-run the loader immediately.** (Also verify DIP `1=ON, 2=OFF`, and on H15H that Rx/Tx aren't swapped.) Expected on the first try if time elapsed since the last reset. **To dodge it entirely: run the loader as the very next action after B4's power-on+RESET `done`** — don't interleave other host checks; if the loader runs within ~30s of the RESET it connects first try.
 
 **Load recovery FW over UART** (`$BOARD` filename + flag from the matrix):
 ```bash
@@ -476,7 +472,7 @@ Failure modes:
 
 ## Phase B8 — Verify
 
-**Poll for SSH — NOT ping.** During the "Board Init" flash the swupdate **rescue image** has networking and answers ping at `10.0.0.1` while the flash is still running (and again at each reboot), so a `ping` loop reports "back" long before the real OS is up. This misfired live on 2026-06-01 — first ping at **+0s**, but the flashed OS only booted (SSH up) at **+189s**. Poll until **SSH returns the version**; that's the only signal the flashed OS actually booted. Post-flash SSH also fails twice at first (host key + password-auth resets), so clear the host key before looping:
+**Poll for SSH — NOT ping.** During the "Board Init" flash the swupdate **rescue image** has networking and answers ping at `10.0.0.1` while the flash is still running (and again at each reboot), so a `ping` loop reports "back" minutes before the real OS is up. Poll until **SSH returns the version**; that's the only signal the flashed OS actually booted. Post-flash SSH also fails twice at first (host key + password-auth resets), so clear the host key before looping:
 ```bash
 ssh-keygen -f ~/.ssh/known_hosts -R 10.0.0.1 2>/dev/null
 for i in $(seq 1 180); do
@@ -530,7 +526,7 @@ Ask the user, e.g.: *"This is a dev image — want me to start the Hailo Camera 
   Then the user clicks **Play** (§3.2). Don't claim the server "auto-started" — you launched it; if you find it already running, ask/check `systemd` rather than assuming.
 - **If the user declines**, stop here and leave the board idle.
 
-**Why `setup_hailo_sensor.sh` is mandatory:** without it `camera-viewer-server` crashes with `Configuration architecture '<other>' does not match current architecture '<this board>'`, because the shipped default config is for the other arch. Don't hand-pick a sensor/lens config — let the setup script detect it (found imx678 + theia_sl410m on both reference boards). Config symlinks live at `/etc/imaging/cfg/medialib_configs` and do **NOT** survive a reflash, so `setup_hailo_sensor.sh` must be re-run on every fresh image.
+**Why `setup_hailo_sensor.sh` is mandatory:** without it `camera-viewer-server` crashes with `Configuration architecture '<other>' does not match current architecture '<this board>'`, because the shipped default config is for the other arch. Don't hand-pick a sensor/lens config — let the setup script detect it. Config symlinks live at `/etc/imaging/cfg/medialib_configs` and do **NOT** survive a reflash, so `setup_hailo_sensor.sh` must be re-run on every fresh image.
 
 ## What success looks like
 
@@ -558,7 +554,7 @@ Ask the user, e.g.: *"This is a dev image — want me to start the Hailo Camera 
 - **§8.5 partition-init version-match constraint does NOT apply** to subsequent OTAs — only to the one-time partition init (which already happened in production and this skill doesn't redo).
 - **Lua "swupdate_handlers not found" trace noise is harmless** — swupdate falls through to native handlers and still succeeds.
 - **H15H: `mtd-interface.c : cannot attach mtd0` printed as `SWUPDATE failed [0]` is BENIGN** (see A5). It fires once per swupdate mode (H15H runs three) as a NAND/UBI probe that doesn't apply to SPI-flash+SD, then the mode succeeds anyway. Don't abort on it; don't let a failure-watcher grep match it.
-- **The stale-canonical-`.swu` trap applies to Path A too** — A1's `cp` + sha256-vs-source guards it, but only because it re-verifies content. tftpboot's `hailo-update-image-hailo15-sbc.swu` is reused across versions/boards; a prior flash leaves a different-version image under the same name (hit live both directions on 2026-06-02). Never skip A1's sha256 MATCH check, and never `sudo` the `cp` (no-ops in the skill shell — see B2).
+- **The stale-canonical-`.swu` trap applies to Path A too** — A1's `cp` + sha256-vs-source guards it, but only because it re-verifies content. tftpboot's `hailo-update-image-hailo15-sbc.swu` is reused across versions/boards; a prior flash leaves a different-version image under the same name. Never skip A1's sha256 MATCH check, and never `sudo` the `cp` (no-ops in the skill shell — see B2).
 - **If SWUPDATE reports success but the board never returns** → fall back to Path B. The SCU will eventually drop to UART recovery automatically (OS Guide §8.3), but driving Path B is faster than waiting.
 
 ### Path B (UART recovery)
@@ -568,7 +564,7 @@ Ask the user, e.g.: *"This is a dev image — want me to start the Hailo Camera 
 - **921600 vs 115200** (H15L): `hailo15_emmc_program` uses 921600; picocom uses 115200. H15H `hailo15_spi_flash_program` takes no baud arg (`--uart-load`).
 - **The `fitImage` name collides across boards** — always overwrite from the correct package and byte-verify when re-staging.
 - **The doc's udev rule does NOT fix tty permissions** (`SUBSYSTEM=="usb"` vs the `tty` node `ftdi_sio` creates; and on H15H the PID may differ). The **Phase B3 watch-chmod** is the real fix and must survive every re-enumeration.
-- **Verify by SSH, not ping (B8).** The swupdate rescue image answers ping at `10.0.0.1` mid-flash and at each reboot; only an SSH that returns `VERSION=` proves the flashed OS booted. A ping loop reports success far too early (live: ping +0s vs real boot +189s).
+- **Verify by SSH, not ping (B8).** The swupdate rescue image answers ping at `10.0.0.1` mid-flash and at each reboot; only an SSH that returns `VERSION=` proves the flashed OS booted. A ping loop reports success far too early.
 - **A stale same-named payload flashes silently (B2).** TFTP filenames collide across *versions*, not just boards — a prior OTA can leave a wrong-version `.swu` under the canonical name. Re-verify the canonical `.swu` content against the source, and never `sudo` the `cp` (it no-ops in the skill shell and leaves the old file).
 - **Sequence the loader right after B4's RESET** to land in the boot-ROM listen window and avoid the "could not connect to the recovery agent" first-try failure.
 
