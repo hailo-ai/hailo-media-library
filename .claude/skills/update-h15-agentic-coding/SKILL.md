@@ -1,10 +1,10 @@
 ---
-name: update-claude-beta
-description: Pull the latest beta version of the Claude-related skills, agents, and tooling from the external `hailo-ai/hailo15-agentic-coding` repo into this hailo-media-library checkout. Use when the user says "update the skills", "pull the latest Claude beta", "get newer skills from the agentic-coding repo", or wants the in-between-SDK-release updates that this repo doesn't carry. Compares last-commit dates first and skips if local is already up to date. Overwrites matching files under `.claude/` and the root `CLAUDE.md`; never deletes local-only files.
+name: update-h15-agentic-coding
+description: Pull the latest beta version of the Claude-related skills, agents, and tooling from the external `hailo-ai/hailo15-agentic-coding` repo into this hailo-media-library checkout. Use when the user says "update the skills", "pull the latest Claude skills", "get newer skills from the agentic-coding repo", or wants the in-between-SDK-release updates that this repo doesn't carry. Compares last-commit dates first and skips if local is already up to date. Overwrites matching files under `.claude/` and the root `CLAUDE.md`; never deletes local-only files.
 tools: Bash, Read, Glob, Grep, Edit, Write
 ---
 
-# /update-claude-beta — sync from `hailo15-agentic-coding`
+# /update-h15-agentic-coding — sync from `hailo15-agentic-coding`
 
 This `hailo-media-library` repo ships an `.claude/` directory (skills + agents + settings) and a root `CLAUDE.md`. Those are frozen at each SDK release. Between releases, fresher versions are pushed to <https://github.com/hailo-ai/hailo15-agentic-coding>. This skill pulls those newer files in.
 
@@ -41,8 +41,6 @@ If the layout has changed, adjust the sync paths in step 4 accordingly.
    EXT_DATE=$(python3 -c 'import sys, json; print(json.loads(sys.argv[1])["commit"]["committer"]["date"])' "$EXT_JSON")
    EXT_SHA=$(python3 -c 'import sys, json; print(json.loads(sys.argv[1])["sha"][:12])' "$EXT_JSON")
    ```
-   If the API returns `404` or `403`, tell the user (repo may not be public yet, or rate-limited) and stop.
-
 3. **Get this repo's last commit date.**
    ```bash
    LOC_DATE=$(git -C . log -1 --format=%cI HEAD)
@@ -94,11 +92,4 @@ Otherwise the skill runs end-to-end.
 ## Gotchas
 
 - **No `--delete`.** A file that you deleted locally but that still exists in the external repo will reappear after sync. If the user wants strict mirroring, they have to ask explicitly — this skill doesn't do destructive removal by default.
-- **The external repo is beta.** Newer ≠ better. After sync, run a couple of the affected skills end-to-end (e.g. `/explain-pipeline`, `/swap-model`) to confirm nothing regressed before committing.
 - **Don't auto-commit.** The user owns the commit message and decides which subset of the sync to keep. The skill stops at `git status`/`git diff`.
-- **API rate limit.** Unauthenticated `api.github.com` is limited to ~60 req/h per IP. If hit, wait or use a `GITHUB_TOKEN` env var (`curl -H "Authorization: Bearer $GITHUB_TOKEN" …`).
-- **Submodules / LFS.** The shallow clone above does not init submodules or pull LFS. If `hailo15-agentic-coding` ever adds either, this skill will need updating.
-
-## Delegate
-
-None — this is a self-contained file-sync skill.

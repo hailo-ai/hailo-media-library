@@ -20,7 +20,7 @@ when no skill fits.
 | **Build** | `/cross-compile` |
 | **Deploy & run** | `/deploy`, `/run-app` |
 | **Debug** | `/board-status`|
-| **Maintenance** | `/update-claude-beta` |
+| **Maintenance** | `/update-h15-agentic-coding` |
 
 ## Agents (called by skills for scoped expertise)
 

@@ -3,7 +3,7 @@
 An agentic layer on top of `hailo-media-library`. It lets you explore docs, build and modify Media Library applications, and debug running deployments on the H15 board through Claude, without needing
 deep knowledge of the codebase.
 
-> **Updates.** The [`hailo15-agentic-coding`](https://github.com/hailo-ai/hailo15-agentic-coding) repo holds the most up-to-date skills, agents, and tooling. `hailo-media-library` ships a copy under `.claude/` that is updated with each Hailo VPU SDK release; run [`/update-claude-beta`](skills/update-claude-beta/) from the media-library checkout to pull the newer files.
+> **Updates.** The [`hailo15-agentic-coding`](https://github.com/hailo-ai/hailo15-agentic-coding) repo holds the most up-to-date skills, agents, and tooling. `hailo-media-library` ships a copy under `.claude/` that is updated with each Hailo VPU SDK release; run [`/update-h15-agentic-coding`](skills/update-h15-agentic-coding/) from the media-library checkout to pull the newer files.
 
 
 ## Prerequisites
@@ -88,7 +88,7 @@ referenced.
 
 | Skill | What it does |
 |---|---|
-| [`/update-claude-beta`](skills/update-claude-beta/) | Pull newer beta versions of skills/agents/`CLAUDE.md` from <https://github.com/hailo-ai/hailo15-agentic-coding> if its `HEAD` is committed after this repo's. Overwrites matching files.|
+| [`/update-h15-agentic-coding`](skills/update-h15-agentic-coding/) | Pull newer beta versions of skills/agents/`CLAUDE.md` from <https://github.com/hailo-ai/hailo15-agentic-coding> if its `HEAD` is committed after this repo's. Overwrites matching files.|
 
 ## Agents
 
