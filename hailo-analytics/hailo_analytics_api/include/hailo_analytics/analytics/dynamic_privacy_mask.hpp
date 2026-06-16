@@ -1,15 +1,18 @@
 #pragma once
 
+#include <hailodsp.h>
 #include <string_view>
 #include <optional>
 #include <string>
 #include <cstddef>
-#include "tl/expected.hpp"
+#include <vector>
 
-#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
+#include "tl/expected.hpp"
 #include "hailo_analytics/analytics/common_configs.hpp"
 #include "hailo_analytics/pipeline/cropping/bbox_crop_stage.hpp"
 #include "hailo_analytics/pipeline/cropping/aggregator_stage.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 namespace hailo_analytics::analytics::dynamic_privacy_mask
 {
@@ -24,8 +27,6 @@ inline constexpr std::string_view SEGMENTATION_SUBPIPELINE = "segmentation_subpi
 
 // Semantic segmentation AI Stage parameters
 inline constexpr std::string_view SEGMENTATION_STAGE = "semantic_segmentation";
-inline constexpr std::string_view SEGMENTATION_BASE_HEF =
-    "/home/root/apps/dynamic_privacy_mask/resources/linknet_mbv1_ss_dpm_128.hef";
 inline constexpr std::string_view SEGMENTATION_GROUP_ID = "device0";
 
 // Semantic segmentation Postprocess parameters
@@ -34,8 +35,7 @@ inline constexpr std::string_view SEGMENTATION_POST_SO = "/usr/lib/hailo-post-pr
 inline constexpr std::string_view SEGMENTATION_POST_FUNCTION = "linknet_post";
 inline constexpr std::string_view SEGMENTATION_POST_CONF = "";
 
-// BBox Crop Stage parameters
-inline constexpr std::string_view BBOX_CROP_STAGE = "bbox_crops";
+inline constexpr std::string_view SEGMENTOR_STAGE = "segmentor";
 inline constexpr std::string_view SEGMENTATION_AGGREGATOR_STAGE = "segmentation_aggregator";
 
 /**
@@ -63,6 +63,7 @@ struct bbox_crop_config_t
     std::optional<bool> use_letterbox;
     std::optional<dsp_letterbox_alignment_t> letterbox_alignment;
     std::optional<dsp_color_t> letterbox_color;
+    std::optional<size_t> max_crops;
 
     /**
      * @brief Merge configuration from another bbox_crop_config_t.

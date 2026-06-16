@@ -1,17 +1,23 @@
-#include "media_library/isp_manager.hpp"
-#include "media_library/config_manager.hpp"
-#include "media_library/utils.hpp"
-#include "media_library/media_library_types.hpp"
-#include "media_library/signal_utils.hpp"
+#include <stdlib.h>
+#include <tl/expected.hpp>
 #include <iostream>
 #include <string>
 #include <memory>
 #include <chrono>
 #include <thread>
 #include <filesystem>
-#include <tl/expected.hpp>
+#include <optional>
+#include <string_view>
+#include <utility>
 
-constexpr std::string_view MEDIALIB_CONFIG_PATH = "/etc/imaging/cfg/medialib_configs/ai_example_medialib_config.json";
+#include "media_library/isp_manager.hpp"
+#include "media_library/config_manager.hpp"
+#include "media_library/utils.hpp"
+#include "media_library/media_library_types.hpp"
+#include "media_library/signal_utils.hpp"
+
+constexpr std::string_view MEDIALIB_CONFIG_PATH =
+    "/etc/imaging/cfg/medialib_configs/face_landmarks_medialib_config.json";
 
 std::unique_ptr<IspManager> m_isp_manager;
 std::unique_ptr<ConfigManagerInteractor> m_config_manager_interactor;

@@ -31,28 +31,38 @@
  *     v.sink1 ! queue ! gsthailoencoder stream-id=sink1 ! rtph264pay ! udpsink host=10.0.0.2 port=5002
  */
 
-#include <condition_variable>
-#include <fstream>
-#include <iostream>
-#include <mutex>
-#include <sstream>
-#include <string>
-#include <vector>
-
 #include <gst/gst.h>
 #include <nlohmann/json.hpp>
 #include <cxxopts/cxxopts.hpp>
+#include <glib-object.h>
+#include <glib.h>
+#include <gst/gstparse.h>
+#include <stddef.h>
+#include <condition_variable>
+#include <fstream> // IWYU pragma: keep
+#include "media_library/cloexec_fstream.hpp"
+#include <iostream>
+#include <mutex>
+#include <sstream> // IWYU pragma: keep
+#include <string>
+#include <vector>
+#include <chrono>
+#include <initializer_list>
+#include <iterator>
+#include <memory>
+#include <utility>
 
 #include "media_library/signal_utils.hpp"
 #include "hailo_analytics/utils/stream_utils.hpp"
+#include "hailo_analytics/analytics/vision.hpp"
 
-#define HOST_IP "10.0.0.2"
+#define HOST_IP hailo_analytics::analytics::vision::get_default_host_ip()
 #define NO_PROFILE_SELECTED ""
 #define MEDIALIB_CONFIG_PATH "/etc/imaging/cfg/medialib_configs/gst_example_medialib_config.json"
 
 static std::string read_file(const std::string &path)
 {
-    std::ifstream file(path);
+    cloexec::ifstream file(path);
     if (!file.is_open())
         return {};
     return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
@@ -81,7 +91,7 @@ static std::vector<std::string> get_stream_ids_from_config(const std::string &co
     if (profile_config_path.empty())
         return {};
 
-    std::ifstream profile_file(profile_config_path);
+    cloexec::ifstream profile_file(profile_config_path);
     if (!profile_file.is_open())
         return {};
 

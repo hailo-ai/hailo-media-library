@@ -12,17 +12,27 @@ FreezeStage::FreezeStage(std::string name, size_t queue_size, bool leaky, bool p
 
 AppStatus FreezeStage::process(BufferPtr data)
 {
-    if (m_freeze && m_saved_buffer != nullptr)
+    if (m_freeze)
     {
+        if (m_saved_buffer == nullptr)
+        {
+            m_saved_buffer = data;
+        }
         data = m_saved_buffer;
     }
-    else
+    else if (m_saved_buffer != nullptr)
     {
-        m_saved_buffer = data;
+        m_saved_buffer.reset();
     }
 
     send_to_subscribers(data);
 
+    return AppStatus::SUCCESS;
+}
+
+AppStatus FreezeStage::deinit()
+{
+    m_saved_buffer.reset();
     return AppStatus::SUCCESS;
 }
 bool FreezeStage::is_freeze()

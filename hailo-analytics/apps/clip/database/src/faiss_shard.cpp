@@ -1,5 +1,14 @@
 #include "faiss_shard.hpp"
 
+#include <faiss/IndexFlat.h>
+#include <faiss/index_io.h>
+#include <algorithm>
+#include <exception>
+#include <filesystem>
+#include <mutex>
+
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+
 FaissShard::Error::Error(ErrorType t, const std::string &msg) : type(t), message(msg)
 {
 }

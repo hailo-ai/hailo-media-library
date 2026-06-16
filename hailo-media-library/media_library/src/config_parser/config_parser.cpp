@@ -23,7 +23,18 @@
 
 // Includes
 #include <nlohmann/json-schema.hpp>
+#include <stddef.h>
+#include <stdint.h>
+#include <nlohmann/json.hpp>
+#include <tl/expected.hpp>
 #include <string>
+#include <initializer_list>
+#include <memory>
+#include <stdexcept>
+#include <type_traits>
+#include <typeinfo>
+#include <variant>
+#include <vector>
 
 // Media Library Includes
 #include "config_parser.hpp"
@@ -32,6 +43,8 @@
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
 #include "config_validator.hpp"
+#include "dsp_utils.hpp"
+#include "encoder_config_types.hpp"
 
 #define MODULE_NAME LoggerType::Config
 

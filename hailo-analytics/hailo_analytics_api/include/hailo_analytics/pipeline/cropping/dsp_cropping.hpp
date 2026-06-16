@@ -25,6 +25,9 @@ namespace hailo_analytics::pipeline::cropping
 /// @brief Default letterbox color (black in YUV)
 constexpr dsp_color_t DEFAULT_LETTERBOX_COLOR = {.y = 0, .u = 128, .v = 128};
 
+/// @brief Maximum scale ratio the DSP accepts on a resize.
+static constexpr int DSP_MAX_RESIZE_RATIO = 32;
+
 /**
  * @brief Base class for DSP-accelerated cropping stages
  *
@@ -61,11 +64,17 @@ class DspBaseCropStage : public hailo_analytics::pipeline::ThreadedStage
      */
     void setup_pool_notification();
 
+    /**
+     * @brief Wakes the output-buffer wait on shutdown so process() can exit and stop() can join.
+     */
+    void on_end_of_stream() override;
+
     StagePoolMode m_pool_mode;         //< Pool mode for the buffer pool used in this stage
     int m_crop_every_x_frames;         // Crop every n frames (default 1)
     int m_frame_counter;               // Internal frame counter
     dsp_scaling_mode_t m_scaling_mode; // Scaling mode (letterbox or stretch)
     dsp_color_t m_letterbox_color;     // Letterbox padding color
+    bool m_release_input_after_dsp;    // Release source FHD buffer after DSP crop completes
 
   public:
     /**
@@ -82,13 +91,16 @@ class DspBaseCropStage : public hailo_analytics::pipeline::ThreadedStage
      * @param leaky Boolean flag for leaky behavior.
      * @param print_fps Boolean flag for printing FPS.
      * @param crop_every_n_frames Crop every n frames (default 1)
+     * @param release_input_after_dsp Release the input frame buffer immediately after DSP crops complete.
      */
     DspBaseCropStage(std::string name, int output_pool_size, int input_width, int input_height, int output_width,
                      int output_height, std::string main_sub_name, std::string sub_sub_name, size_t queue_size,
                      bool leaky = false, bool trace_processing_operations = true,
                      StagePoolMode pool_mode = StagePoolMode::FAIL_ON_EMPTY_POOL, size_t crop_every_x_frames = 1,
                      dsp_scaling_mode_t scaling_mode = DSP_SCALING_MODE_STRETCH,
-                     dsp_color_t letterbox_color = DEFAULT_LETTERBOX_COLOR);
+                     dsp_color_t letterbox_color = DEFAULT_LETTERBOX_COLOR, bool release_input_after_dsp = false);
+
+    AppStatus init() override;
 
     /**
      * @brief Sets the crop frequency (how often frames are cropped).

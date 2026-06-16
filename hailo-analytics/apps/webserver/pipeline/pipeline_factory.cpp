@@ -1,17 +1,40 @@
 #include "pipeline_factory.hpp"
+
+#include <media_library/media_library_types.hpp>
+#include <nlohmann/json.hpp>
+#include <tl/expected.hpp>
+#include <iostream>
+#include <stdexcept>
+#include <algorithm>
+#include <functional>
+#include <map>
+#include <string>
+#include <optional>
+
 #include "common/common.hpp"
+#include "config_path_utils.hpp"
+#include "detections_action.hpp"
 #include "hailo_analytics/pipeline/core/stage.hpp"
 #include "media_library/analytics_db.hpp"
+#include "resources/configs.hpp"
+#include "resources/encoder.hpp"
+#include "resources/webrtc.hpp"
 #include "pipeline/basic_pipeline.hpp"
 #include "pipeline/clip_pipeline.hpp"
 #include "pipeline/detection_pipeline.hpp"
 #include "pipeline/dynamic_privacy_mask_pipeline.hpp"
 #include "pipeline/face_landmarks_pipeline.hpp"
+#include "pipeline/license_plate_pipeline.hpp"
 #include "pipeline/profile_manager_pipeline.hpp"
 #include "resources/common/events_utils.hpp"
-#include <iostream>
-#include <stdexcept>
 #include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
+#include "clip_pipeline_ai.hpp"
+#include "common/httplib/httplib_utils.hpp"
+#include "common/logger_macros.hpp"
+#include "pipeline/isp_blender.hpp"
+#include "pipeline/pipeline.hpp"
+#include "resources/common/event_bus.hpp"
+#include "resources/common/resources.hpp"
 
 using namespace webserver::pipeline;
 using namespace webserver::resources;
@@ -27,7 +50,8 @@ PipelineFactory::PipelineFactory(webserver::resources::ResourceRepository &resou
     register_endpoints();
     m_current_pipeline_type = initial_pipeline_type;
     auto config = std::static_pointer_cast<ConfigResourceMedialib>(m_resources.get(RESOURCE_CONFIG_MANAGER));
-    std::string medialib_config_string = config->get_current_medialib_config().dump();
+    std::string medialib_config_string = apps::utils::resolve_relative_refs(
+        config->get_current_medialib_config().dump(), config->get_medialib_config_path());
     tl::expected<std::shared_ptr<MediaLibrary>, media_library_return> media_lib_expected = MediaLibrary::create();
     if (!media_lib_expected.has_value())
     {
@@ -54,7 +78,7 @@ PipelineFactory::PipelineFactory(webserver::resources::ResourceRepository &resou
 
     m_resources.m_event_bus->subscribe(
         EVENT_SUBSCRIBER_ID, EventType::PROFILE_UPDATE_REQUEST, EventPriority::EVENT_PRIORITY_MEDIUM,
-        [this](ResourceStateChangeNotification notification) {
+        [this](ResourceStateChangeNotification /*notification*/) {
             WEBSERVER_LOG_INFO("Received PROFILE_UPDATE_REQUEST notification");
             if (!m_current_pipeline)
             {
@@ -79,7 +103,7 @@ PipelineFactory::PipelineFactory(webserver::resources::ResourceRepository &resou
 
     m_resources.m_event_bus->subscribe(EVENT_SUBSCRIBER_ID, EventType::RESET_CONFIG,
                                        EventPriority::EVENT_PRIORITY_VERY_HIGH,
-                                       [this, initial_pipeline_type](ResourceStateChangeNotification notification) {
+                                       [this, initial_pipeline_type](ResourceStateChangeNotification /*notification*/) {
                                            WEBSERVER_LOG_INFO("Received RESET_CONFIG notification");
                                            std::lock_guard<std::mutex> lock(m_pipeline_mutex);
                                            if (switch_pipeline(initial_pipeline_type) != AppStatus::SUCCESS)
@@ -90,6 +114,19 @@ PipelineFactory::PipelineFactory(webserver::resources::ResourceRepository &resou
                                            }
                                        });
 
+    // Subscribed at HIGH priority — runs before BasePipeline's MEDIUM-priority encoder
+    // reconfigure, so an auto-switch tears down the old pipeline before a wasted reconfigure.
+    m_resources.m_event_bus->subscribe(
+        EVENT_SUBSCRIBER_ID, EventType::CHANGED_RESOURCE_ENCODER, EventPriority::EVENT_PRIORITY_HIGH,
+        [this](ResourceStateChangeNotification notification) {
+            auto state = notification.getResourceStateFromBase<EncoderResource::EncoderResourceState>();
+            if (!state || !state->value.smart_encoder.has_value())
+                return;
+            const auto &smart_encoder = *state->value.smart_encoder;
+            const bool requires_detections = smart_encoder.global_enable && smart_encoder.analytics_labels.any();
+            handle_detections_requirement(requires_detections);
+        });
+
     m_supported_pipelines = {pipeline_t::Basic, pipeline_t::Detection, pipeline_t::DynamicPrivacyMask};
     if (ClipPipeline::is_supported(m_resources))
     {
@@ -98,6 +135,10 @@ PipelineFactory::PipelineFactory(webserver::resources::ResourceRepository &resou
     if (FaceLandmarksPipeline::is_supported(m_resources))
     {
         m_supported_pipelines.push_back(pipeline_t::FaceLandmarks);
+    }
+    if (LicensePlatePipeline::is_supported(m_resources, m_platform))
+    {
+        m_supported_pipelines.push_back(pipeline_t::LicensePlate);
     }
     for (const auto &pipeline_type : m_supported_pipelines)
     {
@@ -110,6 +151,7 @@ PipelineFactory::PipelineFactory(webserver::resources::ResourceRepository &resou
 
 PipelineFactory::~PipelineFactory()
 {
+    m_resources.m_event_bus->unsubscribe_all(EVENT_SUBSCRIBER_ID);
     // Stop the current pipeline if it exists
     if (m_current_pipeline)
     {
@@ -152,27 +194,37 @@ std::unique_ptr<BasePipeline> PipelineFactory::create_pipeline(const pipeline_t 
 
     if (pipeline_type == pipeline_t::Basic)
     {
-        return std::make_unique<BasicPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<BasicPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
     }
     else if (pipeline_type == pipeline_t::Detection)
     {
-        return std::make_unique<DetectionPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<DetectionPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform,
+                                                   /*suppress_metadata_ws=*/false);
+    }
+    else if (pipeline_type == pipeline_t::DetectionInternal)
+    {
+        return std::make_unique<DetectionPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform,
+                                                   /*suppress_metadata_ws=*/true);
     }
     else if (pipeline_type == pipeline_t::CLIP)
     {
-        return std::make_unique<ClipPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<ClipPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
     }
     else if (pipeline_type == pipeline_t::ProfileManager)
     {
-        return std::make_unique<ProfileManagerPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<ProfileManagerPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
     }
     else if (pipeline_type == pipeline_t::FaceLandmarks)
     {
-        return std::make_unique<FaceLandmarksPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<FaceLandmarksPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
     }
     else if (pipeline_type == pipeline_t::DynamicPrivacyMask)
     {
-        return std::make_unique<DynamicPrivacyMaskPipeline>(m_resources, *m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<DynamicPrivacyMaskPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
+    }
+    else if (pipeline_type == pipeline_t::LicensePlate)
+    {
+        return std::make_unique<LicensePlatePipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
     }
     else
     {
@@ -221,7 +273,7 @@ AppStatus PipelineFactory::switch_pipeline(const pipeline_t &pipeline_type, bool
 
         m_current_pipeline->uninitialize();
         m_current_pipeline->stop();
-        m_media_library->m_frontend->unsubscribe_all();
+        m_media_library->unsubscribe_all_from_frontend();
         m_current_pipeline = nullptr;
 
         // Reset analytics DB (entries + configuration) so stale config IDs from
@@ -251,12 +303,29 @@ AppStatus PipelineFactory::switch_pipeline(const pipeline_t &pipeline_type, bool
     return AppStatus::SUCCESS;
 }
 
+void PipelineFactory::handle_detections_requirement(bool requires_detections)
+{
+    std::lock_guard<std::mutex> lock(m_pipeline_mutex);
+    m_detections_required = requires_detections;
+    const auto target = target_pipeline_for_detections(m_current_pipeline_type, requires_detections);
+    if (!target)
+    {
+        return;
+    }
+    WEBSERVER_LOG_INFO("Detections requirement changed: requires_detections={}, switching {} -> {}",
+                       requires_detections, static_cast<int>(m_current_pipeline_type), static_cast<int>(*target));
+    if (switch_pipeline(*target) != AppStatus::SUCCESS)
+    {
+        WEBSERVER_LOG_ERROR("Switch to pipeline {} for detections requirement failed", static_cast<int>(*target));
+    }
+}
+
 void PipelineFactory::register_endpoints()
 {
     m_resources.m_srv.Get("/ai_pipeline", std::function<nlohmann::json()>([this]() {
                               WEBSERVER_LOG_INFO("GET /ai_pipeline called");
                               nlohmann::json ai_pipeline_json;
-                              ai_pipeline_json["active"] = this->get_current_pipeline_type();
+                              ai_pipeline_json["active"] = public_pipeline_type(this->get_current_pipeline_type());
                               ai_pipeline_json["available"] = this->get_supported_pipeline_types();
                               WEBSERVER_LOG_INFO("GET /ai_pipeline completed");
                               return ai_pipeline_json;
@@ -269,36 +338,34 @@ void PipelineFactory::register_endpoints()
             WEBSERVER_LOG_ERROR("active not found in request body");
             throw std::runtime_error("Pipeline name not found in request body");
         }
-        auto pipeline_name = j_body["active"].get<pipeline_t>();
+        auto requested_pipeline = j_body["active"].get<pipeline_t>();
         std::vector<pipeline_t> supported_pipelines = this->get_supported_pipeline_types();
-        if (std::find(supported_pipelines.begin(), supported_pipelines.end(), pipeline_name) ==
+        if (std::find(supported_pipelines.begin(), supported_pipelines.end(), requested_pipeline) ==
             supported_pipelines.end())
         {
-            WEBSERVER_LOG_ERROR("Pipeline name {} not found in available pipelines", static_cast<int>(pipeline_name));
+            WEBSERVER_LOG_ERROR("Pipeline name {} not found in available pipelines",
+                                static_cast<int>(requested_pipeline));
             throw std::runtime_error("Pipeline name not found in available pipelines");
         }
-        if (this->m_current_pipeline_type == pipeline_name)
-        {
-            WEBSERVER_LOG_INFO("Requested pipeline {} is already active", static_cast<int>(pipeline_name));
-            nlohmann::json ai_pipeline_json;
-            ai_pipeline_json["active"] = this->get_current_pipeline_type();
-            ai_pipeline_json["available"] = supported_pipelines;
-            WEBSERVER_LOG_INFO("PATCH /ai_pipeline completed");
-            return ai_pipeline_json;
-        }
 
-        WEBSERVER_LOG_INFO("Switching to AI pipeline: {}", static_cast<int>(pipeline_name));
-        if (switch_pipeline(pipeline_name) != AppStatus::SUCCESS)
+        pipeline_t target;
+        {
+            std::lock_guard<std::mutex> lock(m_pipeline_mutex);
+            target = effective_user_pipeline(requested_pipeline, m_detections_required);
+        }
+        WEBSERVER_LOG_INFO("PATCH /ai_pipeline: requested={}, target={}", static_cast<int>(requested_pipeline),
+                           static_cast<int>(target));
+        if (switch_pipeline(target) != AppStatus::SUCCESS)
         {
             WEBSERVER_LOG_ERROR("Failed to switch pipeline via event handler");
             throw std::runtime_error("Failed to switch pipeline");
         }
 
-        // Return the updated ai_pipeline_json
+        // Return the updated ai_pipeline_json (mask the internal type for the client)
         nlohmann::json ai_pipeline_json;
-        ai_pipeline_json["active"] = this->get_current_pipeline_type();
+        ai_pipeline_json["active"] = public_pipeline_type(this->get_current_pipeline_type());
         ai_pipeline_json["available"] = supported_pipelines;
-        WEBSERVER_LOG_INFO("PUT /ai_pipeline completed");
+        WEBSERVER_LOG_INFO("PATCH /ai_pipeline completed");
         return ai_pipeline_json;
     });
 }

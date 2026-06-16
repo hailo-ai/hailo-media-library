@@ -1,27 +1,16 @@
 #pragma once
 
-#include <faiss/IndexFlat.h>
 #include <faiss/IndexIDMap.h>
 #include <faiss/MetricType.h>
-#include <faiss/index_io.h>
 #include <tl/expected.hpp>
+#include <faiss/Index.h>
+#include <stddef.h>
 #include <vector>
 #include <unordered_set>
 #include <memory>
 #include <string>
-#include <algorithm>
-#include <fstream>
-#include <iostream>
 #include <shared_mutex>
-#include <mutex>
-#include <atomic>
-#include <cmath>
-#include <filesystem>
 #include <chrono>
-#include <iomanip>
-
-#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
-#include "common_utils.hpp"
 
 namespace fs = std::filesystem;
 

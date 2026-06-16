@@ -27,6 +27,7 @@ src = common_src + [
   'pipeline/basic_pipeline.cpp',
   'pipeline/detection_pipeline.cpp',
   'pipeline/face_landmarks_pipeline.cpp',
+  'pipeline/license_plate_pipeline.cpp',
   'pipeline/clip_pipeline.cpp',
   'pipeline/profile_manager_pipeline.cpp',
   'pipeline/dynamic_privacy_mask_pipeline.cpp',
@@ -36,7 +37,7 @@ src = common_src + [
   'pipeline/isp_blender.cpp'
 ]
 
-webserver_deps = base_deps + [libhailort_dep, thread_dep, glib_dep, spdlog_dep, libdatachannel_link, clip_dep, libhailo_analytics_dep, face_landmarks_pipeline_builder_dep]
+webserver_deps = base_deps + [libhailort_dep, thread_dep, glib_dep, spdlog_dep, libdatachannel_link, clip_dep, libhailo_analytics_dep, face_landmarks_pipeline_builder_dep, lpr_pipeline_builder_dep, apps_common_dep]
 
 webserver_lib = static_library('webserver',
   src,

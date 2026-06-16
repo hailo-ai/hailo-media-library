@@ -1,14 +1,15 @@
 #include "pipe_handler.hpp"
-#include "media_library_logger.hpp"
 
 #include <fcntl.h>
 #include <sys/epoll.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <errno.h>
+#include <string.h>
 #include <filesystem>
-#include <iostream>
-#include <algorithm>
 #include <array>
+
+#include "media_library_logger.hpp"
 
 #define MODULE_NAME LoggerType::NamedPipe
 
@@ -213,7 +214,7 @@ void PipeHandler::monitor_pipe()
 
 bool PipeHandler::handle_pipe_read(int pipe_fd)
 {
-    std::array<char, 128> buffer{};
+    std::array<char, 512> buffer{};
     ssize_t bytes_read = read(pipe_fd, buffer.data(), buffer.size() - 1);
 
     if (bytes_read < 0)

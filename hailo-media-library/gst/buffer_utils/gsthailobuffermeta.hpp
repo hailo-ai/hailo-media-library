@@ -22,8 +22,13 @@
  */
 #pragma once
 
-#include "media_library/buffer_pool.hpp"
 #include <gst/gst.h>
+#include <glib-object.h>
+#include <glib.h>
+#include <gst/gstmeta.h>
+#include <stdint.h>
+
+#include "media_library/buffer_pool.hpp"
 
 G_BEGIN_DECLS
 

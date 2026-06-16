@@ -22,8 +22,14 @@
  */
 
 #include "custom_overlay_impl.hpp"
+
+#include <gst/video/video-frame.h>
+#include <string>
+
 #include "buffer_utils/buffer_utils.hpp"
 #include "media_library/media_library_logger.hpp"
+#include "impl/overlay_impl.hpp"
+#include "media_library_buffer.hpp"
 
 #define MODULE_NAME LoggerType::Osd
 

@@ -3,17 +3,27 @@
  * Distributed under the LGPL license (https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt)
  **/
 #include "mediapipe_landmarks_post.hpp"
+
+#include <stddef.h>
+#include <stdint.h>
+#include <xtensor/xcontainer.hpp>
+#include <xtensor/xeval.hpp>
+#include <xtensor/xiterator.hpp>
+#include <xtensor/xlayout.hpp>
+#include <xtensor/xmanipulation.hpp>
+#include <xtensor/xoperation.hpp>
+#include <xtensor/xbuffer_adaptor.hpp>
+#include <xtensor/xtensor.hpp>
+#include <xtensor/xtensor_forward.hpp>
+#include <unordered_set>
+#include <memory>
+#include <utility>
+#include <vector>
+
 #include "common/tensors.hpp"
 #include "hailo_postprocess_tools/objects/hailo_objects.hpp"
-#include "hailo_postprocess_tools/objects/hailo_common.hpp"
-
 #include "xtensor/xarray.hpp"
-#include "xtensor/xview.hpp"
 #include "xtensor/xstrided_view.hpp"
-#include "xtensor/xio.hpp"
-
-#include <iostream>
-#include <unordered_set>
 
 #define MEDIAPIPE_LANDMARK_COUNT 468
 #define MEDIAPIPE_INPUT_WIDTH 192

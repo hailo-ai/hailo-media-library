@@ -1,0 +1,53 @@
+syntax = "proto3";
+option optimize_for = LITE_RUNTIME;
+
+package hailo_analytics;
+
+// Axis-aligned bounding box in native frame pixel coordinates.
+message Bbox {
+    float xmin = 1;
+    float ymin = 2;
+    float xmax = 3;
+    float ymax = 4;
+}
+
+// A single classification result attached to a frame or detection.
+message Classification {
+    string type       = 1;
+    string label      = 2;
+    float  confidence = 3;
+}
+
+// A set of landmark points (e.g. pose keypoints) attached to a frame or detection.
+//   points is a flat array laid out as [x0, y0, conf0, x1, y1, conf1, ...]
+//   pairs  is a flat array laid out as [start0, end0, start1, end1, ...] (skeleton edges)
+message Landmarks {
+    string points_format       = 1;  // currently always "x,y,conf"
+    uint32 points_stride       = 2;  // currently always 3
+    repeated float  points     = 3 [packed = true];
+    repeated uint32 pairs      = 4 [packed = true];
+}
+
+// A detection optionally enriched with nested detections, landmarks, classifications, and a tracking id.
+message Detection {
+    string label                = 1;
+    float  confidence           = 2;
+    Bbox   bbox                 = 3;
+    optional uint32 tracking_id = 4;
+
+    // Hierarchical sub-objects (mirrors HailoROI nesting).
+    repeated Detection      detections      = 5;
+    repeated Landmarks      landmarks       = 6;
+    repeated Classification classifications = 7;
+}
+
+// Top-level frame metadata payload sent over WebSocket / ZMQ.
+message Frame {
+    uint64 isp_timestamp_ns = 1;
+    uint32 frame_width      = 2;
+    uint32 frame_height     = 3;
+
+    repeated Detection      detections      = 4;
+    repeated Landmarks      landmarks       = 5;
+    repeated Classification classifications = 6;
+}

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <functional>
+#include <nlohmann/json.hpp>
 #include <unordered_map>
 #include <map>
 #include <set>
@@ -8,9 +8,11 @@
 #include <memory>
 #include <string>
 #include <type_traits>
-#include <thread>
 #include <atomic>
 #include <cstdint>
+#include <initializer_list>
+#include <utility>
+
 #include "common/logger_macros.hpp"
 #include "events_utils.hpp"
 

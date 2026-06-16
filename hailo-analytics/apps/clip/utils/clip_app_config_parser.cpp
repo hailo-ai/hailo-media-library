@@ -1,7 +1,11 @@
 #include <stdexcept>
 #include <iostream>
-#include <fstream>
-#include <sstream>
+#include <exception>
+#include <fstream> // IWYU pragma: keep
+#include <sstream> // IWYU pragma: keep
+#include <vector>
+
+#include "media_library/cloexec_fstream.hpp"
 
 #define RYML_SINGLE_HDR_DEFINE_NOW
 #include "clip_app_config_parser.hpp"
@@ -324,7 +328,7 @@ bool ClipAppConfigParser::parse_from_file(const std::string &configPath)
     try
     {
         // Read file content
-        std::ifstream file(configPath);
+        cloexec::ifstream file(configPath);
         if (!file.is_open())
         {
             std::cerr << "Error: Cannot open config file: " << configPath << std::endl;

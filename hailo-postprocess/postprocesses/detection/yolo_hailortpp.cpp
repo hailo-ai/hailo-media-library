@@ -1,18 +1,24 @@
+#include <rapidjson/encodings.h>
 #include <regex>
-#include <fstream>
-#include <sstream>
 #include <map>
+#include <cstdio>
+#include <memory>
+#include <stdexcept>
+#include <utility>
+#include <vector>
+
 #include "rapidjson/document.h"
-#include "rapidjson/stringbuffer.h"
-#include "rapidjson/error/en.h"
 #include "rapidjson/filereadstream.h"
-#include "rapidjson/schema.h"
 #include "hailo_postprocess_tools/objects/json_config.hpp"
 #include "hailo_postprocess_tools/labels/coco_eighty.hpp"
 #include "hailo_postprocess_tools/labels/yolo_personface.hpp"
 #include "hailo_postprocess_tools/labels/hailo_yolov8n.hpp"
 #include "hailo_nms_decode.hpp"
 #include "yolo_hailortpp.hpp"
+#include "common/structures.hpp"
+#include "hailo_gst_tensor_metadata.hpp"
+#include "hailo_postprocess_tools/objects/hailo_tensors.hpp"
+#include "hailort.h"
 
 static const std::string DEFAULT_YOLOV5S_OUTPUT_LAYER = "yolov5s_nv12/yolov5_nms_postprocess";
 static const std::string DEFAULT_YOLOV5M_OUTPUT_LAYER = "yolov5m_wo_spp_60p/yolov5_nms_postprocess";
@@ -22,13 +28,15 @@ static const std::string DEFAULT_YOLOV8M_OUTPUT_LAYER = "yolov8m/yolov8_nms_post
 
 #if __GNUC__ > 8
 #include <filesystem>
+
 namespace fs = std::filesystem;
 #else
 #include <experimental/filesystem>
+
 namespace fs = std::experimental::filesystem;
 #endif
 
-YoloParamsNMS *init(const std::string config_path, const std::string function_name)
+YoloParamsNMS *init(const std::string config_path, const std::string /*function_name*/)
 {
     YoloParamsNMS *params;
     if (!fs::exists(config_path))

@@ -5,9 +5,11 @@
 #include <vector>
 #include <memory>
 #include <tuple>
+#include <utility>
 
 #include "pipeline.hpp"
 #include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 namespace hailo_analytics::pipeline
 {
@@ -82,6 +84,22 @@ class PipelineBuilder
     PipelineBuilder &connect(const std::string &sourceName, const std::string &targetName);
 
     /**
+     * @brief Connects a source stage to a target stage with a stream-id key.
+     * @param sourceName The name of the stage sending buffers
+     * @param streamId The stream identifier the source can use to dispatch to this subscriber
+     * @param targetName The name of the stage receiving buffers
+     * @return Reference to this builder for method chaining
+     * @throws std::invalid_argument if either stage name doesn't exist
+     *
+     * Same as the 2-arg connect, but also passes streamId to the source's add_subscriber so
+     * the source can dispatch by stream id (e.g. SplitStreamsStage routes carrier and passengers
+     * to per-stream subscribers). The 2-arg connect stays the right call for stages that don't
+     * care about per-subscriber routing.
+     * Can be called at any time before build(), allowing flexible interleaving with add_stage().
+     */
+    PipelineBuilder &connect(const std::string &sourceName, const std::string &streamId, const std::string &targetName);
+
+    /**
      * @brief Connects a FrontendStage's specific stream output to a target stage.
      * @param frontendName The name of the FrontendStage
      * @param streamId The stream identifier string
@@ -127,6 +145,9 @@ class PipelineBuilder
   private:
     std::unordered_map<std::string, StagePtr> m_allStages;
     std::vector<std::pair<std::string, std::string>> m_connections;
+    // (sourceName, streamId, targetName) — stream-id-keyed connections registered via the
+    // 3-arg connect overload. Wired separately at build time via add_subscriber(target, streamId).
+    std::vector<std::tuple<std::string, std::string, std::string>> m_streamIdConnections;
     std::vector<std::tuple<std::string, std::string, std::string>> m_frontendSubscriptions;
     std::unordered_map<std::string, StageType> m_stageTypes;
 

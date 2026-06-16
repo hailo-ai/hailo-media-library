@@ -21,17 +21,34 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "media_library/media_library_logger.hpp"
-#include "text_overlay_impl.hpp"
 #include <opencv2/core.hpp>
-#include <opencv2/core/utils/filesystem.hpp>
-
+#include <opencv2/core/utils/filesystem.hpp> // IWYU pragma: keep
 #include <freetype/ftbbox.h>
 #include <freetype/ftimage.h>
 #include <freetype/ftoutln.h>
 #include <freetype/ftsynth.h>
-
+#include <freetype/freetype.h>
+#include <freetype/ftglyph.h>
+#include <freetype/ftstroke.h>
+#include <freetype/fttypes.h>
+#include <hailo/hailodsp.h>
+#include <hb-ft.h>
+#include <limits.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <tl/expected.hpp>
 #include <algorithm>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "media_library/media_library_logger.hpp"
+#include "hb.h"
+#include "impl/overlay_impl.hpp"
+#include "impl/simple_text_overlay_impl.hpp"
+#include "media_library_types.hpp"
+#include "osd_types.hpp"
 
 #define MODULE_NAME LoggerType::Osd
 

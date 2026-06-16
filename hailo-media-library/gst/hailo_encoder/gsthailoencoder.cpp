@@ -21,23 +21,31 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include "gsthailoencoder.hpp"
+
+#include <errno.h>
+#include <pthread.h>
+#include <string.h>
+#include <time.h>
+#include <bits/types/struct_sched_param.h>
+#include <gst/gst.h>
+#include <gst/gstparamspecs.h>
+#include <gst/video/gstvideometa.h>
+#include <gst/video/video.h>
+#include <sched.h>
+#include <tl/expected.hpp>
+#include <cstdlib>   // For getenv
+#include <stdexcept> // For std::invalid_argument, std::out_of_range
+#include <string>
+#include <map>
+#include <variant>
+#include <vector>
+
 #include "buffer_utils/buffer_utils.hpp"
 #include "common/gstmedialibcommon.hpp"
 #include "gsthailobuffermeta.hpp"
-#include <assert.h>
-#include <cstdlib> // For getenv
-#include <errno.h>
-#include <fstream>
-#include <gst/gstcaps.h>
-#include <gst/gstpad.h>
-#include <iostream>
-#include <pthread.h>
-#include <sstream>
-#include <stdexcept> // For std::invalid_argument, std::out_of_range
-#include <stdio.h>
-#include <string.h>
-#include <string>
-#include <time.h>
+#include "buffer_pool.hpp"
+#include "encoder_class.hpp"
+#include "media_library_utils.hpp"
 
 #define MEDIALIB_ENCODER_THREAD_PRIORITY_ENV_VAR ("MEDIALIB_ENCODER_THREAD_PRIORITY")
 #define MEDIALIB_DEFAULT_ENCODER_THREAD_PRIORITY_DEFAULT (21)

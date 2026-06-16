@@ -1,5 +1,7 @@
 #include "webpage.hpp"
 
+#include "resources/common/resources.hpp"
+
 #define WEBPAGE_BUNDLE_PATH "/usr/share/hailo/webpage"
 
 std::string webserver::resources::WebpageResource::name()

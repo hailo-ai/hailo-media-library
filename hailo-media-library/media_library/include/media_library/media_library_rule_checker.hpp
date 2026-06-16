@@ -1,7 +1,7 @@
 #pragma once
-#include <nlohmann/json-schema.hpp>
+#include <nlohmann/json.hpp>
+
 #include "media_library_types.hpp"
-#include "media_library_logger.hpp"
 
 class MediaLibraryRuleChecker
 {

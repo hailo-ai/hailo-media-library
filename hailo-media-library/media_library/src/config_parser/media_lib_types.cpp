@@ -1,7 +1,11 @@
+#include <imaging/aaa_config_types.hpp>
+#include <string>
+
 #include "media_library_types.hpp"
 #include "json_flattener.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_rule_checker.hpp"
+#include "dis_common.h"
 
 #define MODULE_NAME LoggerType::Config
 
@@ -33,6 +37,8 @@ bool config_encoded_output_stream_t::is_persistent = true;
 bool config_sensor_config_t::is_persistent = false;
 bool denoise_config_t::is_persistent = false;
 bool hdr_config_t::is_persistent = false;
+
+bool bayer_network_config_t::operator==(const bayer_network_config_t &other) const = default;
 
 // Initialize persistence members for automatic_algorithms_config_t structs
 bool automatic_algorithms_config_t::is_recursively_persistent = false;

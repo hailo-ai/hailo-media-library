@@ -7,6 +7,7 @@
 
 // Infra includes
 #include "hailo_analytics/pipeline/cropping/dsp_cropping.hpp"
+#include <mutex>
 
 namespace hailo_analytics::pipeline::cropping
 {
@@ -20,6 +21,9 @@ class TilingCropStage : public DspBaseCropStage
     /**< Predefined bounding boxes for tiles */
     std::vector<HailoBBox> m_bbox_tiles;
     std::vector<HailoTileROIPtr> m_fhd_tiles; /**< Tile ROI pointers for FHD tiles */
+    std::mutex m_tiles_mutex;                 /**< Guards m_bbox_tiles / m_fhd_tiles for runtime updates */
+
+    std::vector<HailoBBox> m_active_crop_bboxes;
 
   public:
     /**
@@ -78,6 +82,13 @@ class TilingCropStage : public DspBaseCropStage
      * @return ROI of the crop.
      */
     HailoROIPtr get_crop_roi(int index) override;
+
+    /**
+     * @brief Replace the tile geometry at runtime.
+     * Rebuilds the HailoTileROI list; safe to call from a different thread than the worker.
+     * @param bbox_tiles New tile bounding boxes.
+     */
+    void set_bbox_tiles(const std::vector<HailoBBox> &bbox_tiles);
 };
 
 /**

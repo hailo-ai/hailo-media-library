@@ -1,15 +1,16 @@
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
 // General includes
 #include <atomic>
+#include <chrono>
 #include <optional>
 #include <queue>
 #include <mutex>
-#include <thread>
 #include <condition_variable>
 #include <string>
 #include <memory>
-#include <iostream>
 
 // Infra includes
 #include "buffer.hpp"
@@ -62,6 +63,8 @@ class Queue
      */
     Queue(std::string parent_name, std::string queue_name, size_t max_buffers, bool leaky = false);
     ~Queue();
+    Queue(const Queue &) = delete;
+    Queue &operator=(const Queue &) = delete;
 
     /**
      * @brief Gets the name of this queue.
@@ -76,6 +79,14 @@ class Queue
      * This method is thread-safe and provides a snapshot of the queue size at the time of the call.
      */
     int size();
+
+    /**
+     * @brief Sets the leaky mode at runtime.
+     * @param leaky If true, the queue drops the oldest buffer when full; if false, push() blocks when full.
+     *
+     * Thread-safe. Takes effect on subsequent push() calls.
+     */
+    void set_leaky(bool leaky);
 
     /**
      * @brief Pushes a buffer onto the queue.

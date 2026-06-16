@@ -1,6 +1,14 @@
 #include "storage_cleanup_strategy.hpp"
 
+#include <faiss/MetricType.h>
+#include <algorithm>
+#include <cmath>
+#include <optional>
+#include <exception>
+
 #include "faiss_factory.hpp"
+#include "common_utils.hpp"
+#include "faiss_partitioned.hpp"
 
 FaissShardFirstCleanupStrategy::FaissShardFirstCleanupStrategy(float percent)
 {

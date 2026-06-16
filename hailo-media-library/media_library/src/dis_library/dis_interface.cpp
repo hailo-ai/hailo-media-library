@@ -26,6 +26,7 @@
 #include "dis.h"
 #include "dis_math.h"
 #include "dis_logger.h"
+#include "dis_common.h"
 
 RetCodes dis_init(void **ctx, dis_config_t &cfg, dis_calibration_t calib, int32_t out_width, int32_t out_height,
                   camera_type_t camera_type, float camera_fov_factor, bool is_eis_enabled, DewarpT *grid)

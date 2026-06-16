@@ -22,23 +22,15 @@
  */
 
 #include "post_isp_denoise.hpp"
+
+#include <utility>
+
 #include "hailort_denoise.hpp"
 #include "buffer_pool.hpp"
-#include "config_parser.hpp"
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
-#include "media_library_utils.hpp"
-#include "isp_utils.hpp"
-#include "v4l2_ctrl.hpp"
-#include "imaging/hailo_video_device.hpp"
-
-#include <linux/v4l2-controls.h>
-#include <linux/v4l2-subdev.h>
-#include <stdint.h>
-#include <fcntl.h>
-#include <sys/ioctl.h>
-#include <tl/expected.hpp>
-#include <ctime>
+#include "media_library_buffer.hpp"
+#include "dsp_utils.hpp"
 
 #define MODULE_NAME LoggerType::Denoise
 

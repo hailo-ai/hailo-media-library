@@ -1,5 +1,15 @@
 #include "webrtc_streamer_ext.hpp"
 
+#include <media_library/frontend.hpp>
+#include <chrono>
+#include <cstddef>
+#include <iostream>
+#include <optional>
+#include <random>
+#include <vector>
+
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+
 WebRTCStreamerExt::WebRTCStreamerExt() : m_ssrc(generate_unique_ssrc()), m_session_id(generate_session_id())
 {
     initialize_peer_connection();
@@ -120,7 +130,7 @@ void WebRTCStreamerExt::handle_answer(const std::string &answerSdp)
 }
 
 void WebRTCStreamerExt::handle_ice_candidate(const std::string &candidate, const std::string &sdpMid,
-                                             [[maybe_unused]] int sdpMLineIndex)
+                                             int /*sdpMLineIndex*/)
 {
     rtc::Candidate rtcCandidate(candidate, sdpMid);
     m_peer_connection->addRemoteCandidate(rtcCandidate);

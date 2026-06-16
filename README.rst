@@ -1,19 +1,23 @@
 Hailo Media Library
 ===================
 
+.. attention:: 
+   **Deprecation Notice: Yocto Kirkstone Support**
+   This repository currently supports the **Yocto Kirkstone** release. Hailo plans migrating to **Yocto Scarthgap** starting with media-library **v1.14** (Target: Q4 2026).
+
 .. |gstreamer| image:: https://img.shields.io/badge/gstreamer-1.20-blue
    :target: https://gstreamer.freedesktop.org/
    :alt: Gstreamer 1.20
    :width: 150
    :height: 20
 
-.. |hailort| image:: https://img.shields.io/badge/HailoRT-5.2.0-green
+.. |hailort| image:: https://img.shields.io/badge/HailoRT-5.3.0-green
    :target: https://github.com/hailo-ai/hailort
-   :alt: HailoRT 5.2.0
+   :alt: HailoRT 5.3.0
    :height: 20
 
 
-.. |license| image:: https://img.shields.io/badge/License-LGPLv2.1-green
+.. |license| image:: https://img.shields.io/badge/License-MIT-yellow.svg
    :target: https://github.com/hailo-ai/hailo-media-library/blob/master/LICENSE
    :alt: License: LGPL v2.1
    :height: 20
@@ -43,7 +47,13 @@ The Hailo Media Library includes reference code and application examples that de
 • Reference code examples: AI Vision, AI Analytics 
 • Reference applications: Webserver/ Dynamic Privacy Masking (DPM), Face Landmark, Single Stream Processing, Single Stream Object Detection, Dual-sensor Processing, Dual-sensor Face Landmark, Gstreamer Vision Analytics & Encoder
 
-The reference code and applications examples are available in the `Hailo-media-library repository <https://github.com/hailo-ai/hailo-media-library/tree/1.11.0>`
+Agentic coding
+---------------------------------------
+This repo ships with Claude skills and agents (defined under `.claude/ <.claude/>`_) that turn multi-page procedures into single commands:
+explain a pipeline (/explain-pipeline), modify it (/add-stream, /swap-model, /add-overlay), build and deploy to the board (/cross-compile, /deploy), run an app and display it in the analytic viewer (/run-app), and debug at runtime (/board-status).
+You don't need deep knowledge of the codebase to build an app demo or modify one to fit your requirements.
+
+`.claude/README.md <.claude/README.md>`_ 
 
 Further Reading
 ---------------

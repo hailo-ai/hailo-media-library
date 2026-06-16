@@ -1,6 +1,36 @@
+#include <hailort.h>
+#include <stdint.h>
+#include <sys/types.h>
+#include <buffer.hpp>
+#include <expected.hpp>
+#include <hailo_gst_tensor_metadata.hpp>
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
+#include <hailo_postprocess_tools/objects/hailo_tensors.hpp>
+#include <hef.hpp>
+#include <infer_model.hpp>
+#include <media_library/buffer_pool.hpp>
+#include <media_library/media_library_buffer.hpp>
+#include <media_library/media_library_types.hpp>
+#include <vdevice.hpp>
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/ai/ai_stage.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/queue.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/pipeline/core/stage_tracing.hpp"
 
 namespace hailo_analytics::pipeline::ai
 {
@@ -11,14 +41,15 @@ HailortAsyncStage::HailortAsyncStage(std::string name, std::string hef_path, siz
                                      StagePoolMode pool_mode, float32_t nms_score_threshold,
                                      std::vector<bool> nms_classes_filter_mask,
                                      size_t nms_max_accumulated_mask_size_multiplier, bool trace_processing_operations,
-                                     bool use_hailort_service)
+                                     bool use_hailort_service, uint8_t scheduler_priority)
     : hailo_analytics::pipeline::ThreadedStage(name, queue_size, false, trace_processing_operations),
       m_output_pool_size(output_pool_size), m_hef_path(hef_path), m_group_id(group_id),
       m_use_hailort_service(use_hailort_service), m_batch_size(batch_size), m_scheduler_threshold(scheduler_threshold),
       m_dynamic_threshold(dynamic_threshold), m_nms_score_threshold(nms_score_threshold),
       m_nms_classes_filter_mask(std::move(nms_classes_filter_mask)),
       m_nms_max_accumulated_mask_size_multiplier(nms_max_accumulated_mask_size_multiplier),
-      m_scheduler_timeout(scheduler_timeout), m_jobs_limit(job_limit), m_pool_mode(pool_mode)
+      m_scheduler_timeout(scheduler_timeout), m_scheduler_priority(scheduler_priority), m_jobs_limit(job_limit),
+      m_pool_mode(pool_mode)
 {
     m_last_infer_job = nullptr;
     m_active_jobs = 0;
@@ -26,16 +57,17 @@ HailortAsyncStage::HailortAsyncStage(std::string name, std::string hef_path, siz
 
 AppStatus HailortAsyncStage::init()
 {
-    hailo_vdevice_params_t vdevice_params = {0};
+    hailo_vdevice_params_t vdevice_params{};
     hailo_init_vdevice_params(&vdevice_params);
     vdevice_params.group_id = m_group_id.c_str();
     vdevice_params.multi_process_service = m_use_hailort_service;
     HAILO_ANALYTICS_LOG_INFO(
         "Initializing HailortAsyncStage with hef_path={}, group_id={}, batch_size={}, scheduler_threshold={}, "
         "dynamic_threshold={}, nms_score_threshold={}, nms_max_accumulated_mask_size_multiplier={}, "
-        "scheduler_timeout={}ms, use_hailort_service={}",
+        "scheduler_timeout={}ms, scheduler_priority={}, use_hailort_service={}",
         m_hef_path, m_group_id, m_batch_size, m_scheduler_threshold, m_dynamic_threshold, m_nms_score_threshold,
-        m_nms_max_accumulated_mask_size_multiplier, m_scheduler_timeout.count(), m_use_hailort_service);
+        m_nms_max_accumulated_mask_size_multiplier, m_scheduler_timeout.count(), m_scheduler_priority,
+        m_use_hailort_service);
     // Create a vdevice
     auto vdevice_exp = hailort::VDevice::create(vdevice_params);
     if (!vdevice_exp)
@@ -85,6 +117,7 @@ AppStatus HailortAsyncStage::init()
     m_configured_infer_model = configured_infer_model_exp.release();
     m_configured_infer_model.set_scheduler_threshold(m_scheduler_threshold);
     m_configured_infer_model.set_scheduler_timeout(std::chrono::milliseconds(m_scheduler_timeout));
+    m_configured_infer_model.set_scheduler_priority(m_scheduler_priority);
 
     // Create bindings through which to connect buffers for inference
     auto bindings = m_configured_infer_model.create_bindings();
@@ -103,6 +136,14 @@ AppStatus HailortAsyncStage::init()
         m_tensor_buffer_pools[output.name()] = std::make_shared<MediaLibraryBufferPool>(
             tensor_size, 1, HAILO_FORMAT_GRAY8, m_output_pool_size, HAILO_MEMORY_TYPE_DMABUF, tensor_size, tensor_name);
         if (m_tensor_buffer_pools[output.name()]->init() != MEDIA_LIBRARY_SUCCESS)
+        {
+            return AppStatus::BUFFER_ALLOCATION_ERROR;
+        }
+    }
+
+    for (auto &[tensor_name, pool] : m_tensor_buffer_pools)
+    {
+        if (pool->wait_for_all_buffers_allocated() != MEDIA_LIBRARY_SUCCESS)
         {
             return AppStatus::BUFFER_ALLOCATION_ERROR;
         }
@@ -131,8 +172,20 @@ void HailortAsyncStage::setup_pool_notifications()
     {
         for (auto &[tensor_name, pool] : m_tensor_buffer_pools)
         {
-            pool->set_on_release_callback([this](void *) { m_available_buffers_cv.notify_all(); });
+            pool->set_on_release_callback([this](void * /*unused*/) { m_available_buffers_cv.notify_all(); });
         }
+    }
+}
+
+void HailortAsyncStage::on_end_of_stream()
+{
+    {
+        std::lock_guard<std::mutex> lock(m_active_jobs_mutex);
+        m_active_jobs_cv.notify_all();
+    }
+    {
+        std::lock_guard<std::mutex> lock(m_buff_pool_mutex);
+        m_available_buffers_cv.notify_all();
     }
 }
 
@@ -216,8 +269,19 @@ AppStatus HailortAsyncStage::acquire_and_set_tensor_buffers(std::unordered_map<s
             {
                 HAILO_ANALYTICS_LOG_INFO("{} no available buffers in pool for tensor {}, waiting...", m_stage_name,
                                          output.name());
+                // Wait for a free tensor buffer or end-of-stream; m_available_buffers_cv is notified
+                // on release and, at shutdown, by on_end_of_stream() (MSW-16172).
                 std::unique_lock<std::mutex> lock(m_buff_pool_mutex);
-                m_available_buffers_cv.wait(lock, [&pool]() { return pool->get_available_buffers_count() >= 1; });
+                m_available_buffers_cv.wait(
+                    lock, [this, &pool]() { return m_end_of_stream || pool->get_available_buffers_count() >= 1; });
+                if (m_end_of_stream)
+                {
+                    for (auto &buffer : tensor_buffers)
+                    {
+                        buffer.second.reset();
+                    }
+                    return AppStatus::SUCCESS;
+                }
             }
             else
             {
@@ -372,8 +436,15 @@ AppStatus HailortAsyncStage::process(BufferPtr data)
     // wait for available jobs
     HAILO_ANALYTICS_LOG_DEBUG("[{}] Waiting for available job slot (active_jobs: {}, jobs_limit: {})", m_stage_name,
                               m_active_jobs.load(), m_jobs_limit);
+    // Wait for a free job slot or end-of-stream; m_active_jobs_cv is notified on job completion
+    // and, at shutdown, by on_end_of_stream() (MSW-16172).
     std::unique_lock<std::mutex> lock(m_active_jobs_mutex);
-    m_active_jobs_cv.wait(lock, [this] { return m_active_jobs < m_jobs_limit; });
+    m_active_jobs_cv.wait(lock, [this] { return m_active_jobs < m_jobs_limit || m_end_of_stream; });
+    if (m_end_of_stream)
+    {
+        inference_tracing_end(data);
+        return AppStatus::SUCCESS;
+    }
 
     // Set the input buffer
     HAILO_ANALYTICS_LOG_DEBUG("[{}] Setting pixel buffer for inference", m_stage_name);
@@ -512,6 +583,12 @@ HailortAsyncStageBuild::Builder &HailortAsyncStageBuild::Builder::set_scheduler_
     return *this;
 }
 
+HailortAsyncStageBuild::Builder &HailortAsyncStageBuild::Builder::set_scheduler_priority_opt(uint8_t priority)
+{
+    m_scheduler_priority = priority;
+    return *this;
+}
+
 HailortAsyncStageBuild::Builder &HailortAsyncStageBuild::Builder::set_pool_mode_opt(StagePoolMode mode)
 {
     m_pool_mode = mode;
@@ -561,7 +638,7 @@ std::shared_ptr<HailortAsyncStage> HailortAsyncStageBuild::Builder::buildptr() c
         m_stage_name.value(), m_hef_path.value(), m_queue_size, m_output_pool_size, m_group_id.value(), m_batch_size,
         m_job_limit, m_scheduler_threshold, m_dynamic_threshold, m_scheduler_timeout, m_pool_mode,
         m_nms_score_threshold, m_nms_classes_filter_mask, m_nms_max_accumulated_mask_size_multiplier, m_trace,
-        m_use_hailort_service);
+        m_use_hailort_service, m_scheduler_priority);
 }
 
 HailortAsyncStageBuild::Builder HailortAsyncStageBuild::create()

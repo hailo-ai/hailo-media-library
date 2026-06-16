@@ -21,18 +21,28 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "buffer_utils/buffer_utils.hpp"
-#include "media_library/media_library_logger.hpp"
+#include <tl/expected.hpp>
 #include <algorithm>
-#include <thread>
-#include <iomanip>
+#include <exception>
+#include <future>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <system_error>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+#include "media_library/media_library_logger.hpp"
 #include "osd.hpp"
 #include "osd_repository.hpp"
 #include "osd_type_conversions.hpp"
-#include "impl/custom_overlay_impl.hpp"
-#include "impl/image_overlay_impl.hpp"
-#include "impl/text_overlay_impl.hpp"
-#include "impl/datetime_overlay_impl.hpp"
+#include "config_manager.hpp"
+#include "config_parser.hpp"
+#include "impl/overlay_impl.hpp"
+#include "media_library_types.hpp"
+#include "osd_types.hpp"
 
 #define MODULE_NAME LoggerType::Osd
 

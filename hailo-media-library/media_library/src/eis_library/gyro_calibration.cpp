@@ -1,11 +1,12 @@
-#include "logger_macros.hpp"
+#include <signal.h>
+#include <stdlib.h>
+#include <thread>
+#include <memory>
+#include <string>
+
 #include "media_library_logger.hpp"
 #include "gyro_device.hpp"
 #include "arguments_parser.hpp"
-#include <thread>
-#include <memory>
-#include <signal.h>
-#include <pthread.h>
 
 #define MODULE_NAME LoggerType::Eis
 

@@ -1,6 +1,6 @@
 # Project Declaration
 project('media-library', 'c', 'cpp',
-    version : '1.11.0',
+    version : '1.12.0',
     default_options : [ 'warning_level=2', 'werror=true',
                         'buildtype=' + get_option('buildtype'),
                         'c_std=c11', 'cpp_std=c++20']
@@ -66,6 +66,8 @@ medialib_dependencies = [
     harfbuzz_dep,
 ] + gstreamer_deps
 medialib_link_args = ['-lhailo-throttling', '-lcrypto', '-lhantro_vc8000e', '-lm']
+
+generated_protobuf_sources = []
 
 subdir('media_library')
 subdir('gst')

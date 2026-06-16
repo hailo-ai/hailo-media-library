@@ -1,8 +1,7 @@
 #pragma once
 
 #include <gst/gst.h>
-#include <gst/video/video.h>
-#include <gst/gstbufferpool.h>
+#include <glib.h>
 
 G_BEGIN_DECLS
 

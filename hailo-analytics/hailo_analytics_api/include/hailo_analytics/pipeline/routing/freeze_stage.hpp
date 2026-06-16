@@ -5,8 +5,15 @@
  * @brief Stage that can freeze the data flow, outputting the last received buffer.
  **/
 
+#include <stddef.h>
+#include <atomic>
+#include <memory>
+#include <optional>
+#include <string>
+
 // Infra includes
 #include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
 
 namespace hailo_analytics::pipeline::routing
 {
@@ -44,6 +51,15 @@ class FreezeStage : public hailo_analytics::pipeline::ThreadedStage
      * @return AppStatus Status code.
      */
     AppStatus process(BufferPtr data) override;
+
+    /**
+     * @brief Release the freeze-saved buffer at stop time.
+     *
+     * Drops m_saved_buffer when the stage stops so the cached Buffer and any state
+     * attached to it (metadata, ROI tree, etc.) is released at a well-defined point
+     * during Pipeline::stop(), rather than lingering until later object destruction.
+     */
+    AppStatus deinit() override;
 
     /**
      * @brief Check whether the stage is currently frozen.

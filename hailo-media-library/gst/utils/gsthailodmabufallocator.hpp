@@ -20,10 +20,14 @@
 
 #pragma once
 
-#include <linux/dma-heap.h>
-#include <mutex>
-#include <gst/gst.h>
 #include <gst/allocators/gstdmabuf.h>
+#include <glib-object.h>
+#include <glib.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <mutex>
+
+struct GstHailoDmabufAllocator;
 
 G_BEGIN_DECLS
 

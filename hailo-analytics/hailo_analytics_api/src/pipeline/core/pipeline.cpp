@@ -1,5 +1,6 @@
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
-#include "hailo_analytics/perfetto/hailo_analytics_perfetto.hpp"
+
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 namespace hailo_analytics::pipeline
 {

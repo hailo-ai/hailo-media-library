@@ -1,13 +1,19 @@
 // General includes
-#include <algorithm>
-
-// Media-Library includes
-#include "media_library/encoder.hpp"
+#include <stddef.h>
+#include <tl/expected.hpp>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
 
 // Infra includes
 #include "hailo_analytics/pipeline/sinks/udp_stage.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/pipeline/sinks/output_module.hpp"
+#include "hailo_analytics/pipeline/sinks/udp_module.hpp"
 
 namespace hailo_analytics::pipeline::sinks
 {

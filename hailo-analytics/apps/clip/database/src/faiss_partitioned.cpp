@@ -1,5 +1,13 @@
 #include "faiss_partitioned.hpp"
 
+#include <stdlib.h>
+#include <tl/expected.hpp>
+#include <algorithm>
+#include <exception>
+#include <iostream>
+
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+
 // TaskFutureRunner implementation
 TaskFutureRunner::TaskFutureRunner() : m_stop(false)
 {
@@ -264,8 +272,8 @@ bool PartitionedFaissDB::remove_partition(const std::string &filename)
     // Atomically rebuild the search index to reflect the removal
     rebuild_search_index();
 
-    std::cout << "Successfully removed partition: " << filename << ". It contained " << ids_to_remove.size()
-              << " vectors." << std::endl;
+    HAILO_ANALYTICS_LOG_INFO("Successfully removed partition: {}. It contained {} vectors.", filename,
+                             ids_to_remove.size());
     return true;
 }
 
