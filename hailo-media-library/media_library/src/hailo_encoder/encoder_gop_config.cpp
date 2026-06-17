@@ -20,12 +20,14 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-#include <iostream>
+#include <stdio.h>
+#include <string.h>
 
 #include "encoder_class.hpp"
 #include "media_library_logger.hpp"
-#include "encoder_internal.hpp"
+#include "hailo_encoder_impl.hpp"
 #include "encoder_gop_config.hpp"
+#include "media_library_types.hpp"
 
 #define MODULE_NAME LoggerType::Encoder
 
@@ -58,21 +60,17 @@ int Encoder::Impl::gopConfig::ParseGopConfigLine(GopPicConfig &pic_cfg)
 }
 int Encoder::Impl::gopConfig::ReadGopConfig(std::vector<GopPicConfig> &config, int gopSize)
 {
-    int ret = -1;
-
     if (m_gop_cfg->size >= MAX_GOP_PIC_CONFIG_NUM)
         return -1;
 
-    if (m_gop_cfg_offset)
-        m_gop_cfg_offset[gopSize] = m_gop_cfg->size;
+    m_gop_cfg_offset[gopSize] = m_gop_cfg->size;
 
     for (auto &pic_cfg : config)
     {
         if (ParseGopConfigLine(pic_cfg) == -1)
             return -1;
     }
-    ret = 0;
-    return ret;
+    return 0;
 }
 
 media_library_return Encoder::Impl::gopConfig::init_config(VCEncGopConfig *gopConfig, int gop_size,

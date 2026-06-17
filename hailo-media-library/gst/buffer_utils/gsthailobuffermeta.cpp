@@ -23,8 +23,9 @@
 #include "gsthailobuffermeta.hpp"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
+
+#include "buffer_pool.hpp"
 
 static gboolean gst_hailo_buffer_meta_init(GstMeta *meta, gpointer params, GstBuffer *buffer);
 static void gst_hailo_buffer_meta_free(GstMeta *meta, GstBuffer *buffer);

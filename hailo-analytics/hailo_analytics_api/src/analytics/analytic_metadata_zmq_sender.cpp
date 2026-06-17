@@ -1,11 +1,15 @@
 #include "hailo_analytics/analytics/analytic_metadata_zmq_sender.hpp"
-#include <stdexcept>
+
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <ifaddrs.h>
+#include <tl/expected.hpp>
 #include <cstring>
 #include <string>
+#include <memory>
+
+#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
 
 namespace hailo_analytics::analytics::analytic_metadata_zmq_sender
 {

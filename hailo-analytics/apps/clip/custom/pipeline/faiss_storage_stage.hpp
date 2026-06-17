@@ -5,25 +5,23 @@
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <iostream>
-#include <filesystem>
-#include <fstream>
 #include <chrono>
-#include <sstream>
 #include <utility>
 #include <thread>
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
+#include <optional>
+#include <tuple>
+#include <vector>
 
+#include "media_library/cloexec_fstream.hpp"
 // Infra includes
 #include "hailo_postprocess_tools/objects/hailo_objects.hpp"
-#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/core/stage.hpp"
 #include "hailo_analytics/pipeline/core/buffer.hpp"
 #include "faiss_table.hpp"
 #include "faiss_factory.hpp"
-#include "sql_factory.hpp"
 
 namespace fs = std::filesystem;
 
@@ -33,7 +31,7 @@ using hailo_analytics::pipeline::BufferPtr;
 
 #define FAISS_STORAGE_QUEUE_SIZE_DEFAULT 15
 
-#define FAISS_DB_FLASH_INTERVAL_MS 1000
+#define FAISS_DB_FLASH_INTERVAL_MS 3000
 #define FAISS_DB_FLASH_MIN_SIZE 50
 
 class FaissStorageStage : public hailo_analytics::pipeline::ThreadedStage
@@ -91,7 +89,7 @@ class FaissStorageStage : public hailo_analytics::pipeline::ThreadedStage
     // Thread execution function
     void database_access();
 
-    std::ofstream create_file(const std::string &dir_path, const std::string &filename);
+    cloexec::ofstream create_file(const std::string &dir_path, const std::string &filename);
 
     int64_t get_current_epochmilliseconds();
 

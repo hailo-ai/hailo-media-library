@@ -1,5 +1,8 @@
 #pragma once
 
+#include <hailort.h> // IWYU pragma: keep
+#include <stdint.h>
+#include <hailo_gst_tensor_metadata.hpp>
 /**
  * @file common_configs.hpp
  * @brief Common configuration structures for analytics pipelines.
@@ -8,9 +11,12 @@
 #include <chrono>
 #include <string>
 #include <cstddef>
+#include <vector>
+
 #include "hailo_analytics/pipeline/ai/ai_stage.hpp"
 #include "hailo_analytics/pipeline/ai/postprocess_stage.hpp"
 #include "hailo_analytics/pipeline/cropping/aggregator_stage.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 namespace hailo_analytics::analytics
 {
@@ -36,10 +42,12 @@ struct ai_stage_config_t
     std::optional<int> scheduler_threshold;
     std::optional<bool> dynamic_threshold;
     std::optional<std::chrono::milliseconds> scheduler_timeout;
+    std::optional<uint8_t> scheduler_priority;
     std::optional<hailo_analytics::pipeline::StagePoolMode> pool_mode;
     std::optional<float32_t> nms_score_threshold;
     std::optional<std::vector<bool>> nms_classes_filter_mask;
     std::optional<size_t> nms_max_accumulated_mask_size_multiplier;
+    std::optional<bool> use_hailort_service;
     std::optional<bool> trace;
 
     /**

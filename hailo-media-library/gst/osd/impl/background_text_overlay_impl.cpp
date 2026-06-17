@@ -22,7 +22,8 @@
  */
 
 #include "background_text_overlay_impl.hpp"
-#include "media_library/media_library_logger.hpp"
+
+#include "impl/overlay_impl.hpp"
 
 BackgroundTextOverlayImpl::BackgroundTextOverlayImpl(const osd::BaseTextOverlay &overlay, media_library_return &status)
     : OverlayImpl(overlay.id, overlay.x, overlay.y, 0, 0, overlay.z_index, overlay.angle,

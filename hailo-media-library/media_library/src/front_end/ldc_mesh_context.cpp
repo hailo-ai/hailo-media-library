@@ -1,34 +1,39 @@
 #include "ldc_mesh_context.hpp"
+
+#include <tl/expected.hpp>
+#include <stdio.h>
+#include <hailo_v4l2/hailo_v4l2.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <fstream>
+#include <mutex>
+#include <memory>
+#include <thread>
+#include <vector>
+#include <chrono>
+#include <condition_variable>
+#include <iterator>
+#include <optional>
+#include <string>
+#include <utility>
+
 #include "buffer_pool.hpp"
 #include "config_parser.hpp"
 #include "dis_interface.h"
 #include "media_library_logger.hpp"
 #include "media_library_types.hpp"
-#include "media_library_utils.hpp"
 #include "dma_memory_allocator.hpp"
 #include "gyro_device.hpp"
-#include <cmath>
-#include <fstream>
-#include <iostream>
-#include <tl/expected.hpp>
-#include <iomanip>
-#include <mutex>
-#include <memory>
-#include <thread>
-#include <memory>
-#include <stdio.h>
-#include <algorithm>
-#include <vector>
-#include <opencv2/opencv.hpp>
+#include "media_library/cloexec_fstream.hpp"
 #include "isp_utils.hpp"
 #include "v4l2_ctrl.hpp"
-#include "media_library_utils.hpp"
-#include "ldc_mesh_context.hpp"
-#include "dis_interface.h"
-#include "media_library_logger.hpp"
-#include "gyro_device.hpp"
 #include "common.hpp"
 #include "eis_utils.hpp"
+#include "dewarp.h"
+#include "dis_common.h"
+#include "dsp_utils.hpp"
+#include "eis_types.hpp"
+#include "env_vars.hpp"
 
 #define MODULE_NAME LoggerType::LdcMesh
 #define CALIBRATION_VECOTR_SIZE 1024
@@ -136,7 +141,7 @@ LdcMeshContext::~LdcMeshContext()
 
 media_library_return LdcMeshContext::read_vsm_config()
 {
-    std::ifstream file(LDC_VSM_CONFIG);
+    cloexec::ifstream file(LDC_VSM_CONFIG);
     if (!file.is_open())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "read_vsm_config failed, could not open file {}", LDC_VSM_CONFIG);
@@ -154,7 +159,7 @@ media_library_return LdcMeshContext::read_vsm_config()
 tl::expected<dis_calibration_t, media_library_return> LdcMeshContext::read_calibration_file(const char *name)
 {
     dis_calibration_t calib{{}, {1, 1}, {}};
-    std::ifstream file(name);
+    cloexec::ifstream file(name);
     if (!file.is_open())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "read_calibration_file failed, could not open file {}", name);
@@ -825,8 +830,8 @@ media_library_return LdcMeshContext::on_frame_eis_update(uint64_t curr_frame_isp
 
             if (euler_angles != clamped_euler_angles)
             {
-                LOGGER__MODULE__INFO(MODULE_NAME, "EIS correction angles have been clamped. (prev={}, current={})",
-                                     euler_angles, clamped_euler_angles);
+                LOGGER__MODULE__DEBUG(MODULE_NAME, "EIS correction angles have been clamped. (prev={}, current={})",
+                                      euler_angles, clamped_euler_angles);
             }
         }
     }

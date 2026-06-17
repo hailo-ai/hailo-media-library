@@ -23,14 +23,17 @@
 
 #include "osd_repository.hpp"
 
+#include <exception>
+#include <mutex>
+#include <system_error>
+
 #include "media_library/media_library_logger.hpp"
 #include "osd_type_conversions.hpp"
 #include "impl/custom_overlay_impl.hpp"
 #include "impl/datetime_overlay_impl.hpp"
 #include "impl/image_overlay_impl.hpp"
 #include "impl/text_overlay_impl.hpp"
-
-#include <algorithm>
+#include "media_library_types.hpp"
 
 #define MODULE_NAME LoggerType::Osd
 namespace osd
@@ -103,12 +106,12 @@ void OverlayRepository::update_overlays_if_needed(const config_stream_osd_t &con
         {
             if (!configured_overlay)
                 continue;
-            if (!m_overlays.image.contains(configured_overlay->id))
+            auto it = m_overlays.image.find(configured_overlay->id);
+            if (it == m_overlays.image.end())
                 continue;
 
-            ImageOverlayImplPtr image_impl = m_overlays.image.at(configured_overlay->id);
             std::shared_ptr<osd::ImageOverlay> metadata =
-                std::static_pointer_cast<osd::ImageOverlay>(image_impl->get_metadata());
+                std::static_pointer_cast<osd::ImageOverlay>(it->second->get_metadata());
             osd::ImageOverlay configured_osd = type_conversions::to_osd(*configured_overlay);
             if (*metadata != configured_osd)
             {
@@ -120,12 +123,12 @@ void OverlayRepository::update_overlays_if_needed(const config_stream_osd_t &con
         {
             if (!configured_overlay)
                 continue;
-            if (!m_overlays.datetime.contains(configured_overlay->id))
+            auto it = m_overlays.datetime.find(configured_overlay->id);
+            if (it == m_overlays.datetime.end())
                 continue;
 
-            DateTimeOverlayImplPtr datetime_impl = m_overlays.datetime.at(configured_overlay->id);
             std::shared_ptr<osd::DateTimeOverlay> metadata =
-                std::static_pointer_cast<osd::DateTimeOverlay>(datetime_impl->get_metadata());
+                std::static_pointer_cast<osd::DateTimeOverlay>(it->second->get_metadata());
             osd::DateTimeOverlay configured_osd = type_conversions::to_osd(*configured_overlay);
             if (*metadata != configured_osd)
             {
@@ -137,12 +140,12 @@ void OverlayRepository::update_overlays_if_needed(const config_stream_osd_t &con
         {
             if (!configured_overlay)
                 continue;
-            if (!m_overlays.text.contains(configured_overlay->id))
+            auto it = m_overlays.text.find(configured_overlay->id);
+            if (it == m_overlays.text.end())
                 continue;
 
-            TextOverlayImplPtr text_impl = m_overlays.text.at(configured_overlay->id);
             std::shared_ptr<osd::TextOverlay> metadata =
-                std::static_pointer_cast<osd::TextOverlay>(text_impl->get_metadata());
+                std::static_pointer_cast<osd::TextOverlay>(it->second->get_metadata());
             osd::TextOverlay configured_osd = type_conversions::to_osd(*configured_overlay);
             if (*metadata != configured_osd)
             {
@@ -314,7 +317,10 @@ tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_ove
     if (!overlay_expected.has_value())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create image overlay {}", overlay.id);
-        m_pending_additions.erase(overlay.id);
+        {
+            std::unique_lock lock(m_mutex);
+            m_pending_additions.erase(overlay.id);
+        }
         return tl::make_unexpected(overlay_expected.error());
     }
 
@@ -325,7 +331,10 @@ tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_ove
         if (!ret.has_value())
         {
             LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure image overlay {}", overlay.id);
-            m_pending_additions.erase(overlay.id);
+            {
+                std::unique_lock lock(m_mutex);
+                m_pending_additions.erase(overlay.id);
+            }
             return tl::make_unexpected(ret.error());
         }
     }
@@ -344,7 +353,8 @@ tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_ove
 std::shared_future<tl::expected<OverlayImplPtr, media_library_return>> OverlayRepository::upsert_overlay_async(
     const ImageOverlay &overlay)
 {
-    return std::async(std::launch::async, [this, overlay]() { return upsert_overlay(overlay); }).share();
+    auto self = shared_from_this();
+    return std::async(std::launch::async, [self, overlay]() { return self->upsert_overlay(overlay); }).share();
 }
 
 tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_overlay(const TextOverlay &overlay)
@@ -365,7 +375,10 @@ tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_ove
     if (!overlay_expected.has_value())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create text overlay {}", overlay.id);
-        m_pending_additions.erase(overlay.id);
+        {
+            std::unique_lock lock(m_mutex);
+            m_pending_additions.erase(overlay.id);
+        }
         return tl::make_unexpected(overlay_expected.error());
     }
 
@@ -376,7 +389,10 @@ tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_ove
         if (!ret.has_value())
         {
             LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure image overlay {}", overlay.id);
-            m_pending_additions.erase(overlay.id);
+            {
+                std::unique_lock lock(m_mutex);
+                m_pending_additions.erase(overlay.id);
+            }
             return tl::make_unexpected(ret.error());
         }
     }
@@ -395,7 +411,8 @@ tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_ove
 std::shared_future<tl::expected<OverlayImplPtr, media_library_return>> OverlayRepository::upsert_overlay_async(
     const TextOverlay &overlay)
 {
-    return std::async(std::launch::async, [this, overlay]() { return upsert_overlay(overlay); }).share();
+    auto self = shared_from_this();
+    return std::async(std::launch::async, [self, overlay]() { return self->upsert_overlay(overlay); }).share();
 }
 
 tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_overlay(const DateTimeOverlay &overlay)
@@ -416,7 +433,10 @@ tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_ove
     if (!overlay_expected.has_value())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create datetime overlay {}", overlay.id);
-        m_pending_additions.erase(overlay.id);
+        {
+            std::unique_lock lock(m_mutex);
+            m_pending_additions.erase(overlay.id);
+        }
         return tl::make_unexpected(overlay_expected.error());
     }
 
@@ -427,7 +447,10 @@ tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_ove
         if (!ret.has_value())
         {
             LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure image overlay {}", overlay.id);
-            m_pending_additions.erase(overlay.id);
+            {
+                std::unique_lock lock(m_mutex);
+                m_pending_additions.erase(overlay.id);
+            }
             return tl::make_unexpected(ret.error());
         }
     }
@@ -447,7 +470,8 @@ tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_ove
 std::shared_future<tl::expected<OverlayImplPtr, media_library_return>> OverlayRepository::upsert_overlay_async(
     const DateTimeOverlay &overlay)
 {
-    return std::async(std::launch::async, [this, overlay]() { return upsert_overlay(overlay); }).share();
+    auto self = shared_from_this();
+    return std::async(std::launch::async, [self, overlay]() { return self->upsert_overlay(overlay); }).share();
 }
 
 tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_overlay(const CustomOverlay &overlay)
@@ -468,7 +492,10 @@ tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_ove
     if (!overlay_expected.has_value())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create custom overlay {}", overlay.id);
-        m_pending_additions.erase(overlay.id);
+        {
+            std::unique_lock lock(m_mutex);
+            m_pending_additions.erase(overlay.id);
+        }
         return tl::make_unexpected(overlay_expected.error());
     }
 
@@ -479,7 +506,10 @@ tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_ove
         if (!ret.has_value())
         {
             LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure image overlay {}", overlay.id);
-            m_pending_additions.erase(overlay.id);
+            {
+                std::unique_lock lock(m_mutex);
+                m_pending_additions.erase(overlay.id);
+            }
             return tl::make_unexpected(ret.error());
         }
     }
@@ -499,7 +529,8 @@ tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_ove
 std::shared_future<tl::expected<OverlayImplPtr, media_library_return>> OverlayRepository::upsert_overlay_async(
     const CustomOverlay &overlay)
 {
-    return std::async(std::launch::async, [this, overlay]() { return upsert_overlay(overlay); }).share();
+    auto self = shared_from_this();
+    return std::async(std::launch::async, [self, overlay]() { return self->upsert_overlay(overlay); }).share();
 }
 
 media_library_return OverlayRepository::remove_overlay(const std::string &id)

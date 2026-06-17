@@ -27,10 +27,14 @@
 
 #pragma once
 
-#include "media_library_types.hpp"
+#include <stdint.h>
 #include <optional>
 #include <set>
 #include <string>
+#include <cstddef>
+#include <unordered_map>
+
+#include "media_library_types.hpp"
 
 enum class SensorType
 {

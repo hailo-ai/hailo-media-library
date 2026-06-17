@@ -22,13 +22,13 @@
  */
 #pragma once
 
+#include <gst/gst.h>
+#include <stddef.h>
 #include <condition_variable>
 #include <deque>
 #include <mutex>
 #include <string>
 #include <thread>
-
-#include <gst/gst.h>
 
 /**
  * @brief Bounded queue + worker thread for forwarding GstBuffers to a src pad.

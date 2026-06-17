@@ -1,7 +1,12 @@
 #pragma once
 
+#include <hailo/infer_model.hpp>
+#include <hailo/vdevice.hpp>
+#include <functional>
+#include <memory>
+#include <string>
+
 #include "buffer_pool.hpp"
-#include "hailo/hailort.hpp"
 #include "media_library_logger.hpp"
 
 #define HAILO_STITCH_ERROR -1

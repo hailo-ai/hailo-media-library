@@ -1,15 +1,24 @@
 
 #include <zmq.hpp>
-#include <queue>
 #include <nlohmann/json.hpp>
-#include <cmath>
+#include <errno.h>
+#include <stddef.h>
+#include <zmq.h>
 #include <memory>
+#include <atomic>
+#include <iostream>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
 
 #include "hailo_postprocess_tools/objects/hailo_objects.hpp"
-#include "hailo_postprocess_tools/objects/hailo_common.hpp"
-#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/sinks/zmq_comm_stage.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 using json = nlohmann::json;
 

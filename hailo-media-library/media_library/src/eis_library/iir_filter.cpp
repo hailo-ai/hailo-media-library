@@ -1,4 +1,3 @@
-#include <cmath>
 #include "iir_filter.hpp"
 
 IIRFilter::IIRFilter(double iir_coefficient, double gyro_scale, double bias)

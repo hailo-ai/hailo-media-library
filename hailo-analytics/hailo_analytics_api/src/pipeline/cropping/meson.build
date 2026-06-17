@@ -10,7 +10,7 @@ cropping_sources = [
 # Compile lib
 cropping_lib = static_library('hailo_analytics_cropping',
     cropping_sources,
-    cpp_args: hailo_lib_args + ['-Wno-missing-field-initializers'],
+    cpp_args: hailo_lib_args,
     include_directories: incdir,
     dependencies: [base_deps, hailo_analytics_logger_dep],
     pic: true,

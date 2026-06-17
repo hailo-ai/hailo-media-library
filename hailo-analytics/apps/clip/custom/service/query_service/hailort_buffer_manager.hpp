@@ -1,23 +1,15 @@
 #pragma once
 
+#include <dma_mapped_buffer.hpp>
+#include <expected.hpp>
+#include <vdevice.hpp>
 #include <memory>
 #include <vector>
 #include <queue>
 #include <mutex>
-#include <optional>
 #include <atomic>
-#include <fstream>
-#include <iostream>
 #include <cstdint>
 #include <cstring>
-#include <string>
-#include <cstdint>
-#include <cassert>
-#include <cmath>
-#include <sstream>
-
-#include "hailo/hailort.hpp"
-#include "common_utils.hpp"
 
 using namespace hailort;
 

@@ -4,12 +4,14 @@
 #include <optional>
 #include <string>
 #include <cstddef>
+#include <vector>
+
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "tl/expected.hpp"
-
 #include "hailo_analytics/analytics/common_configs.hpp"
 #include "hailo_analytics/pipeline/cropping/bbox_crop_stage.hpp"
 #include "hailo_analytics/pipeline/cropping/aggregator_stage.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 namespace hailo_analytics::analytics::face_landmarks
 {
@@ -22,10 +24,7 @@ inline constexpr std::string_view FACE_LANDMARKS_PIPELINE = "face_landmarks_pipe
 inline constexpr std::string_view BBOX_CROP_LANDMARKS_PIPELINE = "bbox_crop_landmarks_pipeline";
 inline constexpr std::string_view LANDMARKS_SUBPIPELINE = "landmarks_subpipeline";
 
-// Face landmarks AI Stage parameters
 inline constexpr std::string_view LANDMARKS_STAGE = "face_landmarks";
-inline constexpr std::string_view LANDMARKS_BASE_HEF =
-    "/home/root/apps/face_landmarks/resources/face_landmarks_lite.hef";
 inline constexpr std::string_view LANDMARKS_GROUP_ID = "device0";
 
 // Face landmarks Postprocess parameters
@@ -60,6 +59,8 @@ struct bbox_crop_config_t
     std::optional<bool> trace;
     std::optional<hailo_analytics::pipeline::StagePoolMode> pool_mode;
     std::optional<size_t> crop_every_x_frames;
+    std::optional<bool> release_input_after_dsp;
+    std::optional<size_t> max_crops;
 
     /**
      * @brief Merge configuration from another bbox_crop_config_t.

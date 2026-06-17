@@ -1,10 +1,17 @@
 #include "hailo_analytics/pipeline/sources/gst_source_stage.hpp"
 
+#include <gstmedialibptrs.hpp>
+#include <media_library/buffer_pool.hpp>
+#include <media_library/media_library_types.hpp>
+#include <chrono>
+#include <stdexcept>
+#include <utility>
+
 #include "buffer_utils.hpp"
-#include "gsthailobuffermeta.hpp"
 #include "gstmedialibcommon.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
 
 static constexpr GstClockTime PULL_TIMEOUT_NS = 100 * GST_MSECOND;
 

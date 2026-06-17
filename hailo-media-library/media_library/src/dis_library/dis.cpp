@@ -22,15 +22,23 @@
  */
 #include "dis.h"
 
+#include <bits/std_abs.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <map>
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <utility>
+
 #include "camera.h"
 #include "dewarp.h"
 #include "dis_common.h"
 #include "dis_math.h"
 #include "interface_types.h"
 #include "dis_logger.h"
-
-#include <map>
-#include <sstream>
+#include "vec2.h"
+#include "vec3.h"
 
 #define DSP_MAX_MESH_WIDTH ((261 << MESH_FRACT_BITS) - ((1 << MESH_FRACT_BITS) / 2) - 1)
 #define DSP_MAX_MESH_HEIGHT ((247 << MESH_FRACT_BITS) - 1)

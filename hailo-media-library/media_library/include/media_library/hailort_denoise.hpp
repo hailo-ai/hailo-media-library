@@ -1,13 +1,20 @@
 #pragma once
 
-#include "hailo/expected.hpp"
-#include "hailo/infer_model.hpp"
-#include "hailo/vdevice.hpp"
-
-#include "buffer_pool.hpp"
+#include <hailo/hailort.h>
+#include <stddef.h>
 #include <chrono>
 #include <cstdint>
-#include <optional>
+#include <atomic>
+#include <functional>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include "hailo/infer_model.hpp"
+#include "hailo/vdevice.hpp"
+#include "buffer_pool.hpp"
+#include "media_library_types.hpp"
 
 struct hailort_configured_device_t
 {
@@ -82,6 +89,7 @@ class HailortAsyncDenoise
     size_t get_output_frame_size(const std::string &tensor_name) const;
     hailo_3d_image_shape_t get_input_frame_shape(const std::string &tensor_name) const;
     hailo_3d_image_shape_t get_output_frame_shape(const std::string &tensor_name) const;
+    hailo_quant_info_t get_output_quant_info(const std::string &tensor_name) const;
 
   protected:
     OnInferCb m_on_infer_finish;
@@ -97,6 +105,10 @@ class HailortAsyncDenoise
     std::string m_current_vdevice_name;
     std::shared_ptr<hailort::VDevice> m_vdevice;
     std::unordered_map<std::string, std::shared_ptr<hailort_configured_device_t>> m_configured_devices;
+
+    // Opaque wrapper for the cached perfetto::NamedTrack — keeps <hailo_perfetto.h> out of this public header.
+    struct PerfettoImpl;
+    std::unique_ptr<PerfettoImpl> m_perfetto;
 
     static constexpr std::chrono::seconds WAIT_FOR_LAST_INFER_TIMEOUT{1};
     bool set_input_buffer(int fd, const std::string &tensor_name);

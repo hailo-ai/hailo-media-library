@@ -1,5 +1,22 @@
 #include "query_service_ext.hpp"
+
+#include <bits/std_abs.h>
 #include <numeric>
+#include <algorithm>
+#include <cmath>
+#include <filesystem>
+#include <map>
+#include <optional>
+#include <stdexcept>
+#include <utility>
+#include <exception>
+
+#include "faiss_factory.hpp"
+#include "faiss_table.hpp"
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "service/query_service/clip_text_encoder.hpp"
+#include "sql_factory.hpp"
+#include "thumbnail_table.hpp"
 
 ClipQueryServiceExt::DatabaseConfig::DatabaseConfig(const std::string &faiss, const std::string &thumbnail,
                                                     const std::string &video)
@@ -132,9 +149,11 @@ ClipQueryServiceExt::query_videos(int64_t timestamp)
     }
 
     int64_t tolerance = m_video_query_total_length / 2; // Use half of the total length as tolerance
+    HAILO_ANALYTICS_LOG_INFO("VIDEO_QUERY timestamp={} tolerance={}", timestamp, tolerance);
     auto video_results = m_video_table->query_covering(timestamp, tolerance);
     if (video_results.empty())
     {
+        HAILO_ANALYTICS_LOG_INFO("VIDEO_QUERY no results for timestamp={}", timestamp);
         // Just return empty vector if no results found
         return std::vector<VideoQueryResult>();
     }
@@ -142,6 +161,10 @@ ClipQueryServiceExt::query_videos(int64_t timestamp)
     std::vector<VideoQueryResult> video_query_results;
     for (const auto &video_info : video_results)
     {
+        HAILO_ANALYTICS_LOG_INFO("VIDEO_QUERY_RESULT file={} db_start={} db_end={} "
+                                 "offset_from_thumb={}ms",
+                                 video_info.path, video_info.start_timestamp, video_info.end_timestamp,
+                                 video_info.start_timestamp - timestamp);
         video_query_results.emplace_back(video_info.path, video_info.start_timestamp, video_info.end_timestamp);
     }
 

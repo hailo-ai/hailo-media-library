@@ -1,7 +1,18 @@
 #pragma once
+#include <stdint.h>
+#include <media_library/media_library.hpp>
+#include <tl/expected.hpp>
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "pipeline/pipeline.hpp"
 #include "clip_pipeline_ai.hpp"
 #include "clip_pipeline_ai_defines.hpp"
+#include "clip_app_config.hpp"
+#include "common/common.hpp"
+#include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
+#include "resources/common/repository.hpp"
 
 namespace webserver
 {
@@ -12,7 +23,7 @@ namespace pipeline
 class ClipPipeline : public BasePipeline
 {
   public:
-    ClipPipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
+    ClipPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
                  RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H);
     static bool is_supported(webserver::resources::ResourceRepository &resources);
     static const ClipAppConfig &get_clip_config();
@@ -43,6 +54,7 @@ class ClipPipeline : public BasePipeline
     void register_networks_endpoint();
     void register_embedding_endpoint();
     void register_video_thumbnail_clicked_endpoint();
+    void register_video_segments_download_endpoint();
     void register_video_thumbnail_stop_endpoint();
     void register_storage_status_endpoint();
 };

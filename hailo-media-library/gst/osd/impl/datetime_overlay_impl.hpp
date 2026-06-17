@@ -23,9 +23,18 @@
 
 #pragma once
 
+#include <hailo/hailodsp.h>
+#include <tl/expected.hpp>
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "text_overlay_impl.hpp"
+#include "media_library_types.hpp"
+#include "osd_types.hpp"
 
 class DateTimeOverlayImpl;
+
 using DateTimeOverlayImplPtr = std::shared_ptr<DateTimeOverlayImpl>;
 
 class DateTimeOverlayImpl : public TextOverlayImpl

@@ -1,6 +1,6 @@
 #include "signal_utils.hpp"
+
 #include <signal.h>
-#include <mutex>
 #include <stdexcept>
 #include <cstdlib>
 

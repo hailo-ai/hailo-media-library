@@ -1,23 +1,18 @@
 #pragma once
 
+#include <tl/expected.hpp>
 #include <mutex>
 #include <map>
 #include <string>
 #include <vector>
 #include <chrono>
-#include <tl/expected.hpp>
+#include <condition_variable>
+
 #include "buffer_pool.hpp"
 #include "hailo/hailort.h"
 #include "media_library_types.hpp"
 
 using Timestamp = std::chrono::time_point<std::chrono::steady_clock>;
-
-struct InstanceSegmentationAnalyticsData
-{
-    Timestamp ts;
-    std::vector<hailo_detection_with_byte_mask_t> analytics_buffer;
-    HailoMediaLibraryBufferPtr medialib_buffer_ptr; // Optional buffer for byte masks
-};
 
 struct SemanticSegmentationAnalyticsData
 {
@@ -50,14 +45,10 @@ class AnalyticsDB
     void add_configuration(application_analytics_config_t application_analytics_config);
 
     media_library_return add_detection_entry(const std::string &analytics_id, const DetectionAnalyticsData &data);
-    media_library_return add_instance_segmentation_entry(const std::string &analytics_id,
-                                                         const InstanceSegmentationAnalyticsData &data);
     media_library_return add_semantic_segmentation_entry(const std::string &analytics_id,
                                                          const SemanticSegmentationAnalyticsData &data);
 
     tl::expected<DetectionAnalyticsData, media_library_return> query_detection_entry(
-        const std::string &analytics_id, const AnalyticsQueryOptions &options);
-    tl::expected<InstanceSegmentationAnalyticsData, media_library_return> query_instance_segmentation_entry(
         const std::string &analytics_id, const AnalyticsQueryOptions &options);
     tl::expected<SemanticSegmentationAnalyticsData, media_library_return> query_semantic_segmentation_entry(
         const std::string &analytics_id, const AnalyticsQueryOptions &options);
@@ -74,7 +65,6 @@ class AnalyticsDB
 
     // map<analytics_id, map<Timestamp, AnalyticsData>>
     std::map<std::string, std::map<Timestamp, DetectionAnalyticsData>> m_detection_entries_db;
-    std::map<std::string, std::map<Timestamp, InstanceSegmentationAnalyticsData>> m_instance_segmentation_entries_db;
     std::map<std::string, std::map<Timestamp, SemanticSegmentationAnalyticsData>> m_semantic_segmentation_entries_db;
     std::mutex m_mutex;
     std::condition_variable m_cv;

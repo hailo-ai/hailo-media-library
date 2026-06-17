@@ -1,7 +1,14 @@
 #include "cache_stage.hpp"
 
+#include <media_library/buffer_pool.hpp>
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <vector>
+
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "hailo_analytics/pipeline/core/queue.hpp"
 
 TimeSeriesCache::TimeSeriesCache(size_t maxSize) : m_maxSize(maxSize)
 {
@@ -46,7 +53,7 @@ size_t TimeSeriesCache::size() const
 CacheStage::CacheStage(std::string name, size_t cache_size, size_t queue_size, bool leaky,
                        bool trace_processing_operations)
     : hailo_analytics::pipeline::ThreadedStage(name, queue_size, leaky, trace_processing_operations),
-      m_cache_size(cache_size), m_cache(cache_size)
+      m_cache(cache_size)
 {
 }
 
@@ -95,8 +102,7 @@ void CacheStage::loop()
             {
                 if (!m_cache.is_older_than(lookup_timestamp))
                 {
-                    std::cout << "WARNING: cache lookup timestamp unable to find cache item!" << std::endl;
-                    HAILO_ANALYTICS_LOG_WARN("cache lookup timestamp unable to find cache item!");
+                    HAILO_ANALYTICS_LOG_INFO("cache lookup timestamp unable to find cache item");
                     m_queues[1]->pop();
                 }
             }

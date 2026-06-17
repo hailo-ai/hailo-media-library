@@ -22,12 +22,18 @@
  */
 #pragma once
 
-#include "media_library/encoder_class.hpp"
-#include "media_library/media_library_utils.hpp"
-#include "common/gstmedialibcommon.hpp"
-#include <gst/gst.h>
-#include <gst/video/video.h>
+#include <glib-object.h>
+#include <glib.h>
+#include <gst/video/gstvideoencoder.h>
+#include <stdint.h>
 #include <queue>
+#include <memory>
+#include <string>
+
+#include "media_library/encoder_class.hpp"
+#include "encoder_config_types.hpp"
+#include "gstmedialibptrs.hpp"
+#include "media_library_types.hpp"
 
 G_BEGIN_DECLS
 

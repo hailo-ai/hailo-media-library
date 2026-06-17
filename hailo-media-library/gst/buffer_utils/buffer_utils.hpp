@@ -28,11 +28,16 @@
 
 #pragma once
 
+#include <gst/gst.h>
+#include <gst/video/gstvideometa.h>
+#include <gst/video/video-frame.h>
+#include <gst/video/video-info.h>
+#include <hailo/hailodsp.h>
+#include <stddef.h>
+#include <utility>
+
 #include "media_library/buffer_pool.hpp"
-#include "media_library/dsp_utils.hpp"
-#include <gst/video/video.h>
-#include <stdint.h>
-G_BEGIN_DECLS
+#include "media_library/media_library_buffer.hpp"
 
 HailoMediaLibraryBufferPtr hailo_buffer_from_gst_buffer(GstBuffer *buffer, GstCaps *caps);
 GstVideoMeta *add_video_meta_to_buffer(GstBuffer *buffer, GstVideoInfo *video_info);
@@ -45,5 +50,3 @@ bool create_hailo_buffer_data_from_video_frame(GstVideoFrame *video_frame, Hailo
 std::pair<void *, int> get_mapped_dmabuf_from_video_frame(GstVideoFrame *video_frame, int plane_index, size_t size);
 bool dma_buffer_sync_start(GstBuffer *buffer);
 bool dma_buffer_sync_end(GstBuffer *buffer);
-
-G_END_DECLS

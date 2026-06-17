@@ -1,22 +1,17 @@
 // General includes
 #include <gst/gst.h>
-#include <gst/app/gstappsrc.h>
-#include <gst/video/video.h>
 #include <tl/expected.hpp>
-#include <functional>
+#include <gst/gstparse.h>
+#include <stddef.h>
 #include <iostream>
-#include <queue>
-#include <thread>
-#include <vector>
-
-// Media library includes
-#include "gsthailobuffermeta.hpp"
-#include "media_library/buffer_pool.hpp"
-#include "media_library/media_library_types.hpp"
+#include <memory>
+#include <string>
 
 // Infra includes
 #include "hailo_analytics/pipeline/sinks/udp_module.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/pipeline/sinks/output_module.hpp"
 
 namespace hailo_analytics::pipeline::sinks
 {

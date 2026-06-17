@@ -1,7 +1,13 @@
 #include "hailo_analytics/utils/platform_utils.hpp"
-#include <fstream>
+
+#include <ctype.h>
 #include <algorithm>
+#include <fstream> // IWYU pragma: keep
 #include <iostream>
+#include <string>
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "media_library/cloexec_fstream.hpp"
+#include "media_library/sensor_registry.hpp"
 
 namespace hailo_analytics::utils
 {
@@ -22,7 +28,7 @@ std::string to_lower(const std::string &str)
 
 Architecture get_hailo_architecture()
 {
-    std::ifstream file(MACHINE_FILE_PATH);
+    cloexec::ifstream file(MACHINE_FILE_PATH);
     if (!file.is_open())
     {
         std::cerr << "Failed to open machine file at " << MACHINE_FILE_PATH << std::endl;
@@ -46,6 +52,20 @@ Architecture get_hailo_architecture()
     }
 
     return Architecture::UNKNOWN;
+}
+
+bool validate_all_sensors_are_present(size_t num_sensors)
+{
+    auto &registry = SensorRegistry::get_instance();
+    for (size_t i = 0; i < num_sensors; ++i)
+    {
+        if (!registry.detect_sensor_type(i).has_value())
+        {
+            HAILO_ANALYTICS_LOG_WARN("Sensor {}: absent", i);
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace hailo_analytics::utils

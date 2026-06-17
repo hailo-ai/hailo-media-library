@@ -3,10 +3,18 @@
 #define _GST_HAILOJPEGENC_HPP_
 
 #include <gst/gst.h>
-#include <vector>
-#include <memory>
+#include <stdio.h> // IWYU pragma: keep // jpeglib.h uses FILE without including <stdio.h>
 #include <jpeglib.h>
-#include "media_library/encoder_config.hpp"
+#include <glib-object.h>
+#include <glib.h>
+#include <stdint.h>
+#include <sys/types.h>
+#include <vector>
+#include <string>
+
+#include "encoder_config_types.hpp"
+
+struct GstHailoJpegEnc;
 
 G_BEGIN_DECLS
 

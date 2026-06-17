@@ -4,9 +4,16 @@
  **/
 #pragma once
 
-#include "hailo_postprocess_tools/objects/hailo_objects.hpp"
-#include "xtensor/xadapt.hpp"
-#include "xtensor/xarray.hpp"
+#include <stdint.h>
+#include <xtensor/xadapt.hpp> // IWYU pragma: keep // xt::xarray needs full type for inline dequantize()
+#include <xtensor/xarray.hpp> // IWYU pragma: keep
+#include <xtensor/xlayout.hpp>
+#include <xtensor/xtensor_forward.hpp>
+#include <map>
+#include <string>
+#include <vector>
+
+#include "hailo_postprocess_tools/objects/hailo_tensors.hpp"
 
 namespace common
 {

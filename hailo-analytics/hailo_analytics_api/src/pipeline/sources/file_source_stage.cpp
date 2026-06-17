@@ -1,14 +1,28 @@
+#include <stddef.h>
+#include <media_library/media_library_buffer.hpp>
+#include <media_library/media_library_types.hpp>
 #include <chrono>
 #include <thread>
 #include <memory>
+#include <atomic>
+#include <compare>
+#include <functional>
+#include <optional>
+#include <ratio>
+#include <stdexcept>
+#include <string>
+#include <utility>
 
 // Media-Library includes
 #include "media_library/buffer_pool.hpp"
-
 // Infra includes
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/sources/file_source_stage.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/pipeline/core/stage_tracing.hpp"
+#include "hailo_analytics/pipeline/sources/file_reader_module.hpp"
 
 namespace hailo_analytics::pipeline::sources
 {

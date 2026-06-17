@@ -1,9 +1,18 @@
 #include "faiss_storage_stage.hpp"
 
-#include "hailo_analytics/pipeline/core/error_utils.hpp"
-
+#include <faiss/MetricType.h>
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
 #include <chrono>
-#include <sstream>
+#include <exception>
+#include <filesystem>
+#include <iostream>
+
+#include "media_library/cloexec_fstream.hpp"
+#include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "faiss_partitioned.hpp"
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_analytics/pipeline/core/queue.hpp"
+#include "sql_factory.hpp"
 
 FaissStorageStage::FaissStorageStage(std::string name, std::string db_path, std::string faiss_dir,
                                      std::string faiss_filename_prefix, size_t queue_size, bool leaky,
@@ -196,7 +205,7 @@ hailo_analytics::pipeline::AppStatus FaissStorageStage::process(BufferPtr data)
 #if 0
         {
             std::string filename = generate_filename(std::to_string(insert_result.value()), "emb");
-            std::ofstream file = create_file(m_faiss_dir, filename);
+            cloexec::ofstream file = create_file(m_faiss_dir, filename);
             for (float value : matrix->get_data())
             {
                 file << value << "\n"; // Write each float on a new line
@@ -248,8 +257,8 @@ void FaissStorageStage::database_access()
                 std::chrono::high_resolution_clock::now() - start);
             if (duration.count() > 30)
             {
-                std::cout << "Time taken FAISS table batch insert: " << duration.count() << " ms"
-                          << ", total insert items: " << operations_to_process.size() << std::endl;
+                HAILO_ANALYTICS_LOG_INFO("Time taken FAISS table batch insert: {} ms, total insert items: {}",
+                                         duration.count(), operations_to_process.size());
             }
         }
 
@@ -260,12 +269,12 @@ void FaissStorageStage::database_access()
     }
 }
 
-std::ofstream FaissStorageStage::create_file(const std::string &dir_path, const std::string &filename)
+cloexec::ofstream FaissStorageStage::create_file(const std::string &dir_path, const std::string &filename)
 {
     fs::path full_path = fs::path(dir_path) / filename;
 
     // Open the file with desired flags
-    std::ofstream file(full_path, std::ios::out | std::ios::binary | std::ios::app);
+    cloexec::ofstream file(full_path, std::ios::out | std::ios::binary | std::ios::app);
 
     return file;
 }

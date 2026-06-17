@@ -1,14 +1,15 @@
 # Project Declaration
 project('hailo-postprocess', 'c', 'cpp',
-    version : '1.11.0',
-    default_options : [ 'buildtype=' + get_option('buildtype'),
-                        'c_std=c11', 'cpp_std=c++17']
+    version : '1.12.0',
+    default_options : [ 'warning_level=2', 'werror=true',
+                        'buildtype=' + get_option('buildtype'),
+                        'c_std=c11', 'cpp_std=c++20']
 )
 
 # Compiler Arguments
-add_global_arguments('-Wpessimizing-move', language : 'cpp')
-add_global_arguments('-Wredundant-move', language : 'cpp')
 add_global_arguments('-fconcepts', language : 'cpp')
+# Suppress deprecated-enum-enum-conversion warnings from OpenCV 4.x headers (fixed in OpenCV 4.8+)
+add_global_arguments('-Wno-deprecated-enum-enum-conversion', language : 'cpp')
 
 # Pkgconfig
 pkgc = import('pkgconfig')
@@ -28,10 +29,17 @@ opencv_dep = dependency('opencv4', version : '>= 4.0', method : 'pkg-config')
 # xtensor Dependencies
 xtensor_dep = dependency('xtensor', method : 'pkg-config')
 
+# Logger Dependencies
+spdlog_dep = dependency('spdlog', version: '>= 1.9.2')
+fmt_dep = dependency('fmt', required: false)
+
+# Media Library Dependency (for logger setup)
+medialib_dep = dependency('hailo-medialib', method : 'pkg-config')
+
 # Library Arguments
 hailo_lib_args = []
 
-base_deps = gst_deps + [opencv_dep, xtensor_dep]
+base_deps = gst_deps + [opencv_dep, xtensor_dep, spdlog_dep, fmt_dep, medialib_dep]
 
 ################################################
 # SUBDIRS

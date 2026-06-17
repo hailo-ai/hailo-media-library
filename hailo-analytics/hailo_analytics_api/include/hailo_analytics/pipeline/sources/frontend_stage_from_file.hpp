@@ -57,8 +57,8 @@ class FrontendStageFromFile : public FrontendStage
      * @param loop_enabled Whether to loop the video when it reaches the end
      * @param queue_size Queue size for the stage
      * @param leaky Whether the queue is leaky
-     * @param print_fps Whether to print FPS information
      * @param buffer_pool_size Size of the buffer pool (must be > 0)
+     * @param pool_mode Pool mode for buffer acquisition
      * @param trace_processing_operations Whether to trace processing operations
      */
     FrontendStageFromFile(std::string name, const std::string &file_location, size_t width, size_t height, double fps,
@@ -67,10 +67,10 @@ class FrontendStageFromFile : public FrontendStage
 
     /**
      * @brief Create and configure the frontend stage with file input
-     * @param frontend MediaLibrary frontend instance
+     * @param media_library MediaLibrary instance
      * @return AppStatus indicating success or failure
      */
-    AppStatus create(MediaLibraryFrontend &frontend);
+    AppStatus create(MediaLibraryPtr media_library);
 
     /**
      * @brief Stop the frontend stage
@@ -92,10 +92,10 @@ class FrontendStageFromFile : public FrontendStage
 
     /**
      * @brief Configure the frontend stage
-     * @param frontend MediaLibrary frontend instance
+     * @param media_library MediaLibrary instance
      * @return AppStatus indicating success or failure
      */
-    AppStatus configure(MediaLibraryFrontend &frontend);
+    AppStatus configure(MediaLibraryPtr media_library);
 
   private:
     /**

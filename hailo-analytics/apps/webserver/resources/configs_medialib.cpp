@@ -1,13 +1,30 @@
+#include <media_library/dis_common.h>
+#include <media_library/gyro_device.hpp>
+#include <media_library/media_library_api_types.hpp>
+#include <nlohmann/json.hpp>
+#include <tl/expected.hpp>
+#include <exception>
+#include <functional>
+#include <initializer_list>
+#include <iosfwd>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <shared_mutex>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "configs.hpp"
 #include "common/common.hpp"
-#include "media_library/config_parser.hpp"
-#include "media_library/encoder_config_types.hpp"
-#include "media_library/media_library_types.hpp"
-#include "pipeline/pipeline.hpp"
+#include "common/httplib/httplib_utils.hpp"
+#include "common/logger_macros.hpp"
 
-#include <algorithm>
-#include <array>
-#include <optional>
+#include <filesystem>
+#include "media_library/cloexec_fstream.hpp"
+#include "resources/common/event_bus.hpp"
+#include "resources/common/events_utils.hpp"
 
 using namespace webserver::resources;
 
@@ -29,7 +46,11 @@ nlohmann::json ConfigResourceMedialib::get_current_medialib_config()
 ConfigResourceMedialib::ConfigResourceMedialib(std::shared_ptr<EventBus> event_bus, std::string config_path)
     : ConfigResourceBase(event_bus)
 {
-    // Load default medialib config
+    // Canonicalize so relative refs (e.g. ../profiles/...) anchor to the real arch-specific dir
+    // rather than the /etc/imaging/cfg/medialib_configs symlink (which would resolve ".." wrong).
+    std::error_code ec;
+    auto canonical = std::filesystem::weakly_canonical(config_path, ec);
+    m_medialib_config_path = ec ? config_path : canonical.string();
     auto medialib_config = load_config_from_file(config_path);
     if (!medialib_config.has_value())
     {
@@ -39,8 +60,6 @@ ConfigResourceMedialib::ConfigResourceMedialib(std::shared_ptr<EventBus> event_b
     m_medialib_config = medialib_config.value();
     // Load default profile config
     m_default_profile_name = m_medialib_config["default_profile"];
-    // Determine HDM mode from the lowlight bayer profile
-    m_is_hdm_mode = check_lowlight_bayer_is_hdm();
     // Initialize throttling state to uninitialized
     m_current_throttling_state = media_library_throttling_state_t::THROTTLING_STATE_UNINITIALIZED;
 
@@ -175,11 +194,14 @@ tl::expected<nlohmann::json, std::string> ConfigResourceMedialib::extract_fronte
 
 tl::expected<nlohmann::json, std::string> ConfigResourceMedialib::get_profile(const nlohmann::json &profile_name)
 {
+    const std::string medialib_dir = std::filesystem::path(m_medialib_config_path).parent_path().string();
     for (auto profile : m_medialib_config["profiles"])
     {
         if (profile["name"] == profile_name)
         {
-            return load_config_from_file(profile["config_file"]);
+            const std::string resolved_path = resolve_relative_to(profile["config_file"], medialib_dir);
+            m_current_profile_path = resolved_path;
+            return load_config_from_file(resolved_path);
         }
     }
     return tl::make_unexpected("Profile not found");
@@ -198,11 +220,10 @@ tl::expected<nlohmann::json, std::string> ConfigResourceMedialib::enable_gyro_if
 
         nlohmann::json stabilizer_settings;
 
-        // Check if stabilizer_settings is a file path (new format) or inline object (old format)
         if (profile["stabilizer_settings"].is_string())
         {
-            // New format: stabilizer_settings contains a file path
-            std::string stabilizer_config_path = profile["stabilizer_settings"];
+            const std::string profile_dir = std::filesystem::path(m_current_profile_path).parent_path().string();
+            const std::string stabilizer_config_path = resolve_relative_to(profile["stabilizer_settings"], profile_dir);
             auto loaded_config = load_config_from_file(stabilizer_config_path);
             if (!loaded_config.has_value())
             {
@@ -256,92 +277,14 @@ tl::expected<nlohmann::json, std::string> ConfigResourceMedialib::enable_gyro_if
     }
 }
 
-static bool has_hdm_denoise_fields(const nlohmann::json &iq_settings)
+std::string ConfigResourceMedialib::get_current_profile_path() const
 {
-    if (!iq_settings.contains("denoise"))
-    {
-        return false;
-    }
-    const auto &denoise = iq_settings.at("denoise");
-    if (!denoise.value("bayer", false) || !denoise.contains("network"))
-    {
-        return false;
-    }
-    static const std::array<std::string, 4> HDM_FIELDS = {"input_fusion_feedback", "output_fusion_feedback",
-                                                          "input_gamma_feedback", "output_gamma_feedback"};
-    const auto &network = denoise.at("network");
-    return std::all_of(HDM_FIELDS.begin(), HDM_FIELDS.end(), [&network](const std::string &field) {
-        return network.contains(field) && !network[field].get<std::string>().empty();
-    });
-}
-
-static std::optional<nlohmann::json> resolve_iq_settings(const nlohmann::json &profile_json)
-{
-    // iq_settings may be a file path (string) or an already-flattened inline object
-    if (profile_json.contains("iq_settings") && profile_json["iq_settings"].is_string())
-    {
-        std::string iq_path = profile_json["iq_settings"];
-        std::ifstream iq_file(iq_path);
-        if (!iq_file.is_open())
-        {
-            WEBSERVER_LOG_ERROR("Failed to open IQ settings file: {}", iq_path);
-            return std::nullopt;
-        }
-        nlohmann::json iq_settings;
-        iq_file >> iq_settings;
-        return iq_settings;
-    }
-    if (profile_json.contains("iq_settings_content"))
-    {
-        return std::optional<nlohmann::json>{profile_json["iq_settings_content"]};
-    }
-    return std::nullopt;
-}
-
-bool ConfigResourceMedialib::check_lowlight_bayer_is_hdm() const
-{
-    static constexpr std::string_view LOWLIGHT_BAYER_PREFIX = "Lowlight_Bayer";
-    for (const auto &profile : m_medialib_config["profiles"])
-    {
-        std::string name = profile["name"];
-        if (!name.starts_with(LOWLIGHT_BAYER_PREFIX))
-        {
-            continue;
-        }
-
-        try
-        {
-            std::string config_file = profile["config_file"];
-            std::ifstream file(config_file);
-            if (!file.is_open())
-            {
-                WEBSERVER_LOG_ERROR("Failed to open lowlight bayer config file: {}", config_file);
-                continue;
-            }
-            nlohmann::json profile_json;
-            file >> profile_json;
-            auto iq_settings = resolve_iq_settings(profile_json);
-            if (!iq_settings.has_value())
-            {
-                continue;
-            }
-            if (has_hdm_denoise_fields(iq_settings.value()))
-            {
-                return true;
-            }
-        }
-        catch (const std::exception &e)
-        {
-            WEBSERVER_LOG_ERROR("Failed to parse lowlight bayer config: {}", e.what());
-            continue;
-        }
-    }
-    return false;
+    return m_current_profile_path;
 }
 
 tl::expected<nlohmann::json, std::string> ConfigResourceMedialib::load_config_from_file(const std::string &file_path)
 {
-    std::ifstream configFile(file_path);
+    cloexec::ifstream configFile(file_path);
     if (!configFile.is_open())
     {
         std::string error_msg = "Failed to open config file: " + file_path;
@@ -382,19 +325,14 @@ void ConfigResourceMedialib::update_profile()
 nlohmann::json ConfigResourceMedialib::build_profile_response() const
 {
     nlohmann::json profile_json;
-    profile_json["profile"]["active"] = profile_type_to_display_name(m_current_profile_type, m_is_hdm_mode);
-    nlohmann::json supported_list = nlohmann::json::array();
-    for (const auto &profile : m_supported_profiles)
-    {
-        supported_list.push_back(profile_type_to_display_name(profile, m_is_hdm_mode));
-    }
-    profile_json["profile"]["supported"] = supported_list;
+    profile_json["profile"]["active"] = m_current_profile_type;
+    profile_json["profile"]["supported"] = m_supported_profiles;
     return profile_json;
 }
 
 void ConfigResourceMedialib::http_register(HTTPServer &srv)
 {
-    srv.Post("/reset_all", [this](const nlohmann::json &req) {
+    srv.Post("/reset_all", [this](const nlohmann::json & /*req*/) {
         WEBSERVER_LOG_INFO("POST /reset_all called");
         try
         {
@@ -415,7 +353,7 @@ void ConfigResourceMedialib::http_register(HTTPServer &srv)
             WEBSERVER_LOG_ERROR("Profile name not found in request body");
             throw std::runtime_error("Profile name not found in request body");
         }
-        auto profile_name = display_name_to_profile_type(j_body["profile"]["active"].get<std::string>());
+        auto profile_name = j_body["profile"]["active"].get<ProfileType>();
         {
             std::shared_lock<std::shared_mutex> lock(m_config_mutex);
             if (profile_name == m_current_profile_type)
@@ -516,7 +454,7 @@ void ConfigResourceMedialib::http_register(HTTPServer &srv)
                 return j;
             }));
 
-    srv.Get("/architecture", std::function<nlohmann::json()>([this]() {
+    srv.Get("/architecture", std::function<nlohmann::json()>([]() {
                 WEBSERVER_LOG_INFO("GET /architecture called");
                 nlohmann::json j;
                 j["architecture"] = get_hailo_architecture();

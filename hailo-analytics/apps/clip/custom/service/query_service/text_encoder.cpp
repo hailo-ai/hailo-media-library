@@ -1,5 +1,7 @@
 #include "text_encoder.hpp"
 
+#include <utility>
+
 TextEncoder::EncoderResult::EncoderResult(const std::string &id, std::map<std::string, std::vector<float>> positive,
                                           std::map<std::string, std::vector<float>> negative)
     : network_id(id), positive_embeddings(std::move(positive)), negative_embeddings(std::move(negative))

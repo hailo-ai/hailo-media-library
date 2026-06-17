@@ -4,13 +4,15 @@
  **/
 #pragma once
 
-// General cpp includes
-#include <iostream>
+#include <stddef.h>
+#include <stdint.h>
 #include <vector>
 #include <mutex>
-#include <thread>
 #include <optional>
 #include <atomic>
+#include <map>
+#include <memory>
+#include <utility>
 
 #include "hailo_postprocess_tools/objects/hailo_objects.hpp"
 

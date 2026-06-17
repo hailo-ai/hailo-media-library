@@ -21,10 +21,17 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include "gsthailodewarp.hpp"
-#include "buffer_utils/buffer_utils.hpp"
-#include "gst/gstcaps.h"
-#include <gst/video/video.h>
+
 #include <tl/expected.hpp>
+#include <gst/video/gstvideometa.h>
+#include <stddef.h>
+#include <stdexcept>
+
+#include "buffer_utils/buffer_utils.hpp"
+#include "buffer_pool.hpp"
+#include "dewarp.hpp"
+#include "dis_common.h"
+#include "gstmedialibcommon.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailo_dewarp_debug);
 #define GST_CAT_DEFAULT gst_hailo_dewarp_debug

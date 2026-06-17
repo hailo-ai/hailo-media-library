@@ -8,6 +8,9 @@
  * via per-stream_id appsinks, and is compatible with PipelineBuilder::connect_frontend().
  **/
 
+#include <gst/app/gstappsink.h>
+#include <gst/gst.h>
+#include <stddef.h>
 #include <atomic>
 #include <condition_variable>
 #include <map>
@@ -16,13 +19,9 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <memory>
 
-#include <gst/app/gstappsink.h>
-#include <gst/gst.h>
-
-#include "hailo_analytics/pipeline/core/buffer.hpp"
 #include "hailo_analytics/pipeline/core/stage.hpp"
-
 #include "media_library/media_library_types.hpp"
 
 namespace hailo_analytics::pipeline::sources

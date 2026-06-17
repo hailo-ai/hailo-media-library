@@ -27,14 +27,14 @@
  **/
 #pragma once
 
-#include "media_library/buffer_pool.hpp"
-#include "media_library/dsp_utils.hpp"
-#include "media_library/media_library_types.hpp"
-#include <future>
-#include <memory>
 #include <nlohmann/json.hpp>
-#include <string>
 #include <tl/expected.hpp>
+#include <hailo/hailodsp_base.h>
+#include <stddef.h>
+#include <string>
+
+#include "media_library/buffer_pool.hpp"
+#include "media_library/media_library_types.hpp"
 
 #define DEFAULT_FONT_PATH "/usr/share/fonts/ttf/LiberationMono-Regular.ttf"
 #define DEFAULT_DATETIME_STRING "%d-%m-%Y %H:%M:%S"

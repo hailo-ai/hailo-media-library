@@ -1,5 +1,15 @@
 #pragma once
+#include <stdint.h>
+#include <media_library/encoder_config_types.hpp>
+#include <media_library/media_library.hpp>
+#include <media_library/media_library_types.hpp>
+#include <string>
+
 #include "pipeline/pipeline.hpp"
+#include "common/common.hpp"
+#include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
+#include "resources/common/events_utils.hpp"
+#include "resources/common/repository.hpp"
 
 namespace webserver
 {
@@ -9,7 +19,7 @@ namespace pipeline
 class ProfileManagerPipeline : public BasePipeline
 {
   public:
-    ProfileManagerPipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
+    ProfileManagerPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
                            RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H);
 
     virtual std::string pipeline_name() const override;

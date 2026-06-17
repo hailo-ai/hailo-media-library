@@ -1,12 +1,20 @@
+#include <gst/gst.h>
+#include <sys/ioctl.h>
+#include <fcntl.h>
+#include <asm/ioctl.h>
+#include <gst/base/gstbasetransform.h>
+#include <gst/gstparamspecs.h>
+#include <gst/video/video-format.h>
+#include <gst/video/video-frame.h>
+#include <gst/video/video-info.h>
+#include <string.h>
+#include <unistd.h>
+
 #include "dsp/gsthailodspbasetransform.hpp"
 #include "upload/gsthailoupload.hpp"
 #include "media_library/dma_memory_allocator.hpp"
-#include "common/gstmedialibcommon.hpp"
-#include <gst/gst.h>
-#include <gst/video/video.h>
-#include <sys/ioctl.h>
-#include <fcntl.h>
-#include <iostream>
+#include "gstmedialibptrs.hpp"
+#include "media_library_types.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailo_upload_debug);
 #define GST_CAT_DEFAULT gst_hailo_upload_debug

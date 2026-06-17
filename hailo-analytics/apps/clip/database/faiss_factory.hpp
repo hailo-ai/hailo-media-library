@@ -1,13 +1,15 @@
 #pragma once
 
-#include "faiss_partitioned.hpp"
-#include <iostream>
+#include <stddef.h>
+#include <tl/expected.hpp>
 #include <unordered_map>
 #include <memory>
 #include <string>
-#include <mutex>
 #include <shared_mutex>
-#include <functional>
+#include <vector>
+
+#include "faiss_partitioned.hpp"
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
 // Configuration struct for database creation
 struct FaissDatabaseConfig

@@ -277,7 +277,7 @@ inline void flatten_hailo_roi(HailoROIPtr roi, HailoROIPtr parent_roi, hailo_obj
             HailoROIPtr sub_obj_roi = std::dynamic_pointer_cast<HailoROI>(objects[index]);
             sub_obj_roi->set_bbox(std::move(create_flattened_bbox(sub_obj_roi->get_bbox(), roi->get_bbox())));
             parent_roi->add_object(sub_obj_roi);
-            roi->remove_object(index);
+            roi->remove_object(objects[index]);
             objects.erase(objects.begin() + index);
             index--;
         }

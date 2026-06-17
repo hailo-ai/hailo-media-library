@@ -1,7 +1,10 @@
 #pragma once
-#include <nlohmann/json-schema.hpp>
+#include <nlohmann/json.hpp>
+#include <filesystem>
 #include <string>
 #include <unordered_map>
+#include <vector>
+
 #include "media_library_types.hpp"
 #include "config_parser.hpp"
 
@@ -22,7 +25,8 @@ class JsonParser
     media_library_return parse_path(const std::string path, nlohmann::json &content);
     media_library_return flatten_path(const std::string &path, nlohmann::json &output_json);
     media_library_return flatten_json(const nlohmann::json &input_json, nlohmann::json &output_json,
-                                      bool validate_schema, bool validate_metadata);
+                                      bool validate_schema, bool validate_metadata,
+                                      const std::filesystem::path &base_dir);
     media_library_return schema_validate(const nlohmann::json &json, const ConfigSchema &schema);
     media_library_return schema_validate(const std::string &key, const nlohmann::json &value_coresponding_to_key);
 
@@ -32,7 +36,8 @@ class JsonParser
         return key + content_suffix;
     }
     media_library_return flatten_profile(const nlohmann::json &input_json, nlohmann::json &output_json,
-                                         bool validate_schema = true, bool validate_metadata = true);
+                                         bool validate_schema = true, bool validate_metadata = true,
+                                         const std::filesystem::path &base_dir = {});
     media_library_return flatten_profile(const std::string &input_json_path, nlohmann::json &output_json,
                                          bool validate_schema = true, bool validate_metadata = true);
 };

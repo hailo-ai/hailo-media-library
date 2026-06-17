@@ -1,6 +1,25 @@
+#include <stddef.h>
+#include <stdint.h>
+#include <media_library/buffer_pool.hpp>
+#include <tl/expected.hpp>
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <compare>
+#include <memory>
+#include <optional>
+#include <ratio>
+#include <string>
+#include <vector>
+
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_analytics/perfetto/hailo_analytics_perfetto.hpp"
 #include "hailo_analytics/pipeline/cropping/sync_aggregator_stage.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/queue.hpp"
+#include "hailo_analytics/pipeline/core/stage_tracing.hpp"
+#include "hailo_analytics/pipeline/cropping/aggregator_stage.hpp"
 
 namespace hailo_analytics::pipeline::cropping
 {
@@ -15,7 +34,7 @@ class AggTracing
 #endif
 
   public:
-    AggTracing(const std::string &name)
+    AggTracing([[maybe_unused]] const std::string &name)
 #ifdef HAVE_PERFETTO
         : m_counter_name_drop_rate("aggregator_" + name + "_drop_rate"),
           m_counter_name_timeout("aggregator_" + name + "_timeout")
@@ -23,13 +42,13 @@ class AggTracing
     {
     }
 
-    void track_drop_rate(float drop_rate)
+    void track_drop_rate([[maybe_unused]] float drop_rate)
     {
         HAILO_ANALYTICS_TRACE_COUNTER(m_counter_name_drop_rate, drop_rate, HAILO_ANALYTICS_PROCESSING_TRACK,
                                       HAILO_ANALYTICS_DETAILED_CATEGORY);
     }
 
-    void track_timeout(std::chrono::milliseconds timeout)
+    void track_timeout([[maybe_unused]] std::chrono::milliseconds timeout)
     {
         HAILO_ANALYTICS_TRACE_COUNTER(m_counter_name_timeout, timeout.count(), HAILO_ANALYTICS_PROCESSING_TRACK,
                                       HAILO_ANALYTICS_DETAILED_CATEGORY);
