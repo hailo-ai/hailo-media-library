@@ -1,6 +1,8 @@
 #include "storage_cleanup_service_ext.hpp"
 
-#include <iostream>
+#include <chrono>
+#include <exception>
+#include <utility>
 
 StorageCleanupServiceExt::DatabaseConfig::DatabaseConfig(const std::string &faiss, const std::string &thumbnail,
                                                          const std::string &video)
@@ -12,6 +14,7 @@ StorageCleanupServiceExt::DatabaseConfig::DatabaseConfig(const std::string &fais
 #include "include/video_table.hpp"
 #include "sql_factory.hpp"
 #include "storage_cleanup_strategy.hpp"
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
 StorageCleanupServiceExt::StorageCleanupServiceExt() : m_running(false), m_initialized(false)
 {
@@ -25,14 +28,21 @@ StorageCleanupServiceExt::~StorageCleanupServiceExt()
 
 void StorageCleanupServiceExt::on_storage_update_notification(const StorageInfo &info)
 {
-
-    // This method is called by StorageMonitorServiceExt to notify about storage updates
-
-    if (info.is_low_disk_space && m_request_queue.empty() && !m_cleanup_in_progress)
+    if (info.is_low_disk_space)
     {
-        HAILO_ANALYTICS_LOG_INFO("Low disk space detected, triggering cleanup");
-        // Trigger cleanup
-        request_cleanup(info);
+        if (!m_request_queue.empty())
+        {
+            HAILO_ANALYTICS_LOG_INFO("Low disk space but cleanup already queued, skipping");
+        }
+        else if (m_cleanup_in_progress)
+        {
+            HAILO_ANALYTICS_LOG_INFO("Low disk space but cleanup already in progress, skipping");
+        }
+        else
+        {
+            HAILO_ANALYTICS_LOG_INFO("Low disk space detected, triggering cleanup");
+            request_cleanup(info);
+        }
     }
 }
 
@@ -91,7 +101,7 @@ void StorageCleanupServiceExt::request_cleanup(StorageInfo request)
 {
     if (!m_initialized)
     {
-        HAILO_ANALYTICS_LOG_ERROR("Service not initialized, ignoring cleanup request");
+        HAILO_ANALYTICS_LOG_WARN("Service not initialized, ignoring cleanup request");
         return;
     }
 
@@ -139,24 +149,38 @@ void StorageCleanupServiceExt::worker_loop()
             lock.unlock();
 
             m_cleanup_in_progress = true;
-            // Process the cleanup request
-            process_cleanup_request(info);
+            try
+            {
+                process_cleanup_request(info);
+            }
+            catch (const std::exception &e)
+            {
+                HAILO_ANALYTICS_LOG_ERROR("Cleanup worker caught exception: {}", e.what());
+            }
+            catch (...)
+            {
+                HAILO_ANALYTICS_LOG_ERROR("Cleanup worker caught unknown exception");
+            }
             m_cleanup_in_progress = false;
 
             lock.lock();
         }
     }
+    HAILO_ANALYTICS_LOG_INFO("Cleanup worker thread exiting, m_running={}", m_running.load());
 }
 
-void StorageCleanupServiceExt::process_cleanup_request([[maybe_unused]] const StorageInfo &info)
+void StorageCleanupServiceExt::process_cleanup_request(const StorageInfo & /*info*/)
 {
+    HAILO_ANALYTICS_LOG_INFO("Cleanup request processing started");
+    auto start = std::chrono::high_resolution_clock::now();
 
-    // Use the strategy to perform cleanup
-    // Here we do not need to use info, as the strategy handles it internally
-    // However, we can use it in the future if needed to enhance the strategy which might require this information
     if (!m_strategy->clean_up(*this))
     {
         HAILO_ANALYTICS_LOG_ERROR("Cleanup strategy failed (partially) to process request");
         return;
     }
+
+    auto duration =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start);
+    HAILO_ANALYTICS_LOG_INFO("Cleanup request completed in {} ms", duration.count());
 }

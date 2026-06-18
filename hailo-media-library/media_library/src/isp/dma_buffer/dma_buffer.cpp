@@ -1,12 +1,14 @@
 #include "dma_buffer.hpp"
 
 #include <fcntl.h>
-#include <limits>
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
+#include <errno.h>
+#include <stdint.h>
+#include <limits>
+#include <memory>
 #include <linux/dma-heap.h>
-#include <linux/types.h>
 #include <string.h>
 
 namespace HDR

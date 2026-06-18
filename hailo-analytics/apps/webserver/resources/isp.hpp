@@ -1,12 +1,19 @@
 #pragma once
+#include <nlohmann/json.hpp>
+#include <stdint.h>
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
+
 #include "common/resources.hpp"
-#include "osd.hpp"
 #include "configs.hpp"
 #include "common/isp/common.hpp"
 #include "pipeline/isp_blender.hpp"
-#include <atomic>
-#include <fstream>
-#include <nlohmann/json.hpp>
+#include "common/httplib/httplib_utils.hpp"
+#include "resources/common/event_bus.hpp"
+#include "resources/common/events_utils.hpp"
 
 namespace webserver
 {

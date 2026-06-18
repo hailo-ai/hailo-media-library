@@ -22,28 +22,26 @@
  */
 #pragma once
 
-#include "encoder_config_types.hpp"
-#include "hailort_denoise.hpp"
-#include "config_parser.hpp"
-#include "media_library_types.hpp"
-#include "v4l2_ctrl.hpp"
-#include "perfetto_fps_tracer.hpp"
-
-#include <linux/v4l2-controls.h>
-#include <linux/v4l2-subdev.h>
 #include <stdint.h>
-#include <string>
-#include <sys/ioctl.h>
 #include <time.h>
 #include <tl/expected.hpp>
+#include <string>
 #include <vector>
 #include <shared_mutex>
 #include <chrono>
-#include <ctime>
 #include <queue>
 #include <mutex>
 #include <thread>
 #include <condition_variable>
+#include <atomic>
+#include <functional>
+#include <memory>
+#include <optional>
+
+#include "hailort_denoise.hpp"
+#include "media_library_types.hpp"
+#include "perfetto_fps_tracer.hpp"
+#include "buffer_pool.hpp"
 
 class MediaLibraryDenoise
 {
@@ -131,6 +129,9 @@ class MediaLibraryDenoise
     NetworkInferenceBindingsPtr dequeue_inference_callback_buffer();
     media_library_return acquire_loopback_buffer(NetworkInferenceBindingsPtr bindings);
     media_library_return initialize_loopback_buffers(const TensorBindings &loopback_buffers);
+    virtual void initialize_dummy_loopback_buffers(const TensorBindings & /*loopback_buffers*/)
+    {
+    }
 
     // Helper methods for derived classes to manage inference callback thread
     void start_inference_callback_thread();

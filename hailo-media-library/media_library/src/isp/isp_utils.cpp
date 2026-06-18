@@ -21,17 +21,22 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include "isp_utils.hpp"
-#include "logger_macros.hpp"
+
+#include <nlohmann/json.hpp>
+#include <tl/expected.hpp>
+#include <fstream>
+#include "media_library/cloexec_fstream.hpp"
+#include <optional>
+#include <regex>
+#include <initializer_list>
+#include <iomanip>
+#include <map>
+
 #include "sensor_registry.hpp"
 #include "media_library_types.hpp"
 #include "v4l2_ctrl.hpp"
 #include "media_library_logger.hpp"
-#include <cstdint>
-#include <nlohmann/json.hpp>
-#include <fstream>
-#include <optional>
-#include <regex>
-#include <tl/expected.hpp>
+#include "dsp_utils.hpp"
 
 #define MODULE_NAME LoggerType::Isp
 
@@ -49,6 +54,9 @@
 #define MEDIA_SERVER_DGAIN_DUMMY_ENTRY "dummy"
 #define MEDIA_SERVER_BLS_ENTRY "bls"
 #define MEDIA_SERVER_BLS_DUMMY_ENTRY "dummy"
+#define MEDIA_SERVER_HDR_ENTRY "hdr"
+#define MEDIA_SERVER_HDR_COMPRESSION_ENTRY "compression"
+#define MEDIA_SERVER_HDR_DECOMPRESSION_ENTRY "decompression"
 #define SENSOR_ENTRY_HDR_ENABLE_ENTRY "hdr_enable"
 #define SENSOR_ENTRY_MODE_ENTRY "mode"
 
@@ -98,7 +106,7 @@ media_library_return edit_media_server_cfg(const std::string &path, const int st
         return MEDIA_LIBRARY_ERROR;
     }
 
-    std::ifstream if_cfg(path.c_str());
+    cloexec::ifstream if_cfg(path.c_str());
     if (!if_cfg.is_open())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "HDR: can't open {} for reading", path);
@@ -112,7 +120,7 @@ media_library_return edit_media_server_cfg(const std::string &path, const int st
     cfg[MEDIA_SERVER_VSM_ENTRY][MEDIA_SERVER_VSM_V_OFFSET_ENTRY] = resolution_info->vsm_offsets.v_offset;
 
     if_cfg.close();
-    std::ofstream of_cfg(path.c_str(), std::ofstream::trunc);
+    cloexec::ofstream of_cfg(path.c_str(), std::ios::trunc);
     if (!of_cfg.is_open())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "HDR: can't open {} for writing", path);
@@ -126,7 +134,7 @@ media_library_return edit_media_server_cfg(const std::string &path, const int st
 
 media_library_return edit_media_server_pre_isp_denoise_cfg(const std::string &path, const bool mode)
 {
-    std::ifstream if_cfg(path.c_str());
+    cloexec::ifstream if_cfg(path.c_str());
 
     if (!if_cfg.is_open())
     {
@@ -140,7 +148,7 @@ media_library_return edit_media_server_pre_isp_denoise_cfg(const std::string &pa
     cfg[MEDIA_SERVER_BLS_ENTRY][MEDIA_SERVER_BLS_DUMMY_ENTRY] = mode;
 
     if_cfg.close();
-    std::ofstream of_cfg(path.c_str(), std::ofstream::trunc);
+    cloexec::ofstream of_cfg(path.c_str(), std::ios::trunc);
     if (!of_cfg.is_open())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "ISP Utils: can't open {} for writing", path);
@@ -149,6 +157,35 @@ media_library_return edit_media_server_pre_isp_denoise_cfg(const std::string &pa
     of_cfg << std::setw(4) << cfg << std::endl;
     of_cfg.close();
 
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return edit_media_server_hdr_compression(bool compression, bool decompression)
+{
+    std::string path = m_isp_config_files_path + "/" + _MEDIA_SERVER_CONFIG;
+    cloexec::ifstream if_cfg(path.c_str());
+    if (!if_cfg.is_open())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "HDR compression: can't open {} for reading", path);
+        return MEDIA_LIBRARY_ERROR;
+    }
+
+    json cfg = json::parse(if_cfg);
+    if_cfg.close();
+
+    cfg[MEDIA_SERVER_HDR_ENTRY][MEDIA_SERVER_HDR_COMPRESSION_ENTRY] = compression;
+    cfg[MEDIA_SERVER_HDR_ENTRY][MEDIA_SERVER_HDR_DECOMPRESSION_ENTRY] = decompression;
+
+    cloexec::ofstream of_cfg(path.c_str(), std::ios::trunc);
+    if (!of_cfg.is_open())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "HDR compression: can't open {} for writing", path);
+        return MEDIA_LIBRARY_ERROR;
+    }
+    of_cfg << std::setw(4) << cfg << std::endl;
+    of_cfg.close();
+
+    LOGGER__MODULE__INFO(MODULE_NAME, "Set HDR compression={}, decompression={}", compression, decompression);
     return MEDIA_LIBRARY_SUCCESS;
 }
 

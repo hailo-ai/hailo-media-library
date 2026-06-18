@@ -1,5 +1,12 @@
 #include "app_control_service_ext.hpp"
 
+#include <memory>
+
+#include "clip_pipeline_ai_defines.hpp"
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "hailo_analytics/pipeline/routing/tracker_traffic_ctrl_stage.hpp"
+
 tl::expected<bool, AppControlServiceExt::Error> AppControlServiceExt::set_clip_embedding_refresh_rate(
     size_t refresh_rate)
 {

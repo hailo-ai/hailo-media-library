@@ -1,14 +1,18 @@
 #pragma once
 
+#include <stddef.h>
+#include <tl/expected.hpp>
 #include <string>
 #include <map>
 #include <optional>
 #include <utility>
 #include <mutex>
+#include <memory>
 
 #include "media_library_types.hpp"
 #include "config_parser.hpp"
 #include "sensor_types.hpp"
+#include "encoder_config_types.hpp"
 
 enum class restricted_profile_type_t
 {

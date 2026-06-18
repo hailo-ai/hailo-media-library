@@ -1,106 +1,91 @@
 #pragma once
 
 #include <cstdint>
-#include <nlohmann/json.hpp>
+#include <unordered_map>
 #include "hailo_postprocess_tools/objects/hailo_objects.hpp"
 #include "hailo_postprocess_tools/objects/hailo_common.hpp"
 #include "hailo_analytics/pipeline/core/stage.hpp"
+
+// Forward-declare the generated protobuf type instead of including analytics_metadata.pb.h here:
+// only the codecs library and tests that introspect the message need the full definition, and
+// pulling the .pb.h into the public header would force every transitive consumer (e.g. the
+// analytics layer that just uses the Builder) to discover the codecs build-dir include path.
+namespace hailo_analytics
+{
+class Frame;
+}
 
 /**
  * @brief Default queue size for analytic metadata packager stage
  */
 #define ANALYTIC_METADATA_QUEUE_SIZE_DEFAULT (20)
 
-/**
- * @brief Namespace containing field name constants for analytic metadata JSON structure
- */
-namespace analytic_metadata_fields
-{
-
-constexpr const char *ISP_TIMESTAMP = "isp_timestamp_ns";
-constexpr const char *FRAME_WIDTH = "frame_width";
-constexpr const char *FRAME_HEIGHT = "frame_height";
-constexpr const char *DETECTIONS = "detections";
-constexpr const char *LANDMARKS = "landmarks";
-constexpr const char *CLASSIFICATIONS = "classifications";
-
-namespace detection
-{
-constexpr const char *LABEL = "label";
-constexpr const char *DETECTION_CONFIDENCE = "confidence";
-constexpr const char *BBOX = "bbox";
-constexpr const char *TRACKING_ID = "tracking_id";
-namespace bbox
-{
-constexpr const char *XMIN = "xmin";
-constexpr const char *YMIN = "ymin";
-constexpr const char *XMAX = "xmax";
-constexpr const char *YMAX = "ymax";
-} // namespace bbox
-} // namespace detection
-
-namespace landmark
-{
-constexpr const char *POINTS = "points";
-constexpr const char *PAIRS = "pairs";
-constexpr const char *POINTS_FORMAT = "points_format";
-constexpr const char *POINTS_STRIDE = "points_stride";
-constexpr const char *POINTS_FORMAT_VALUE = "x,y,conf";
-constexpr int POINTS_STRIDE_VALUE = 3;
-
-namespace point
-{
-constexpr const char *X = "x";
-constexpr const char *Y = "y";
-constexpr const char *POINT_CONFIDENCE = "confidence";
-} // namespace point
-
-namespace pairs
-{
-constexpr const char *START_POINT = "start_point";
-constexpr const char *END_POINT = "end_point";
-} // namespace pairs
-
-} // namespace landmark
-
-namespace classification
-{
-constexpr const char *TYPE = "type";
-constexpr const char *LABEL = "label";
-constexpr const char *CLASSIFICATION_CONFIDENCE = "confidence";
-} // namespace classification
-
-} // namespace analytic_metadata_fields
-
 namespace hailo_analytics::pipeline::codecs
 {
 
-nlohmann::json build_metadata_json(BufferPtr data);
-
 /**
- * @brief Output serialization format for analytic metadata
+ * @brief Per-tracking-id cache of the most recent landmarks payload, with age-based eviction.
+ *
+ * Lets the packager fill in landmarks on frames where the cropping stage skipped landmark inference
+ * (e.g. when bbox_crop runs at half the input frame rate while the tracker emits predictions every
+ * frame). The landmarks are stored as the original HailoLandmarksPtr so the saved points remain
+ * normalized within their detection's bbox — when reused on a frame whose bbox has moved (Kalman
+ * prediction), they translate naturally with the bbox in @ref populate_landmarks.
  */
-enum class Format
+class LandmarksCache
 {
-    MSGPACK,
-    JSON
+  public:
+    /** @brief Record/refresh the landmarks for a tracking id. */
+    void update(int tracking_id, HailoLandmarksPtr landmarks);
+
+    /** @brief Look up the last-known landmarks for a tracking id; nullptr if absent. */
+    HailoLandmarksPtr lookup(int tracking_id);
+
+    /** @brief Evict entries not touched since the previous advance_frame() call. */
+    void advance_frame();
+
+  private:
+    struct Entry
+    {
+        HailoLandmarksPtr landmarks;
+        bool seen_this_frame = true;
+    };
+
+    std::unordered_map<int, Entry> m_entries;
 };
 
 /**
- * @brief Stage for packaging analytic metadata into JSON format for transmission
+ * @brief Populate a hailo_analytics::Frame protobuf message from a buffer's analytics ROI.
+ * @param data Input buffer carrying the HailoROI tree and frame metadata.
+ * @param frame Out parameter populated in-place. Caller-owned.
+ * @return true if the frame contains at least one object (and ISP/frame fields were set), false otherwise.
  *
- * This stage processes AI analytics data (detections, landmarks) from the pipeline
- * and packages them into a structured JSON format. The JSON is then serialized to
- * MessagePack binary format (default) or plain JSON string for efficient transmission.
- * The metadata includes frame information and all detected objects with their
- * coordinates transformed to native frame dimensions.
+ * Exposed at the namespace level (not just as a stage method) so unit tests can exercise the
+ * packaging logic without spinning up the threaded stage. Callers must include analytics_metadata.pb.h
+ * to construct or inspect the Frame argument.
+ */
+bool build_metadata_proto(BufferPtr data, hailo_analytics::Frame &frame);
+
+/**
+ * @brief Variant that uses a persistent @ref LandmarksCache to fill in landmarks on frames where
+ *        a tracked detection has no fresh landmark inference of its own.
  *
- * Features:
- * - Converts detections and landmarks to JSON format
- * - Transforms coordinates to native frame space
- * - Supports hierarchical object structures (nested objects)
- * - Optimized with buffer reuse to minimize allocations
- * - Outputs MessagePack binary (default) or JSON string format
+ * Same behaviour as the no-cache overload otherwise. Caller owns the cache instance and is
+ * responsible for keeping it alive across frames.
+ */
+bool build_metadata_proto(BufferPtr data, hailo_analytics::Frame &frame, LandmarksCache &cache);
+
+/**
+ * @brief Stage for packaging analytic metadata into a Protobuf binary payload for transmission
+ *
+ * This stage processes AI analytics data (detections, landmarks, classifications) from the
+ * pipeline and packages them into a hailo_analytics.Frame Protobuf message. The serialized
+ * bytes are attached to the buffer as a HailoZMQMessage so downstream sinks (WebSocket / ZMQ)
+ * can ship them verbatim.
+ *
+ * Coordinates are transformed to native frame dimensions before serialization. Hierarchical
+ * object structures (nested ROIs) are preserved through the Detection.detections / landmarks /
+ * classifications repeated fields.
  */
 class AnalyticMetadataPackagerStage : public hailo_analytics::pipeline::ThreadedStage
 {
@@ -108,31 +93,29 @@ class AnalyticMetadataPackagerStage : public hailo_analytics::pipeline::Threaded
     /**
      * @brief Constructor for AnalyticMetadataPackagerStage
      * @param name Stage name for identification
-     * @param format Output serialization format (default: MSGPACK)
      * @param queue_size Size of the processing queue (default: ANALYTIC_METADATA_QUEUE_SIZE_DEFAULT)
      * @param leaky Whether the queue should drop old frames when full (default: false)
      * @param trace_processing_operations Enable tracing for processing operations (default: true)
      */
-    AnalyticMetadataPackagerStage(std::string name, Format format = Format::MSGPACK,
-                                  size_t queue_size = ANALYTIC_METADATA_QUEUE_SIZE_DEFAULT, bool leaky = false,
-                                  bool trace_processing_operations = true);
+    AnalyticMetadataPackagerStage(std::string name, size_t queue_size = ANALYTIC_METADATA_QUEUE_SIZE_DEFAULT,
+                                  bool leaky = false, bool trace_processing_operations = true);
 
     /**
-     * @brief Process incoming data buffer and package analytic metadata into JSON format
+     * @brief Process incoming data buffer and package analytic metadata into a Protobuf payload
      * @param data Input buffer containing AI analytics data
      * @return AppStatus indicating success or failure of processing
      */
     AppStatus process(BufferPtr data) override;
 
   private:
-    Format m_format;
+    // Persistent landmarks cache so detections from tracker-predicted frames (where the bbox crop
+    // stage skipped landmarks inference) still emit landmarks based on the most recent inference
+    // for that tracking id.
+    LandmarksCache m_landmarks_cache;
 };
 
 /**
  * @brief Builder pattern implementation for AnalyticMetadataPackagerStage
- *
- * Provides a fluent interface for constructing AnalyticMetadataPackagerStage instances
- * with configurable parameters.
  */
 class AnalyticMetadataPackagerStageBuild : public AnalyticMetadataPackagerStage
 {
@@ -145,7 +128,6 @@ class AnalyticMetadataPackagerStageBuild : public AnalyticMetadataPackagerStage
 
       private:
         std::optional<std::string> m_stage_name;
-        Format m_format = Format::MSGPACK;
         size_t m_queue_size = ANALYTIC_METADATA_QUEUE_SIZE_DEFAULT;
         bool m_leaky = false;
         bool m_trace = true;
@@ -157,13 +139,6 @@ class AnalyticMetadataPackagerStageBuild : public AnalyticMetadataPackagerStage
          * @return Builder reference for chaining
          */
         Builder &set_stage_name(std::string name);
-
-        /**
-         * @brief Set the output serialization format
-         * @param format Output format (MSGPACK or JSON)
-         * @return Builder reference for chaining
-         */
-        Builder &set_format_opt(Format format);
 
         /**
          * @brief Set the queue size

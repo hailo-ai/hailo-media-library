@@ -1,5 +1,14 @@
 #include "hailo_analytics/analytics/face_landmarks.hpp"
+
+#include <hailort.h>
+#include <stdint.h>
+#include <tl/expected.hpp>
+#include <chrono>
+#include <memory>
+
 #include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
+#include "hailo_analytics/pipeline/ai/ai_stage.hpp"
+#include "hailo_analytics/pipeline/ai/postprocess_stage.hpp"
 
 namespace hailo_analytics::analytics::face_landmarks
 {
@@ -41,6 +50,10 @@ void bbox_crop_config_t::merge_from(const bbox_crop_config_t &other)
         pool_mode = *other.pool_mode;
     if (other.crop_every_x_frames)
         crop_every_x_frames = *other.crop_every_x_frames;
+    if (other.release_input_after_dsp)
+        release_input_after_dsp = *other.release_input_after_dsp;
+    if (other.max_crops)
+        max_crops = *other.max_crops;
 }
 
 void bbox_crop_config_t::apply_to(cropping_stages::BBoxCropStageBuild::Builder &b) const
@@ -73,6 +86,10 @@ void bbox_crop_config_t::apply_to(cropping_stages::BBoxCropStageBuild::Builder &
         b.set_pool_mode_opt(*pool_mode);
     if (crop_every_x_frames)
         b.set_crop_every_x_frames(*crop_every_x_frames);
+    if (release_input_after_dsp)
+        b.set_release_input_after_dsp(*release_input_after_dsp);
+    if (max_crops)
+        b.set_max_crops(*max_crops);
 }
 
 // ============================================================================
@@ -104,9 +121,8 @@ face_landmarks_config_t face_landmarks_base_config()
 {
     face_landmarks_config_t config;
 
-    // Set default AI stage configs (matching ai_pipeline_builder.cpp lines 154-168)
+    // Set default AI stage configs
     config.ai_config.stage_name = std::string(LANDMARKS_STAGE);
-    config.ai_config.hef_path = std::string(LANDMARKS_BASE_HEF);
     config.ai_config.queue_size = 100;
     config.ai_config.output_pool_size = 201;
     config.ai_config.group_id = std::string(LANDMARKS_GROUP_ID);
@@ -115,6 +131,7 @@ face_landmarks_config_t face_landmarks_base_config()
     config.ai_config.scheduler_threshold = 60;
     config.ai_config.dynamic_threshold = true;
     config.ai_config.scheduler_timeout = std::chrono::milliseconds(100);
+    config.ai_config.scheduler_priority = HAILO_SCHEDULER_PRIORITY_MAX - 2;
     config.ai_config.pool_mode = hailo_analytics::pipeline::StagePoolMode::BLOCKING;
     config.ai_config.trace = true;
 
@@ -192,6 +209,8 @@ bbox_crop_landmarks_config_t base_config()
     config.bbox_crop_config.trace = true;
     config.bbox_crop_config.pool_mode = hailo_analytics::pipeline::StagePoolMode::BLOCKING;
     config.bbox_crop_config.crop_every_x_frames = 1;
+    // Drop the FHD ref once DSP crops are done to save memory.
+    config.bbox_crop_config.release_input_after_dsp = true;
 
     // Set default landmarks configs (use face_landmarks base_config as starting point)
     config.landmarks_config = face_landmarks_base_config();

@@ -22,9 +22,14 @@
  */
 
 #include "text_overlay_impl.hpp"
+
+#include <bits/std_abs.h>
+#include <opencv2/core.hpp>
+
 #include "media_library/media_library_logger.hpp"
-#include <opencv2/core/utils/filesystem.hpp>
-#include <opencv2/freetype.hpp>
+#include "impl/background_text_overlay_impl.hpp"
+#include "impl/overlay_impl.hpp"
+#include "impl/simple_text_overlay_impl.hpp"
 
 #define MODULE_NAME LoggerType::Osd
 

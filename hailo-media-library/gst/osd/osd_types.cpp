@@ -1,6 +1,15 @@
-#include "osd.hpp"
+#include <stddef.h>
+#include <nlohmann/json.hpp>
+#include <tl/expected.hpp>
+#include <stdexcept>
+#include <string>
+
 #include "media_library/media_library_logger.hpp"
 #include "impl/overlay_impl.hpp"
+#include "buffer_pool.hpp"
+#include "media_library_types.hpp"
+// IWYU pragma: no_include "../osd_types.hpp"
+#include "osd_types.hpp" // IWYU pragma: associated
 
 #define MODULE_NAME LoggerType::Osd
 

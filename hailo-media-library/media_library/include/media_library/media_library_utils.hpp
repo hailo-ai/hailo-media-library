@@ -2,6 +2,7 @@
 
 #include "media_library_types.hpp"
 #include <time.h>
+#include <sys/time.h>
 #include <stdint.h>
 
 /**
@@ -12,6 +13,16 @@
 static inline int64_t media_library_timespec_to_ms(const struct timespec time)
 {
     return (int64_t)time.tv_sec * (int64_t)1000 + (int64_t)time.tv_nsec / (int64_t)1000000;
+}
+
+/**
+ * Gets the time of timeval in milliseconds. Used for V4L2 buffer timestamps which are timevals.
+ * @param[in] time     The time val.
+ * @returns The time in milliseconds.
+ */
+static inline int64_t media_library_timeval_to_ms(const struct timeval time)
+{
+    return (int64_t)time.tv_sec * (int64_t)1000 + (int64_t)time.tv_usec / (int64_t)1000;
 }
 
 /**

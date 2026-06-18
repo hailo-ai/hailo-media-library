@@ -4,13 +4,7 @@
  **/
 #pragma once
 
-#include <iostream>
-
-#include "rapidjson/document.h"
-#include "rapidjson/stringbuffer.h"
-#include "rapidjson/error/en.h"
 #include "rapidjson/filereadstream.h"
-#include "rapidjson/schema.h"
 
 namespace common
 {

@@ -27,9 +27,9 @@
 #pragma once
 #include "config_attacher.hpp"
 #include "config_manager.hpp"
-#include "media_library/buffer_pool.hpp"
-#include "media_library/media_library_types.hpp"
-#include "media_library/privacy_mask.hpp"
+#include "buffer_pool.hpp"
+#include "media_library_types.hpp"
+#include "privacy_mask.hpp"
 #include <climits>
 #include <functional>
 #include <unordered_map>
@@ -283,6 +283,13 @@ class MediaLibraryFrontend
      *
      */
     media_library_return set_freeze(bool freeze);
+
+    /**
+     * @brief Get the freeze state of the frontend
+     * @return tl::expected<bool, media_library_return> - current freeze state, or an error if the frontend
+     *         element is not available.
+     */
+    tl::expected<bool, media_library_return> get_freeze();
 
     /**
      * @brief Wait for the pipeline to reach a target state

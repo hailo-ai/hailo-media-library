@@ -1,14 +1,15 @@
 #pragma once
 
+#include <tl/expected.hpp>
+#include <nlohmann/json.hpp>
 #include <string>
-#include <optional>
 #include <vector>
 #include <utility>
 #include <memory>
-#include <tl/expected.hpp>
 
 #include "media_library_types.hpp"
 #include "config_manager.hpp"
+#include "config_parser.hpp"
 
 class ConfigBackup
 {

@@ -1,7 +1,13 @@
 #include "dsp/gsthailodspbasetransform.hpp"
-#include "dsp/gsthailodspbufferpool.hpp"
-#include "dsp/gsthailodspbufferpoolutils.hpp"
+
 #include <gst/gst.h>
+#include <gst/gstbufferpool.h>
+#include <gst/gsterror.h>
+#include <gst/gstparamspecs.h>
+#include <gst/video/gstvideometa.h>
+#include <stddef.h>
+
+#include "dsp/gsthailodspbufferpoolutils.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailo_dsp_base_transform_debug);
 #define GST_CAT_DEFAULT gst_hailo_dsp_base_transform_debug

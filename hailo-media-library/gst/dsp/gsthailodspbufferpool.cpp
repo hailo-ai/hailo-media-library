@@ -1,8 +1,19 @@
 #include <gst/gst.h>
-#include <iostream>
+#include <gst/video/gstvideometa.h>
+#include <gst/video/video-format.h>
+#include <gst/video/video-frame.h>
+#include <gst/video/video-info.h>
+#include <hailo/hailodsp_base.h>
+#include <stddef.h>
+#include <memory>
+#include <utility>
 
 #include "common/gstmedialibcommon.hpp"
 #include "dsp/gsthailodspbufferpool.hpp"
+#include "dma_memory_allocator.hpp"
+#include "dsp_utils.hpp"
+#include "gstmedialibptrs.hpp"
+#include "media_library_types.hpp"
 
 G_DEFINE_TYPE(GstHailoDspBufferPool, gst_hailo_dsp_buffer_pool, GST_TYPE_BUFFER_POOL)
 

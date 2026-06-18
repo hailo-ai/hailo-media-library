@@ -1,10 +1,14 @@
 #include <gst/gst.h>
-#include <iostream>
+#include <gst/video/video-format.h>
+#include <gst/video/video-info.h>
+#include <memory>
+#include <utility>
 
 #include "utils/gsthailodmabufferpool.hpp"
-#include "media_library/media_library_types.hpp"
 #include "buffer_utils/buffer_utils.hpp"
 #include "common/gstmedialibcommon.hpp"
+#include "gstmedialibptrs.hpp"
+#include "utils/gsthailodmabufallocator.hpp"
 
 G_DEFINE_TYPE(GstHailoDmaBufferPool, gst_hailo_dma_buffer_pool, GST_TYPE_BUFFER_POOL)
 

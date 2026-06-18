@@ -1,6 +1,11 @@
 #include "thumbnail_table.hpp"
-#include <iostream>
+
+#include <bits/std_abs.h>
+#include <sqlite3.h>
+#include <stddef.h>
 #include <algorithm>
+#include <utility>
+
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
 ThumbnailTable::ThumbnailTable(const std::string &dbFile, SqliteAccessType accesstype) : Database(dbFile, accesstype)

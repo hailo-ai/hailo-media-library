@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stddef.h>
 #include <vector>
 #include <queue>
 #include <memory>
@@ -9,6 +10,8 @@
 #include <future>
 #include <functional>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 
 /*
     The reason we need this wrapper in the first place is that OpenCV has a serious memory leak, as detailed here:
@@ -34,9 +37,9 @@ class ThreadPool
     ThreadPool(size_t);
     ~ThreadPool();
     template <class F, class... Args>
-    auto enqueue(F &&f, Args &&...args) -> std::future<typename std::result_of<F(Args...)>::type>; // async call
+    auto enqueue(F &&f, Args &&...args) -> std::future<std::invoke_result_t<F, Args...>>; // async call
     template <class F, class... Args>
-    auto invoke(F &&f, Args &&...args) -> std::result_of<F(Args...)>::type; // sync call
+    auto invoke(F &&f, Args &&...args) -> std::invoke_result_t<F, Args...>; // sync call
     static std::shared_ptr<ThreadPool> GetInstance();
 
   private:
@@ -54,9 +57,9 @@ class ThreadPool
 // enqueue a task that will be executed by a worker thread
 // the return value is a future that will be set once the task is completed
 template <class F, class... Args>
-auto ThreadPool::enqueue(F &&f, Args &&...args) -> std::future<typename std::result_of<F(Args...)>::type>
+auto ThreadPool::enqueue(F &&f, Args &&...args) -> std::future<std::invoke_result_t<F, Args...>>
 {
-    using return_type = typename std::result_of<F(Args...)>::type;
+    using return_type = std::invoke_result_t<F, Args...>;
 
     auto task =
         std::make_shared<std::packaged_task<return_type()>>(std::bind(std::forward<F>(f), std::forward<Args>(args)...));
@@ -78,7 +81,7 @@ auto ThreadPool::enqueue(F &&f, Args &&...args) -> std::future<typename std::res
 // enqueue a task that will be executed by a worker thread
 // the function will block until the execution is complete
 // the return value is the result of the function
-template <class F, class... Args> auto ThreadPool::invoke(F &&f, Args &&...args) -> std::result_of<F(Args...)>::type
+template <class F, class... Args> auto ThreadPool::invoke(F &&f, Args &&...args) -> std::invoke_result_t<F, Args...>
 {
     return enqueue(std::forward<F>(f), std::forward<Args>(args)...).get();
 }

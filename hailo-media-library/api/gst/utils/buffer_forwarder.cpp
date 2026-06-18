@@ -22,6 +22,8 @@
  */
 #include "buffer_forwarder.hpp"
 
+#include <utility>
+
 GST_DEBUG_CATEGORY_STATIC(buffer_forwarder_debug);
 #define GST_CAT_DEFAULT buffer_forwarder_debug
 

@@ -25,6 +25,8 @@
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <gst/app/gstappsrc.h>
+#include <glib-object.h>
+#include <glib.h>
 #include <memory>
 #include <functional>
 

@@ -1,15 +1,15 @@
 #pragma once
 
+#include <tl/expected.hpp>
 #include <memory>
 #include <queue>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
-#include <tl/expected.hpp>
+#include <string>
 
 #include "hailo_analytics/analytics/reference_camera_app_constructor.hpp"
-
 #include "service/storage_listener.hpp"
 
 // Forward declarations

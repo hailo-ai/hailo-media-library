@@ -22,9 +22,19 @@
  */
 
 #pragma once
+#include <hailo/hailodsp.h>
+#include <tl/expected.hpp>
+#include <memory>
+#include <vector>
+
 #include "overlay_impl.hpp"
+#include "buffer_pool.hpp"
+#include "dsp_utils.hpp"
+#include "media_library_types.hpp"
+#include "osd_types.hpp"
 
 class CustomOverlayImpl;
+
 using CustomOverlayImplPtr = std::shared_ptr<CustomOverlayImpl>;
 
 class CustomOverlayImpl : public OverlayImpl

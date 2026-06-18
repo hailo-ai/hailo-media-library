@@ -1,6 +1,6 @@
 #pragma once
 
-#include <string>
+#include <cstddef>
 
 namespace hailo_analytics::utils
 {
@@ -24,5 +24,14 @@ enum class Architecture
  *       the platform is not recognized
  */
 Architecture get_hailo_architecture();
+
+/**
+ * @brief Probe SensorRegistry for all sensors at indices 0..num_sensors-1
+ *        and check that every slot is populated.
+ *
+ * @param num_sensors Number of sensor slots the app expects.
+ * @return true if all slots are populated, false otherwise.
+ */
+bool validate_all_sensors_are_present(size_t num_sensors);
 
 } // namespace hailo_analytics::utils

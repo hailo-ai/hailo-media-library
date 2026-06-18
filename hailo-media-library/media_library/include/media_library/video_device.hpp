@@ -1,7 +1,11 @@
 #pragma once
 
+#include <linux/videodev2.h>
+#include <stddef.h>
 #include <string>
 #include <vector>
+#include <atomic>
+
 #include "sensor_types.hpp"
 #include "video_buffer.hpp"
 #include "dma_buffer.hpp"
@@ -92,7 +96,7 @@ class VideoDevice
     std::string m_buffers_counter_name;
     std::string m_queue_event_name;
     std::string m_dequeue_event_name;
-    bool m_is_stream_on = false;
+    std::atomic<bool> m_is_stream_on{false};
 };
 
 class VideoOutputDevice : public VideoDevice

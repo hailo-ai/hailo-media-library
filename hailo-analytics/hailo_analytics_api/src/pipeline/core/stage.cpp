@@ -1,6 +1,13 @@
 #include "hailo_analytics/pipeline/core/stage.hpp"
+
+#include <pthread.h>
+#include <stdexcept>
+#include <chrono>
+
 #include "hailo_analytics/pipeline/core/queue.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage_tracing.hpp"
 
 namespace hailo_analytics::pipeline
 {
@@ -68,8 +75,19 @@ AppStatus ThreadedStage::stop()
 
 void ThreadedStage::add_subscriber(StagePtr subscriber, std::optional<std::string> stream_id)
 {
-    (void)stream_id; // Currently not used in this implementation
+    if (stream_id.has_value())
+    {
+        for (const auto &existing : m_subscriber_stream_ids)
+        {
+            if (existing.has_value() && *existing == *stream_id)
+            {
+                throw std::invalid_argument("ThreadedStage[" + m_stage_name + "]: duplicate subscriber stream_id '" +
+                                            *stream_id + "'");
+            }
+        }
+    }
     m_subscribers.push_back(subscriber);
+    m_subscriber_stream_ids.push_back(stream_id);
     subscriber->add_queue(m_stage_name);
 }
 
@@ -88,9 +106,8 @@ AppStatus ThreadedStage::deinit()
     return AppStatus::SUCCESS;
 }
 
-AppStatus ThreadedStage::process(BufferPtr buffer)
+AppStatus ThreadedStage::process(BufferPtr /*buffer*/)
 {
-    (void)buffer;
     return AppStatus::SUCCESS;
 }
 
@@ -147,6 +164,15 @@ void ThreadedStage::push(BufferPtr data, std::string publisher_name)
     }
 }
 
+void ThreadedStage::set_leaky(bool leaky)
+{
+    m_leaky = leaky;
+    for (auto &queue : m_queues)
+    {
+        queue->set_leaky(leaky);
+    }
+}
+
 void ThreadedStage::send_to_subscribers(BufferPtr data)
 {
     for (auto &subscriber : m_subscribers)
@@ -166,6 +192,20 @@ void ThreadedStage::send_to_specific_subscriber(std::string stage_name, BufferPt
     }
 }
 
+void ThreadedStage::send_to_subscriber_by_stream_id(const std::string &stream_id, BufferPtr data)
+{
+    for (size_t i = 0; i < m_subscriber_stream_ids.size(); ++i)
+    {
+        if (m_subscriber_stream_ids[i].has_value() && *m_subscriber_stream_ids[i] == stream_id)
+        {
+            m_subscribers[i]->push(data, m_stage_name);
+            return;
+        }
+    }
+    HAILO_ANALYTICS_LOG_ERROR("ThreadedStage[{}]: no subscriber registered for stream_id '{}'", m_stage_name,
+                              stream_id);
+}
+
 void ThreadedStage::set_end_of_stream(bool end_of_stream)
 {
     m_end_of_stream = end_of_stream;
@@ -175,6 +215,8 @@ void ThreadedStage::set_end_of_stream(bool end_of_stream)
         {
             queue->flush();
         }
+        // Wake any stage-specific waits (output-buffer / job-slot CVs)
+        on_end_of_stream();
     }
     else
     {

@@ -1,13 +1,10 @@
 #include "video_buffer.hpp"
-#include "logger_macros.hpp"
 
-#include <cstddef>
 #include <string.h>
-#include <sys/mman.h>
 #include <sys/ioctl.h>
-#include <unistd.h>
 #include <errno.h>
 #include <linux/videodev2.h>
+#include <utility>
 
 namespace HDR
 {
@@ -63,6 +60,7 @@ bool VideoBuffer::init(DMABufferAllocator &allocator, v4l2_buf_type fmt_type, si
         m_plane_fds[plane] = dma_bufs[plane].get_fd();
         m_v4l2_buffer.m.planes[plane].m.fd = dma_bufs[plane].get_fd();
         m_v4l2_buffer.m.planes[plane].length = dma_bufs[plane].m_size;
+        m_v4l2_buffer.m.planes[plane].bytesused = dma_bufs[plane].m_size;
     }
     for (unsigned int plane = 0; plane < VideoBuffer::MAX_NUM_OF_PLANES; ++plane)
     {

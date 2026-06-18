@@ -12,7 +12,6 @@
 #include <thread>
 
 // Media-Library includes
-#include "media_library/frontend.hpp"
 #include "media_library/media_library.hpp"
 #include "media_library/media_library_types.hpp"
 
@@ -29,14 +28,14 @@ namespace hailo_analytics::pipeline::sources
  * @brief Class representing a frontend source stage in the pipeline.
  *
  * This stage captures video frames from various sources (camera, file, etc.) using
- * the media library frontend. It can produce multiple output streams, each of which
+ * the media library. It can produce multiple output streams, each of which
  * can be subscribed to by different downstream stages.
  * Typically used as a SOURCE stage at the beginning of a pipeline.
  */
 class FrontendStage : public hailo_analytics::pipeline::ThreadedStage
 {
   protected:
-    MediaLibraryFrontend *m_frontend; ///< Media library frontend instance.
+    MediaLibraryInterfacePtr m_media_library; ///< Shared MediaLibrary interface instance.
     std::map<output_stream_id_t, std::vector<hailo_analytics::pipeline::StagePtr>>
         m_stream_subscribers; ///< Map of stream IDs to subscriber stages.
 
@@ -63,12 +62,12 @@ class FrontendStage : public hailo_analytics::pipeline::ThreadedStage
     ~FrontendStage() override;
 
     /**
-     * @brief Create the frontend stage with a frontend instance.
+     * @brief Create the frontend stage with a MediaLibrary instance.
      *
-     * @param frontend Media library frontend pointer.
+     * @param media_library Shared pointer to the MediaLibrary.
      * @return AppStatus Status of the creation.
      */
-    AppStatus create(MediaLibraryFrontend &frontend);
+    AppStatus create(MediaLibraryInterfacePtr media_library);
 
     /**
      * @brief Add a subscriber to this stage's output.
@@ -118,12 +117,12 @@ class FrontendStage : public hailo_analytics::pipeline::ThreadedStage
     AppStatus deinit() override;
 
     /**
-     * @brief Configure the frontend stage with a frontend instance.
+     * @brief Configure the frontend stage with a MediaLibrary instance.
      *
-     * @param frontend Media library frontend pointer.
+     * @param media_library Shared pointer to the MediaLibrary.
      * @return AppStatus Status of the configuration.
      */
-    AppStatus configure(MediaLibraryFrontend &frontend);
+    AppStatus configure(MediaLibraryInterfacePtr media_library);
 
     /**
      * @brief Main processing loop for the frontend stage.

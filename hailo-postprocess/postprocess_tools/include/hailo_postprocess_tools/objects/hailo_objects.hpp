@@ -119,15 +119,15 @@ struct HailoPoint
      * @param confidence The confidence in the point's accuracy, float between 0.0 to 1.0 - default is 1.0.
      */
     HailoPoint(float x, float y, float confidence = 1.0f) : m_x(x), m_y(y), m_confidence(assure_normal(confidence)) {};
-    const float x() const
+    float x() const
     {
         return m_x;
     }
-    const float y() const
+    float y() const
     {
         return m_y;
     }
-    const float confidence() const
+    float confidence() const
     {
         return m_confidence;
     }
@@ -160,27 +160,27 @@ struct HailoBBox
     HailoBBox(float xmin, float ymin, float width, float height)
         : m_xmin(xmin), m_ymin(ymin), m_width(width), m_height(height) {};
 
-    const float xmin() const
+    float xmin() const
     {
         return m_xmin;
     }
-    const float ymin() const
+    float ymin() const
     {
         return m_ymin;
     }
-    const float width() const
+    float width() const
     {
         return m_width;
     }
-    const float height() const
+    float height() const
     {
         return m_height;
     }
-    const float xmax() const
+    float xmax() const
     {
         return m_xmin + m_width;
     }
-    const float ymax() const
+    float ymax() const
     {
         return m_ymin + m_height;
     }
@@ -236,7 +236,8 @@ class HailoMainObject : public HailoObject, public std::enable_shared_from_this<
     virtual ~HailoMainObject() = default;
     HailoMainObject(HailoMainObject &&other) noexcept
         : HailoObject(other), m_sub_objects(std::move(other.m_sub_objects)) {};
-    HailoMainObject(const HailoMainObject &other) : HailoObject(other), m_sub_objects(other.m_sub_objects) {};
+    HailoMainObject(const HailoMainObject &other)
+        : HailoObject(other), std::enable_shared_from_this<HailoMainObject>(), m_sub_objects(other.m_sub_objects) {};
     HailoMainObject &operator=(const HailoMainObject &other) = default;
     HailoMainObject &operator=(HailoMainObject &&other) noexcept = default;
 
@@ -283,6 +284,11 @@ class HailoMainObject : public HailoObject, public std::enable_shared_from_this<
     void remove_object(uint index)
     {
         std::lock_guard<std::mutex> lock(*mutex);
+        if (index >= m_sub_objects.size())
+        {
+            throw std::out_of_range("HailoMainObject::remove_object: index " + std::to_string(index) +
+                                    " out of range (size " + std::to_string(m_sub_objects.size()) + ")");
+        }
         m_sub_objects.erase(m_sub_objects.begin() + index);
     };
 
@@ -1154,19 +1160,19 @@ class HailoMatrix : public HailoObject
         return std::dynamic_pointer_cast<HailoObject>(std::make_shared<HailoMatrix>(*this));
     }
 
-    const uint32_t width()
+    uint32_t width()
     {
         return m_mat_width;
     }
-    const uint32_t height()
+    uint32_t height()
     {
         return m_mat_height;
     }
-    const uint32_t features()
+    uint32_t features()
     {
         return m_mat_features;
     }
-    const uint32_t size() const
+    uint32_t size() const
     {
         return m_mat_width * m_mat_height * m_mat_features;
     }

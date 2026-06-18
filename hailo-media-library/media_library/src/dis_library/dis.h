@@ -29,16 +29,16 @@
 #ifndef _DIS_DIS_H_
 #define _DIS_DIS_H_
 
+#include <opencv2/core.hpp>
+#include <array>
+#include <memory>
+#include <vector>
+
 #include "camera.h"
 #include "dewarp.h"
 #include "dis_common.h"
 #include "dis_math.h"
 #include "interface_types.h"
-#include <array>
-#include <deque>
-#include <memory>
-#include <vector>
-#include <opencv2/opencv.hpp>
 
 #ifndef GRID_IS_IN_PIX_INDEXES
 // Depends on the warper implementation.

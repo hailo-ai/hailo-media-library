@@ -5,11 +5,8 @@
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <iostream>
-#include <filesystem>
-#include <fstream>
-#include <chrono>
-#include <sstream>
+#include <deque>
+#include <optional>
 
 // Infra includes
 #include "hailo_analytics/pipeline/core/stage.hpp"
@@ -47,7 +44,6 @@ class TimeSeriesCache
 class CacheStage : public hailo_analytics::pipeline::ThreadedStage
 {
   private:
-    size_t m_cache_size;
     TimeSeriesCache m_cache;
 
   public:

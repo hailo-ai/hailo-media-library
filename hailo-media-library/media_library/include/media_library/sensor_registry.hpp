@@ -27,26 +27,32 @@
 
 #pragma once
 
-#include "sensor_types.hpp"
-
+#include <stddef.h>
 #include <optional>
+#include <string>
+#include <unordered_map>
+#include <utility>
+
+#include "sensor_types.hpp"
+#include "media_library_types.hpp"
 
 class SensorRegistry
 {
   public:
     static SensorRegistry &get_instance();
     std::optional<SensorCapabilities> get_sensor_capabilities(SensorType sensor) const;
-    std::optional<SensorType> detect_sensor_type(size_t sensor_index = 0) const;
-    std::optional<std::string> detect_sensor_type_str(size_t sensor_index = 0) const;
+    std::optional<SensorType> detect_sensor_type(size_t sensor_index) const;
+    std::optional<std::string> detect_sensor_type_str(size_t sensor_index) const;
     std::optional<std::pair<int, std::string>> get_i2c_bus_and_address(size_t sensor_index);
     std::optional<Resolution> detect_resolution(const output_resolution_t &resolution) const;
     std::optional<ResolutionInfo> get_resolution_info(Resolution res) const;
     std::optional<SensorModeInfo> get_sensor_mode_info(SensorType sensor, const SensorModeKey &key) const;
     std::optional<SensorModeInfo> get_sensor_mode_info_hdr(const output_resolution_t &input_resolution,
-                                                           const hdr_dol_t hdr_mode) const;
-    std::optional<SensorModeInfo> get_sensor_mode_info_sdr(const output_resolution_t &input_resolution) const;
+                                                           const hdr_dol_t hdr_mode, size_t sensor_index = 0) const;
+    std::optional<SensorModeInfo> get_sensor_mode_info_sdr(const output_resolution_t &input_resolution,
+                                                           size_t sensor_index = 0) const;
     bool is_supported(SensorCapabilities capabilities, Resolution resolution) const;
-    std::optional<int> get_pixel_format();
+    std::optional<int> get_pixel_format(size_t sensor_index = 0);
     std::optional<std::string> get_video_device_path(size_t sensor_index);
     std::optional<std::string> get_raw_capture_path(size_t sensor_index);
     std::optional<std::string> get_sensor_name(SensorType sensor) const;

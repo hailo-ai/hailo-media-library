@@ -1,8 +1,10 @@
 #pragma once
-#include <nlohmann/json-schema.hpp>
 #include <nlohmann/json.hpp>
-#include <openssl/evp.h>
 #include <tl/expected.hpp>
+#include <openssl/types.h>
+#include <array>
+#include <string>
+
 #include "media_library_types.hpp"
 
 class ConfigValidator

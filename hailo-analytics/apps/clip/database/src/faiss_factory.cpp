@@ -1,5 +1,8 @@
 #include "faiss_factory.hpp"
 
+#include <mutex>
+#include <utility>
+
 FaissVectorDBFactory::FactoryErrorInfo::FactoryErrorInfo(FactoryError t, const std::string &msg) : type(t), message(msg)
 {
 }

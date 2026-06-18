@@ -1,12 +1,18 @@
+#include <stddef.h>
+#include <stdint.h>
+#include <media_library/buffer_pool.hpp>
 #include <chrono>
 #include <fstream>
+#include <memory>
+#include <string>
+#include "media_library/cloexec_fstream.hpp"
 
 // Media-Library includes
 #include "media_library/dma_memory_allocator.hpp"
-
 // Postporcess Tools includes
 #include "hailo_analytics/pipeline/sources/file_reader_module.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 namespace hailo_analytics::pipeline::sources
 {
@@ -144,7 +150,7 @@ size_t FileReader::calculate_frame_size() const
 
 bool FileReader::validate_file()
 {
-    std::ifstream test_stream(m_file_location, std::ios::in | std::ios::binary | std::ios::ate);
+    cloexec::ifstream test_stream(m_file_location, std::ios::in | std::ios::binary | std::ios::ate);
     if (!test_stream.is_open())
     {
         HAILO_ANALYTICS_LOG_ERROR("Cannot open file for '{}': {}", m_name, m_file_location);

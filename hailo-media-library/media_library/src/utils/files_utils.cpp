@@ -1,9 +1,15 @@
 #include "files_utils.hpp"
-#include "media_library_logger.hpp"
+
+#include <unistd.h>
 #include <fstream>
-#include <sstream>
 #include <string>
 #include <filesystem>
+#include <chrono>
+#include <system_error>
+
+#include "media_library/cloexec_fstream.hpp"
+#include "media_library_logger.hpp"
+
 #define MODULE_NAME LoggerType::Default
 
 namespace fs = std::filesystem;
@@ -12,7 +18,7 @@ namespace files_utils
 {
 std::optional<int> read_int_from_file(const std::string &path)
 {
-    std::ifstream file(path);
+    cloexec::ifstream file(path);
     if (!file.is_open())
     {
         return std::nullopt;
@@ -30,7 +36,7 @@ std::optional<int> read_int_from_file(const std::string &path)
 
 std::optional<std::string> read_string_from_file(const std::string &path)
 {
-    std::ifstream file(path);
+    cloexec::ifstream file(path);
     if (!file.is_open())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to open file: {}", path);
@@ -80,7 +86,7 @@ media_library_return write_string_to_file_atomic(const std::string &path, const 
 
     // Write to temporary file
     std::string temp_path = path + ".tmp";
-    std::ofstream temp_file(temp_path, std::ios::binary);
+    cloexec::ofstream temp_file(temp_path, std::ios::binary);
     if (!temp_file.is_open())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to open temporary file for writing: {}", temp_path);

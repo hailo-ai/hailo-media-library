@@ -28,13 +28,15 @@
 
 #pragma once
 
-#include "media_library/dewarp.hpp"
-#include "common/gstmedialibcommon.hpp"
-#include <fstream>
 #include <gst/gst.h>
+#include <glib-object.h>
+#include <glib.h>
 #include <memory>
 #include <string>
-#include <vector>
+
+#include "media_library/dewarp.hpp"
+#include "gstmedialibptrs.hpp"
+#include "media_library_types.hpp"
 
 G_BEGIN_DECLS
 

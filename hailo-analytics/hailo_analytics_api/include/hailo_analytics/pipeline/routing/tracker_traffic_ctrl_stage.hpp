@@ -144,7 +144,7 @@ class TrackerTrafficCtrlStage : public hailo_analytics::pipeline::ThreadedStage
      * @param data The buffer to process
      * @return AppStatus indicating success or failure
      */
-    AppStatus process(BufferPtr data);
+    AppStatus process(BufferPtr data) override;
 
     /**
      * @brief Sets the number of frames to block for unclassified tracked objects.

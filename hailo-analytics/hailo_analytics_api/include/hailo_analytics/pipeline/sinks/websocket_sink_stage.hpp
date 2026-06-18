@@ -1,10 +1,17 @@
 #pragma once
 
-#include "hailo_analytics/pipeline/core/stage.hpp"
-#include "hailo_postprocess_tools/objects/hailo_objects.hpp"
-#include "rtc/rtc.hpp"
+#include <stddef.h>
+#include <stdint.h>
+#include <rtc/rtc.hpp>
+#include <memory>
+#include <optional>
 #include <shared_mutex>
+#include <string>
 #include <unordered_map>
+
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "rtc/rtc.hpp" // IWYU pragma: keep // umbrella that sets up rtc:: namespace
 
 #define WEBSOCKET_SINK_QUEUE_SIZE_DEFAULT (1)
 #define WEBSOCKET_SINK_PORT_DEFAULT (8765)
@@ -27,7 +34,8 @@ class WebSocketSinkStage : public hailo_analytics::pipeline::ThreadedStage
     AppStatus deinit() override;
 
   private:
-    void broadcast(const std::string &json_str);
+    // Broadcasts an opaque payload (e.g. serialized protobuf bytes) as a binary WebSocket frame.
+    void broadcast(const std::string &payload);
 
     uint16_t m_port;
     std::string m_host;

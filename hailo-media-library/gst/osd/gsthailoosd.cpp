@@ -21,14 +21,26 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include "gsthailoosd.hpp"
+
+#include <gst/gst.h>
+#include <gst/gstparamspecs.h>
+#include <gst/video/gstvideometa.h>
+#include <gst/video/video-format.h>
+#include <gst/video/video-info.h>
+#include <stddef.h>
+#include <tl/expected.hpp>
+#include <fstream>
+#include <stdexcept>
+
 #include "buffer_utils/buffer_utils.hpp"
-#include "config_manager.hpp"
+#include "media_library/config_manager.hpp"
 #include "osd_repository.hpp"
 #include "gstmedialibcommon.hpp"
-#include <fstream>
-#include <gst/gst.h>
-#include <gst/gstobject.h>
-#include <gst/video/video.h>
+#include "media_library/cloexec_fstream.hpp"
+#include "buffer_pool.hpp"
+#include "gstmedialibptrs.hpp"
+#include "media_library_types.hpp"
+#include "privacy_mask.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailoosd_debug_category);
 #define GST_CAT_DEFAULT gst_hailoosd_debug_category
@@ -144,7 +156,7 @@ void gst_hailoosd_set_property(GObject *object, guint property_id, const GValue 
         hailoosd->params->config_path = glib_cpp::get_string_from_gvalue(value);
         if (hailoosd->params->initialized)
         {
-            std::ifstream config_file(hailoosd->params->config_path);
+            cloexec::ifstream config_file(hailoosd->params->config_path);
             std::stringstream buffer;
             if (config_file.is_open())
             {

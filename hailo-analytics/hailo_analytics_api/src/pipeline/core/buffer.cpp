@@ -1,5 +1,10 @@
 #include "hailo_analytics/pipeline/core/buffer.hpp"
 
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
+#include <media_library/buffer_pool.hpp>
+#include <media_library/media_library_buffer.hpp>
+#include <unordered_set>
+
 namespace hailo_analytics::pipeline
 {
 
@@ -7,6 +12,10 @@ namespace hailo_analytics::pipeline
 Metadata::Metadata(MetadataType type) : m_type(type)
 {
 }
+
+Metadata::~Metadata() = default;
+Metadata::Metadata(const Metadata &) = default;
+Metadata &Metadata::operator=(const Metadata &) = default;
 
 MetadataType Metadata::get_type() const
 {
@@ -95,7 +104,10 @@ Buffer::Buffer(Buffer &other)
 {
     if (this != &other)
     { // prevent self-assignment
-        m_buffer = other.m_buffer;
+        {
+            std::lock_guard<std::mutex> lock(other.m_buffer_mutex);
+            m_buffer = other.m_buffer;
+        }
         m_roi = std::make_shared<HailoROI>(*other.m_roi);
         //  shallow copy of metadata
         m_metadata.clear();
@@ -117,12 +129,52 @@ Buffer::Buffer(HailoMediaLibraryBufferPtr buffer, HailoROIPtr roi) : m_buffer(bu
 
 HailoMediaLibraryBufferPtr Buffer::get_buffer() const
 {
+    std::lock_guard<std::mutex> lock(m_buffer_mutex);
     return m_buffer;
 }
 
 HailoROIPtr Buffer::get_roi() const
 {
     return m_roi;
+}
+
+void Buffer::set_roi(HailoROIPtr roi)
+{
+    m_roi = std::move(roi);
+}
+
+void Buffer::release_frame_data()
+{
+    // Snapshot the current buffer under the lock, then build the shadow from the snapshot and
+    // swap it back in under the lock. get_buffer() on another stage thread stays consistent and
+    // never observes a half-updated m_buffer.
+    HailoMediaLibraryBufferPtr current;
+    {
+        std::lock_guard<std::mutex> lock(m_buffer_mutex);
+        current = m_buffer;
+    }
+    if (!current || !current->buffer_data)
+    {
+        return;
+    }
+    auto shadow = std::make_shared<hailo_media_library_buffer>();
+    shadow->isp_timestamp_ns = current->isp_timestamp_ns;
+    shadow->pts = current->pts;
+    shadow->dts = current->dts;
+    shadow->duration = current->duration;
+    // Preserve the trace label set so Perfetto continues to attribute the released
+    // frame to its concurrent streams downstream.
+    shadow->concurrent_stream_ids = current->concurrent_stream_ids;
+    // Build an empty hailo_buffer_data_t that retains width/height/format so downstream
+    // metadata consumers (analytic_metadata_packager_stage) keep working without holding
+    // any DMA planes. planes_count = 0 keeps the destructor a no-op.
+    shadow->buffer_data = std::make_shared<hailo_buffer_data_t>(
+        current->buffer_data->width, current->buffer_data->height, /*planes_count=*/0, current->buffer_data->format,
+        current->buffer_data->memory, std::vector<hailo_data_plane_t>{});
+    {
+        std::lock_guard<std::mutex> lock(m_buffer_mutex);
+        m_buffer = std::move(shadow);
+    }
 }
 
 void Buffer::add_metadata(MetadataPtr metadata)
