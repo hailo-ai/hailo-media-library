@@ -1,9 +1,30 @@
+#include <stdint.h>
+#include <throttling_manager.h>
+#include <throttling_manager_types.h>
+#include "media_library/media_library_utils.hpp"
+#include <time.h>
+#include <tl/expected.hpp>
+#include <iostream>
+#include <map>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <functional>
+#include <future>
+#include <memory>
+#include <mutex>
+#include <set>
+#include <string>
+#include <thread>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
 #include "media_library_logger.hpp"
 #include "throttling_state_monitor.hpp"
 #include "common.hpp"
 #include "env_vars.hpp"
-#include <iostream>
-#include <map>
+#include "media_library_types.hpp"
 
 #define MODULE_NAME LoggerType::ThrottlingMonitor
 
@@ -266,7 +287,7 @@ uint64_t ThrottlingStateMonitor::get_monotonic_time_in_ms()
     {
         return 0;
     }
-    return (uint64_t)ts.tv_sec * 1000LL + ts.tv_nsec / 1000000LL;
+    return media_library_timespec_to_ms(ts);
 }
 
 media_library_return ThrottlingStateMonitor::wait_for_cooling()

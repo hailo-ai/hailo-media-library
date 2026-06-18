@@ -1,9 +1,9 @@
 """
 Shared module for Hailo-15 analytic viewer applications.
 
-Contains common constants, Pydantic data models, performance timing utilities,
-and the BaseVideoPlayer class that handles GStreamer pipeline construction,
-SEI timestamp extraction, metadata synchronization, and detection drawing.
+Contains common constants, performance timing utilities, and the BaseVideoPlayer
+class that handles GStreamer pipeline construction, SEI timestamp extraction,
+metadata synchronization (via hailo_analytics.Frame proto), and detection drawing.
 
 Specialized viewers (general analytic viewer, LPR viewer) subclass BaseVideoPlayer
 and override hook methods to add their unique drawing logic.
@@ -13,13 +13,22 @@ import sys
 import gi
 import zmq
 import json
-import msgpack
 import threading
 import argparse
 import time
 from collections import deque
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional, Callable
+
+# Generated from hailo-analytics/hailo_analytics_api/src/pipeline/codecs/protos/analytics_metadata.proto.
+# Regenerate with:
+#   protoc --proto_path=<media-library-root>/hailo-analytics/hailo_analytics_api/src/pipeline/codecs/protos \
+#          --python_out=. analytics_metadata.proto
+from analytics_metadata_pb2 import Frame as _ProtoFrame
+
+
+def _parse_metadata_frame(payload: bytes) -> _ProtoFrame:
+    proto = _ProtoFrame()
+    proto.ParseFromString(payload)
+    return proto
 
 # ============================================================================
 # GStreamer Initialization
@@ -132,51 +141,11 @@ JITTER_BUFFER_LATENCY_MS = 800
 MAX_METADATA_AGE_NS = 300 * 10**6  # 300ms threshold for stale data
 METADATA_BUFFER_SIZE = 150
 
+# Fallback when metadata frame dimensions are missing (proto3 unset fields read as 0).
+DEFAULT_METADATA_FRAME_WIDTH, DEFAULT_METADATA_FRAME_HEIGHT = OUTPUT_SIZE_PRESETS["1080p"]
+
 # Default bounding box color (green)
 DEFAULT_DETECTION_COLOR = (0, 1, 0, 0.8)
-
-# ============================================================================
-# Pydantic Models
-# ============================================================================
-class BBox(BaseModel):
-    xmin: float = 0.0
-    ymin: float = 0.0
-    xmax: float = 0.0
-    ymax: float = 0.0
-
-class Landmark(BaseModel):
-    points_format: str = "x,y,conf"
-    points_stride: int = 3
-    points: List[float] = Field(default_factory=list)
-    pairs: List[int] = Field(default_factory=list)
-    model_config = ConfigDict(extra="ignore")
-
-class Classification(BaseModel):
-    type: str = ""
-    label: str = ""
-    confidence: Optional[float] = None
-    model_config = ConfigDict(extra="ignore")
-
-class Detection(BaseModel):
-    label: str = "obj"
-    bbox: BBox = Field(default_factory=BBox)
-    confidence: Optional[float] = None
-    tracking_id: Optional[int] = None
-    landmarks: Optional[List[Landmark]] = Field(default_factory=list)
-    classifications: Optional[List[Classification]] = Field(default_factory=list)
-    detections: Optional[List['Detection']] = Field(default_factory=list)
-    model_config = ConfigDict(extra="ignore")
-
-class FrameMetadata(BaseModel):
-    frame_width: int = Field(default=1920)
-    frame_height: int = Field(default=1080)
-    detections: List[Detection] = Field(default_factory=list)
-    landmarks: Optional[List[Landmark]] = Field(default_factory=list)
-    isp_timestamp_ns: Optional[int] = None
-    model_config = ConfigDict(extra="ignore")
-
-Detection.model_rebuild()
-
 
 # ============================================================================
 # Base Video Player
@@ -194,7 +163,8 @@ class BaseVideoPlayer:
                  enable_perf_timing=False, perf_print_frequency=30,
                  analytic_data_ip=DEFAULT_ANALYTIC_DATA_IP,
                  analytic_data_port=None, output_size=None,
-                 metadata_transport="zmq"):
+                 metadata_transport="zmq", save_mkv=None,
+                 record_bitrate=8000):
         self.loop = GLib.MainLoop()
         self.udp_port = udp_port
         self.udp_ip = udp_ip
@@ -222,8 +192,13 @@ class BaseVideoPlayer:
         # State tracking for smoothing
         self.current_active_metadata = None
 
-        # ZMQ address (always set up, used by default listener)
+        # Recording
+        self.save_mkv = save_mkv
+        self.record_bitrate = record_bitrate
+
+        # Metadata listener addresses
         self.zmq_address = f"tcp://{analytic_data_ip}:{analytic_data_port}"
+        self.ws_url = f"ws://{analytic_data_ip}:{analytic_data_port}"
 
         # Start metadata listeners (subclasses can override)
         self._start_listeners()
@@ -233,6 +208,18 @@ class BaseVideoPlayer:
         if output_size:
             output_width, output_height = output_size
             scale_element = f"videoscale ! video/x-raw,width={output_width},height={output_height},pixel-aspect-ratio=1/1 ! "
+
+        if self.save_mkv:
+            sink_str = (
+                f"tee name=display_tee ! "
+                f"queue max-size-buffers=5 ! {scale_element}autovideosink sync=true "
+                f"display_tee. ! queue max-size-buffers=5 ! "
+                f"videoconvert n-threads={num_threads} ! "
+                f"x264enc tune=zerolatency speed-preset=ultrafast bitrate={self.record_bitrate} ! "
+                f"matroskamux ! filesink location=\"{self.save_mkv}\""
+            )
+        else:
+            sink_str = f"{scale_element}autovideosink sync=true"
 
         pipeline_str = f"""
             udpsrc address={self.udp_ip} port={self.udp_port} buffer-size=2097152
@@ -248,15 +235,17 @@ class BaseVideoPlayer:
             queue max-size-buffers=5 !
             cairooverlay name=overlay !
             videoconvert n-threads={num_threads} !
-            {scale_element}
-            autovideosink sync=true
+            {sink_str}
         """
 
         try:
             self.pipeline = Gst.parse_launch(pipeline_str)
             size_str = f"{output_size[0]}x{output_size[1]}" if output_size else "native"
+            record_str = f", Recording: {self.save_mkv}" if self.save_mkv else ""
+            metadata_addr = self.ws_url if metadata_transport == "ws" else self.zmq_address
             print(f"Pipeline created. UDP: {self.udp_ip}:{self.udp_port}, "
-                  f"Metadata: {self.zmq_address}, Latency: {JITTER_BUFFER_LATENCY_MS}ms, Output: {size_str}")
+                  f"Metadata: {metadata_addr}, Latency: {JITTER_BUFFER_LATENCY_MS}ms, "
+                  f"Output: {size_str}{record_str}")
         except Exception as e:
             print(f"Error creating pipeline: {e}")
             sys.exit(1)
@@ -278,8 +267,11 @@ class BaseVideoPlayer:
     # Hook methods for subclasses
     # ----------------------------------------------------------------
     def _start_listeners(self):
-        """Start metadata listener threads. Override to add WebSocket or other transports."""
-        self.listener_thread = threading.Thread(target=self._zmq_listener, daemon=True)
+        """Start metadata listener thread (ZMQ or WebSocket based on transport setting)."""
+        if self.metadata_transport == "ws":
+            self.listener_thread = threading.Thread(target=self._ws_listener, daemon=True)
+        else:
+            self.listener_thread = threading.Thread(target=self._zmq_listener, daemon=True)
         self.listener_thread.start()
 
     def _setup_pipeline_probes(self):
@@ -290,7 +282,7 @@ class BaseVideoPlayer:
         """Called per frame with synchronized metadata. Override to implement drawing logic.
 
         Args:
-            metadata: Validated FrameMetadata instance.
+            metadata: hailo_analytics.Frame proto message (read via attribute access).
             context: Cairo drawing context.
             scale_x: Horizontal scale factor (display width / metadata width).
             scale_y: Vertical scale factor (display height / metadata height).
@@ -318,8 +310,8 @@ class BaseVideoPlayer:
             while True:
                 try:
                     message = socket.recv()
-                    metadata = msgpack.unpackb(message, raw=False)
-                    ts = metadata.get(TIMESTAMP_KEY)
+                    metadata = _parse_metadata_frame(message)
+                    ts = metadata.isp_timestamp_ns
                     if ts:
                         with self.metadata_lock:
                             self.metadata_buffer.append((ts, metadata))
@@ -329,6 +321,35 @@ class BaseVideoPlayer:
                     print(f"ZMQ Unpack Error: {e}")
         except Exception as e:
             print(f"ZMQ Error: {e}")
+
+    # ----------------------------------------------------------------
+    # WebSocket Metadata Listener
+    # ----------------------------------------------------------------
+    def _ws_listener(self):
+        """WebSocket metadata listener with auto-reconnect.
+
+        The server ships hailo_analytics.Frame protobuf messages in binary WebSocket frames,
+        so `ws.recv()` returns bytes that we parse directly with the generated protobuf type.
+        """
+        import websocket
+        while True:
+            try:
+                ws = websocket.WebSocket()
+                ws.connect(self.ws_url)
+                print(f"WebSocket connected to: {self.ws_url}")
+                while True:
+                    message = ws.recv()
+                    if isinstance(message, str):
+                        # Legacy / stray text frame — ignore so downstream stays on the binary path.
+                        continue
+                    metadata = _parse_metadata_frame(message)
+                    ts = metadata.isp_timestamp_ns
+                    if ts:
+                        with self.metadata_lock:
+                            self.metadata_buffer.append((ts, metadata))
+            except Exception as e:
+                print(f"WebSocket Error: {e}, reconnecting...")
+                time.sleep(1)
 
     # ----------------------------------------------------------------
     # SEI Timestamp Extraction
@@ -401,7 +422,7 @@ class BaseVideoPlayer:
                     best_metadata = meta
 
             if not best_metadata and self.current_active_metadata:
-                prev_ts = self.current_active_metadata.get(TIMESTAMP_KEY, 0)
+                prev_ts = self.current_active_metadata.isp_timestamp_ns
                 if abs(sei_ts - prev_ts) < MAX_METADATA_AGE_NS:
                     best_metadata = self.current_active_metadata
 
@@ -435,13 +456,12 @@ class BaseVideoPlayer:
         actual_h = struct.get_int("height")[1]
 
         try:
-            metadata = FrameMetadata.model_validate(best_metadata)
-            scale_x = actual_w / (metadata.frame_width or 1)
-            scale_y = actual_h / (metadata.frame_height or 1)
+            scale_x = actual_w / (best_metadata.frame_width or DEFAULT_METADATA_FRAME_WIDTH)
+            scale_y = actual_h / (best_metadata.frame_height or DEFAULT_METADATA_FRAME_HEIGHT)
             draw_scale = (scale_x * scale_y) ** 0.5
 
             with DrawTimer("Frame Draw", self.enable_perf_timing):
-                self.draw_frame(metadata, context, scale_x, scale_y, draw_scale)
+                self.draw_frame(best_metadata, context, scale_x, scale_y, draw_scale)
         except Exception as e:
             print(f"Draw Error: {e}")
 
@@ -475,9 +495,8 @@ class BaseVideoPlayer:
         context.rectangle(x1, y1, w, h)
         context.stroke()
 
-        # Label
-        label = f"{det.label} {det.confidence:.2f}" if det.confidence is not None else det.label
-        if det.tracking_id is not None:
+        label = f"{det.label} {det.confidence:.2f}" if det.confidence > 0 else det.label
+        if det.HasField('tracking_id'):
             label = f"[{det.tracking_id}] {label}"
         context.set_font_size(font_sz)
         ext = context.text_extents(label)
@@ -516,7 +535,7 @@ class BaseVideoPlayer:
             cls_label = cls.label
             if cls.type:
                 cls_label = f"{cls.type}: {cls_label}"
-            if cls.confidence is not None:
+            if cls.confidence > 0:
                 cls_label = f"{cls_label} ({cls.confidence:.2f})"
             cls_ext = context.text_extents(cls_label)
             # Dark background
@@ -551,6 +570,13 @@ class BaseVideoPlayer:
             self.loop.run()
         except KeyboardInterrupt:
             pass
+        if self.save_mkv:
+            print(f"Finalizing recording: {self.save_mkv}")
+            self.pipeline.send_event(Gst.Event.new_eos())
+            bus = self.pipeline.get_bus()
+            bus.timed_pop_filtered(5 * Gst.SECOND,
+                                   Gst.MessageType.EOS | Gst.MessageType.ERROR)
+            print(f"Recording saved: {self.save_mkv}")
         self.pipeline.set_state(Gst.State.NULL)
 
     # ----------------------------------------------------------------
@@ -569,6 +595,12 @@ class BaseVideoPlayer:
                             help=f'IP address for UDP video source (default: {DEFAULT_UDP_IP})')
         parser.add_argument('--output-resolution', choices=OUTPUT_SIZE_PRESETS.keys(), default=None,
                             help='Output resolution (default: native, no scaling)')
+        parser.add_argument('--metadata-transport', type=str, default='zmq', choices=['zmq', 'ws'],
+                            help='Metadata transport protocol: zmq (default) or ws (websocket)')
+        parser.add_argument('--save-mkv', type=str, default=None, metavar='FILE',
+                            help='Save video stream with overlays to an MKV file')
+        parser.add_argument('--record-bitrate', type=int, default=8000, metavar='KBPS',
+                            help='Recording bitrate in kbps (default: 8000)')
         parser.add_argument('--debug-perf', action='store_true',
                             help='Enable performance timing for drawing operations')
         parser.add_argument('--perf-print-freq', type=int, default=30, metavar='N',

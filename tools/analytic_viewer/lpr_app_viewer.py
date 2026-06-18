@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple, NamedTuple
 
 from viewer_common import (
-    BaseVideoPlayer, DrawTimer, Detection, Classification, FrameMetadata,
+    BaseVideoPlayer, DrawTimer,
     OUTPUT_SIZE_PRESETS, DEFAULT_ANALYTIC_DATA_IP, DEFAULT_ZMQ_PORT, DEFAULT_UDP_IP,
     Gst, GLib,
 )
@@ -315,7 +315,7 @@ def crop_plate_surface(source_surface, bbox_x: float, bbox_y: float,
 # ============================================================================
 # Detection Counting
 # ============================================================================
-def count_detections(detections: List[Detection]) -> Tuple[int, int]:
+def count_detections(detections) -> Tuple[int, int]:
     """Recursively count vehicles and license plates in a detection tree."""
     vehicle_count = 0
     plate_count = 0
@@ -407,10 +407,12 @@ def draw_snapshot_button(ctx, width: int, height: int, is_active: bool) -> Tuple
 # ============================================================================
 # LPR Plate Extraction
 # ============================================================================
-def find_license_plates(detections: List[Detection],
-                        ocr_confidence_threshold: float
-                        ) -> List[Tuple[Detection, Classification]]:
-    """Recursively find all license_plate detections with valid OCR classifications."""
+def find_license_plates(detections,
+                        ocr_confidence_threshold: float):
+    """Recursively find all license_plate detections with valid OCR classifications.
+
+    Returns: list of (Detection proto, Classification proto) pairs.
+    """
     results = []
     for det in detections:
         if det.label == "license_plate" and det.classifications:
@@ -422,16 +424,18 @@ def find_license_plates(detections: List[Detection],
     return results
 
 
-def _get_best_ocr_classification(classifications: List[Classification],
-                                 threshold: float) -> Optional[Classification]:
-    """Return the highest-confidence OCR classification above threshold, or None."""
+def _get_best_ocr_classification(classifications, threshold: float):
+    """Return the highest-confidence OCR classification above threshold, or None.
+
+    classifications is an iterable of hailo_analytics.Classification proto messages.
+    """
     best = None
     for cls in classifications:
         if cls.type != "ocr":
             continue
-        if cls.confidence is None or cls.confidence < threshold:
+        if cls.confidence < threshold:
             continue
-        if best is None or (cls.confidence > (best.confidence or 0)):
+        if best is None or cls.confidence > best.confidence:
             best = cls
     return best
 
@@ -547,6 +551,8 @@ class LPRVideoPlayer(BaseVideoPlayer):
         cls_font_sz = max(CLASSIFICATION_FONT_MIN,
                           min(CLASSIFICATION_FONT_MAX * draw_scale,
                               bbox_min_dim * CLASSIFICATION_FONT_SCALE_FACTOR))
+        # Quantize to bound the Pango font cache — a varying float size misses every frame.
+        cls_font_sz = round(cls_font_sz)
         font_desc = Pango.FontDescription.new()
         font_desc.set_absolute_size(cls_font_sz * Pango.SCALE)
         cls_y = y2 + pad
@@ -554,7 +560,7 @@ class LPRVideoPlayer(BaseVideoPlayer):
             cls_label = cls.label
             if cls.type:
                 cls_label = f"{cls.type}: {cls_label}"
-            if cls.confidence is not None:
+            if cls.confidence > 0:
                 cls_label = f"{cls_label} ({cls.confidence:.2f})"
             layout = PangoCairo.create_layout(context)
             layout.set_font_description(font_desc)
@@ -627,18 +633,18 @@ class LPRVideoPlayer(BaseVideoPlayer):
     # ----------------------------------------------------------------
     # License Plate Processing
     # ----------------------------------------------------------------
-    def _process_license_plates(self, detections: List[Detection], context,
+    def _process_license_plates(self, detections, context,
                                 scale_x: float, scale_y: float):
         """Scan detections for license plates and update the LPR panel slots."""
         plates = find_license_plates(detections, self.ocr_confidence_threshold)
 
         for det, ocr_cls in plates:
-            tracking_id = det.tracking_id
-            if tracking_id is None:
+            if not det.HasField('tracking_id'):
                 continue
+            tracking_id = det.tracking_id
 
             ocr_text = ocr_cls.label
-            confidence = ocr_cls.confidence or 0.0
+            confidence = ocr_cls.confidence
 
             if not self.lpr_manager.should_update(tracking_id, ocr_text, confidence):
                 continue
@@ -799,6 +805,9 @@ if __name__ == "__main__":
         analytic_data_ip=args.analytic_data_ip,
         analytic_data_port=args.analytic_data_port,
         output_size=output_size,
+        metadata_transport=args.metadata_transport,
+        save_mkv=args.save_mkv,
+        record_bitrate=args.record_bitrate,
         ocr_confidence_threshold=args.ocr_confidence_threshold,
         panel_position=args.panel_position,
         no_panel=args.no_panel,

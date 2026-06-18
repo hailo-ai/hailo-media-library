@@ -5,6 +5,21 @@
 
 #include "hailo_postprocess_tools/image_utils/image.hpp"
 
+#include <glib.h>
+#include <stdint.h>
+#include <algorithm>
+#include <cmath>
+#include <stdexcept>
+
+#include "gst/gstinfo.h"
+#include "gst/video/video-format.h"
+#include "hailo_postprocess_tools/image_utils/hailomat.hpp"
+#include "opencv2/core.hpp"
+#include "opencv2/core/base.hpp"
+#include "opencv2/core/hal/interface.h"
+#include "opencv2/core/mat.inl.hpp"
+#include "opencv2/core/matx.hpp"
+
 size_t get_size(GstCaps *caps)
 {
     size_t size;

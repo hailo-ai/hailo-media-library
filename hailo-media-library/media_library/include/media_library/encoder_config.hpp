@@ -32,39 +32,8 @@
 #include <nlohmann/json-schema.hpp>
 #include <nlohmann/json.hpp>
 
-class EncoderConfig
-{
-  private:
-    std::shared_ptr<ConfigParser> m_config_parser;
-    nlohmann::json m_doc;
-    encoder_config_t m_config;
-    encoder_config_t m_user_config;
-    struct input_config_t m_input_config;
-    struct output_config_t m_output_config;
+// Parse JSON string into encoder_config_t
+tl::expected<encoder_config_t, media_library_return> parse_encoder_config(const std::string &json_string);
 
-    media_library_return fill_missing_fields_rate_control_enabled();
-    media_library_return fill_missing_fields_rate_control_disabled();
-    media_library_return fill_missing_profile_and_level();
-
-  public:
-    EncoderConfig();
-    const nlohmann::json &get_doc() const;
-    media_library_return configure(const std::string &config_path);
-    media_library_return configure(const encoder_config_t &encoder_config);
-    encoder_config_t get_config();
-    encoder_config_t get_user_config();
-    hailo_encoder_config_t get_hailo_config();
-    jpeg_encoder_config_t get_jpeg_config();
-
-    /**
-     * @brief Compare two encoder_config_t structures for equality
-     *
-     * This method performs a deep comparison of all fields in both encoder config structures,
-     * including all nested structures and optional fields.
-     *
-     * @param old_config The first encoder configuration to compare
-     * @param new_config The second encoder configuration to compare
-     * @return true if all values in both structures are identical, false otherwise
-     */
-    static bool config_struct_equal(const encoder_config_t &old_config, const encoder_config_t &new_config);
-};
+// Fill missing fields (rate control defaults, profile/level) in-place
+media_library_return resolve_hailo_encoder_config(hailo_encoder_config_t &config);

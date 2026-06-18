@@ -22,9 +22,17 @@
  */
 
 #include "image_overlay_impl.hpp"
-#include <opencv2/core/utils/filesystem.hpp>
+
+#include <stdint.h>
+#include <opencv2/core.hpp>
+#include <opencv2/core/utils/filesystem.hpp> // IWYU pragma: keep
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
+#include <exception>
+
 #include "media_library/media_library_logger.hpp"
 #include "media_library/threadpool.hpp"
+#include "impl/overlay_impl.hpp"
 
 #define MODULE_NAME LoggerType::Osd
 

@@ -7,11 +7,19 @@
 ################################################
 
 # Snapshot CLI
-snapshot_cli_sources = files('../media_library/src/snapshot/snapshot_cli.cpp')
+readline_dep = dependency('readline')
+snapshot_cli_sources = files(
+  '../media_library/src/snapshot/snapshot_cli/snapshot_cli.cpp',
+  '../media_library/src/snapshot/snapshot_cli/snapshot_cli_pipe.cpp',
+  '../media_library/src/snapshot/snapshot_cli/commands/snapshot_command.cpp',
+  '../media_library/src/snapshot/snapshot_cli/commands/list_stages_command.cpp',
+  '../media_library/src/snapshot/snapshot_cli/commands/list_snapshots_command.cpp',
+  '../media_library/src/snapshot/snapshot_cli/commands/help_command.cpp',
+)
 executable('snapshot_cli',
   snapshot_cli_sources,
   cpp_args: common_args,
-  dependencies: [libmedialib_dep],
+  dependencies: [libmedialib_dep, readline_dep],
   install: true,
   install_dir: get_option('bindir'),
 )
@@ -93,6 +101,36 @@ executable('profile_switching',
   install_dir: get_option('bindir'),
 )
 
+# Protobuf requirements
+protobuf_dep = dependency('protobuf')
+grpc_dep = dependency('grpc++')
+
+# Media Library Service
+service_static_src = files(
+  '../api/src/service/media_library_service.cpp',
+  '../api/src/service/media_library_service_buffer_uds.cpp',
+  '../api/src/service/proto_converters.cpp'
+)
+executable('media_library_service',
+  sources: [service_static_src, generated_protobuf_sources],
+  cpp_args: common_args,
+  dependencies: [libmedialib_dep, protobuf_dep, grpc_dep],
+  install: true,
+  install_dir: get_option('bindir'),
+  include_directories : include_directories('.')
+)
+
+media_library_client_example_src = files('../api/examples/media_library_client_example/media_library_client_example.cpp')
+
+# Media Library Client Example
+executable('media_library_client_example',
+  sources: [media_library_client_example_src],
+  cpp_args: common_args,
+  dependencies: [libmedialib_dep],
+  install: true,
+  install_dir: get_option('bindir'),
+)
+
 # OSD Example
 osd_example_src = files('../api/examples/osd_example/osd_example.cpp')
 executable('osd_example',
@@ -112,6 +150,7 @@ executable('basic_h264_recording_to_file',
   cpp_args: common_args,
   include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
+  link_with: [examples_common_lib],
   install: true,
   install_dir: get_option('bindir'),
 )
@@ -123,6 +162,7 @@ executable('basic_jpeg_recording_to_file',
   cpp_args: common_args + ['-DUSE_JPEG_JSONS'],
   include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
+  link_with: [examples_common_lib],
   install: true,
   install_dir: get_option('bindir'),
 )
@@ -134,6 +174,7 @@ executable('dynamic_controls_example',
   cpp_args: common_args,
   include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
+  link_with: [examples_common_lib],
   install: true,
   install_dir: get_option('bindir'),
 )
@@ -145,6 +186,7 @@ executable('osd_privacy_example',
   cpp_args: common_args,
   include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
+  link_with: [examples_common_lib],
   install: true,
   install_dir: get_option('bindir'),
 )
@@ -156,6 +198,7 @@ executable('profile_switching_example',
   cpp_args: common_args,
   include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
+  link_with: [examples_common_lib],
   install: true,
   install_dir: get_option('bindir'),
 )
@@ -167,6 +210,7 @@ executable('jpeg_profile_switching_example',
   cpp_args: common_args + ['-DUSE_JPEG_JSONS'],
   include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
+  link_with: [examples_common_lib],
   install: true,
   install_dir: get_option('bindir'),
 )
@@ -178,6 +222,7 @@ executable('encoder_profile_switching_example',
   cpp_args: common_args + ['-DUSE_SWITCH_ENCODER_EXAMPLE'],
   include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
+  link_with: [examples_common_lib],
   install: true,
   install_dir: get_option('bindir'),
 )
@@ -201,6 +246,7 @@ executable('jpeg_rotation_example',
   cpp_args: common_args + ['-DUSE_JPEG_JSONS'],
   include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
+  link_with: [examples_common_lib],
   install: true,
   install_dir: get_option('bindir'),
 )
@@ -212,6 +258,7 @@ executable('resolution_change_example',
   cpp_args: common_args,
   include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
+  link_with: [examples_common_lib],
   install: true,
   install_dir: get_option('bindir'),
 )
@@ -223,6 +270,7 @@ executable('jpeg_resolution_change_example',
   cpp_args: common_args + ['-DUSE_JPEG_JSONS'],
   include_directories: examples_common_inc,
   dependencies: [libmedialib_dep],
+  link_with: [examples_common_lib],
   install: true,
   install_dir: get_option('bindir'),
 )

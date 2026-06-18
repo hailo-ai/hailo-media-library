@@ -1,5 +1,7 @@
 #include "database_manager.hpp"
 
+#include "common_utils.hpp"
+
 DatabaseManagerConfig::DatabaseManagerConfig(const std::string &sql_file_path, const std::string &faiss_path)
     : sql_db_file_path(sql_file_path), faiss_db_path(faiss_path)
 {

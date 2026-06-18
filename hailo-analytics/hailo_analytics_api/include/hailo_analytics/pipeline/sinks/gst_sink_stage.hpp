@@ -8,16 +8,15 @@
  * a GStreamer appsrc element (e.g. feeding into gsthailoencoder).
  **/
 
-#include <optional>
-#include <string>
-
 #include <gst/app/gstappsrc.h>
 #include <gst/gst.h>
+#include <stddef.h>
+#include <optional>
+#include <string>
+#include <memory>
 
 #include "hailo_analytics/pipeline/core/buffer.hpp"
 #include "hailo_analytics/pipeline/core/stage.hpp"
-
-#include "media_library/media_library_types.hpp"
 
 namespace hailo_analytics::pipeline::sinks
 {

@@ -3,6 +3,15 @@
 #include <numeric>
 #include <cstring>
 #include <set>
+#include <algorithm>
+#include <cmath>
+#include <fstream> // IWYU pragma: keep
+
+#include "media_library/cloexec_fstream.hpp"
+#include "clip_pipeline_ai_defines.hpp"
+#include "common_utils.hpp"
+#include "service/query_service/hailort_service.hpp"
+#include "service/query_service/text_encoder.hpp"
 
 ClipTextEncoder::TextEncoderConfig::TextEncoderConfig(const std::string &hailort_device_id,
                                                       const std::string &token_path, const std::string &network_id,
@@ -17,7 +26,7 @@ ClipTextEncoder::TextEncoderConfig::TextEncoderConfig(const std::string &hailort
 
 bool ClipBinMatrix::load(const std::string &path)
 {
-    std::ifstream f(path, std::ios::binary);
+    cloexec::ifstream f(path, std::ios::binary);
     if (!f)
     {
         HAILO_ANALYTICS_LOG_ERROR("Error: Cannot open file {}", path);
@@ -407,7 +416,7 @@ void ClipTextEncoder::l2_normalize_inplace(std::vector<float> &vec)
 void ClipTextEncoder::save_as_npy(const std::vector<float> &data, int batch_size, int seq_len, int dim,
                                   const std::string &filename)
 {
-    std::ofstream file(filename, std::ios::binary);
+    cloexec::ofstream file(filename, std::ios::binary);
     if (!file)
     {
         throw std::runtime_error("Failed to open file: " + filename);

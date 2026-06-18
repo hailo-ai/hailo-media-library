@@ -1,5 +1,13 @@
 #pragma once
+#include <media_library/media_library.hpp>
+#include <memory>
+#include <string>
+
 #include "pipeline/pipeline.hpp"
+#include "common/common.hpp"
+#include "hailo_analytics/pipeline/cropping/bbox_crop_stage.hpp"
+#include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
+#include "resources/common/repository.hpp"
 
 namespace webserver
 {
@@ -10,7 +18,7 @@ namespace pipeline
 class FaceLandmarksPipeline : public BasePipeline
 {
   public:
-    FaceLandmarksPipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
+    FaceLandmarksPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
                           RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H);
     static bool is_supported(webserver::resources::ResourceRepository &resources);
     virtual std::string pipeline_name() const override;
@@ -20,6 +28,10 @@ class FaceLandmarksPipeline : public BasePipeline
 
   protected:
     void build_pipeline() override;
+    void callback_handle_profile_switch(ResourceStateChangeNotification notif) override;
+
+  private:
+    std::shared_ptr<hailo_analytics::pipeline::cropping::BBoxCropStage> m_landmarks_crop;
 };
 
 } // namespace pipeline

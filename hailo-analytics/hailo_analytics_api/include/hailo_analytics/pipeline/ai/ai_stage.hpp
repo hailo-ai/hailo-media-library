@@ -66,6 +66,7 @@ class HailortAsyncStage : public hailo_analytics::pipeline::ThreadedStage
     std::vector<bool> m_nms_classes_filter_mask;       ///< NMS classes filter mask (false at index i filters class i).
     size_t m_nms_max_accumulated_mask_size_multiplier; ///< NMS max accumulated mask size multiplier (0 = no change).
     std::chrono::milliseconds m_scheduler_timeout;     ///< Timeout for the scheduler.
+    uint8_t m_scheduler_priority;                      ///< Priority for the scheduler (0=min, 16=normal, 31=max).
 
     std::atomic<size_t> m_active_jobs;        ///< Number of active inference jobs.
     size_t m_jobs_limit;                      ///< Limit on the number of active inference jobs.
@@ -80,6 +81,11 @@ class HailortAsyncStage : public hailo_analytics::pipeline::ThreadedStage
     void inference_tracing_begin(BufferPtr data);
     void inference_tracing_end(BufferPtr data);
     void setup_pool_notifications();
+
+    /**
+     * @brief Wakes the output-buffer wait on shutdown so process() can exit and stop() can join.
+     */
+    void on_end_of_stream() override;
 
   public:
     /**
@@ -102,7 +108,7 @@ class HailortAsyncStage : public hailo_analytics::pipeline::ThreadedStage
                       StagePoolMode pool_mode = StagePoolMode::FAIL_ON_EMPTY_POOL, float32_t nms_score_threshold = 0.0f,
                       std::vector<bool> nms_classes_filter_mask = {},
                       size_t nms_max_accumulated_mask_size_multiplier = 0, bool trace_processing_operations = true,
-                      bool use_hailort_service = false);
+                      bool use_hailort_service = false, uint8_t scheduler_priority = HAILO_SCHEDULER_PRIORITY_NORMAL);
 
     /**
      * @brief Initialize the HailoRT stage.
@@ -151,6 +157,15 @@ class HailortAsyncStage : public hailo_analytics::pipeline::ThreadedStage
      * @return AppStatus Status of the processing.
      */
     AppStatus process(BufferPtr data) override;
+
+    /**
+     * @brief Update the HailoRT scheduler threshold at runtime (it is otherwise fixed at build time).
+     *
+     * No-op under dynamic thresholding, which already adjusts the threshold per batch in process().
+     *
+     * @param threshold New scheduler threshold (frames).
+     */
+    void set_scheduler_threshold(int threshold);
 };
 
 class HailortAsyncStageBuild : public HailortAsyncStage
@@ -170,6 +185,7 @@ class HailortAsyncStageBuild : public HailortAsyncStage
         int m_scheduler_threshold = 4;
         bool m_dynamic_threshold = false;
         std::chrono::milliseconds m_scheduler_timeout = std::chrono::milliseconds(100);
+        uint8_t m_scheduler_priority = HAILO_SCHEDULER_PRIORITY_NORMAL;
         StagePoolMode m_pool_mode = StagePoolMode::FAIL_ON_EMPTY_POOL;
         float32_t m_nms_score_threshold = 0.0f;
         std::vector<bool> m_nms_classes_filter_mask;
@@ -188,6 +204,7 @@ class HailortAsyncStageBuild : public HailortAsyncStage
         Builder &set_scheduler_threshold_opt(int threshold);
         Builder &set_dynamic_threshold_opt(bool activate);
         Builder &set_scheduler_timeout_opt(std::chrono::milliseconds timeout);
+        Builder &set_scheduler_priority_opt(uint8_t priority);
         Builder &set_printfps_opt(bool activate);
         Builder &set_pool_mode_opt(StagePoolMode mode);
         Builder &set_nms_score_threshold(float32_t score_threshold);

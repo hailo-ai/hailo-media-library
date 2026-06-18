@@ -22,13 +22,26 @@
  */
 
 #include "buffer_utils.hpp"
+
+#include <gst/gst.h>
+#include <gst/allocators/gstdmabuf.h>
+#include <string.h>
+#include <glib-object.h>
+#include <glib.h>
+#include <gst/video/video-format.h>
+#include <gst/video/video.h>
+#include <hailo/hailodsp_base.h>
+#include <sys/types.h>
+#include <memory>
+#include <vector>
+
 #include "gsthailobuffermeta.hpp"
 #include "hailo_v4l2/hailo_v4l2.h"
 #include "hailo_v4l2/hailo_v4l2_meta.h"
-#include <gst/gst.h>
-#include <gst/allocators/gstdmabuf.h>
-#include <stdio.h>
-#include <string.h>
+#include "buffer_pool.hpp"
+#include "dma_memory_allocator.hpp"
+#include "media_library_buffer.hpp"
+#include "media_library_types.hpp"
 
 std::pair<void *, int> get_mapped_dmabuf_from_gst_memory(GstMemory *memory, size_t size)
 {

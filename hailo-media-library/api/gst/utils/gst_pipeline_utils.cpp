@@ -1,7 +1,15 @@
 #include "gst_pipeline_utils.hpp"
-#include "gstmedialibcommon.hpp"
+
+#include <stddef.h>
 #include <cctype>
 #include <string>
+#include <map>
+#include <utility>
+#include <variant>
+
+#include "gstmedialibcommon.hpp"
+#include "gstmedialibptrs.hpp"
+#include "media_library_types.hpp"
 
 namespace hailo::gst_api
 {
@@ -61,7 +69,7 @@ std::optional<input_config_t> get_input_config_from_encoder(const encoder_config
 }
 
 // Format available stream IDs for error messages
-std::string format_aviallable_streams_ids(const config_profile_t &profile)
+std::string format_available_streams_ids(const config_profile_t &profile)
 {
     std::string result = "[";
     bool first = true;

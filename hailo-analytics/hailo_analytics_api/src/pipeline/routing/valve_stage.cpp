@@ -1,10 +1,15 @@
 // General includes
-#include <algorithm>
+#include <stddef.h>
+#include <atomic>
+#include <memory>
+#include <optional>
+#include <string>
 
 // Infra includes
 #include "hailo_analytics/pipeline/routing/valve_stage.hpp"
-#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 namespace hailo_analytics::pipeline::routing
 {

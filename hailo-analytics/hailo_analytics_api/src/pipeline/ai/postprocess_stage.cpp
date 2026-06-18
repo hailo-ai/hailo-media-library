@@ -1,6 +1,18 @@
+#include <dlfcn.h>
+#include <stddef.h>
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
+#include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/ai/postprocess_stage.hpp"
 #include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/queue.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 namespace hailo_analytics::pipeline::ai
 {

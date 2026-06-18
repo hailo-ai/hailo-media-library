@@ -27,13 +27,14 @@
 #ifndef _DIS_INTERFACE_H_
 #define _DIS_INTERFACE_H_
 
+#include <stdint.h>
+#include <opencv2/core.hpp>
+#include <memory>
+#include <vector>
+
 #include "dewarp.h"
 #include "media_library/dis_common.h"
 #include "interface_types.h"
-
-#include <opencv2/opencv.hpp>
-#include <stddef.h>
-#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C"

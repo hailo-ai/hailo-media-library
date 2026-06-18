@@ -1,4 +1,12 @@
 #include "common.hpp"
+#include "media_library/cloexec_fstream.hpp"
+
+#include <ctype.h>
+#include <media_library/media_library_api_types.hpp>
+#include <algorithm>
+#include <cstdlib>
+#include <iostream>
+#include <stdexcept>
 
 // resolution maps
 namespace webserver::common
@@ -100,7 +108,7 @@ const std::string HAILO_15L_IDENTIFIER = "Hailo-15L";
 
 Architecture get_hailo_architecture()
 {
-    std::ifstream file(MACHINE_FILE_PATH);
+    cloexec::ifstream file(MACHINE_FILE_PATH);
     if (!file.is_open())
     {
         std::cerr << "Failed to open machine file" << std::endl;
@@ -127,25 +135,6 @@ Architecture get_hailo_architecture()
     }
 
     return Architecture::UNKNOWN;
-}
-
-std::string profile_type_to_display_name(ProfileType type, bool is_hdm)
-{
-    if (type == ProfileType::LowlightBayer && is_hdm)
-    {
-        return "AI-ISP Gen3";
-    }
-    return nlohmann::json(type).get<std::string>();
-}
-
-ProfileType display_name_to_profile_type(const std::string &name)
-{
-    // "AI-ISP Gen3" maps to LowlightBayer (same as Gen2, distinguished by denoise config)
-    if (name == "AI-ISP Gen3")
-    {
-        return ProfileType::LowlightBayer;
-    }
-    return nlohmann::json(name).get<ProfileType>();
 }
 
 bool is_env_variable_on(const std::string &env_var_name, const std::string &required_value)

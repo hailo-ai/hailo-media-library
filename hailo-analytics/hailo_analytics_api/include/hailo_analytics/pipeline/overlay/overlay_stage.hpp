@@ -15,7 +15,8 @@
 
 // Postprocess Tools includes
 #include "hailo_postprocess_tools/objects/hailo_objects.hpp"
-#include "hailo_postprocess_tools/image_utils/overlay_native.hpp"
+
+#include <opencv2/core/types.hpp>
 
 // Infra includes
 #include "hailo_analytics/pipeline/core/stage.hpp"

@@ -1,4 +1,27 @@
+#include <stdint.h>
+#include <unistd.h>
+#include <media_library/dsp_utils.hpp>
+#include <media_library/media_library.hpp>
+#include <media_library/media_library_types.hpp>
+#include <nlohmann/json.hpp>
+#include <tl/expected.hpp>
+#include <functional>
+#include <initializer_list>
+#include <map>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 #include "pipeline.hpp"
+#include "common/common.hpp"
+#include "common/httplib/httplib_utils.hpp"
+#include "common/logger_macros.hpp"
+#include "pipeline/isp_blender.hpp"
+#include "resources/common/event_bus.hpp"
+#include "resources/common/events_utils.hpp"
+#include "resources/common/repository.hpp"
 
 using namespace webserver::pipeline;
 using namespace webserver::resources;
@@ -8,7 +31,6 @@ const std::string PIPELINE_ENDPOINT_FLIP = "/flip";
 const std::string PIPELINE_ENDPOINT_ROTATION = "/rotation";
 const std::string PIPELINE_ENDPOINT_DEWARP = "/dewarp";
 const std::string PIPELINE_ENDPOINT_GRAYSCALE = "/grayscale";
-const std::string PIPELINE_ENDPOINT_FREEZE = "/freeze";
 const std::string PIPELINE_ENDPOINT_DIGITAL_ZOOM = "/digital_zoom";
 const std::string PIPELINE_ENDPOINT_RESOLUTION = "/resolution";
 const std::string PIPELINE_ENDPOINT_DENOISE = "/denoise";
@@ -21,7 +43,6 @@ const std::vector<std::string> PIPELINE_ALL_ENDPOINTS = {PIPELINE_ENDPOINT_FRAME
                                                          PIPELINE_ENDPOINT_ROTATION,
                                                          PIPELINE_ENDPOINT_DEWARP,
                                                          PIPELINE_ENDPOINT_GRAYSCALE,
-                                                         PIPELINE_ENDPOINT_FREEZE,
                                                          PIPELINE_ENDPOINT_DIGITAL_ZOOM,
                                                          PIPELINE_ENDPOINT_RESOLUTION,
                                                          PIPELINE_ENDPOINT_DENOISE,
@@ -34,7 +55,7 @@ void BasePipeline::register_framerate_endpoint()
     m_resources.m_srv.Get(
         PIPELINE_ENDPOINT_FRAMERATE, std::function<nlohmann::json()>([this]() {
             WEBSERVER_LOG_INFO("GET {} called", PIPELINE_ENDPOINT_FRAMERATE);
-            auto expected_profile = m_app_resources->media_library.get_current_profile();
+            auto expected_profile = m_app_resources->media_library->get_current_profile();
             if (!expected_profile.has_value())
             {
                 WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -68,7 +89,7 @@ void BasePipeline::register_flip_endpoint()
 {
     m_resources.m_srv.Get(PIPELINE_ENDPOINT_FLIP, std::function<nlohmann::json()>([this]() {
                               WEBSERVER_LOG_INFO("GET {} called", PIPELINE_ENDPOINT_FLIP);
-                              auto expected_profile = m_app_resources->media_library.get_current_profile();
+                              auto expected_profile = m_app_resources->media_library->get_current_profile();
                               if (!expected_profile.has_value())
                               {
                                   WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -105,7 +126,7 @@ void BasePipeline::register_rotation_endpoint()
 {
     m_resources.m_srv.Get(PIPELINE_ENDPOINT_ROTATION, std::function<nlohmann::json()>([this]() {
                               WEBSERVER_LOG_INFO("GET {} called", PIPELINE_ENDPOINT_ROTATION);
-                              auto expected_profile = m_app_resources->media_library.get_current_profile();
+                              auto expected_profile = m_app_resources->media_library->get_current_profile();
                               if (!expected_profile.has_value())
                               {
                                   WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -142,7 +163,7 @@ void BasePipeline::register_dewarp_endpoint()
 {
     m_resources.m_srv.Get(PIPELINE_ENDPOINT_DEWARP, std::function<nlohmann::json()>([this]() {
                               WEBSERVER_LOG_INFO("GET {} called", PIPELINE_ENDPOINT_DEWARP);
-                              auto expected_profile = m_app_resources->media_library.get_current_profile();
+                              auto expected_profile = m_app_resources->media_library->get_current_profile();
                               if (!expected_profile.has_value())
                               {
                                   WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -176,7 +197,7 @@ void BasePipeline::register_grayscale_endpoint()
 {
     m_resources.m_srv.Get(PIPELINE_ENDPOINT_GRAYSCALE, std::function<nlohmann::json()>([this]() {
                               WEBSERVER_LOG_INFO("GET {} called", PIPELINE_ENDPOINT_GRAYSCALE);
-                              auto expected_profile = m_app_resources->media_library.get_current_profile();
+                              auto expected_profile = m_app_resources->media_library->get_current_profile();
                               if (!expected_profile.has_value())
                               {
                                   WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -206,39 +227,12 @@ void BasePipeline::register_grayscale_endpoint()
     });
 }
 
-void BasePipeline::register_freeze_endpoint()
-{
-    m_resources.m_srv.Get(PIPELINE_ENDPOINT_FREEZE, std::function<nlohmann::json()>([this]() {
-                              WEBSERVER_LOG_INFO("GET {} called", PIPELINE_ENDPOINT_FREEZE);
-                              bool freeze = m_app_resources->freeze_stage->is_freeze();
-                              nlohmann::json j;
-                              j["freeze"] = freeze;
-                              WEBSERVER_LOG_INFO("GET {} completed", PIPELINE_ENDPOINT_FREEZE);
-                              return j;
-                          }));
-
-    m_resources.m_srv.Put(PIPELINE_ENDPOINT_FREEZE, [this](const nlohmann::json &j_body) {
-        //{ "freeze": "true/false" }
-        WEBSERVER_LOG_INFO("PUT /freeze called");
-        if (!j_body.contains("freeze"))
-        {
-            WEBSERVER_LOG_ERROR("Freeze not found in request body");
-            throw std::runtime_error("Freeze not found in request body");
-        }
-        auto freeze = j_body["freeze"].get<bool>();
-        m_resources.m_event_bus->notify(EventType::CHANGE_FREEZE,
-                                        std::make_shared<ProfileFreezeState>(ProfileFreezeState(freeze)));
-        WEBSERVER_LOG_INFO("PUT /freeze completed");
-        return nlohmann::json();
-    });
-}
-
 void BasePipeline::register_digital_zoom_endpoint()
 {
     m_resources.m_srv.Get(
         PIPELINE_ENDPOINT_DIGITAL_ZOOM, std::function<nlohmann::json()>([this]() {
             WEBSERVER_LOG_INFO("GET {} called", PIPELINE_ENDPOINT_DIGITAL_ZOOM);
-            auto expected_profile = m_app_resources->media_library.get_current_profile();
+            auto expected_profile = m_app_resources->media_library->get_current_profile();
             if (!expected_profile.has_value())
             {
                 WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -316,7 +310,7 @@ void BasePipeline::register_resolution_endpoint()
     m_resources.m_srv.Get(
         PIPELINE_ENDPOINT_RESOLUTION, std::function<nlohmann::json()>([this]() {
             WEBSERVER_LOG_INFO("GET {} called", PIPELINE_ENDPOINT_RESOLUTION);
-            auto expected_profile = m_app_resources->media_library.get_current_profile();
+            auto expected_profile = m_app_resources->media_library->get_current_profile();
             if (!expected_profile.has_value())
             {
                 WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -360,7 +354,7 @@ void BasePipeline::register_denoise_endpoint()
     m_resources.m_srv.Get(
         PIPELINE_ENDPOINT_DENOISE, std::function<nlohmann::json()>([this]() {
             WEBSERVER_LOG_INFO("GET {} called", PIPELINE_ENDPOINT_DENOISE);
-            auto expected_profile = m_app_resources->media_library.get_current_profile();
+            auto expected_profile = m_app_resources->media_library->get_current_profile();
             if (!expected_profile.has_value())
             {
                 WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -390,7 +384,7 @@ void BasePipeline::register_current_profile_name_endpoint()
 {
     m_resources.m_srv.Get(PIPELINE_ENDPOINT_CURRENT_PROFILE_NAME, std::function<nlohmann::json()>([this]() {
                               WEBSERVER_LOG_INFO("GET {} called", PIPELINE_ENDPOINT_CURRENT_PROFILE_NAME);
-                              auto expected_profile = m_app_resources->media_library.get_current_profile();
+                              auto expected_profile = m_app_resources->media_library->get_current_profile();
                               if (!expected_profile.has_value())
                               {
                                   WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -408,7 +402,7 @@ void BasePipeline::register_automatic_algorithms_endpoint()
 {
     m_resources.m_srv.Get(PIPELINE_ENDPOINT_AUTOMATIC_ALGORITHMS, std::function<nlohmann::json()>([this]() {
                               WEBSERVER_LOG_INFO("GET {} called", PIPELINE_ENDPOINT_AUTOMATIC_ALGORITHMS);
-                              auto expected_profile = m_app_resources->media_library.get_current_profile_str();
+                              auto expected_profile = m_app_resources->media_library->get_current_profile_str();
                               if (!expected_profile.has_value())
                               {
                                   WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -430,7 +424,7 @@ void BasePipeline::register_automatic_algorithms_endpoint()
         auto automatic_algorithms = j_body;
         std::string automatic_algorithms_str = automatic_algorithms.dump();
         WEBSERVER_LOG_DEBUG("automatic_algorithms json: {}", automatic_algorithms_str);
-        m_app_resources->media_library.set_automatic_algorithm_configuration(automatic_algorithms_str);
+        m_app_resources->media_library->set_automatic_algorithm_configuration(automatic_algorithms_str);
         WEBSERVER_LOG_INFO("PUT {} completed", PIPELINE_ENDPOINT_AUTOMATIC_ALGORITHMS);
         return nlohmann::json();
     });
@@ -438,7 +432,7 @@ void BasePipeline::register_automatic_algorithms_endpoint()
 
 void BasePipeline::register_reset_stream_endpoint()
 {
-    m_resources.m_srv.Put(PIPELINE_ENDPOINT_RESET_STREAM, [this](const nlohmann::json &req) {
+    m_resources.m_srv.Put(PIPELINE_ENDPOINT_RESET_STREAM, [this](const nlohmann::json & /*req*/) {
         WEBSERVER_LOG_INFO("POST {} called", PIPELINE_ENDPOINT_RESET_STREAM);
         stop();
         sleep(1);
@@ -455,7 +449,6 @@ void BasePipeline::register_endpoints()
     register_rotation_endpoint();
     register_dewarp_endpoint();
     register_grayscale_endpoint();
-    register_freeze_endpoint();
     register_digital_zoom_endpoint();
     register_resolution_endpoint();
     register_denoise_endpoint();

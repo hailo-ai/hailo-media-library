@@ -1,5 +1,6 @@
 #include <iostream>
 #include <fstream>
+#include "media_library/cloexec_fstream.hpp"
 #include <sstream>
 #include <memory>
 #include <vector>
@@ -9,7 +10,7 @@
 
 std::string read_file(const std::string &filename)
 {
-    std::ifstream file(filename);
+    cloexec::ifstream file(filename);
     if (!file.is_open())
     {
         throw std::runtime_error("Could not open file: " + filename);

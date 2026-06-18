@@ -1,6 +1,13 @@
 #pragma once
+#include <stddef.h>
+#include <media_library/media_library.hpp>
+#include <string>
+
 #include "pipeline/pipeline.hpp"
-#include "hailo_analytics/pipeline/routing/valve_stage.hpp"
+#include "common/common.hpp"
+#include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
+#include "resources/common/events_utils.hpp"
+#include "resources/common/repository.hpp"
 
 namespace webserver
 {
@@ -11,8 +18,9 @@ namespace pipeline
 class DetectionPipeline : public BasePipeline
 {
   public:
-    DetectionPipeline(webserver::resources::ResourceRepository &resources, MediaLibrary &media_library,
-                      RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H);
+    DetectionPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
+                      RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H,
+                      bool suppress_metadata_ws = false);
 
     virtual std::string pipeline_name() const override;
     void start() override;
@@ -21,14 +29,12 @@ class DetectionPipeline : public BasePipeline
 
   protected:
     void build_pipeline() override;
-    void register_endpoints() override;
-    void unregister_endpoints() override;
     void callback_handle_profile_switch(ResourceStateChangeNotification notif) override;
 
   private:
     size_t get_crop_every_x_frames() const;
-    std::shared_ptr<hailo_analytics::pipeline::routing::ValveStage> m_ws_sender_valve;
-    bool m_ws_sender_enabled = false;
+    bool is_single_tile_mode() const;
+    bool m_suppress_metadata_ws = false;
 };
 
 } // namespace pipeline

@@ -21,14 +21,20 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 #include "gsthailoconfigattacher.hpp"
+
+#include <glib-object.h>
+#include <tl/expected.hpp>
+#include <gst/gstparamspecs.h>
+#include <gst/video/gstvideometa.h>
+#include <stddef.h>
+
 #include "buffer_utils.hpp"
 #include "common/gstmedialibcommon.hpp"
-#include "config_manager.hpp"
-#include "gst/gstquery.h"
+#include "media_library/config_manager.hpp"
 #include "gstmedialibptrs.hpp"
-#include <glib-object.h>
-#include <gst/video/video.h>
-#include <tl/expected.hpp>
+#include "buffer_pool.hpp"
+#include "config_attacher.hpp"
+#include "media_library_types.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailo_config_attacher_debug);
 #define GST_CAT_DEFAULT gst_hailo_config_attacher_debug

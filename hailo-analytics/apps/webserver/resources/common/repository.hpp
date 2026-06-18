@@ -1,14 +1,11 @@
 #pragma once
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "common/httplib/httplib_utils.hpp"
 #include "resources.hpp"
-#include "resources/webrtc.hpp"
-#include "resources/osd.hpp"
-#include "resources/isp.hpp"
-#include "resources/encoder.hpp"
-#include "resources/privacy_mask.hpp"
-#include "resources/webpage.hpp"
-#include "resources/configs.hpp"
-#include <map>
+#include "resources/common/event_bus.hpp"
 
 namespace webserver
 {

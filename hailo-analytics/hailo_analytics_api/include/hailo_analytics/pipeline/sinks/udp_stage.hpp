@@ -88,7 +88,7 @@ class UdpStage : public hailo_analytics::pipeline::ThreadedStage
      * @param data Buffer containing the encoded data to send.
      * @return AppStatus Status of the processing.
      */
-    AppStatus process(BufferPtr data);
+    AppStatus process(BufferPtr data) override;
 };
 
 /**

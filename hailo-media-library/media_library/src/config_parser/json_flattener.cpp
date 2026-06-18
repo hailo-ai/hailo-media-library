@@ -1,5 +1,10 @@
 #include <filesystem>
+#include <algorithm>
+#include <initializer_list>
+#include <optional>
+
 #include "json_flattener.hpp"
+#include "json_ref_utils.hpp"
 #include "media_library_logger.hpp"
 #include "files_utils.hpp"
 #include "config_validator.hpp"
@@ -93,7 +98,8 @@ bool is_path_to_json(const std::string &path)
 }
 
 media_library_return JsonParser::flatten_json(const nlohmann::json &input_json, nlohmann::json &output_json,
-                                              bool validate_schema, bool validate_metadata)
+                                              bool validate_schema, bool validate_metadata,
+                                              const std::filesystem::path &base_dir)
 {
     for (auto it = input_json.begin(); it != input_json.end(); ++it)
     {
@@ -104,22 +110,22 @@ media_library_return JsonParser::flatten_json(const nlohmann::json &input_json, 
         if (value.is_string() && is_path_to_json(value.get<std::string>()) &&
             (std::find(m_keys_to_not_flatten.begin(), m_keys_to_not_flatten.end(), key) == m_keys_to_not_flatten.end()))
         {
-            LOGGER__MODULE__DEBUG(MODULE_NAME, "Found JSON path reference for key '{}': {}", key,
-                                  value.get<std::string>());
-            if (!std::filesystem::exists(value.get<std::string>()))
+            const std::string resolved_path = json_ref_utils::anchor_path(value.get<std::string>(), base_dir);
+            if (!std::filesystem::exists(resolved_path))
             {
-                LOGGER__MODULE__ERROR(MODULE_NAME, "Path does not exist: {}", value.get<std::string>());
+                LOGGER__MODULE__ERROR(MODULE_NAME, "Path does not exist: {}", resolved_path);
                 return MEDIA_LIBRARY_CONFIGURATION_ERROR;
             }
+            LOGGER__MODULE__DEBUG(MODULE_NAME, "Found JSON path reference for key '{}': {}", key, resolved_path);
             nlohmann::json content;
-            media_library_return status = flatten_path(value.get<std::string>(), content);
+            media_library_return status = flatten_path(resolved_path, content);
             if (status != MEDIA_LIBRARY_SUCCESS)
             {
                 return status;
             }
-            nlohmann::json nested_output_json;
-            nested_output_json = content;
-            status = flatten_json(content, nested_output_json, validate_schema, validate_metadata);
+            nlohmann::json nested_output_json = content;
+            const std::filesystem::path nested_base_dir = std::filesystem::path(resolved_path).parent_path();
+            status = flatten_json(content, nested_output_json, validate_schema, validate_metadata, nested_base_dir);
             if (status != MEDIA_LIBRARY_SUCCESS)
             {
                 return status;
@@ -144,18 +150,22 @@ media_library_return JsonParser::flatten_json(const nlohmann::json &input_json, 
                 }
             }
             output_json[add_suffix(key)] = nested_output_json;
+            output_json[key] = resolved_path;
+        }
+        else if (value.is_string() && key == "sensor_calib_path")
+        {
+            output_json[key] = json_ref_utils::anchor_path(value.get<std::string>(), base_dir);
         }
         else if (value.is_object())
         {
             LOGGER__MODULE__DEBUG(MODULE_NAME, "Processing nested object for key: {}", key);
-            // Recursively flatten nested objects
-            nlohmann::json nested_output;
-            nested_output = value;
-            auto status = flatten_json(value, nested_output, validate_schema, validate_metadata);
+            nlohmann::json nested_output = value;
+            auto status = flatten_json(value, nested_output, validate_schema, validate_metadata, base_dir);
             if (status != MEDIA_LIBRARY_SUCCESS)
             {
                 return status;
             }
+            output_json[key] = nested_output;
         }
         else if (value.is_array())
         {
@@ -169,9 +179,8 @@ media_library_return JsonParser::flatten_json(const nlohmann::json &input_json, 
                     array_output.push_back(element);
                     continue;
                 }
-                nlohmann::json nested_output;
-                nested_output = element;
-                auto status = flatten_json(element, nested_output, validate_schema, validate_metadata);
+                nlohmann::json nested_output = element;
+                auto status = flatten_json(element, nested_output, validate_schema, validate_metadata, base_dir);
                 if (status != MEDIA_LIBRARY_SUCCESS)
                 {
                     return status;
@@ -191,10 +200,21 @@ media_library_return JsonParser::flatten_json(const nlohmann::json &input_json, 
 }
 
 media_library_return JsonParser::flatten_profile(const nlohmann::json &input_json, nlohmann::json &output_json,
-                                                 bool validate_schema, bool validate_metadata)
+                                                 bool validate_schema, bool validate_metadata,
+                                                 const std::filesystem::path &base_dir)
 {
     LOGGER__MODULE__TRACE(MODULE_NAME, "Starting profile flattening. Schema validation: {}",
                           validate_schema ? "enabled" : "disabled");
+
+    if (base_dir.empty() && json_ref_utils::has_relative_refs(input_json))
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME,
+                              "Profile JSON contains relative path references but MediaLibrary::initialize() was "
+                              "called with a JSON object/string instead of a config file path. Pass the config "
+                              "file path to initialize() so relative refs can be anchored at the file's directory, "
+                              "or resolve all relative refs to absolute paths before calling initialize().");
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
 
     if (!output_json.empty())
     {
@@ -234,7 +254,7 @@ media_library_return JsonParser::flatten_profile(const nlohmann::json &input_jso
         }
     }
     output_json = input_json;
-    return flatten_json(input_json, output_json, validate_schema, validate_metadata);
+    return flatten_json(input_json, output_json, validate_schema, validate_metadata, base_dir);
 }
 
 media_library_return JsonParser::flatten_profile(const std::string &input_json_path, nlohmann::json &output_json,
@@ -248,5 +268,6 @@ media_library_return JsonParser::flatten_profile(const std::string &input_json_p
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to parse input JSON from path: {}", input_json_path);
         return ret;
     }
-    return flatten_profile(input_json, output_json, validate_schema, validate_metadata);
+    return flatten_profile(input_json, output_json, validate_schema, validate_metadata,
+                           std::filesystem::path(input_json_path).parent_path());
 }

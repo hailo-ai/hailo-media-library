@@ -2,9 +2,13 @@
 
 // general includes
 #include <vector>
+#include <memory>
+#include <optional>
+#include <string>
 
 // infra includes
 #include "stage.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
 
 namespace hailo_analytics::pipeline
 {
@@ -23,6 +27,7 @@ enum class StageType
 };
 
 class Pipeline;
+
 using PipelinePtr = std::shared_ptr<Pipeline>;
 
 /**

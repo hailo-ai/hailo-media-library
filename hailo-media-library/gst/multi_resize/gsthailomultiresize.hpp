@@ -30,7 +30,7 @@
 
 #include "media_library/multi_resize.hpp"
 #include "common/gstmedialibcommon.hpp"
-#include "media_library_types.hpp"
+#include "media_library/media_library_types.hpp"
 #include <fstream>
 #include <gst/gst.h>
 #include <memory>

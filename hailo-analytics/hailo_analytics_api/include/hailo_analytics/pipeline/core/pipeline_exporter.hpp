@@ -1,14 +1,16 @@
 #pragma once
 
-#include "hailo_analytics/pipeline/core/stage.hpp"
-#include "hailo_analytics/pipeline/core/pipeline.hpp"
-#include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
 #include <string>
 #include <unordered_map>
 #include <vector>
 #include <tuple>
 #include <unordered_set>
-#include <fstream>
+#include <memory>
+#include <utility>
+
+#include "hailo_analytics/pipeline/core/stage.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "media_library/cloexec_fstream.hpp"
 
 namespace hailo_analytics::pipeline
 {
@@ -67,24 +69,25 @@ class PipelineExporter
     static void collect_stage_subscribers(const StagePtr &stage, const std::string &full_stage_name,
                                           DotExportContext &context);
 
-    static void write_cluster_header(std::ofstream &dotfile, const std::string &indent, const std::string &stage_name);
+    static void write_cluster_header(cloexec::ofstream &dotfile, const std::string &indent,
+                                     const std::string &stage_name);
 
-    static void write_leaf_stage_node(std::ofstream &dotfile, const std::string &indent, const std::string &full_name,
-                                      const std::string &stage_name, const std::string &shape,
-                                      const std::string &color);
+    static void write_leaf_stage_node(cloexec::ofstream &dotfile, const std::string &indent,
+                                      const std::string &full_name, const std::string &stage_name,
+                                      const std::string &shape, const std::string &color);
 
-    static void export_stages_recursively(std::ofstream &dotfile,
+    static void export_stages_recursively(cloexec::ofstream &dotfile,
                                           const std::unordered_map<std::string, StagePtr> &stages,
                                           const std::unordered_map<std::string, StageType> &stageTypes,
                                           const std::string &parent_prefix, DotExportContext &context,
                                           int indent_level = 1);
 
-    static void export_nested_pipeline(std::ofstream &dotfile, const std::string &stage_name,
+    static void export_nested_pipeline(cloexec::ofstream &dotfile, const std::string &stage_name,
                                        const std::shared_ptr<Pipeline> &pipeline,
                                        const std::unordered_map<std::string, StageType> &stageTypes,
                                        const std::string &parent_prefix, DotExportContext &context, int indent_level);
 
-    static void export_leaf_stage(std::ofstream &dotfile, const std::string &stage_name, const StagePtr &stage,
+    static void export_leaf_stage(cloexec::ofstream &dotfile, const std::string &stage_name, const StagePtr &stage,
                                   const std::unordered_map<std::string, StageType> &stageTypes,
                                   const std::string &parent_prefix, DotExportContext &context, int indent_level);
 
@@ -97,18 +100,18 @@ class PipelineExporter
     static std::string lookup_full_stage_name(const std::string &short_or_partial_name,
                                               const DotExportContext &context);
 
-    static void write_edge(std::ofstream &dotfile, const std::string &source, const std::string &target,
+    static void write_edge(cloexec::ofstream &dotfile, const std::string &source, const std::string &target,
                            const std::string &attributes = "");
 
-    static void write_internal_connections(std::ofstream &dotfile, const DotExportContext &context);
+    static void write_internal_connections(cloexec::ofstream &dotfile, const DotExportContext &context);
 
-    static void write_regular_connections(std::ofstream &dotfile,
+    static void write_regular_connections(cloexec::ofstream &dotfile,
                                           const std::vector<std::pair<std::string, std::string>> &connections,
                                           const std::unordered_map<std::string, StagePtr> &allStages,
                                           const DotExportContext &context);
 
     static void write_frontend_subscriptions(
-        std::ofstream &dotfile, const std::vector<std::tuple<std::string, std::string, std::string>> &subscriptions,
+        cloexec::ofstream &dotfile, const std::vector<std::tuple<std::string, std::string, std::string>> &subscriptions,
         const std::unordered_map<std::string, StagePtr> &allStages, const DotExportContext &context);
 };
 

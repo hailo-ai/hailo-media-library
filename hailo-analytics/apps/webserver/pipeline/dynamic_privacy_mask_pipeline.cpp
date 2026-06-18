@@ -1,23 +1,59 @@
 #include "dynamic_privacy_mask_pipeline.hpp"
 
+#include <fmt/format.h>
+#include <stddef.h>
+#include <media_library/media_library_api_types.hpp>
+#include <nlohmann/json.hpp>
+#include <opencv2/core.hpp>
+#include <tl/expected.hpp>
+#include <algorithm>
+#include <array>
+#include <functional>
+#include <map>
+#include <optional>
+#include <stdexcept>
+#include <string_view>
+#include <utility>
+
 #include "pipeline.hpp"
 #include "common/common.hpp"
-
-#include <algorithm>
-#include <fmt/format.h>
-
 // Analytics includes for DPM pipeline generation
+#include "hailo_analytics/analytics/ai_models_config.hpp"
 #include "hailo_analytics/analytics/dpm_analytics.hpp"
+#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
+#include "hailo_analytics/pipeline/muxing/bundle_streams_stage.hpp"
+#include "hailo_analytics/pipeline/muxing/split_streams_stage.hpp"
 #include "hailo_analytics/pipeline/routing/tee_stage.hpp"
 #include "hailo_analytics/pipeline/sinks/app_sink_stage.hpp"
+#include "detections_db.hpp"
+#include "common/httplib/httplib_utils.hpp"
+#include "common/logger_macros.hpp"
+#include "hailo_analytics/analytics/dynamic_privacy_mask.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "hailo_analytics/pipeline/overlay/overlay_stage.hpp"
+#include "hailo_analytics/pipeline/routing/valve_stage.hpp"
+#include "hailo_analytics/pipeline/sinks/output_module.hpp"
+#include "pipeline/isp_blender.hpp"
+#include "hailo_analytics/pipeline/codecs/encoder_stage.hpp"
+
+namespace ai_models = hailo_analytics::analytics::ai_models;
 
 // Pipeline stage names
 constexpr std::string_view DPM_AI_PIPELINE = "dpm_ai_pipeline";
 constexpr std::string_view TEE_STAGE = "tee_stage";
 constexpr std::string_view WEBRTC_SINK = "webrtc_sink";
+constexpr std::string_view BUNDLE_STAGE = "bundle";
+constexpr std::string_view SPLIT_STAGE = "split";
+constexpr std::string_view AI_TERMINAL_SINK = "ai_terminal_sink";
 
 // DPM profiles use sink2 for AI (different from standard webserver profiles which use sink1)
 constexpr std::string_view DPM_AI_SINK = "dpm_sink2";
+
+constexpr std::string_view LABEL_PERSON = "person";
+constexpr std::string_view LABEL_FACE = "face";
+constexpr std::string_view LABEL_VEHICLE = "vehicle";
+constexpr std::string_view LABEL_LICENSE_PLATE = "license_plate";
 
 // Import shared DPM constants
 using hailo_analytics::analytics::dpm_analytics::DEFAULT_MAX_DETECTIONS_15H;
@@ -33,10 +69,10 @@ using namespace webserver::pipeline;
 using namespace webserver::resources;
 
 #define DPM_PIPELINE_SUPPORTED_PROFILES                                                                                \
-    {ProfileType::Daylight, ProfileType::HighDynamicRange, ProfileType::LowlightBayer}
+    {ProfileType::Daylight, ProfileType::HighDynamicRange, ProfileType::AiIspGen2, ProfileType::AiIspGen3}
 
 DynamicPrivacyMaskPipeline::DynamicPrivacyMaskPipeline(webserver::resources::ResourceRepository &resources,
-                                                       MediaLibrary &media_library, RTPConverterStage &webrtc_stage,
+                                                       MediaLibraryPtr media_library, RTPConverterStage &webrtc_stage,
                                                        Architecture platform)
     : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight,
                    DPM_PIPELINE_SUPPORTED_PROFILES)
@@ -54,12 +90,14 @@ std::string DynamicPrivacyMaskPipeline::get_profile_name_by_type(ProfileType typ
     {
     case ProfileType::Daylight:
         return DPM_DAYLIGHT_PROFILE_NAME;
-    case ProfileType::Lowlight:
-        return DPM_LOWLIGHT_PROFILE_NAME;
+    case ProfileType::AiIspGen1:
+        return DPM_AI_ISP_GEN1_PROFILE_NAME;
     case ProfileType::HighDynamicRange:
         return DPM_HDR_PROFILE_NAME;
-    case ProfileType::LowlightBayer:
-        return DPM_LOWLIGHT_BAYER_PROFILE_NAME;
+    case ProfileType::AiIspGen2:
+        return DPM_AI_ISP_GEN2_PROFILE_NAME;
+    case ProfileType::AiIspGen3:
+        return DPM_AI_ISP_GEN3_PROFILE_NAME;
     default:
         throw std::runtime_error("profile type not supported in DynamicPrivacyMask Pipeline");
     }
@@ -69,12 +107,14 @@ ProfileType DynamicPrivacyMaskPipeline::get_profile_type_by_name(const std::stri
 {
     if (name == DPM_DAYLIGHT_PROFILE_NAME)
         return ProfileType::Daylight;
-    else if (name == DPM_LOWLIGHT_PROFILE_NAME)
-        return ProfileType::Lowlight;
+    else if (name == DPM_AI_ISP_GEN1_PROFILE_NAME)
+        return ProfileType::AiIspGen1;
     else if (name == DPM_HDR_PROFILE_NAME)
         return ProfileType::HighDynamicRange;
-    else if (name == DPM_LOWLIGHT_BAYER_PROFILE_NAME)
-        return ProfileType::LowlightBayer;
+    else if (name == DPM_AI_ISP_GEN2_PROFILE_NAME)
+        return ProfileType::AiIspGen2;
+    else if (name == DPM_AI_ISP_GEN3_PROFILE_NAME)
+        return ProfileType::AiIspGen3;
     else
         throw std::runtime_error("profile name not supported in " + pipeline_name() + " Pipeline: " + name);
 }
@@ -83,11 +123,11 @@ void DynamicPrivacyMaskPipeline::build_pipeline()
 {
     WEBSERVER_LOG_INFO("Building dynamic privacy mask pipeline");
 
-    WEBSERVER_LOG_INFO("Using DPM resources: {}, {}", hailo_analytics::analytics::dpm_analytics::DEFAULT_YOLO_HEF,
-                       hailo_analytics::analytics::dpm_analytics::DEFAULT_YOLO_FUNC_NAME);
+    WEBSERVER_LOG_INFO("Using DPM resources: {}, {}", ai_models::YOLOV8N.hef_relative,
+                       ai_models::YOLOV8N.post_function_name);
 
     // Get stream dimensions from frontend
-    auto output_streams = m_app_resources->media_library.m_frontend->get_outputs_streams();
+    auto output_streams = m_app_resources->media_library->get_frontend_output_streams();
     if (!output_streams.has_value())
     {
         WEBSERVER_LOG_ERROR("Failed to get stream ids");
@@ -113,9 +153,8 @@ void DynamicPrivacyMaskPipeline::build_pipeline()
 
     WEBSERVER_LOG_INFO("AI stream ({}): {}x{}", DPM_AI_SINK, ai_width, ai_height);
 
-    // Create valve and freeze stages (for playback control)
+    // Create valve stage (for playback control)
     m_app_resources->valve_stage = std::make_shared<ValveStage>("valve", 1);
-    m_app_resources->freeze_stage = std::make_shared<FreezeStage>("freeze", 1);
 
     // Create WebRTC sink stage
     std::shared_ptr<AppSinkStage> webrtc_sink_stage =
@@ -130,17 +169,10 @@ void DynamicPrivacyMaskPipeline::build_pipeline()
     int max_detections =
         (m_app_resources->platform == Architecture::Hailo15L) ? DEFAULT_MAX_DETECTIONS_15L : DEFAULT_MAX_DETECTIONS_15H;
 
-    // Create shared segment_labels so the limiter callback reads them dynamically at runtime
-    m_app_resources->segment_labels = std::make_shared<hailo_analytics::analytics::dpm_analytics::SharedLabels>();
-    m_app_resources->segment_labels->store({"person", "vehicle"});
-
-    // Create shared max_detections for runtime vision-mode adjustment
-    m_shared_max_detections = std::make_shared<std::atomic<int>>(max_detections);
-
-    auto dpm_ai_config = hailo_analytics::analytics::dpm_analytics::build_dpm_config(
-        ai_width, ai_height, max_detections, {"person", "vehicle", "face"});
-    dpm_ai_config.limiter_config.shared_segment_labels = m_app_resources->segment_labels;
-    dpm_ai_config.limiter_config.shared_max_detections = m_shared_max_detections;
+    std::vector<std::string> initial_labels{std::string(LABEL_PERSON), std::string(LABEL_VEHICLE)};
+    auto dpm_ai_config = hailo_analytics::analytics::dpm_analytics::build_dpm_config(ai_width, ai_height,
+                                                                                     max_detections, initial_labels);
+    dpm_ai_config.detector_label_filter_config.labels = initial_labels;
 
     auto dpm_ai_pipeline_status = hailo_analytics::analytics::dpm_analytics::generate_full_dpm_analytics_pipeline(
         std::string(DPM_AI_PIPELINE), dpm_ai_config);
@@ -151,28 +183,70 @@ void DynamicPrivacyMaskPipeline::build_pipeline()
     }
     PipelinePtr dpm_ai_pipeline = dpm_ai_pipeline_status.value();
 
-    // Build the complete pipeline
-    // Vision path: Frontend → Freeze → Valve → Encoder → Tee → [UDP, WebRTC]
-    // AI path: Frontend → DPM Analytics Pipeline (Tiling → Limiter → DPM → Analytics DB)
+    m_detector_filter = std::dynamic_pointer_cast<hailo_analytics::analytics::dpm_analytics::DetectorLabelFilter>(
+        dpm_ai_pipeline->get_stage_by_name(
+            std::string(hailo_analytics::analytics::dpm_analytics::DETECTOR_LABEL_FILTER_STAGE)));
+    auto dpm_sub = std::dynamic_pointer_cast<hailo_analytics::pipeline::Pipeline>(dpm_ai_pipeline->get_stage_by_name(
+        std::string(hailo_analytics::analytics::dynamic_privacy_mask::BBOX_CROP_SEGMENTATION_PIPELINE)));
+    if (dpm_sub)
+        m_segmentor = std::dynamic_pointer_cast<hailo_analytics::pipeline::cropping::BBoxCropStage>(
+            dpm_sub->get_stage_by_name(std::string(hailo_analytics::analytics::dynamic_privacy_mask::SEGMENTOR_STAGE)));
+    if (!m_detector_filter || !m_segmentor)
+    {
+        WEBSERVER_LOG_ERROR("Failed to recover DPM runtime-mutable stage handles by name");
+        throw std::runtime_error("Failed to recover DPM runtime-mutable stage handles");
+    }
+
+    apply_label_set(initial_labels);
+
+    register_detections_db_config(ai_width, ai_height);
+
+    auto bundle = hailo_analytics::pipeline::muxing::BundleStreamsStageBuild::create()
+                      .set_stage_name(std::string(BUNDLE_STAGE))
+                      .set_carrier_stream_id(std::string(DPM_AI_SINK))
+                      .set_passenger_stream_ids({std::string(DEFAULT_STREAM_4K_NAME)})
+                      .set_queue_size_opt(1)
+                      .buildptr();
+
+    auto split = hailo_analytics::pipeline::muxing::SplitStreamsStageBuild::create()
+                     .set_stage_name(std::string(SPLIT_STAGE))
+                     .set_carrier_stream_id(std::string(DPM_AI_SINK))
+                     .set_propagate_roi_opt(true)
+                     .set_queue_size_opt(1)
+                     .buildptr();
+
+    auto encoder_4k = configure_encoder_and_osd(DEFAULT_STREAM_4K_NAME);
+    encoder_4k->set_attach_analytics_metadata(true);
+
+    auto ai_terminal_sink = AppSinkStageBuild::create()
+                                .set_stage_name(std::string(AI_TERMINAL_SINK))
+                                .set_queue_size_opt(1)
+                                .set_leaky_opt(true)
+                                .set_process_func([](hailo_analytics::pipeline::BufferPtr) {})
+                                .buildptr();
+
     m_app_resources->pipeline =
         hailo_analytics::pipeline::PipelineBuilder()
             .add_stage("frontend", configure_frontend(), hailo_analytics::pipeline::StageType::SOURCE)
-            .add_stage("freeze", m_app_resources->freeze_stage)
+            .add_stage(std::string(BUNDLE_STAGE), bundle)
+            .add_stage(dpm_ai_pipeline)
+            .add_stage(std::string(SPLIT_STAGE), split)
             .add_stage("valve", m_app_resources->valve_stage)
-            .add_stage("encoder", configure_encoder_and_osd(DEFAULT_STREAM_4K_NAME))
+            .add_stage("encoder", encoder_4k)
             .add_stage(std::string(TEE_STAGE), std::make_shared<TeeStage>(std::string(TEE_STAGE), 2, false, false))
             .add_stage("udp", configure_udp(DEFAULT_STREAM_4K_NAME), hailo_analytics::pipeline::StageType::SINK)
             .add_stage(std::string(WEBRTC_SINK), webrtc_sink_stage, hailo_analytics::pipeline::StageType::SINK)
-            .add_stage(dpm_ai_pipeline)
-            // Vision path connections
-            .connect_frontend("frontend", DEFAULT_STREAM_4K_NAME, "freeze")
-            .connect("freeze", "valve")
+            .add_stage(std::string(AI_TERMINAL_SINK), ai_terminal_sink, hailo_analytics::pipeline::StageType::SINK)
+            .connect_frontend("frontend", DEFAULT_STREAM_4K_NAME, std::string(BUNDLE_STAGE))
+            .connect_frontend("frontend", std::string(DPM_AI_SINK), std::string(BUNDLE_STAGE))
+            .connect(std::string(BUNDLE_STAGE), std::string(DPM_AI_PIPELINE))
+            .connect(std::string(DPM_AI_PIPELINE), std::string(SPLIT_STAGE))
+            .connect(std::string(SPLIT_STAGE), std::string(DEFAULT_STREAM_4K_NAME), "valve")
+            .connect(std::string(SPLIT_STAGE), std::string(DPM_AI_SINK), std::string(AI_TERMINAL_SINK))
             .connect("valve", "encoder")
             .connect("encoder", std::string(TEE_STAGE))
             .connect(std::string(TEE_STAGE), "udp")
             .connect(std::string(TEE_STAGE), std::string(WEBRTC_SINK))
-            // AI path connection
-            .connect_frontend("frontend", std::string(DPM_AI_SINK), std::string(DPM_AI_PIPELINE))
             .build("DynamicPrivacyMaskPipeline");
 
     WEBSERVER_LOG_INFO("Dynamic privacy mask pipeline built successfully");
@@ -186,7 +260,34 @@ void DynamicPrivacyMaskPipeline::start()
 }
 
 static constexpr std::string_view DPM_CONFIG_ENDPOINT = "/dynamic_privacy_mask/config";
-static const std::vector<std::string> LABEL_KEYS = {"person", "face", "vehicle", "license_plate"};
+static constexpr std::array<std::string_view, 4> LABEL_KEYS = {LABEL_PERSON, LABEL_FACE, LABEL_VEHICLE,
+                                                               LABEL_LICENSE_PLATE};
+
+void DynamicPrivacyMaskPipeline::apply_label_set(std::vector<std::string> labels)
+{
+    m_user_labels = labels;
+
+    auto detector_targets = labels;
+    auto person_it = std::find(detector_targets.begin(), detector_targets.end(), LABEL_PERSON);
+    if (person_it != detector_targets.end())
+    {
+        auto face_it = std::find(detector_targets.begin(), detector_targets.end(), LABEL_FACE);
+        if (face_it != detector_targets.end())
+            detector_targets.erase(face_it);
+    }
+
+    std::vector<std::string> segmentor_targets;
+    for (const auto &lbl : detector_targets)
+    {
+        if (lbl != LABEL_FACE && lbl != LABEL_LICENSE_PLATE)
+            segmentor_targets.push_back(lbl);
+    }
+
+    if (m_detector_filter)
+        m_detector_filter->set_labels(detector_targets);
+    if (m_segmentor)
+        m_segmentor->set_labels(std::move(segmentor_targets));
+}
 
 // Struct representing the DPM masking API surface for the frontend.
 // Provides serialization to/from JSON and conversion to/from the media library profile config.
@@ -261,14 +362,14 @@ static nlohmann::json build_labels_response(const std::vector<std::string> &labe
     nlohmann::json response;
     for (const auto &key : LABEL_KEYS)
     {
-        response[key] = std::find(labels.begin(), labels.end(), key) != labels.end();
+        response[std::string(key)] = std::find(labels.begin(), labels.end(), key) != labels.end();
     }
     return response;
 }
 
 static void apply_masking_config(AppResources &app_resources, const nlohmann::json &masking_patch)
 {
-    auto expected_profile = app_resources.media_library.get_current_profile();
+    auto expected_profile = app_resources.media_library->get_current_profile();
     if (!expected_profile.has_value())
     {
         WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -283,7 +384,7 @@ static void apply_masking_config(AppResources &app_resources, const nlohmann::js
     dpm_masking_config_t updated = current_json.get<dpm_masking_config_t>();
     updated.apply_to_profile(profile);
 
-    media_library_return result = app_resources.media_library.set_override_parameters(profile);
+    media_library_return result = app_resources.media_library->set_override_parameters(profile);
     if (result != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         WEBSERVER_LOG_ERROR("Failed to apply masking config change: {}", result);
@@ -292,25 +393,20 @@ static void apply_masking_config(AppResources &app_resources, const nlohmann::js
     WEBSERVER_LOG_INFO("PATCH {} masking config updated via profile", DPM_CONFIG_ENDPOINT);
 }
 
-static void apply_segment_labels(hailo_analytics::analytics::dpm_analytics::SharedLabels &segment_labels,
-                                 const nlohmann::json &j_body)
+static std::vector<std::string> compute_new_segment_labels(const std::vector<std::string> &current_labels,
+                                                           const nlohmann::json &j_body)
 {
-    auto current_labels = segment_labels.load();
     std::vector<std::string> new_labels;
-
     for (const auto &key : LABEL_KEYS)
     {
-        bool enabled = j_body.contains(key)
-                           ? j_body[key].get<bool>()
-                           : std::find(current_labels->begin(), current_labels->end(), key) != current_labels->end();
+        std::string key_str(key);
+        bool enabled = j_body.contains(key_str)
+                           ? j_body[key_str].get<bool>()
+                           : std::find(current_labels.begin(), current_labels.end(), key) != current_labels.end();
         if (enabled)
-        {
-            new_labels.push_back(key);
-        }
+            new_labels.emplace_back(key);
     }
-
-    WEBSERVER_LOG_INFO("PATCH {} segment_labels updated to: [{}]", DPM_CONFIG_ENDPOINT, fmt::join(new_labels, ", "));
-    segment_labels.store(std::move(new_labels));
+    return new_labels;
 }
 
 void DynamicPrivacyMaskPipeline::register_endpoints()
@@ -320,7 +416,7 @@ void DynamicPrivacyMaskPipeline::register_endpoints()
     m_resources.m_srv.Get(std::string(DPM_CONFIG_ENDPOINT), std::function<nlohmann::json()>([this]() {
                               WEBSERVER_LOG_INFO("GET {} called", DPM_CONFIG_ENDPOINT);
 
-                              auto expected_profile = m_app_resources->media_library.get_current_profile();
+                              auto expected_profile = m_app_resources->media_library->get_current_profile();
                               if (!expected_profile.has_value())
                               {
                                   WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -329,7 +425,7 @@ void DynamicPrivacyMaskPipeline::register_endpoints()
 
                               const auto &profile = expected_profile.value();
                               nlohmann::json response = dpm_masking_config_t::from_profile(profile);
-                              response.merge_patch(build_labels_response(*m_app_resources->segment_labels->load()));
+                              response.merge_patch(build_labels_response(m_user_labels));
                               return response;
                           }));
 
@@ -350,10 +446,13 @@ void DynamicPrivacyMaskPipeline::register_endpoints()
         }
 
         bool has_label_change = std::any_of(LABEL_KEYS.begin(), LABEL_KEYS.end(),
-                                            [&](const std::string &key) { return j_body.contains(key); });
+                                            [&](std::string_view key) { return j_body.contains(std::string(key)); });
         if (has_label_change)
         {
-            apply_segment_labels(*m_app_resources->segment_labels, j_body);
+            auto new_labels = compute_new_segment_labels(m_user_labels, j_body);
+            apply_label_set(new_labels);
+            WEBSERVER_LOG_INFO("PATCH {} segment_labels updated to: [{}]", DPM_CONFIG_ENDPOINT,
+                               fmt::join(new_labels, ", "));
         }
 
         WEBSERVER_LOG_INFO("PATCH {} completed", DPM_CONFIG_ENDPOINT);
@@ -374,16 +473,17 @@ void DynamicPrivacyMaskPipeline::callback_handle_profile_switch(ResourceStateCha
 
     // Adjust max_detections per profile: lowlight bayer has denoise NNC competing for DSP,
     // so reduce segmentation budget.
-    if (m_shared_max_detections)
+    if (m_segmentor)
     {
         int normal_max = (m_app_resources->platform == Architecture::Hailo15L) ? DEFAULT_MAX_DETECTIONS_15L
                                                                                : DEFAULT_MAX_DETECTIONS_15H;
         int lowlight_max = (m_app_resources->platform == Architecture::Hailo15L)
                                ? DEFAULT_MAX_DETECTIONS_15L_LOWLIGHT_BAYER
                                : DEFAULT_MAX_DETECTIONS_15H_LOWLIGHT_BAYER;
-        int new_max = (state->value == ProfileType::LowlightBayer) ? lowlight_max : normal_max;
-        m_shared_max_detections->store(new_max);
-        WEBSERVER_LOG_INFO("DPM max_detections updated to {} for profile {}", new_max, static_cast<int>(state->value));
+        const bool is_bayer_denoise = state->value == ProfileType::AiIspGen2 || state->value == ProfileType::AiIspGen3;
+        int new_max = is_bayer_denoise ? lowlight_max : normal_max;
+        m_segmentor->set_max_crops(static_cast<size_t>(new_max));
+        WEBSERVER_LOG_INFO("DPM max_crops updated to {} for profile {}", new_max, static_cast<int>(state->value));
     }
 
     // Call base implementation for media library profile switch

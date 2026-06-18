@@ -1,4 +1,37 @@
+#include <media_library/dis_common.h>
+#include <stdint.h>
+#include <media_library/dsp_utils.hpp>
+#include <media_library/encoder_config_types.hpp>
+#include <media_library/media_library.hpp>
+#include <media_library/media_library_api_types.hpp>
+#include <media_library/privacy_mask.hpp>
+#include <nlohmann/json.hpp>
+#include <osd.hpp>
+#include <tl/expected.hpp>
+#include <algorithm>
+#include <exception>
+#include <map>
+#include <memory>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <type_traits>
+#include <unordered_map>
+#include <utility>
+#include <variant>
+#include <vector>
+
 #include "pipeline.hpp"
+#include "resources/encoder.hpp"
+#include "resources/osd.hpp"
+#include "resources/privacy_mask.hpp"
+#include "common/common.hpp"
+#include "common/logger_macros.hpp"
+#include "hailo_analytics/pipeline/routing/valve_stage.hpp"
+#include "pipeline/isp_blender.hpp"
+#include "resources/common/event_bus.hpp"
+#include "resources/common/events_utils.hpp"
+#include "resources/common/repository.hpp"
 
 using namespace webserver::pipeline;
 using namespace webserver::resources;
@@ -9,10 +42,23 @@ template <typename T> static inline T clamp01(T v)
     return std::max<T>(0, std::min<T>(1, v));
 }
 
+// Gen3 and Gen3.1 are treated as the same lowlight generation.
+static inline bool is_gen3_or_3_1(ProfileType p)
+{
+    return p == ProfileType::AiIspGen3 || p == ProfileType::AiIspGen3_1;
+}
+
+// Bracket via Daylight only for transitions between Gen2 and {Gen3, Gen3.1}.
+static inline bool requires_daylight_bracket(ProfileType from, ProfileType to)
+{
+    return (from == ProfileType::AiIspGen2 && is_gen3_or_3_1(to)) ||
+           (is_gen3_or_3_1(from) && to == ProfileType::AiIspGen2);
+}
+
 void BasePipeline::callback_handle_update_profile(ResourceStateChangeNotification notif)
 {
     WEBSERVER_LOG_DEBUG("Pipeline: Handling update profile event");
-    auto expected_profile = m_app_resources->media_library.get_current_profile();
+    auto expected_profile = m_app_resources->media_library->get_current_profile();
     if (!expected_profile.has_value())
     {
         WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -43,14 +89,6 @@ void BasePipeline::callback_handle_update_profile(ResourceStateChangeNotificatio
             {
                 WEBSERVER_LOG_INFO("Updating dewarp to {}", state->value);
                 current_profile.iq_settings.dewarp.enabled = state->value;
-            }
-            else if constexpr (std::is_same_v<T, std::shared_ptr<ProfileFreezeState>>)
-            {
-                if (m_app_resources->freeze_stage)
-                {
-                    WEBSERVER_LOG_INFO("Updating freeze to {}", state->value);
-                    m_app_resources->freeze_stage->set_freeze(state->value);
-                }
             }
             else if constexpr (std::is_same_v<T, std::shared_ptr<ProfileValveState>>)
             {
@@ -101,7 +139,7 @@ void BasePipeline::callback_handle_update_profile(ResourceStateChangeNotificatio
         },
         notif.resource_state);
 
-    media_library_return ret = m_app_resources->media_library.set_override_parameters(current_profile);
+    media_library_return ret = m_app_resources->media_library->set_override_parameters(current_profile);
     if (ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         WEBSERVER_LOG_ERROR("Failed to set profile");
@@ -192,7 +230,7 @@ void BasePipeline::update_fps(uint32_t fps, config_profile_t &profile_config)
         resolution.framerate = fps;
     }
     // NOTE: waiting for encoder api from mosko
-    encoder_config_t encoder = m_app_resources->media_library.m_encoders[m_stream_4k_name]->get_config();
+    encoder_config_t encoder = m_app_resources->media_library->m_encoders[m_stream_4k_name]->get_config();
     if (std::holds_alternative<jpeg_encoder_config_t>(encoder))
     {
         WEBSERVER_LOG_CRITICAL("JPEG encoder config is not supported in webserver");
@@ -285,7 +323,7 @@ void BasePipeline::update_rotation(const std::string &rotation, config_profile_t
     // CONFIGURE ENCODER
     // NOTE: waiting for encoder api from mosko
     //  encoder_config_t& encoder = profile_config.encoder_configs[m_stream_4k_name];
-    encoder_config_t encoder = m_app_resources->media_library.m_encoders[m_stream_4k_name]->get_config();
+    encoder_config_t encoder = m_app_resources->media_library->m_encoders[m_stream_4k_name]->get_config();
     if (std::holds_alternative<jpeg_encoder_config_t>(encoder))
     {
         WEBSERVER_LOG_CRITICAL("JPEG encoder config is not supported in webserver");
@@ -309,15 +347,41 @@ void BasePipeline::update_rotation(const std::string &rotation, config_profile_t
     profile_config.application_settings.rotation.angle = rotation_string_map.at(rotation);
 }
 
+media_library_return BasePipeline::apply_profile(ProfileType target)
+{
+    const std::string profile_name = this->get_profile_name_by_type(target);
+    WEBSERVER_LOG_INFO("Pipeline: Applying profile: {} ({})", static_cast<int>(target), profile_name);
+    return m_app_resources->media_library->set_profile(profile_name);
+}
+
 void BasePipeline::callback_handle_profile_switch(ResourceStateChangeNotification notif)
 {
     WEBSERVER_LOG_INFO("Pipeline: Handling switch profile event");
     auto state = notif.getDirectResourceState<ProfileTypeState>();
-    WEBSERVER_LOG_INFO("Pipeline: Switching to profile: {}", static_cast<int>(state->value));
-    m_current_profile_type = state->value;
-    auto profile_name = this->get_profile_name_by_type(state->value);
-    WEBSERVER_LOG_INFO("Pipeline: Resolved profile name: {}", profile_name);
-    auto res = m_app_resources->media_library.set_profile(profile_name);
+    const ProfileType from = m_current_profile_type;
+    const ProfileType to = state->value;
+    WEBSERVER_LOG_INFO("Pipeline: Switching profile {} -> {}", static_cast<int>(from), static_cast<int>(to));
+
+    // Gen2 <-> Gen3/Gen3.1 must transit through Daylight (product requirement: lowlight pairs are
+    // not switched directly; the intermediate Daylight stop is hidden from the user).
+    if (requires_daylight_bracket(from, to))
+    {
+        WEBSERVER_LOG_INFO("Pipeline: Lowlight pair switch — bracketing via Daylight");
+        auto res = apply_profile(ProfileType::Daylight);
+        if (res != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        {
+            WEBSERVER_LOG_ERROR("Failed to bracket-switch to Daylight {} error: {}",
+                                static_cast<int>(ProfileType::Daylight), res);
+            throw std::runtime_error("Failed to bracket-switch to Daylight before " +
+                                     this->get_profile_name_by_type(to));
+        }
+        // Reflect the library's actual state: if the second apply below fails and we throw,
+        // m_current_profile_type stays at Daylight (matching the library) instead of the stale `from`.
+        m_current_profile_type = ProfileType::Daylight;
+    }
+
+    auto res = apply_profile(to);
+    const std::string profile_name = this->get_profile_name_by_type(to);
     if (res != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         if (res == MEDIA_LIBRARY_PROFILE_IS_RESTRICTED)
@@ -334,17 +398,18 @@ void BasePipeline::callback_handle_profile_switch(ResourceStateChangeNotificatio
         throw std::runtime_error("Failed to switch profile: " + profile_name);
     }
 
+    m_current_profile_type = to;
     WEBSERVER_LOG_DEBUG("Pipeline: Switch profile event handled");
 
     m_resources.m_event_bus->notify(
         EventType::PROFILE_UPDATE,
-        std::make_shared<ProfileState>(ProfileStateData{m_app_resources->media_library.get_current_profile().value(),
-                                                        state->value, profile_name, m_supported_profiles}));
+        std::make_shared<ProfileState>(ProfileStateData{m_app_resources->media_library->get_current_profile().value(),
+                                                        m_current_profile_type, profile_name, m_supported_profiles}));
 }
 
 hailo_encoder_config_t BasePipeline::get_encoder_config()
 {
-    auto expected_profile = m_app_resources->media_library.get_current_profile();
+    auto expected_profile = m_app_resources->media_library->get_current_profile();
     if (!expected_profile.has_value())
     {
         WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -355,7 +420,7 @@ hailo_encoder_config_t BasePipeline::get_encoder_config()
     // NOTE: waiting for encoder api from mosko
     //  encoder_config_t encoder_config = current_profile.m_encoders[m_stream_4k_name];
     encoder_config_t encoder_config =
-        m_app_resources->media_library.m_encoders[m_stream_4k_name]
+        m_app_resources->media_library->m_encoders[m_stream_4k_name]
             ->get_config(); // TODO get the config form the profile(mosko need to be updated from the real struct)
     if (std::holds_alternative<jpeg_encoder_config_t>(encoder_config))
     {
@@ -370,7 +435,7 @@ void BasePipeline::callback_handle_encoder(ResourceStateChangeNotification notif
     WEBSERVER_LOG_DEBUG("Pipeline: Handling encoder resource state change");
     auto state = notif.getResourceStateFromBase<EncoderResource::EncoderResourceState>();
 
-    auto expected_profile = m_app_resources->media_library.get_current_profile();
+    auto expected_profile = m_app_resources->media_library->get_current_profile();
     if (!expected_profile.has_value())
     {
         WEBSERVER_LOG_ERROR("Failed to get current profile");
@@ -378,7 +443,7 @@ void BasePipeline::callback_handle_encoder(ResourceStateChangeNotification notif
     }
     config_profile_t current_profile = expected_profile.value();
 
-    encoder_config_t encoder_config = m_app_resources->media_library.m_encoders[m_stream_4k_name]->get_config();
+    encoder_config_t encoder_config = m_app_resources->media_library->m_encoders[m_stream_4k_name]->get_config();
     if (std::holds_alternative<jpeg_encoder_config_t>(encoder_config))
     {
         WEBSERVER_LOG_CRITICAL("JPEG encoder config is not supported in webserver");
@@ -389,7 +454,7 @@ void BasePipeline::callback_handle_encoder(ResourceStateChangeNotification notif
 
     current_profile.encoded_output_streams[m_stream_4k_name].encoding = hailo_encoder_config;
 
-    if (m_app_resources->media_library.set_override_parameters(current_profile) !=
+    if (m_app_resources->media_library->set_override_parameters(current_profile) !=
         media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         WEBSERVER_LOG_ERROR("Failed to set profile");
@@ -400,12 +465,12 @@ void BasePipeline::callback_handle_encoder(ResourceStateChangeNotification notif
 
 std::shared_ptr<osd::Blender> BasePipeline::get_osd_blender()
 {
-    return m_app_resources->media_library.m_encoders[m_stream_4k_name]->get_osd_blender();
+    return m_app_resources->media_library->m_encoders[m_stream_4k_name]->get_osd_blender();
 }
 
 std::shared_ptr<PrivacyMaskBlender> BasePipeline::get_privacy_blender()
 {
-    return m_app_resources->media_library.m_encoders[m_stream_4k_name]->get_privacy_mask_blender();
+    return m_app_resources->media_library->m_encoders[m_stream_4k_name]->get_privacy_mask_blender();
 }
 
 void BasePipeline::callback_handle_osd(ResourceStateChangeNotification notif)

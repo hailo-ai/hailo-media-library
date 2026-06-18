@@ -28,20 +28,21 @@
 
 #pragma once
 
-#include <thread>
-#include <fstream>
+#include <gst/gst.h>
+#include <glib-object.h>
+#include <glib.h>
 #include <memory>
 #include <mutex>
-#include <gst/gst.h>
-#include <tl/expected.hpp>
-#include "config_manager.hpp"
-#include "media_library/isp_utils.hpp"
+#include <string>
+#include <functional>
+
+#include "media_library/config_manager.hpp"
 #include "media_library/media_library_types.hpp"
 #include "media_library/config_parser.hpp"
-#include "media_library/post_isp_denoise.hpp"
 #include "media_library/pre_isp_denoise.hpp"
 #include "media_library/hdr_manager.hpp"
-#include "gsthailofrontend.hpp"
+#include "isp_manager.hpp"
+#include "v4l2_ctrl.hpp"
 
 G_BEGIN_DECLS
 
@@ -64,12 +65,18 @@ struct _GstHailoFrontendBinSrcParams
     std::string device_id;
 
     bool m_elements_linked = false;
+    // Pools live for the element's lifetime and only init() once, on the first
+    // start. preallocate_from_config must therefore also run only once —
+    // otherwise subsequent NULL_TO_READY transitions waste a full bg prealloc
+    // that no pool will consume.
+    bool m_prealloc_done = false;
     GstElement *m_v4l2src = nullptr;
     GstElement *m_capsfilter = nullptr;
     GstElement *m_queue = nullptr;
     GstElement *m_frontend = nullptr;
-    std::unique_ptr<ConfigManagerInteractor>
-        m_config_manager_interactor; // should be used when using directly  gstreamer api only!
+    std::unique_ptr<ConfigManagerInteractor, std::function<void(ConfigManagerInteractor *)>>
+        m_config_manager_interactor{nullptr,
+                                    std::default_delete<ConfigManagerInteractor>{}}; // may be owning or non-owning
     std::shared_ptr<ConfigParser> m_frontend_config_parser;
     frontend_config_t m_frontend_config;
     std::unique_ptr<IspManager>

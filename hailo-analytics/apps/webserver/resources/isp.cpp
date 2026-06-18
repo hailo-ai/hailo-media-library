@@ -1,9 +1,22 @@
 #include "isp.hpp"
 
-#include "common/isp/v4l2_ctrl.hpp"
+#include <sys/types.h>
+#include <imaging/aaa_config_types.hpp>
+#include <tl/expected.hpp>
 #include <functional>
-#include <sys/ioctl.h>
-#include <linux/videodev2.h>
+#include <chrono>
+#include <exception>
+#include <stdexcept>
+#include <thread>
+#include <unordered_map>
+#include <utility>
+
+#include "common/isp/v4l2_ctrl.hpp"
+#include "common/common.hpp"
+#include "common/logger_macros.hpp"
+#include "resources/common/isp/common.hpp"
+#include "resources/common/resources.hpp"
+#include "resources/configs.hpp"
 
 using namespace webserver::resources;
 using namespace webserver::common;
@@ -39,11 +52,11 @@ IspResource::IspResource(std::shared_ptr<EventBus> event_bus, std::shared_ptr<Co
       m_config_res(config_res)
 {
 
-    subscribe_callback(EventType::RESET_ISP, [this](ResourceStateChangeNotification notification) {
+    subscribe_callback(EventType::RESET_ISP, [this](ResourceStateChangeNotification /*notification*/) {
         WEBSERVER_LOG_INFO("Received configure isp notification");
         this->init();
     });
-    subscribe_callback(EventType::SWITCH_PROFILE, [this, config_res](ResourceStateChangeNotification notification) {
+    subscribe_callback(EventType::SWITCH_PROFILE, [this, config_res](ResourceStateChangeNotification /*notification*/) {
         m_isp_filters_manual_state = config_res->get_denoise_default_config()["enabled"].get<bool>()
                                          ? IspResource::FiltersManualState::FILTER_STATE_FORCE_AUTO
                                          : IspResource::FiltersManualState::FILTER_STATE_AUTO;
@@ -693,21 +706,27 @@ std::string IspResource::get_awb_target_keyword(webserver::common::auto_white_ba
 std::vector<std::string> IspResource::get_illumination_names()
 {
     std::string calib_file_path;
+    std::string sensor_config_resolved;
     if (m_config_res)
     {
         nlohmann::json profile_json = m_config_res->get_current_profile();
 
-        if (profile_json.contains("sensor_config"))
+        if (profile_json.contains("sensor_config") && profile_json["sensor_config"].is_string())
         {
-            std::string sensor_config_path = profile_json["sensor_config"].get<std::string>();
-            auto sensor_expected = m_config_res->load_config_from_file(sensor_config_path);
+            const std::string profile_dir =
+                std::filesystem::path(m_config_res->get_current_profile_path()).parent_path().string();
+            sensor_config_resolved = resolve_relative_to(profile_json["sensor_config"].get<std::string>(), profile_dir);
+            auto sensor_expected = m_config_res->load_config_from_file(sensor_config_resolved);
             if (sensor_expected)
             {
                 nlohmann::json sensor_json = *sensor_expected;
 
-                if (sensor_json.contains("sensor_calibration_file"))
+                if (sensor_json.contains("sensor_calibration_file") &&
+                    sensor_json["sensor_calibration_file"].is_string())
                 {
-                    calib_file_path = sensor_json["sensor_calibration_file"].get<std::string>();
+                    const std::string sensor_dir = std::filesystem::path(sensor_config_resolved).parent_path().string();
+                    calib_file_path =
+                        resolve_relative_to(sensor_json["sensor_calibration_file"].get<std::string>(), sensor_dir);
                     WEBSERVER_LOG_DEBUG("Calibration file path: {}", calib_file_path);
                 }
             }

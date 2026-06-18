@@ -1,6 +1,8 @@
 #include "hailo_postprocess_tools/tracking/hailo_lightweight_tracker.hpp"
+
+#include <algorithm>
+
 #include "hailo_postprocess_tools/objects/hailo_objects.hpp" // For HailoUniqueID, TRACKING_ID
-#include <unordered_set>
 
 // Define the static member for box_history_t
 std::atomic<uint64_t> HailoLightweightTracker::box_history_t::s_tracking_id_counter{0};

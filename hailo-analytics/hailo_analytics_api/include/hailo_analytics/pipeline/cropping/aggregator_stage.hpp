@@ -173,6 +173,12 @@ class AggregatorStage : public hailo_analytics::pipeline::ThreadedStage
     void loop() override;
 
     /**
+     * @brief Toggle multi-scale aggregation at runtime.
+     * @param enabled If true, child bboxes are rescaled into the parent's coordinate space.
+     */
+    void set_multiscale(bool enabled);
+
+    /**
      * @brief Deinitialize the stage
      * @return AppStatus indicating success or failure
      */

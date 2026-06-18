@@ -1,5 +1,5 @@
 PyGObject<3.51.0
 pycairo==1.29.0
 pyzmq==27.1.0
-msgpack==1.1.2
-pydantic==2.12.5
+protobuf>=3.19,<5.0
+websocket-client>=1.0.0

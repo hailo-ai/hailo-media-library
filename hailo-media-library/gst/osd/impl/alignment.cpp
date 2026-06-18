@@ -20,8 +20,11 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-#include "osd.hpp"
+#include <tl/expected.hpp>
+
 #include "media_library/media_library_logger.hpp"
+#include "media_library/media_library_types.hpp"
+#include "osd_types.hpp"
 
 #define MODULE_NAME LoggerType::Osd
 

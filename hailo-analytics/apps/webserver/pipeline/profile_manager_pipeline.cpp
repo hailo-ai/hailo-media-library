@@ -1,14 +1,38 @@
 #include "profile_manager_pipeline.hpp"
+
+#include <stddef.h>
+#include <media_library/media_library_api_types.hpp>
+#include <nlohmann/json.hpp>
+#include <tl/expected.hpp>
+#include <iostream>
+#include <mutex>
+#include <thread>
+#include <chrono>
+#include <exception>
+#include <functional>
+#include <map>
+#include <memory>
+#include <optional>
+#include <stdexcept>
+#include <unordered_map>
+#include <utility>
+#include <variant>
+#include <vector>
+
 #include "common/common.hpp"
-#include "media_library/analytics_db.hpp"
 #include "hailo_analytics/pipeline/routing/tee_stage.hpp"
 #include "hailo_analytics/pipeline/sinks/app_sink_stage.hpp"
 #include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
 #include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
-#include "hailo_analytics/pipeline/codecs/encoder_stage.hpp"
-#include <iostream>
-#include <mutex>
-#include <thread>
+#include "common/httplib/httplib_utils.hpp"
+#include "common/logger_macros.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "hailo_analytics/pipeline/overlay/overlay_stage.hpp"
+#include "hailo_analytics/pipeline/routing/valve_stage.hpp"
+#include "hailo_analytics/pipeline/sinks/output_module.hpp"
+#include "pipeline/isp_blender.hpp"
+#include "resources/common/event_bus.hpp"
 
 using namespace hailo_analytics::pipeline::sinks;
 using namespace hailo_analytics::pipeline::overlay;
@@ -17,7 +41,8 @@ using namespace webserver::pipeline;
 using namespace webserver::resources;
 
 #define PROFILE_MANAGER_SUPPORTED_PROFILES                                                                             \
-    {ProfileType::Daylight, ProfileType::Lowlight, ProfileType::HighDynamicRange, ProfileType::LowlightBayer}
+    {ProfileType::Daylight, ProfileType::AiIspGen1, ProfileType::HighDynamicRange, ProfileType::AiIspGen2,             \
+     ProfileType::AiIspGen3}
 
 // [GLOBAL] Storage to pass the string name to the callback
 static std::string g_target_profile_name;
@@ -25,7 +50,7 @@ static std::mutex g_target_profile_mutex;
 static int g_enum_cycler = 0;
 
 ProfileManagerPipeline::ProfileManagerPipeline(webserver::resources::ResourceRepository &resources,
-                                               MediaLibrary &media_library, RTPConverterStage &webrtc_stage,
+                                               MediaLibraryPtr media_library, RTPConverterStage &webrtc_stage,
                                                Architecture platform)
     : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight,
                    PROFILE_MANAGER_SUPPORTED_PROFILES)
@@ -42,11 +67,11 @@ std::string ProfileManagerPipeline::pipeline_name() const
     return "ProfileManager";
 }
 
-std::string ProfileManagerPipeline::get_profile_name_by_type(ProfileType type) const
+std::string ProfileManagerPipeline::get_profile_name_by_type(ProfileType /*type*/) const
 {
     if (m_app_resources)
     {
-        auto current = m_app_resources->media_library.get_current_profile();
+        auto current = m_app_resources->media_library->get_current_profile();
         if (current.has_value() && !current.value().name.empty())
         {
             return current.value().name;
@@ -68,7 +93,7 @@ ProfileType ProfileManagerPipeline::get_profile_type_by_name(const std::string &
     std::string current_running_name = "";
     if (m_app_resources)
     {
-        auto current = m_app_resources->media_library.get_current_profile();
+        auto current = m_app_resources->media_library->get_current_profile();
         if (current.has_value())
             current_running_name = current.value().name;
     }
@@ -95,7 +120,7 @@ ProfileType ProfileManagerPipeline::get_profile_type_by_name(const std::string &
     if (counter == 0)
         return ProfileType::Daylight;
     if (counter == 1)
-        return ProfileType::Lowlight;
+        return ProfileType::AiIspGen1;
     return ProfileType::HighDynamicRange;
 }
 
@@ -126,7 +151,7 @@ void ProfileManagerPipeline::register_endpoints()
             WEBSERVER_LOG_INFO("Custom Profile Switch Requested: {}", target_name);
             std::cout << ">>> Custom API switching to: " << target_name << " <<<" << std::endl;
 
-            auto target_profile_expected = m_app_resources->media_library.get_profile(target_name);
+            auto target_profile_expected = m_app_resources->media_library->get_profile(target_name);
             if (!target_profile_expected.has_value())
             {
                 WEBSERVER_LOG_ERROR("Profile '{}' not found", target_name);
@@ -161,13 +186,14 @@ void ProfileManagerPipeline::register_endpoints()
             }
             if (main_stream_id.empty())
             {
-                // Fallback: all streams are JPEG, pick the first one
+                WEBSERVER_LOG_ERROR("No non-JPEG stream found in profile '{}', all streams are JPEG encoded",
+                                    target_name);
                 main_stream_id = target_profile.encoded_output_streams.begin()->first;
             }
             m_stream_4k_name = main_stream_id;
 
             // Set override parameters
-            auto res = m_app_resources->media_library.set_override_parameters(target_profile);
+            auto res = m_app_resources->media_library->set_override_parameters(target_profile);
 
             if (res != media_library_return::MEDIA_LIBRARY_SUCCESS)
             {
@@ -199,7 +225,7 @@ void ProfileManagerPipeline::register_endpoints()
                               // Check MediaLibrary for the actual running profile
                               if (m_app_resources)
                               {
-                                  auto current = m_app_resources->media_library.get_current_profile();
+                                  auto current = m_app_resources->media_library->get_current_profile();
                                   if (current.has_value() && !current.value().name.empty())
                                   {
                                       current_name = current.value().name;
@@ -222,11 +248,10 @@ void ProfileManagerPipeline::build_pipeline()
     WEBSERVER_LOG_INFO("Building ProfileManager pipeline (multi-stream support)");
 
     m_app_resources->valve_stage = std::make_shared<ValveStage>("valve", 1);
-    m_app_resources->freeze_stage = std::make_shared<FreezeStage>("freeze", 1);
 
     try
     {
-        auto current_profile = m_app_resources->media_library.get_current_profile();
+        auto current_profile = m_app_resources->media_library->get_current_profile();
         if (!current_profile.has_value())
             throw std::runtime_error("Failed to fetch the current profile");
 
@@ -241,7 +266,7 @@ void ProfileManagerPipeline::build_pipeline()
             }
         }
         // Apply the modified profile to clear dynamic_privacy_mask analytics config
-        m_app_resources->media_library.set_override_parameters(profile);
+        m_app_resources->media_library->set_override_parameters(profile);
 
         WEBSERVER_LOG_INFO("Using profile: {}", profile.name);
 
@@ -268,6 +293,7 @@ void ProfileManagerPipeline::build_pipeline()
         }
         if (main_stream_id.empty())
         {
+            WEBSERVER_LOG_ERROR("No non-JPEG stream found in profile '{}', all streams are JPEG encoded", profile.name);
             main_stream_id = stream_ids[0]; // fallback: all JPEG
         }
         m_stream_4k_name = main_stream_id;
@@ -382,14 +408,14 @@ void ProfileManagerPipeline::stop(bool full_shutdown)
 {
     WEBSERVER_LOG_INFO("Stopping ProfileManager pipeline...");
 
-    if (m_app_resources->media_library.m_frontend)
+    if (m_app_resources->media_library)
     {
         WEBSERVER_LOG_INFO("Unsubscribing Frontend");
-        m_app_resources->media_library.m_frontend->unsubscribe_all();
+        m_app_resources->media_library->unsubscribe_all_from_frontend();
     }
 
     WEBSERVER_LOG_INFO("Stopping MediaLibrary Pipeline");
-    m_app_resources->media_library.stop_pipeline();
+    m_app_resources->media_library->stop_pipeline();
 
     std::this_thread::sleep_for(std::chrono::milliseconds(150));
 
@@ -399,10 +425,10 @@ void ProfileManagerPipeline::stop(bool full_shutdown)
         m_app_resources->pipeline->stop();
     }
 
-    if (!m_app_resources->media_library.m_encoders.empty())
+    if (!m_app_resources->media_library->m_encoders.empty())
     {
         WEBSERVER_LOG_INFO("Stopping Encoders");
-        for (auto &[name, encoder] : m_app_resources->media_library.m_encoders)
+        for (auto &[name, encoder] : m_app_resources->media_library->m_encoders)
         {
             if (encoder)
             {
@@ -424,7 +450,7 @@ void ProfileManagerPipeline::stop(bool full_shutdown)
     {
         WEBSERVER_LOG_INFO("Shutting down MediaLibrary");
         std::cout << ">>> Shutting down MediaLibrary... <<<" << std::endl;
-        m_app_resources->media_library.shutdown();
+        m_app_resources->media_library->shutdown();
     }
 
     WEBSERVER_LOG_INFO("ProfileManager pipeline stopped successfully");
@@ -432,8 +458,8 @@ void ProfileManagerPipeline::stop(bool full_shutdown)
 
 bool ProfileManagerPipeline::is_jpeg_encoder() const
 {
-    auto it = m_app_resources->media_library.m_encoders.find(m_stream_4k_name);
-    if (it == m_app_resources->media_library.m_encoders.end())
+    auto it = m_app_resources->media_library->m_encoders.find(m_stream_4k_name);
+    if (it == m_app_resources->media_library->m_encoders.end())
     {
         return false;
     }

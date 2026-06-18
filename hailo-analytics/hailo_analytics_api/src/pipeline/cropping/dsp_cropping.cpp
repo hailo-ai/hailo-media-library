@@ -1,6 +1,25 @@
+#include <hailodsp.h>
+#include <hailodsp_base.h>
+#include <hailo_postprocess_tools/objects/hailo_objects.hpp>
+#include <media_library/buffer_pool.hpp>
+#include <media_library/media_library_buffer.hpp>
+#include <media_library/media_library_types.hpp>
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <cstddef>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/cropping/dsp_cropping.hpp"
-#include "hailo_analytics/pipeline/core/error_utils.hpp"
+#include "media_library/dsp_utils.hpp"
+#include "hailo_analytics/pipeline/core/buffer.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 namespace hailo_analytics::pipeline::cropping
 {
@@ -10,13 +29,25 @@ DspBaseCropStage::DspBaseCropStage(std::string name, int output_pool_size, int i
                                    std::string sub_sub_name, size_t queue_size, bool leaky,
                                    bool trace_processing_operations, StagePoolMode pool_mode,
                                    size_t crop_every_x_frames, dsp_scaling_mode_t scaling_mode,
-                                   dsp_color_t letterbox_color)
+                                   dsp_color_t letterbox_color, bool release_input_after_dsp)
     : hailo_analytics::pipeline::ThreadedStage(name, queue_size, leaky, trace_processing_operations),
       m_output_pool_size(output_pool_size), m_input_width(input_width), m_input_height(input_height),
       m_output_width(output_width), m_output_height(output_height), m_main_subscriber(main_sub_name),
       m_sub_subscriber(sub_sub_name), m_pool_mode(pool_mode), m_crop_every_x_frames(crop_every_x_frames),
-      m_frame_counter(0), m_scaling_mode(scaling_mode), m_letterbox_color(letterbox_color)
+      m_frame_counter(0), m_scaling_mode(scaling_mode), m_letterbox_color(letterbox_color),
+      m_release_input_after_dsp(release_input_after_dsp)
 {
+}
+
+AppStatus DspBaseCropStage::init()
+{
+    dsp_status status = dsp_utils::acquire_device();
+    if (status != DSP_SUCCESS)
+    {
+        HAILO_ANALYTICS_LOG_ERROR("DspBaseCropStage: Failed to acquire DSP device, status={}", status);
+        return AppStatus::CONFIGURATION_ERROR;
+    }
+    return AppStatus::SUCCESS;
 }
 
 void DspBaseCropStage::set_crop_every_x_frames(int crop_every_x_frames)
@@ -31,8 +62,14 @@ void DspBaseCropStage::setup_pool_notification()
 {
     if (m_buffer_pool && m_pool_mode == StagePoolMode::BLOCKING)
     {
-        m_buffer_pool->set_on_release_callback([this](void *) { m_available_buffers_cv.notify_all(); });
+        m_buffer_pool->set_on_release_callback([this](void * /*unused*/) { m_available_buffers_cv.notify_all(); });
     }
+}
+
+void DspBaseCropStage::on_end_of_stream()
+{
+    std::lock_guard<std::mutex> lock(m_buff_pool_mutex);
+    m_available_buffers_cv.notify_all();
 }
 
 void DspBaseCropStage::prepare_single_crop_dim(HailoBBox bbox, std::vector<dsp_crop_api_t> &crop_resize_dims,
@@ -59,6 +96,19 @@ void DspBaseCropStage::prepare_single_crop_dim(HailoBBox bbox, std::vector<dsp_c
 
     if (crop_resize_dim.end_y % 2 != 0)
         crop_resize_dim.end_y += 1;
+
+    // The DSP also caps downscale at the same ratio, but hitting that would mean a
+    // model input that is many times smaller than the source crop - which no model we use does.
+    const size_t min_src_w = (m_output_width + DSP_MAX_RESIZE_RATIO - 1) / DSP_MAX_RESIZE_RATIO;
+    const size_t min_src_h = (m_output_height + DSP_MAX_RESIZE_RATIO - 1) / DSP_MAX_RESIZE_RATIO;
+    const size_t crop_w = crop_resize_dim.end_x - crop_resize_dim.start_x;
+    const size_t crop_h = crop_resize_dim.end_y - crop_resize_dim.start_y;
+    if (crop_w < min_src_w || crop_h < min_src_h)
+    {
+        HAILO_ANALYTICS_LOG_DEBUG("{}: skipping narrow crop ({}x{}) below DSP threshold ({}x{})", m_stage_name, crop_w,
+                                  crop_h, min_src_w, min_src_h);
+        return;
+    }
 
     crop_resize_dims.push_back(crop_resize_dim);
 }
@@ -107,8 +157,17 @@ AppStatus DspBaseCropStage::process(BufferPtr data)
             else if (m_pool_mode == StagePoolMode::BLOCKING)
             {
                 std::unique_lock<std::mutex> lock(m_buff_pool_mutex);
-                m_available_buffers_cv.wait(lock,
-                                            [this]() { return m_buffer_pool->get_available_buffers_count() > 1; });
+                m_available_buffers_cv.wait(
+                    lock, [this]() { return m_end_of_stream || m_buffer_pool->get_available_buffers_count() > 1; });
+                if (m_end_of_stream)
+                {
+                    // Shutting down: release any partial crops and let the loop exit.
+                    for (auto &buffer : cropped_buffers)
+                    {
+                        buffer.reset();
+                    }
+                    return AppStatus::SUCCESS;
+                }
             }
             else if (m_pool_mode == StagePoolMode::LEAKY)
             {
@@ -140,11 +199,9 @@ AppStatus DspBaseCropStage::process(BufferPtr data)
 
         cropped_buffer->copy_metadata_from(data->get_buffer());
 
-        output_dsp_buffers.emplace_back(std::move(cropped_buffer->buffer_data->As<hailo_dsp_buffer_data_t>()));
-        dsp_crop_resize_params_t crop_resize_params = {
-            .crop = &dims,
-        };
-
+        output_dsp_buffers.emplace_back(cropped_buffer->buffer_data->As<hailo_dsp_buffer_data_t>());
+        dsp_crop_resize_params_t crop_resize_params{};
+        crop_resize_params.crop = &dims;
         crop_resize_params.dst[0] = &output_dsp_buffers[i].properties;
 
         // Configure scaling mode (letterbox or stretch) for batched operation
@@ -183,6 +240,13 @@ AppStatus DspBaseCropStage::process(BufferPtr data)
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to perform dsp multi resize on stage {}", m_stage_name);
         return AppStatus::DSP_OPERATION_ERROR;
+    }
+
+    // Release the input frame buffer when downstream stages only consume metadata
+    if (m_release_input_after_dsp)
+    {
+        input_buffer.reset();
+        data->release_frame_data();
     }
 
     std::chrono::steady_clock::time_point send_begin = std::chrono::steady_clock::now();

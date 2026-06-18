@@ -1,31 +1,46 @@
 // general includes
-#include <queue>
-#include <fstream>
-#include <iostream>
-#include <sstream>
-#include <thread>
 #include <tl/expected.hpp>
 #include <cxxopts/cxxopts.hpp>
+#include <stddef.h>
+#include <media_library/media_library.hpp>
+#include <media_library/media_library_api_types.hpp>
+#include <iostream>
+#include <chrono>
+#include <condition_variable>
+#include <iterator>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
+#include "media_library/cloexec_fstream.hpp"
 // medialibrary includes
 #include "media_library/signal_utils.hpp"
-
 // infra includes
+#include "hailo_analytics/analytics/ai_models_config.hpp"
 #include "hailo_analytics/analytics/tiling.hpp"
 #include "hailo_analytics/analytics/vision.hpp"
 #include "hailo_analytics/analytics/analytic_metadata_zmq_sender.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
+#include "hailo_analytics/analytics/common_configs.hpp"
+#include "hailo_analytics/analytics/detection.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "hailo_analytics/utils/profile_utils.hpp"
 
 // defines
 #define VISION_PIPELINE "vision_pipeline"
 #define TILING_PIPELINE "tiling_detection_pipeline"
 #define ANALYTIC_META_SENDER_PIPELINE "analytic_metadata_sender_pipeline"
 #define APP_NAME "detection_app"
-#define HOST_IP "10.0.0.2"
+#define HOST_IP hailo_analytics::analytics::vision::get_default_host_ip()
 #define VISION_SINK "sink0"
 #define AI_SINK "sink2"
 #define NO_PROFILE_SELECTED ""
-#define MEDIALIB_CONFIG_PATH "/etc/imaging/cfg/medialib_configs/ai_example_medialib_config.json"
+#define MEDIALIB_CONFIG_PATH "/etc/imaging/cfg/medialib_configs/face_landmarks_medialib_config.json"
 
 enum class ArgumentType
 {
@@ -64,7 +79,9 @@ cxxopts::Options build_arg_parser()
     ("u,udp-port", "UDP output port (default: 5000)",
         cxxopts::value<std::string>()->default_value(""))
     ("z,zmq-port", "ZMQ publisher port (default: 7000)",
-        cxxopts::value<std::string>()->default_value(""));
+        cxxopts::value<std::string>()->default_value(""))
+    ("use-multi-process", "Run media library as multi process client-service instead of unified process",
+        cxxopts::value<bool>()->default_value("false"));
     // clang-format on
 
     return options;
@@ -127,9 +144,10 @@ std::vector<ArgumentType> handle_arguments(const cxxopts::ParseResult &result, c
 
 struct AppResources
 {
-    std::shared_ptr<MediaLibrary> media_library;
+    MediaLibraryInterfacePtr media_library;
     hailo_analytics::pipeline::PipelinePtr pipeline;
     bool print_fps;
+    bool use_multi_process = false;
     std::string medialib_config_path;
     std::string profile_name;
     std::string host_ip = HOST_IP;
@@ -139,7 +157,7 @@ struct AppResources
 
 std::string read_string_from_file(const char *file_path)
 {
-    std::ifstream file_to_read;
+    cloexec::ifstream file_to_read;
     file_to_read.open(file_path);
     if (!file_to_read.is_open())
         throw std::runtime_error(std::string("config path (") + file_path + ") is not valid");
@@ -159,22 +177,36 @@ std::string read_string_from_file(const char *file_path)
  */
 void configure_media_library(std::shared_ptr<AppResources> app_resources)
 {
-    std::string medialib_config_string = read_string_from_file(app_resources->medialib_config_path.c_str());
-    auto media_lib_expected = MediaLibrary::create();
-    if (!media_lib_expected.has_value())
+
+    if (app_resources->use_multi_process)
     {
-        std::cout << "Failed to create media library" << std::endl;
-        throw std::runtime_error("Failed to create media library");
+        auto media_lib_expected = media_library_service::MediaLibraryClient::create();
+        if (!media_lib_expected.has_value())
+        {
+            std::cout << "Failed to create media library client" << std::endl;
+            throw std::runtime_error("Failed to create media library client");
+        }
+        app_resources->media_library = media_lib_expected.value();
     }
-    app_resources->media_library = media_lib_expected.value();
-    if (app_resources->media_library->initialize(medialib_config_string) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    else
+    {
+        auto media_lib_expected = MediaLibrary::create();
+        if (!media_lib_expected.has_value())
+        {
+            std::cout << "Failed to create media library" << std::endl;
+            throw std::runtime_error("Failed to create media library");
+        }
+        app_resources->media_library = media_lib_expected.value();
+    }
+    if (app_resources->media_library->initialize(app_resources->medialib_config_path) !=
+        media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         std::cout << "Failed to initialize media library" << std::endl;
         throw std::runtime_error("Failed to initialize media library");
     }
     if (app_resources->profile_name != NO_PROFILE_SELECTED)
     {
-        app_resources->media_library->set_profile(app_resources->profile_name);
+        hailo_analytics::utils::set_initial_profile(app_resources->media_library, app_resources->profile_name);
     }
 }
 
@@ -191,7 +223,7 @@ void configure_media_library(std::shared_ptr<AppResources> app_resources)
 void create_pipeline(std::shared_ptr<AppResources> app_resources)
 {
     // Get output streams from frontend
-    auto output_streams = app_resources->media_library->m_frontend->get_outputs_streams();
+    auto output_streams = app_resources->media_library->get_frontend_output_streams();
     if (!output_streams.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to get stream ids");
@@ -205,7 +237,7 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     // we generate a filled in vision_config, and erase the AI_SINK, to override the vision pipeline
     // from automatically generating and connecting frontend outputs to encoders
     auto vision_pipeline_status = hailo_analytics::analytics::vision::generate_vision_pipeline(
-        *app_resources->media_library, VISION_PIPELINE, vision_config);
+        app_resources->media_library, VISION_PIPELINE, vision_config);
     if (!vision_pipeline_status.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create vision pipeline");
@@ -214,8 +246,12 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     hailo_analytics::pipeline::PipelinePtr vision_pipeline = vision_pipeline_status.value();
 
     // AI Pipeline Stages
+    namespace ai_models = hailo_analytics::analytics::ai_models;
+    auto tiling_cfg = hailo_analytics::analytics::tiling::base_config();
+    ai_models::apply_to(ai_models::YOLOV8N, tiling_cfg.detection_config);
+    tiling_cfg.detection_config.ai_config.use_hailort_service = app_resources->use_multi_process;
     auto tiling_pipeline_status =
-        hailo_analytics::analytics::tiling::generate_tiling_detection_pipeline(TILING_PIPELINE);
+        hailo_analytics::analytics::tiling::generate_tiling_detection_pipeline(TILING_PIPELINE, tiling_cfg);
     if (!tiling_pipeline_status.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create tiling pipeline");
@@ -277,7 +313,7 @@ int main(int argc, char *argv[])
 
     // register signal SIGINT and signal handler
     signal_utils::SignalHandler signal_handler(false);
-    signal_handler.register_signal_handler([]([[maybe_unused]] int signal) {
+    signal_handler.register_signal_handler([](int /*signal*/) {
         std::cout << "Stopping Pipeline..." << std::endl;
         HAILO_ANALYTICS_LOG_INFO("Stopping Pipeline...");
         g_stop_cv.notify_all();
@@ -320,6 +356,8 @@ int main(int argc, char *argv[])
         }
     }
 
+    app_resources->use_multi_process = result["use-multi-process"].as<bool>();
+
     // Configure media library
     configure_media_library(app_resources);
 
@@ -341,5 +379,9 @@ int main(int argc, char *argv[])
     std::cout << "Stopping." << std::endl;
     HAILO_ANALYTICS_LOG_INFO("Stopping.");
     app_resources->pipeline->stop();
+
+    // Shutdown the media library client (disconnect from gRPC service)
+    app_resources->media_library->shutdown();
+
     return 0;
 }

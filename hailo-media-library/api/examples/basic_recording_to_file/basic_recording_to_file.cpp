@@ -1,4 +1,20 @@
+#include <stdlib.h>
+#include <tl/expected.hpp>
+#include <chrono>
+#include <iostream>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
+
 #include "common/common.hpp"
+#include "media_library/signal_utils.hpp"
+#include "media_library/media_library.hpp"
+#include "media_library/media_library_api_types.hpp"
+#include "cloexec_fstream.hpp"
 
 int main()
 {
@@ -27,13 +43,13 @@ int main()
         medialib_config_path = jpeg_config_path;
     }
 
-    std::string medialib_config_string = read_string_from_file(medialib_config_path.c_str());
-
-    if (m_media_lib->initialize(medialib_config_string) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    if (m_media_lib->initialize(medialib_config_path) != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         std::cout << "Failed to initialize media library" << std::endl;
         return 1;
     }
+
+    examples::scale_osd_to_output_resolution(m_media_lib);
 
     m_media_lib->subscribe_to_pipeline_state_change([](media_library_pipeline_state_t state) {
         switch (state)
