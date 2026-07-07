@@ -4,6 +4,7 @@
 #include <tl/expected.hpp>
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
@@ -26,12 +27,14 @@ AggregatorStage::AggregatorStage(std::string name, std::string main_inlet_name, 
                                  bool main_queue_leaky, std::string sub_inlet_name, size_t sub_queue_size,
                                  bool sub_queue_leaky, bool multi_scale, float iou_threshold, float m_border_threshold,
                                  bool skip_migration, bool trace_processing_operations,
-                                 std::optional<int> static_sub_frames, bool copy_sub_frame_tensor_to_metadata)
+                                 std::optional<int> static_sub_frames, bool copy_sub_frame_tensor_to_metadata,
+                                 std::optional<std::chrono::milliseconds> subframe_wait_timeout)
     : hailo_analytics::pipeline::ThreadedStage(name, main_queue_size, main_queue_leaky, trace_processing_operations),
       m_main_inlet_name(main_inlet_name), m_main_queue_size(main_queue_size), m_sub_inlet_name(sub_inlet_name),
       m_sub_queue_size(sub_queue_size), m_static_sub_frames(static_sub_frames), m_multi_scale(multi_scale),
       m_iou_threshold(iou_threshold), m_border_threshold(m_border_threshold), m_skip_migration(skip_migration),
-      m_copy_sub_frame_tensor_to_metadata(copy_sub_frame_tensor_to_metadata)
+      m_copy_sub_frame_tensor_to_metadata(copy_sub_frame_tensor_to_metadata),
+      m_subframe_wait_timeout(subframe_wait_timeout)
 {
     m_queues.push_back(std::make_shared<Queue>(name, m_main_inlet_name, m_main_queue_size, main_queue_leaky));
     m_queues.push_back(std::make_shared<Queue>(name, m_sub_inlet_name, m_sub_queue_size, sub_queue_leaky));
@@ -267,12 +270,18 @@ tl::expected<std::vector<BufferPtr>, SubframeStatus> AggregatorStage::get_subfra
     std::vector<BufferPtr> subframes;
     for (int i = 0; i < num_subframes; i++)
     {
-        subframes.push_back(m_queues[1]->pop());
-        if (subframes[i] == nullptr && m_end_of_stream)
+        BufferPtr subframe =
+            m_subframe_wait_timeout.has_value() ? m_queues[1]->pop(*m_subframe_wait_timeout) : m_queues[1]->pop();
+        if (subframe == nullptr)
         {
             m_tracing->trace_processing_end(main_buffer);
-            return tl::make_unexpected(SubframeStatus::END_OF_STREAM);
+            // A missing subframe means shutdown, or the main/subframe pairing has desynced
+            // (e.g. a runtime tile-layout change during a profile switch). Stop waiting so the
+            // main buffer is sent on and released back to its pool instead of being held
+            // indefinitely, which would starve the frontend buffer pool.
+            return tl::make_unexpected(m_end_of_stream ? SubframeStatus::END_OF_STREAM : SubframeStatus::TIMEOUT);
         }
+        subframes.push_back(subframe);
     }
     return subframes;
 }
@@ -376,6 +385,13 @@ AggregatorStageBuild::Builder &AggregatorStageBuild::Builder::set_copy_sub_frame
     return *this;
 }
 
+AggregatorStageBuild::Builder &
+AggregatorStageBuild::Builder::set_subframe_wait_timeout(std::optional<std::chrono::milliseconds> timeout)
+{
+    m_subframe_wait_timeout = timeout;
+    return *this;
+}
+
 std::shared_ptr<AggregatorStage> AggregatorStageBuild::Builder::buildptr() const
 {
     THROW_IF_MISSING(m_stage_name.has_value(), "set_stage_name");
@@ -385,7 +401,8 @@ std::shared_ptr<AggregatorStage> AggregatorStageBuild::Builder::buildptr() const
     return std::make_shared<AggregatorStage>(
         m_stage_name.value(), m_main_inlet_name.value(), m_main_queue_size, m_main_queue_leaky,
         m_sub_inlet_name.value(), m_sub_queue_size, m_sub_queue_leaky, m_multi_scale, m_iou_threshold,
-        m_border_threshold, m_skip_migration, m_trace, m_static_sub_frames, m_copy_sub_frame_tensor_to_metadata);
+        m_border_threshold, m_skip_migration, m_trace, m_static_sub_frames, m_copy_sub_frame_tensor_to_metadata,
+        m_subframe_wait_timeout);
 }
 
 AggregatorStageBuild::Builder AggregatorStageBuild::create()
