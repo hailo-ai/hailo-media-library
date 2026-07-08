@@ -111,6 +111,14 @@ class Queue
     BufferPtr pop();
 
     /**
+     * @brief Pops a buffer from the queue, waiting at most @p timeout for one to arrive.
+     * @param timeout Maximum time to wait for a buffer.
+     * @return BufferPtr from the front of the queue, or nullptr if the queue is flushing/empty or
+     * the timeout expired.
+     */
+    BufferPtr pop(std::chrono::milliseconds timeout);
+
+    /**
      * @brief Checks the timestamp of the next buffer in the queue.
      * @param timeout Optional timeout duration to wait for a buffer
      * @return The timestamp of the next buffer, or 0 if no buffer is available within the timeout
