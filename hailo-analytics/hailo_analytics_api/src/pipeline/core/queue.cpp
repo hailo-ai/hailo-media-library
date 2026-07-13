@@ -131,6 +131,28 @@ BufferPtr Queue::pop()
     return buffer;
 }
 
+BufferPtr Queue::pop(std::chrono::milliseconds timeout)
+{
+    std::unique_lock<std::mutex> lock(*(m_mutex));
+    // wait for a buffer, or for the flush signal, up to the timeout
+    if (!m_condvar->wait_for(lock, timeout, [this] { return !m_queue.empty() || m_flushing == true; }))
+    {
+        // timed out waiting for a buffer
+        return nullptr;
+    }
+    if (m_queue.empty())
+    {
+        // the queue is empty and we are flushing
+        return nullptr;
+    }
+    BufferPtr buffer = m_queue.front();
+    m_queue.pop();
+    m_tracing->track_queue_size(m_queue.size());
+
+    m_condvar->notify_one();
+    return buffer;
+}
+
 uint64_t Queue::check_timestamp(std::optional<std::chrono::milliseconds> timeout)
 {
     std::unique_lock<std::mutex> lock(*(m_mutex));
