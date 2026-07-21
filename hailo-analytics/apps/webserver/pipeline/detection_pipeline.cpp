@@ -166,7 +166,9 @@ void DetectionPipeline::build_pipeline()
     }
     tiling_cfg.detection_config.ai_config.scheduler_timeout = std::chrono::milliseconds(50);
 
-    ai_models::apply_to(ai_models::YOLOV8S, tiling_cfg.detection_config);
+    const auto &detection_model =
+        m_app_resources->platform == Architecture::Hailo15L ? ai_models::YOLOV8N : ai_models::YOLOV8S;
+    ai_models::apply_to(detection_model, tiling_cfg.detection_config);
 
     // Enable detection tracker inside the tiling pipeline
     tiling_cfg.tracker_config.enabled = true;

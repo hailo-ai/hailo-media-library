@@ -12,6 +12,8 @@
 #include <functional>
 #include <cstddef>
 #include <atomic>
+#include <chrono>
+#include <optional>
 #include <tl/expected.hpp>
 
 // Postprocess Tools includes
@@ -57,8 +59,14 @@ class AggregatorStage : public hailo_analytics::pipeline::ThreadedStage
     float m_border_threshold;
     bool m_skip_migration;
     bool m_copy_sub_frame_tensor_to_metadata;
+    // When set, the aggregator waits at most this long for a main frame's subframes; when unset it
+    // waits indefinitely. Bounding it lets a main buffer be released if the main/subframe pairing
+    // desyncs (e.g. a runtime tile-layout change) instead of being held until teardown.
+    std::optional<std::chrono::milliseconds> m_subframe_wait_timeout;
 
   public:
+    // Default subframe wait: bounded (enabled), well above normal detection/aggregation latency.
+    static constexpr std::chrono::milliseconds DEFAULT_SUBFRAME_WAIT_TIMEOUT{300};
     /**
      * @brief Constructor for AggregatorStage
      * @param name Stage name for identification
@@ -75,12 +83,15 @@ class AggregatorStage : public hailo_analytics::pipeline::ThreadedStage
      * @param trace_processing_operations Enable tracing (default: true)
      * @param static_sub_frames Fixed number of subframes, if known (default: nullopt)
      * @param copy_sub_frame_tensor_to_metadata Copy tensor metadata from subframes (default: false)
+     * @param subframe_wait_timeout Max time to wait for a main frame's subframes; nullopt waits
+     *        indefinitely (default: DEFAULT_SUBFRAME_WAIT_TIMEOUT, i.e. bounded/enabled)
      */
     AggregatorStage(std::string name, std::string main_inlet_name, size_t main_queue_size, bool main_queue_leaky,
                     std::string sub_inlet_name, size_t sub_queue_size, bool sub_queue_leaky, bool multi_scale = false,
                     float iou_threshold = 0.3, float m_border_threshold = 0.1, bool skip_migration = false,
                     bool trace_processing_operations = true, std::optional<int> static_sub_frames = std::nullopt,
-                    bool copy_sub_frame_tensor_to_metadata = false);
+                    bool copy_sub_frame_tensor_to_metadata = false,
+                    std::optional<std::chrono::milliseconds> subframe_wait_timeout = DEFAULT_SUBFRAME_WAIT_TIMEOUT);
 
     /**
      * @brief Destructor
@@ -215,6 +226,7 @@ class AggregatorStageBuild : public AggregatorStage
         float m_iou_threshold = 0.3;
         float m_border_threshold = 0.1;
         bool m_copy_sub_frame_tensor_to_metadata = false;
+        std::optional<std::chrono::milliseconds> m_subframe_wait_timeout = AggregatorStage::DEFAULT_SUBFRAME_WAIT_TIMEOUT;
 
       public:
         /**
@@ -314,6 +326,13 @@ class AggregatorStageBuild : public AggregatorStage
          * @return Builder reference for chaining
          */
         Builder &set_copy_sub_frame_tensor_to_metadata_opt(bool copy);
+
+        /**
+         * @brief Set the subframe wait timeout
+         * @param timeout Max time to wait for a main frame's subframes; nullopt waits indefinitely
+         * @return Builder reference for chaining
+         */
+        Builder &set_subframe_wait_timeout(std::optional<std::chrono::milliseconds> timeout);
 
         /**
          * @brief Build and return shared pointer to AggregatorStage
