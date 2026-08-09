@@ -29,9 +29,19 @@ class VideoBuffer
         std::vector<int> fds;
         for (unsigned int i = 0; i < m_num_planes; i++)
         {
-            fds.push_back(m_plane_fds[i]);
+            fds.push_back(m_dma_buffers[i].get_fd());
         }
         return fds;
+    }
+
+    std::vector<files_utils::SharedFd> get_planes_fds()
+    {
+        std::vector<files_utils::SharedFd> owners;
+        for (unsigned int plane = 0; plane < m_num_planes; plane++)
+        {
+            owners.push_back(m_dma_buffers[plane].get_shared_fd());
+        }
+        return owners;
     }
 
     inline struct v4l2_buffer *get_v4l2_buffer()
@@ -44,7 +54,7 @@ class VideoBuffer
         const unsigned int planes = std::min(m_num_planes, other.m_num_planes);
         for (unsigned int i = 0; i < planes; i++)
         {
-            std::swap(m_plane_fds[i], other.m_plane_fds[i]);
+            std::swap(m_dma_buffers[i], other.m_dma_buffers[i]);
             std::swap(m_v4l2_buffer.m.planes[i].m.fd, other.m_v4l2_buffer.m.planes[i].m.fd);
         }
     }
@@ -53,7 +63,6 @@ class VideoBuffer
     static constexpr LoggerType LOGGER_TYPE = LoggerType::Hdr;
     unsigned int m_num_planes;
     DMABuffer m_dma_buffers[VideoBuffer::MAX_NUM_OF_PLANES];
-    int m_plane_fds[VideoBuffer::MAX_NUM_OF_PLANES];
     struct v4l2_plane m_v4l2_planes[VideoBuffer::MAX_NUM_OF_PLANES];
     struct v4l2_buffer m_v4l2_buffer;
 };

@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <limits>
 #include <memory>
+#include <utility>
 #include <linux/dma-heap.h>
 #include <string.h>
 
@@ -22,6 +23,30 @@ void DMABuffer::init(files_utils::SharedFd fd, size_t size)
 {
     m_fd = fd;
     m_size = size;
+}
+
+DMABuffer::DMABuffer(DMABuffer &&other) noexcept
+    : m_size(std::exchange(other.m_size, 0)), m_ptr(std::exchange(other.m_ptr, nullptr)), m_fd(std::move(other.m_fd))
+{
+}
+
+DMABuffer &DMABuffer::operator=(DMABuffer &&other) noexcept
+{
+    if (this == &other)
+    {
+        return *this;
+    }
+
+    unmap();
+    m_size = std::exchange(other.m_size, 0);
+    m_ptr = std::exchange(other.m_ptr, nullptr);
+    m_fd = std::move(other.m_fd);
+    return *this;
+}
+
+files_utils::SharedFd DMABuffer::get_shared_fd() const
+{
+    return m_fd;
 }
 
 bool DMABuffer::initialized()

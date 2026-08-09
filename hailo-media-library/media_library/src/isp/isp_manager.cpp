@@ -405,12 +405,20 @@ HailoMediaLibraryBufferPtr IspManager::hailo_buffer_from_isp_buffer(BufferType b
     const HailoFormat format = is_packed_isp_input ? HAILO_FORMAT_GRAY12 : HAILO_FORMAT_GRAY16;
     const HailoMemoryType memory_type = HAILO_MEMORY_TYPE_CMA;
     std::function<void(void *)> on_free = nullptr;
+    // The release callback keeps the plane fds alive for as long as the buffer lives.
+    auto plane_fd_owners = isp_buffer->get_planes_fds();
     // should return automatically to raw capture device
     // and only when explictily calling when inserting to isp input device
     if (buffer_type == BufferType::RAW_CAPTURE)
     {
         ++m_currently_used_raw_capture_frames;
-        on_free = [this](void *buf) {
+        on_free = [this, plane_fd_owners = std::move(plane_fd_owners)](void *buf) {
+            if (m_raw_capture_device == nullptr)
+            {
+                LOGGER__MODULE__TRACE(MODULE_NAME, "Raw capture device is torn down, dropping the buffer return");
+                --m_currently_used_raw_capture_frames;
+                return;
+            }
             HDR::VideoBuffer *isp_buffer = static_cast<HDR::VideoBuffer *>(buf);
             if (!m_raw_capture_device->put_buffer(isp_buffer))
             {
@@ -422,10 +430,16 @@ HailoMediaLibraryBufferPtr IspManager::hailo_buffer_from_isp_buffer(BufferType b
     else if (buffer_type == BufferType::ISP_INPUT)
     {
         ++m_currently_used_isp_input_frames;
-        on_free = [this](void *buf) {
+        on_free = [this, plane_fd_owners = std::move(plane_fd_owners)](void *buf) {
             if (buf == nullptr)
             {
                 LOGGER__MODULE__TRACE(MODULE_NAME, "Buffer already inserted to ISP input device");
+                return;
+            }
+            if (m_isp_in_device == nullptr)
+            {
+                LOGGER__MODULE__TRACE(MODULE_NAME, "ISP input device is torn down, dropping the buffer return");
+                --m_currently_used_isp_input_frames;
                 return;
             }
             HDR::VideoBuffer *isp_buffer = static_cast<HDR::VideoBuffer *>(buf);
@@ -442,7 +456,7 @@ HailoMediaLibraryBufferPtr IspManager::hailo_buffer_from_isp_buffer(BufferType b
     std::vector plane_fds = isp_buffer->get_planes();
     for (size_t i = 0; i < plane_fds.size(); ++i)
     {
-        hailo_data_plane_t plane;
+        hailo_data_plane_t plane{};
         plane.fd = plane_fds[i];
         plane.bytesused = v4l2_data->m.planes[i].bytesused;
         planes.push_back(plane);
@@ -455,7 +469,7 @@ HailoMediaLibraryBufferPtr IspManager::hailo_buffer_from_isp_buffer(BufferType b
                                                             planes_count, format, memory_type, planes);
 
     HailoMediaLibraryBufferPtr hailo_buffer = std::make_shared<hailo_media_library_buffer>();
-    hailo_buffer->create(nullptr, buffer_data_ptr, on_free, isp_buffer);
+    hailo_buffer->create(nullptr, buffer_data_ptr, std::move(on_free), isp_buffer);
 
     if (buffer_type == BufferType::RAW_CAPTURE)
     {

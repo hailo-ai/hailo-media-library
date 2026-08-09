@@ -14,7 +14,12 @@ struct DMABuffer
     size_t m_size;
 
     DMABuffer();
+    DMABuffer(DMABuffer &&other) noexcept;
+    DMABuffer &operator=(DMABuffer &&other) noexcept;
+    DMABuffer(const DMABuffer &other) = delete;
+    DMABuffer &operator=(const DMABuffer &other) = delete;
     void init(files_utils::SharedFd fd, size_t size);
+    files_utils::SharedFd get_shared_fd() const;
     bool initialized();
     bool map();
     void *ptr();

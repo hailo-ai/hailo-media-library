@@ -16,7 +16,6 @@ namespace HDR
 VideoBuffer::VideoBuffer()
 {
     m_num_planes = 0;
-    memset(m_plane_fds, 0, sizeof(m_plane_fds));
     memset(m_v4l2_planes, 0, sizeof(m_v4l2_planes));
     memset(&m_v4l2_buffer, 0, sizeof(m_v4l2_buffer));
 }
@@ -57,7 +56,6 @@ bool VideoBuffer::init(DMABufferAllocator &allocator, v4l2_buf_type fmt_type, si
 
     for (unsigned int plane = 0; plane < planes; ++plane)
     {
-        m_plane_fds[plane] = dma_bufs[plane].get_fd();
         m_v4l2_buffer.m.planes[plane].m.fd = dma_bufs[plane].get_fd();
         m_v4l2_buffer.m.planes[plane].length = dma_bufs[plane].m_size;
         m_v4l2_buffer.m.planes[plane].bytesused = dma_bufs[plane].m_size;
