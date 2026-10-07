@@ -3,13 +3,12 @@
 #include <media_library/media_library_types.hpp>
 #include <nlohmann/json.hpp>
 #include <tl/expected.hpp>
-#include <iostream>
 #include <stdexcept>
 #include <algorithm>
 #include <functional>
-#include <map>
 #include <string>
 #include <optional>
+#include <filesystem>
 
 #include "common/common.hpp"
 #include "config_path_utils.hpp"
@@ -31,7 +30,6 @@
 #include "clip_pipeline_ai.hpp"
 #include "common/httplib/httplib_utils.hpp"
 #include "common/logger_macros.hpp"
-#include "pipeline/isp_blender.hpp"
 #include "pipeline/pipeline.hpp"
 #include "resources/common/event_bus.hpp"
 #include "resources/common/resources.hpp"
@@ -42,27 +40,56 @@ using namespace hailo_analytics::pipeline;
 
 #define EVENT_SUBSCRIBER_ID "pipeline_factory_subscriber"
 
-PipelineFactory::PipelineFactory(webserver::resources::ResourceRepository &resources, Architecture platform,
-                                 const pipeline_t &initial_pipeline_type)
-    : m_resources(resources), m_platform(platform)
+static constexpr const char *MEDIA_LIBRARY_SERVICE_NAME = "media_library_service";
+
+MediaLibraryInterfacePtr PipelineFactory::create_media_library() const
 {
-    WEBSERVER_LOG_INFO("Initializing PipelineFactory with initial type: {}", static_cast<int>(initial_pipeline_type));
+    if (!m_use_medialib_service)
+    {
+        auto media_lib_expected = MediaLibrary::create();
+        if (!media_lib_expected.has_value())
+        {
+            WEBSERVER_LOG_ERROR("Failed to create media library");
+            throw std::runtime_error("Failed to create media library");
+        }
+        return media_lib_expected.value();
+    }
+
+    auto media_lib_expected = media_library_service::MediaLibraryClient::create(
+        media_library_service::DEFAULT_SERVICE_ADDRESS, media_library_service::DEFAULT_SERVICE_PORT);
+    if (!media_lib_expected.has_value())
+    {
+        WEBSERVER_LOG_ERROR("Failed to create media library client");
+        throw std::runtime_error("Failed to create media library client");
+    }
+    return media_lib_expected.value();
+}
+
+PipelineFactory::PipelineFactory(webserver::resources::ResourceRepository &resources, Architecture platform,
+                                 const pipeline_t &initial_pipeline_type, bool use_medialib_service)
+    : m_resources(resources), m_platform(platform), m_use_medialib_service(use_medialib_service)
+{
+    WEBSERVER_LOG_INFO("Initializing PipelineFactory with initial type: {} ({} process)",
+                       static_cast<int>(initial_pipeline_type), use_medialib_service ? "multi" : "single");
     register_endpoints();
     m_current_pipeline_type = initial_pipeline_type;
     auto config = std::static_pointer_cast<ConfigResourceMedialib>(m_resources.get(RESOURCE_CONFIG_MANAGER));
     std::string medialib_config_string = apps::utils::resolve_relative_refs(
         config->get_current_medialib_config().dump(), config->get_medialib_config_path());
-    tl::expected<std::shared_ptr<MediaLibrary>, media_library_return> media_lib_expected = MediaLibrary::create();
-    if (!media_lib_expected.has_value())
-    {
-        std::cout << "Failed to create media library" << std::endl;
-        return;
-    }
-    m_media_library = media_lib_expected.value();
+    m_media_library = create_media_library();
     if (m_media_library->initialize(medialib_config_string) != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
-        std::cout << "Failed to initialize media library" << std::endl;
-        return;
+        if (!m_use_medialib_service)
+        {
+            WEBSERVER_LOG_ERROR("Failed to initialize media library");
+            throw std::runtime_error("Failed to initialize media library");
+        }
+        WEBSERVER_LOG_ERROR("Could not reach {} within {} seconds", MEDIA_LIBRARY_SERVICE_NAME,
+                            media_library_service::DEFAULT_CONNECT_TIMEOUT.count());
+        throw std::runtime_error("Could not reach " + std::string(MEDIA_LIBRARY_SERVICE_NAME) + " within " +
+                                 std::to_string(media_library_service::DEFAULT_CONNECT_TIMEOUT.count()) +
+                                 "s. Start it with '/etc/init.d/media-library-service.sh start', or drop "
+                                 "--use-medialib-service to host the media library in this process.");
     }
 
     std::shared_ptr<webserver::resources::WebRtcResource> webrtc_resource =
@@ -112,6 +139,7 @@ PipelineFactory::PipelineFactory(webserver::resources::ResourceRepository &resou
                                                                    static_cast<int>(initial_pipeline_type));
                                                throw std::runtime_error("Failed to reset current pipeline");
                                            }
+                                           m_current_pipeline->reset_config();
                                        });
 
     // Subscribed at HIGH priority — runs before BasePipeline's MEDIUM-priority encoder
@@ -163,6 +191,14 @@ PipelineFactory::~PipelineFactory()
     {
         m_webrtc_stage->stop();
     }
+    if (m_media_library)
+    {
+        media_library_return status = m_media_library->shutdown();
+        if (status != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        {
+            WEBSERVER_LOG_ERROR("Failed to shutdown media library, status: {}", status);
+        }
+    }
     WEBSERVER_LOG_DEBUG("PipelineFactory destroyed");
 }
 
@@ -174,7 +210,7 @@ BasePipeline *PipelineFactory::get_current_pipeline()
         if (switch_pipeline(m_current_pipeline_type, false) != AppStatus::SUCCESS)
         {
             WEBSERVER_LOG_ERROR("Failed to switch to initial pipeline of type: {}",
-                                static_cast<int>(m_current_pipeline_type));
+                                static_cast<int>(m_current_pipeline_type.load()));
             throw std::runtime_error("Failed to switch to initial pipeline");
         }
     }
@@ -184,8 +220,7 @@ BasePipeline *PipelineFactory::get_current_pipeline()
 
 pipeline_t PipelineFactory::get_current_pipeline_type()
 {
-    std::lock_guard<std::mutex> lock(m_pipeline_mutex);
-    return m_current_pipeline_type;
+    return m_current_pipeline_type.load();
 }
 
 std::unique_ptr<BasePipeline> PipelineFactory::create_pipeline(const pipeline_t &pipeline_type)
@@ -194,37 +229,43 @@ std::unique_ptr<BasePipeline> PipelineFactory::create_pipeline(const pipeline_t 
 
     if (pipeline_type == pipeline_t::Basic)
     {
-        return std::make_unique<BasicPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<BasicPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform,
+                                               use_hailort_service());
     }
     else if (pipeline_type == pipeline_t::Detection)
     {
         return std::make_unique<DetectionPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform,
-                                                   /*suppress_metadata_ws=*/false);
+                                                   /*suppress_metadata_ws=*/false, use_hailort_service());
     }
     else if (pipeline_type == pipeline_t::DetectionInternal)
     {
         return std::make_unique<DetectionPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform,
-                                                   /*suppress_metadata_ws=*/true);
+                                                   /*suppress_metadata_ws=*/true, use_hailort_service());
     }
     else if (pipeline_type == pipeline_t::CLIP)
     {
-        return std::make_unique<ClipPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<ClipPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform,
+                                              use_hailort_service());
     }
     else if (pipeline_type == pipeline_t::ProfileManager)
     {
-        return std::make_unique<ProfileManagerPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<ProfileManagerPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform,
+                                                        use_hailort_service());
     }
     else if (pipeline_type == pipeline_t::FaceLandmarks)
     {
-        return std::make_unique<FaceLandmarksPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<FaceLandmarksPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform,
+                                                       use_hailort_service());
     }
     else if (pipeline_type == pipeline_t::DynamicPrivacyMask)
     {
-        return std::make_unique<DynamicPrivacyMaskPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<DynamicPrivacyMaskPipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform,
+                                                            use_hailort_service());
     }
     else if (pipeline_type == pipeline_t::LicensePlate)
     {
-        return std::make_unique<LicensePlatePipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform);
+        return std::make_unique<LicensePlatePipeline>(m_resources, m_media_library, *m_webrtc_stage, m_platform,
+                                                      use_hailort_service());
     }
     else
     {
@@ -313,7 +354,8 @@ void PipelineFactory::handle_detections_requirement(bool requires_detections)
         return;
     }
     WEBSERVER_LOG_INFO("Detections requirement changed: requires_detections={}, switching {} -> {}",
-                       requires_detections, static_cast<int>(m_current_pipeline_type), static_cast<int>(*target));
+                       requires_detections, static_cast<int>(m_current_pipeline_type.load()),
+                       static_cast<int>(*target));
     if (switch_pipeline(*target) != AppStatus::SUCCESS)
     {
         WEBSERVER_LOG_ERROR("Switch to pipeline {} for detections requirement failed", static_cast<int>(*target));
@@ -348,17 +390,16 @@ void PipelineFactory::register_endpoints()
             throw std::runtime_error("Pipeline name not found in available pipelines");
         }
 
-        pipeline_t target;
         {
             std::lock_guard<std::mutex> lock(m_pipeline_mutex);
-            target = effective_user_pipeline(requested_pipeline, m_detections_required);
-        }
-        WEBSERVER_LOG_INFO("PATCH /ai_pipeline: requested={}, target={}", static_cast<int>(requested_pipeline),
-                           static_cast<int>(target));
-        if (switch_pipeline(target) != AppStatus::SUCCESS)
-        {
-            WEBSERVER_LOG_ERROR("Failed to switch pipeline via event handler");
-            throw std::runtime_error("Failed to switch pipeline");
+            pipeline_t target = effective_user_pipeline(requested_pipeline, m_detections_required);
+            WEBSERVER_LOG_INFO("PATCH /ai_pipeline: requested={}, target={}", static_cast<int>(requested_pipeline),
+                               static_cast<int>(target));
+            if (switch_pipeline(target) != AppStatus::SUCCESS)
+            {
+                WEBSERVER_LOG_ERROR("Failed to switch pipeline via event handler");
+                throw std::runtime_error("Failed to switch pipeline");
+            }
         }
 
         // Return the updated ai_pipeline_json (mask the internal type for the client)

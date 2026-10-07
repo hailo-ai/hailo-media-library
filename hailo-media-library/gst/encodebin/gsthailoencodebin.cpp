@@ -67,8 +67,6 @@ typedef enum
     PROP_CONFIG_STRING,
     PROP_CONFIG,
     PROP_WAIT_FOR_WRITABLE_BUFFER,
-    PROP_OSD_BLENDER,
-    PROP_PM_BLENDER,
     PROP_QUEUE_SIZE,
     PROP_ENFORCE_CAPS,
     PROP_CONFIG_MANAGER_INTERACTOR,
@@ -124,15 +122,6 @@ static void gst_hailoencodebin_class_init(GstHailoEncodeBinClass *klass)
                              (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
                                            GST_PARAM_MUTABLE_PLAYING)));
 
-    g_object_class_install_property(gobject_class, PROP_OSD_BLENDER,
-                                    g_param_spec_pointer("osd-blender", "OSD blender object",
-                                                         "Pointer to OSD blender object",
-                                                         (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READABLE)));
-
-    g_object_class_install_property(gobject_class, PROP_PM_BLENDER,
-                                    g_param_spec_pointer("privacy-mask-blender", "Privacy mask blender object",
-                                                         "Pointer to privacy mask blender object",
-                                                         (GParamFlags)(GST_PARAM_CONTROLLABLE | G_PARAM_READABLE)));
     g_object_class_install_property(
         gobject_class, PROP_CONFIG_MANAGER_INTERACTOR,
         g_param_spec_pointer("config-manager-interactor", "Config Manager Interactor pointer",
@@ -463,18 +452,6 @@ void gst_hailoencodebin_get_property(GObject *object, guint property_id, GValue 
         gboolean wait_for_writable_buffer;
         g_object_get(hailoencodebin->params->m_osd, "wait-for-writable-buffer", &wait_for_writable_buffer, NULL);
         g_value_set_boolean(value, wait_for_writable_buffer);
-        break;
-    }
-    case PROP_OSD_BLENDER: {
-        gpointer osd_blender;
-        g_object_get(hailoencodebin->params->m_osd, "osd-blender", &osd_blender, NULL);
-        g_value_set_pointer(value, osd_blender);
-        break;
-    }
-    case PROP_PM_BLENDER: {
-        gpointer pm_blender;
-        g_object_get(hailoencodebin->params->m_osd, "privacy-mask-blender", &pm_blender, NULL);
-        g_value_set_pointer(value, pm_blender);
         break;
     }
     case PROP_QUEUE_SIZE: {

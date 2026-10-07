@@ -22,6 +22,7 @@
  */
 
 #include "media_library_service_buffer_uds.hpp"
+#include "service_trace.hpp"
 
 #include <fcntl.h>
 #include <poll.h>
@@ -203,6 +204,7 @@ media_library_return BufferUdsServer::accept_client()
 
 uds_buffer_send_status BufferUdsServer::send_buffer_fds(const std::vector<int> &plane_fds, uint64_t buffer_id)
 {
+    SERVICE_TRACE_SCOPE("BufferUdsServer::send_buffer_fds");
     if (m_client_fd < 0)
     {
         LOGGER__ERROR("send_buffer_fds: no client connected");
@@ -245,11 +247,14 @@ uds_buffer_send_status BufferUdsServer::send_buffer_fds(const std::vector<int> &
 
     auto t_before_send = std::chrono::steady_clock::now();
     ssize_t sent;
-    // Retry on EINTR; return immediately on EAGAIN or hard errors (socket is non-blocking)
-    do
     {
-        sent = sendmsg(m_client_fd, &msg, MSG_NOSIGNAL);
-    } while (sent < 0 && errno == EINTR);
+        SERVICE_TRACE_SCOPE("uds_sendmsg_SCM_RIGHTS");
+        // Retry on EINTR; return immediately on EAGAIN or hard errors (socket is non-blocking)
+        do
+        {
+            sent = sendmsg(m_client_fd, &msg, MSG_NOSIGNAL);
+        } while (sent < 0 && errno == EINTR);
+    }
 
     auto t_after_send = std::chrono::steady_clock::now();
     auto send_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_after_send - t_before_send).count();
@@ -273,8 +278,8 @@ uds_buffer_send_status BufferUdsServer::send_buffer_fds(const std::vector<int> &
         return uds_buffer_send_status::Error;
     }
 
-    LOGGER__INFO("UDS send_buffer_fds: buffer_id={} fd_count={} bytes_sent={} send_ms={}", buffer_id, fd_count, sent,
-                 send_ms);
+    LOGGER__DEBUG("UDS send_buffer_fds: buffer_id={} fd_count={} bytes_sent={} send_ms={}", buffer_id, fd_count, sent,
+                  send_ms);
     return uds_buffer_send_status::OK;
 }
 
@@ -363,6 +368,7 @@ media_library_return BufferUdsClient::connect()
 
 std::vector<FileDescriptor> BufferUdsClient::receive_buffer_fds(uint32_t expected_fd_count, uint64_t &buffer_id)
 {
+    SERVICE_CLIENT_TRACE_SCOPE("BufferUdsClient::receive_buffer_fds");
     struct msghdr msg = {};
     struct iovec iov;
 
@@ -383,10 +389,13 @@ std::vector<FileDescriptor> BufferUdsClient::receive_buffer_fds(uint32_t expecte
     msg.msg_controllen = cmsg_space;
 
     ssize_t n;
-    do
     {
-        n = recvmsg(m_socket_fd, &msg, 0);
-    } while (n < 0 && errno == EINTR);
+        SERVICE_CLIENT_TRACE_SCOPE("uds_recvmsg_SCM_RIGHTS");
+        do
+        {
+            n = recvmsg(m_socket_fd, &msg, 0);
+        } while (n < 0 && errno == EINTR);
+    }
     if (n <= 0)
     {
         LOGGER__ERROR("recvmsg returned {} (errno={})", n, errno);

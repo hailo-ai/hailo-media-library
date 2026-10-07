@@ -171,9 +171,11 @@ class OverlayRepository : public std::enable_shared_from_this<OverlayRepository>
 
     OverlayMap m_overlays;
 
-    std::unordered_set<std::string> m_pending_removals;  // overlays that have been removed using the configurer, but
-                                                         // there are still frames coming with the old configuration
-    std::unordered_set<std::string> m_pending_additions; // overlays that are being added using the configurer, but
-                                                         // there are still frames coming with the old configuration
+    std::unordered_set<std::string> m_pending_removals; // overlays that have been removed using the configurer, but
+                                                        // there are still frames coming with the old configuration
+
+    std::unordered_map<std::string, OverlayImplPtr>
+        m_pending_additions; // overlays whose creation is in flight, mapped to the impl being created so a concurrent
+                             // // upsert of the same id returns that pointer instead of redundantly recreating it
 };
 } // namespace osd

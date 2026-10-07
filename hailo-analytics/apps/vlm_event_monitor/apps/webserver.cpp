@@ -1,20 +1,30 @@
 #include "webserver.hpp"
 
+#include "media_library/cloexec_fstream.hpp"
+
+#include <stddef.h>
+#include <stdint.h>
+
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <exception>
 #include <fstream>
-#include <sstream>
+#include <functional>
+#include <initializer_list>
 #include <utility>
+#include <vector>
 
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 
+#include "event_monitor/event_config.hpp"
+#include "event_monitor/event_state_tracker.hpp"
 #include "hailo_analytics/analytics/reference_camera_app_constructor.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "vlm_app_config.hpp"
 
 #include "custom/event_monitor/chat_session_broker.hpp"
-#include "custom/event_monitor/event_check_runner.hpp"
 #include "custom/event_monitor/event_store.hpp"
 #include "custom/service/sse_broadcaster.hpp"
 #include "custom/streaming/webrtc_streamer_ext.hpp"
@@ -524,7 +534,7 @@ void IntegratedWebServer::setup_triggered_events_stream_route()
 
 void IntegratedWebServer::serve_index_html(httplib::Response &res)
 {
-    std::ifstream file(vlm_app::paths::webfrontend_index);
+    cloexec::ifstream file(vlm_app::paths::webfrontend_index);
     if (file.good())
     {
         std::stringstream buffer;

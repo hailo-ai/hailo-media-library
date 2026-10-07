@@ -60,7 +60,7 @@ class MediaLibraryPreIspDenoise : public MediaLibraryDenoise
                                                             const input_video_config_t &input_video_configs) override;
     media_library_return free_buffer_pools() override;
     media_library_return acquire_output_buffers(NetworkInferenceBindingsPtr bindings) override;
-    void initialize_dummy_loopback_buffers(const TensorBindings &loopback_buffers) override;
+    void initialize_dummy_loopback_buffers(const NetworkInferenceBindings &bindings) override;
 
   private:
     bool process_inference(NetworkInferenceBindingsPtr bindings) override;

@@ -1,7 +1,9 @@
 #include "nv12_to_rgb_stage.hpp"
 
-#include <algorithm>
-#include <cmath>
+#include <memory>
+#include <utility>
+
+#include <media_library/buffer_pool.hpp>
 
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 

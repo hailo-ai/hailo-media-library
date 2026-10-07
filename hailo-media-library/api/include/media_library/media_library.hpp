@@ -656,25 +656,8 @@ class MediaLibrary : public MediaLibraryInterface
      */
     media_library_return restriction_auto_switch_to_fallback_profile(config_profile_t &fallback_profile);
 
-    /**
-     * @brief Configure privacy mask on the given encoder.
-     *
-     * @param encoder
-     * @param privacy_mask_config
-     * @return media_library_return
-     */
-    media_library_return configure_privacy_mask(MediaLibraryEncoderPtr encoder,
-                                                const privacy_mask_config_t &privacy_mask_config);
-
     media_library_return handle_restricted_streaming_state();
 
-    /**
-     * @brief Configure OSD on the given encoder.
-     * @param encoder
-     * @param osd_config
-     * @return media_library_return
-     */
-    media_library_return configure_osd(MediaLibraryEncoderPtr encoder, const config_stream_osd_t &osd_config);
     /**
      * @brief Checks if frontend pause/unpause is required based on the provided profile.
      * @param previous_profile The configuration of the previously active profile.
@@ -700,6 +683,12 @@ namespace media_library_service
 constexpr const char *DEFAULT_SERVICE_ADDRESS = "localhost";
 /** @brief Default port for the Media Library gRPC service */
 constexpr uint DEFAULT_SERVICE_PORT = 50051;
+/**
+ * @brief Default budget for acquiring a session in initialize(). Long enough to absorb a
+ *        service that is still coming up at boot, or a restart (its init script respawns
+ *        after 2s), while still failing with an error rather than looking like a hang.
+ */
+constexpr std::chrono::seconds DEFAULT_CONNECT_TIMEOUT{10};
 
 /**
  * @class MediaLibraryClient
@@ -716,8 +705,11 @@ class MediaLibraryClient : public MediaLibraryInterface
      * @brief Constructor for MediaLibraryClient
      * @param address ip address of the Media Library Service (default: localhost)
      * @param port port number of the Media Library Service (default: 50051)
+     * @param connect_timeout how long initialize() may keep retrying while the service is
+     *        unreachable, defaulting to DEFAULT_CONNECT_TIMEOUT. Zero retries indefinitely.
      */
-    explicit MediaLibraryClient(std::string address = DEFAULT_SERVICE_ADDRESS, uint port = DEFAULT_SERVICE_PORT);
+    explicit MediaLibraryClient(std::string address = DEFAULT_SERVICE_ADDRESS, uint port = DEFAULT_SERVICE_PORT,
+                                std::chrono::seconds connect_timeout = DEFAULT_CONNECT_TIMEOUT);
 
     /**
      * @brief Destructor
@@ -728,10 +720,13 @@ class MediaLibraryClient : public MediaLibraryInterface
      * @brief Factory method to create a MediaLibraryClient
      * @param address ip address of the Media Library Service (default: localhost)
      * @param port port number of the Media Library Service (default: 50051)
+     * @param connect_timeout how long initialize() may keep retrying while the service is
+     *        unreachable, defaulting to DEFAULT_CONNECT_TIMEOUT. Zero retries indefinitely.
      * @return MediaLibraryInterfacePtr shared pointer to the created client
      */
     static tl::expected<MediaLibraryInterfacePtr, media_library_return> create(
-        const std::string &address = DEFAULT_SERVICE_ADDRESS, uint port = DEFAULT_SERVICE_PORT);
+        const std::string &address = DEFAULT_SERVICE_ADDRESS, uint port = DEFAULT_SERVICE_PORT,
+        std::chrono::seconds connect_timeout = DEFAULT_CONNECT_TIMEOUT);
 
     // --- Implemented via gRPC ---
 

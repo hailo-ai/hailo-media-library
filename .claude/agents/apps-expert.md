@@ -27,7 +27,6 @@ Apps live under `hailo-analytics/apps/`. The current set (verify with `ls hailo-
 | App | What it does | When to use it |
 |---|---|---|
 | `face_landmarks` | Detection → BBox crop → face landmarks → overlay/ZMQ | "Face landmarks." |
-| `face_recognition` | Detection → crop → embedding → gallery match | "Face recognition." |
 | `clip` | CLIP text-image embedding | "Text search over what the camera sees." |
 | `webserver` (+ `profile_manager_viewer`) | Full HTTP server with REST API, runtime profile switching, OSD configuration UI | "Demo with a control UI." |
 

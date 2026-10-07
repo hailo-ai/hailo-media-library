@@ -141,6 +141,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     output_size = OUTPUT_SIZE_PRESETS[args.output_resolution] if args.output_resolution else None
+
     app = AnalyticVideoPlayer(
         udp_port=args.udp_port,
         udp_ip=args.udp_ip,
@@ -153,5 +154,9 @@ if __name__ == "__main__":
         metadata_transport=args.metadata_transport,
         save_mkv=args.save_mkv,
         record_bitrate=args.record_bitrate,
+        latency_preset=args.latency_preset,
+        max_metadata_age_ms=args.max_metadata_age_ms,
+        metadata_buffer_size=args.metadata_buffer_size,
+        pre_roll_latency_ms=args.pre_roll_latency_ms,
     )
     app.run()

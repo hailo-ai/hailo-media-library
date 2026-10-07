@@ -83,34 +83,43 @@ void Queue::set_leaky(bool leaky)
 
 void Queue::push(BufferPtr buffer)
 {
-    std::unique_lock<std::mutex> lock(*(m_mutex));
-    if (m_flushing)
     {
-        return;
-    }
-    if (!m_leaky)
-    {
-        // if not leaky, then wait until there is space in the queue
-        m_condvar->wait(lock, [this] { return m_queue.size() < m_max_buffers; });
-    }
-    else
-    {
-        // if leaky, pop the front for a full queue
-        if (m_queue.size() >= m_max_buffers)
+        std::unique_lock<std::mutex> lock(*(m_mutex));
+        if (m_flushing)
         {
-
-            HailoMediaLibraryBufferPtr buffer = m_queue.front()->get_buffer();
-            if (buffer != nullptr)
-            {
-                m_tracing->track_frame_dropped(buffer->isp_timestamp_ns);
-            }
-            m_queue.pop();
+            // flush() already fired m_notify_cb; nothing was enqueued
+            return;
         }
-    }
-    m_queue.push(buffer);
-    m_tracing->track_queue_size(m_queue.size());
+        if (!m_leaky)
+        {
+            // if not leaky, then wait until there is space in the queue
+            m_condvar->wait(lock, [this] { return m_queue.size() < m_max_buffers; });
+        }
+        else
+        {
+            // if leaky, pop the front for a full queue
+            if (m_queue.size() >= m_max_buffers)
+            {
 
-    m_condvar->notify_one();
+                HailoMediaLibraryBufferPtr buffer = m_queue.front()->get_buffer();
+                if (buffer != nullptr)
+                {
+                    m_tracing->track_frame_dropped(buffer->isp_timestamp_ns);
+                }
+                m_queue.pop();
+            }
+        }
+        m_queue.push(buffer);
+        m_tracing->track_queue_size(m_queue.size());
+
+        m_condvar->notify_one();
+    }
+    // Outside m_mutex: a waiter takes its own lock then reads size() under m_mutex, so notifying
+    // under m_mutex here would invert that order.
+    if (m_notify_cb)
+    {
+        m_notify_cb();
+    }
 }
 
 BufferPtr Queue::pop()
@@ -180,13 +189,25 @@ uint64_t Queue::check_timestamp(std::optional<std::chrono::milliseconds> timeout
 
 void Queue::flush()
 {
-    std::unique_lock<std::mutex> lock(*(m_mutex));
-    m_flushing = true;
-    while (!m_queue.empty())
     {
-        m_queue.pop();
+        std::unique_lock<std::mutex> lock(*(m_mutex));
+        m_flushing = true;
+        while (!m_queue.empty())
+        {
+            m_queue.pop();
+        }
+        m_condvar->notify_all();
     }
-    m_condvar->notify_all();
+    // Wake a waiter so it re-checks end-of-stream and exits on shutdown.
+    if (m_notify_cb)
+    {
+        m_notify_cb();
+    }
+}
+
+void Queue::set_notify_callback(std::function<void()> cb)
+{
+    m_notify_cb = std::move(cb);
 }
 
 void Queue::reset()

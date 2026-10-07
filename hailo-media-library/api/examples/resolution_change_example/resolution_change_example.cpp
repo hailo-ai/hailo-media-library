@@ -261,9 +261,14 @@ int main()
     std::this_thread::sleep_for(std::chrono::seconds(10));
 
     // TEST 3
-    std::cout << "\n>>> TEST 3: Restoring Resolution to 3840x2160 (Stream 0) and 1280x720 (Stream 1) <<<" << std::endl;
+    // multi_resize to upscale beyond the sensor's native resolution.
+    StreamResolution high_res_stream0 = (examples::get_architecture() == examples::Architecture::Hailo15L)
+                                            ? StreamResolution{2592, 1944}
+                                            : StreamResolution{3840, 2160};
+    std::cout << "\n>>> TEST 3: Restoring Resolution to " << high_res_stream0.width << "x" << high_res_stream0.height
+              << " (Stream 0) and 1280x720 (Stream 1) <<<" << std::endl;
     std::vector<StreamResolution> high_res_settings;
-    high_res_settings.push_back({3840, 2160});
+    high_res_settings.push_back(high_res_stream0);
     high_res_settings.push_back({1280, 720});
 
     change_resolution(m_media_lib, high_res_settings);

@@ -1,14 +1,10 @@
-#include <rapidjson/encodings.h>
 #include <regex>
 #include <map>
-#include <cstdio>
 #include <memory>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
 #include "rapidjson/document.h"
-#include "rapidjson/filereadstream.h"
 #include "hailo_postprocess_tools/objects/json_config.hpp"
 #include "hailo_postprocess_tools/labels/coco_eighty.hpp"
 #include "hailo_postprocess_tools/labels/yolo_personface.hpp"
@@ -16,6 +12,7 @@
 #include "hailo_nms_decode.hpp"
 #include "yolo_hailortpp.hpp"
 #include "common/structures.hpp"
+#include "common/file_reader.hpp"
 #include "hailo_gst_tensor_metadata.hpp"
 #include "hailo_postprocess_tools/objects/hailo_tensors.hpp"
 #include "hailort.h"
@@ -47,7 +44,6 @@ YoloParamsNMS *init(const std::string config_path, const std::string /*function_
     else
     {
         params = new YoloParamsNMS();
-        char config_buffer[4096];
         const char *json_schema = R""""({
         "$schema": "http://json-schema.org/draft-04/schema#",
         "type": "object",
@@ -72,17 +68,12 @@ YoloParamsNMS *init(const std::string config_path, const std::string /*function_
         ]
         })"""";
 
-        std::FILE *fp = fopen(config_path.c_str(), "r");
-        if (fp == nullptr)
-        {
-            throw std::runtime_error("JSON config file is not valid");
-        }
-        rapidjson::FileReadStream stream(fp, config_buffer, sizeof(config_buffer));
-        bool valid = common::validate_json_with_schema(stream, json_schema);
+        std::string config_content = common::read_file(config_path);
+        bool valid = common::validate_json_with_schema(config_content, json_schema);
         if (valid)
         {
             rapidjson::Document doc_config_json;
-            doc_config_json.ParseStream(stream);
+            doc_config_json.Parse(config_content.c_str());
 
             // parse labels
             auto labels = doc_config_json["labels"].GetArray();
@@ -104,7 +95,6 @@ YoloParamsNMS *init(const std::string config_path, const std::string /*function_
                 params->filter_by_score = true;
             }
         }
-        fclose(fp);
     }
     return params;
 }

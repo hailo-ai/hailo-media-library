@@ -1,6 +1,5 @@
 #include "face_landmarks_pipeline_builder.hpp"
 
-#include <stddef.h>
 #include <stdint.h>
 #include <map>
 #include <optional>
@@ -10,6 +9,7 @@
 #include "hailo_postprocess_tools/labels/hailo_yolov8n.hpp"
 #include "hailo_analytics/analytics/common_configs.hpp"
 #include "hailo_analytics/analytics/detection.hpp"
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/utils/platform_utils.hpp"
 
 namespace face_landmarks_app
@@ -21,15 +21,19 @@ namespace ai_models = hailo_analytics::analytics::ai_models;
 
 static constexpr size_t TRACKER_QUEUE_SIZE_LOW_MEMORY = 1;
 
-// Platform-specific max_crops caps for face_landmarks.
-// Hailo15-L: only SDR profiles expected — same value for all supported cases.
-static constexpr size_t MAX_CROPS_HAILO15L = 30;
-// Hailo15-H: per-profile-category. Heavier on-chip IQ networks → lower caps.
+// Per-profile-category max_crops caps. Heavier on-chip IQ networks get lower caps, and the 15L
+// runs those networks slower than the 15H, so it needs lower caps than the 15H for each category.
 static constexpr size_t MAX_CROPS_HAILO15H_HDR = 50;
 static constexpr size_t MAX_CROPS_HAILO15H_HDM = 27;
 static constexpr size_t MAX_CROPS_HAILO15H_POST_ISP_DENOISE = 40;
 static constexpr size_t MAX_CROPS_HAILO15H_PRE_ISP_DENOISE = 45;
 static constexpr size_t MAX_CROPS_HAILO15H_DEFAULT = 50;
+static constexpr size_t MAX_CROPS_HAILO15L_HDR = 30;
+static constexpr size_t MAX_CROPS_HAILO15L_POST_ISP_DENOISE = 12;
+static constexpr size_t MAX_CROPS_HAILO15L_PRE_ISP_DENOISE = 6;
+static constexpr size_t MAX_CROPS_HAILO15L_DEFAULT = 30;
+// The 15L HDM cap has not been evaluated yet, so face_landmarks is disabled there until it is measured.
+static constexpr size_t MAX_CROPS_HAILO15L_HDM = 0;
 
 bool is_hailo15h_hdr(const config_profile_t &profile)
 {
@@ -37,34 +41,62 @@ bool is_hailo15h_hdr(const config_profile_t &profile)
            profile.iq_settings.hdr.enabled;
 }
 
-size_t get_max_crops(const config_profile_t &profile)
+namespace
 {
-    if (hailo_analytics::utils::get_hailo_architecture() == hailo_analytics::utils::Architecture::Hailo15L)
-        return MAX_CROPS_HAILO15L;
+enum class iq_category
+{
+    hdr,
+    hdm,
+    pre_isp_denoise,
+    post_isp_denoise,
+    none
+};
 
-    // HDR
+iq_category classify_iq(const config_profile_t &profile)
+{
     if (profile.iq_settings.hdr.enabled)
-        return MAX_CROPS_HAILO15H_HDR;
+        return iq_category::hdr;
 
     const auto &denoise_config = profile.iq_settings.denoise;
     const auto &bayer_net = denoise_config.bayer_network_config;
     const bool is_hdm = !bayer_net.input_fusion_feedback.empty() && !bayer_net.output_fusion_feedback.empty() &&
                         !bayer_net.input_gamma_feedback.empty() && !bayer_net.output_gamma_feedback.empty();
 
-    // HDM
     if (denoise_config.enabled && denoise_config.bayer && is_hdm)
-        return MAX_CROPS_HAILO15H_HDM;
-
-    // Pre-ISP denoise
+        return iq_category::hdm;
     if (denoise_config.enabled && denoise_config.bayer)
-        return MAX_CROPS_HAILO15H_PRE_ISP_DENOISE;
-
-    // Post-ISP denoise
+        return iq_category::pre_isp_denoise;
     if (denoise_config.enabled)
-        return MAX_CROPS_HAILO15H_POST_ISP_DENOISE;
+        return iq_category::post_isp_denoise;
+    return iq_category::none;
+}
+} // namespace
 
-    // No IQ network, use default h15h value
-    return MAX_CROPS_HAILO15H_DEFAULT;
+size_t get_max_crops(const config_profile_t &profile)
+{
+    const bool is_15l =
+        hailo_analytics::utils::get_hailo_architecture() == hailo_analytics::utils::Architecture::Hailo15L;
+
+    switch (classify_iq(profile))
+    {
+    case iq_category::hdr:
+        return is_15l ? MAX_CROPS_HAILO15L_HDR : MAX_CROPS_HAILO15H_HDR;
+    case iq_category::hdm:
+        if (is_15l)
+        {
+            HAILO_ANALYTICS_LOG_WARN(
+                "face_landmarks is disabled on Hailo15L HDM profiles: max_crops cap not evaluated");
+            return MAX_CROPS_HAILO15L_HDM;
+        }
+        return MAX_CROPS_HAILO15H_HDM;
+    case iq_category::pre_isp_denoise:
+        return is_15l ? MAX_CROPS_HAILO15L_PRE_ISP_DENOISE : MAX_CROPS_HAILO15H_PRE_ISP_DENOISE;
+    case iq_category::post_isp_denoise:
+        return is_15l ? MAX_CROPS_HAILO15L_POST_ISP_DENOISE : MAX_CROPS_HAILO15H_POST_ISP_DENOISE;
+    case iq_category::none:
+        break;
+    }
+    return is_15l ? MAX_CROPS_HAILO15L_DEFAULT : MAX_CROPS_HAILO15H_DEFAULT;
 }
 
 tiling::tiling_detection_config_t default_tiling_config()

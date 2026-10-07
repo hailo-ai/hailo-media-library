@@ -1,13 +1,11 @@
 #include "event_check_runner.hpp"
 
-#include <array>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
 #include <iostream>
-#include <sstream>
 #include <utility>
 
 #include <nlohmann/json.hpp>
@@ -15,6 +13,10 @@
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
 #include "../pipeline/jpeg_ring_buffer_stage.hpp"
+#include "event_monitor/event_config.hpp"
+#include "event_monitor/event_state_tracker.hpp"
+#include "event_monitor/inference_request_queue.hpp"
+#include "event_monitor/metadata_writer.hpp"
 #include "prompt_builder.hpp"
 
 namespace vlm_event_monitor

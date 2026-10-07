@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>
+
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -12,6 +14,7 @@
 #include <vector>
 
 #include <nlohmann/json.hpp>
+#include <tl/expected.hpp>
 
 #include "event_config.hpp"
 #include "event_state_tracker.hpp"

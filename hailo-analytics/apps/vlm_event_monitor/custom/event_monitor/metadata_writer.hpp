@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>
+
 #include <atomic>
 #include <cstdint>
 #include <string>

@@ -4,7 +4,15 @@
 
 #include "webrtc_streamer_ext.hpp"
 
+#include <chrono>
+#include <cstddef>
+#include <optional>
 #include <random>
+#include <vector>
+
+#include <media_library/frontend.hpp>
+
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
 WebRTCStreamerExt::WebRTCStreamerExt() : m_ssrc(generate_unique_ssrc()), m_session_id(generate_session_id())
 {

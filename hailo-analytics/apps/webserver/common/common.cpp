@@ -1,5 +1,4 @@
 #include "common.hpp"
-#include "media_library/cloexec_fstream.hpp"
 
 #include <ctype.h>
 #include <media_library/media_library_api_types.hpp>
@@ -7,6 +6,9 @@
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
+#include <exception>
+
+#include "media_library/cloexec_fstream.hpp"
 
 // resolution maps
 namespace webserver::common
@@ -144,4 +146,19 @@ bool is_env_variable_on(const std::string &env_var_name, const std::string &requ
         return false;
     std::string val(env_var);
     return (val == required_value || val == "true" || val == "TRUE" || val == "True");
+}
+
+int get_env_variable_int(const std::string &env_var_name, int default_value)
+{
+    auto env_var = std::getenv(env_var_name.c_str());
+    if (nullptr == env_var || env_var[0] == '\0')
+        return default_value;
+    try
+    {
+        return std::stoi(env_var);
+    }
+    catch (const std::exception &)
+    {
+        return default_value;
+    }
 }

@@ -38,11 +38,15 @@ class DMABufferAllocator
   public:
     bool init(const char *name);
     bool alloc(size_t size, DMABuffer &o_dma_buffer);
+    // The errno of the last heap allocation that failed since clear_last_alloc_errno(), or 0 if none did
+    int last_alloc_errno() const;
+    void clear_last_alloc_errno();
 
   private:
     static constexpr LoggerType LOGGER_TYPE = LoggerType::Hdr;
     bool open_dma_heap_device(const char *name);
     files_utils::SharedFd m_heap_fd;
+    int m_last_alloc_errno = 0;
 };
 
 } // namespace HDR

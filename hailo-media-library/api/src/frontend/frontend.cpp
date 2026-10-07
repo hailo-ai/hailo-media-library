@@ -37,7 +37,6 @@
 #include "media_library/env_vars.hpp"
 #include "media_library/media_library_types.hpp"
 #include "buffer_pool.hpp"
-#include "dsp_utils.hpp"
 #include "gstmedialibptrs.hpp"
 
 static constexpr std::chrono::milliseconds MAIN_LOOP_WAIT_DURATION{100};
@@ -865,14 +864,23 @@ media_library_return MediaLibraryFrontend::Impl::set_config(const frontend_confi
 
     m_current_config = config; // keep a stable address
     auto frontendbinsrc = glib_cpp::ptrs::get_bin_by_name(m_pipeline, "frontend");
-    media_library_return ret = MEDIA_LIBRARY_ERROR;
-    if (frontendbinsrc != nullptr)
+    if (frontendbinsrc == nullptr)
     {
-        g_object_set(frontendbinsrc.as_g_object(), "config", &m_current_config, NULL);
-        ret = MEDIA_LIBRARY_SUCCESS;
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get frontend element");
+        return MEDIA_LIBRARY_ERROR;
     }
+    g_object_set(frontendbinsrc.as_g_object(), "config", &m_current_config, NULL);
 
-    return ret;
+    gint config_status = MEDIA_LIBRARY_SUCCESS;
+    if (g_object_class_find_property(G_OBJECT_GET_CLASS(frontendbinsrc.as_g_object()), "config-status") != nullptr)
+    {
+        g_object_get(frontendbinsrc.as_g_object(), "config-status", &config_status, NULL);
+    }
+    if (config_status != MEDIA_LIBRARY_SUCCESS)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Frontend source failed to apply the new config, status {}", config_status);
+    }
+    return static_cast<media_library_return>(config_status);
 }
 
 bool MediaLibraryFrontend::Impl::is_started()

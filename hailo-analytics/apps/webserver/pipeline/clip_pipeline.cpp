@@ -2,15 +2,14 @@
 
 #include <httplib.h>
 #include <unistd.h>
-#include <media_library/encoder_config_types.hpp>
 #include <media_library/media_library_types.hpp>
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <ctime>
 #include <functional>
 #include <iterator>
-#include <map>
 #include <stdexcept>
+#include <optional>
 
 #include "clip_app_config_parser.hpp"
 #include "common/common.hpp"
@@ -30,8 +29,6 @@
 #include "hailo_analytics/pipeline/core/buffer.hpp"
 #include "hailo_analytics/pipeline/overlay/overlay_stage.hpp"
 #include "hailo_analytics/pipeline/routing/valve_stage.hpp"
-#include "hailo_analytics/pipeline/sinks/output_module.hpp"
-#include "pipeline/isp_blender.hpp"
 #include "resources/common/event_bus.hpp"
 #include "resources/common/events_utils.hpp"
 #include "resources/common/resources.hpp"
@@ -76,9 +73,10 @@ const std::vector<std::string> ALL_ENDPOINTS = {
 };
 } // namespace clip_endpoints
 
-ClipPipeline::ClipPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
-                           RTPConverterStage &webrtc_stage, Architecture platform)
-    : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight, {ProfileType::Daylight})
+ClipPipeline::ClipPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryInterfacePtr media_library,
+                           RTPConverterStage &webrtc_stage, Architecture platform, bool use_hailort_service)
+    : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight, {ProfileType::Daylight},
+                   use_hailort_service)
 {
     m_stream_4k_name = DEFAULT_STREAM_4K_NAME;
 
@@ -245,7 +243,7 @@ void ClipPipeline::build_pipeline()
     }
 
     CameraAppConstructor::InitializerParams params;
-    params.media_library_component = m_app_resources->media_library.get();
+    params.media_library_component = m_app_resources->media_library;
     params.initialize_media_library_configuration = false;
     params.initialize_media_library_profile = false;
 

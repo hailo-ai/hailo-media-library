@@ -137,9 +137,40 @@ DEFAULT_UDP_IP = "10.0.0.2"
 SEI_HAILO_KEY_NODE = "Hailo"
 TIMESTAMP_KEY = "isp_timestamp_ns"
 UUID_SIZE = 16
-JITTER_BUFFER_LATENCY_MS = 800
-MAX_METADATA_AGE_NS = 300 * 10**6  # 300ms threshold for stale data
+JITTER_BUFFER_MAX_LATENCY_MS = 200 # 200ms - maximum latency the jitter buffer can handle, does not imply pre-roll
+MS_SCALE = 10**6
+NS_SCALE = 10**9
+MAX_METADATA_AGE_NS = 300 * MS_SCALE  # 300ms threshold for stale data
 METADATA_BUFFER_SIZE = 150
+PRE_ROLL_LATENCY_NS = 200 * MS_SCALE  # 200ms — video pre-roll queue threshold to align with analytics arrival
+
+# Latency presets for different pipeline configurations.
+# These only affect metadata synchronization parameters and the pre-roll queue
+# threshold — the GStreamer video pipeline structure is unchanged. Analytics
+# arrive out-of-band via ZMQ/WebSocket; the temporal mismatch is handled by the
+# zero-order hold in _find_best_metadata().
+LATENCY_PRESETS = {
+    "no-latency": {
+        "max_metadata_age_ns": MAX_METADATA_AGE_NS,
+        "metadata_buffer_size": METADATA_BUFFER_SIZE,
+        "pre_roll_latency_ns": 0,
+    },
+    "low-latency": {
+        "max_metadata_age_ns": MAX_METADATA_AGE_NS,
+        "metadata_buffer_size": METADATA_BUFFER_SIZE,
+        "pre_roll_latency_ns": PRE_ROLL_LATENCY_NS,
+    },
+    "medium-latency": {
+        "max_metadata_age_ns": MAX_METADATA_AGE_NS,
+        "metadata_buffer_size": METADATA_BUFFER_SIZE,
+        "pre_roll_latency_ns": 800 * MS_SCALE,
+    },
+    "high-latency": {
+        "max_metadata_age_ns": MAX_METADATA_AGE_NS,
+        "metadata_buffer_size": METADATA_BUFFER_SIZE,
+        "pre_roll_latency_ns": 1500 * MS_SCALE,
+    },
+}
 
 # Fallback when metadata frame dimensions are missing (proto3 unset fields read as 0).
 DEFAULT_METADATA_FRAME_WIDTH, DEFAULT_METADATA_FRAME_HEIGHT = OUTPUT_SIZE_PRESETS["1080p"]
@@ -164,13 +195,35 @@ class BaseVideoPlayer:
                  analytic_data_ip=DEFAULT_ANALYTIC_DATA_IP,
                  analytic_data_port=None, output_size=None,
                  metadata_transport="zmq", save_mkv=None,
-                 record_bitrate=8000):
+                 record_bitrate=8000,
+                 latency_preset="no-latency",
+                 max_metadata_age_ms=None,
+                 metadata_buffer_size=None,
+                 pre_roll_latency_ms=None):
         self.loop = GLib.MainLoop()
         self.udp_port = udp_port
         self.udp_ip = udp_ip
         self.enable_perf_timing = enable_perf_timing
         self.output_size = output_size
         self.metadata_transport = metadata_transport
+
+        # Latency-tuning: start from module-level defaults, apply preset, then per-arg overrides.
+        self.max_metadata_age_ns = MAX_METADATA_AGE_NS
+        effective_metadata_buffer_size = METADATA_BUFFER_SIZE
+        self.pre_roll_latency_ns = PRE_ROLL_LATENCY_NS
+
+        if latency_preset and latency_preset in LATENCY_PRESETS:
+            preset = LATENCY_PRESETS[latency_preset]
+            self.max_metadata_age_ns = preset["max_metadata_age_ns"]
+            effective_metadata_buffer_size = preset["metadata_buffer_size"]
+            self.pre_roll_latency_ns = preset["pre_roll_latency_ns"]
+
+        if max_metadata_age_ms is not None:
+            self.max_metadata_age_ns = max_metadata_age_ms * MS_SCALE
+        if metadata_buffer_size is not None:
+            effective_metadata_buffer_size = metadata_buffer_size
+        if pre_roll_latency_ms is not None:
+            self.pre_roll_latency_ns = pre_roll_latency_ms * MS_SCALE
 
         # Set default port based on transport if not explicitly provided
         if analytic_data_port is None:
@@ -182,7 +235,7 @@ class BaseVideoPlayer:
             DrawTimer.set_print_frequency(perf_print_frequency)
 
         # Metadata stream (temporal queue) — transport-agnostic naming
-        self.metadata_buffer = deque(maxlen=METADATA_BUFFER_SIZE)
+        self.metadata_buffer = deque(maxlen=effective_metadata_buffer_size)
         self.metadata_lock = threading.Lock()
 
         # Frame mapping (PTS -> ISP timestamp from SEI)
@@ -225,7 +278,8 @@ class BaseVideoPlayer:
             udpsrc address={self.udp_ip} port={self.udp_port} buffer-size=2097152
                 caps="application/x-rtp, media=(string)video, clock-rate=(int)90000,
                       encoding-name=(string)H264, payload=(int)96" !
-            rtpjitterbuffer name=jitterbuffer latency={JITTER_BUFFER_LATENCY_MS} !
+            queue min-threshold-time={self.pre_roll_latency_ns} !
+            rtpjitterbuffer name=jitterbuffer latency={JITTER_BUFFER_MAX_LATENCY_MS} !
             rtph264depay !
             h264parse name=parser !
             video/x-h264,stream-format=byte-stream !
@@ -243,9 +297,13 @@ class BaseVideoPlayer:
             size_str = f"{output_size[0]}x{output_size[1]}" if output_size else "native"
             record_str = f", Recording: {self.save_mkv}" if self.save_mkv else ""
             metadata_addr = self.ws_url if metadata_transport == "ws" else self.zmq_address
+            metadata_age_ms = self.max_metadata_age_ns // MS_SCALE
+            pre_roll_ms = self.pre_roll_latency_ns // MS_SCALE
             print(f"Pipeline created. UDP: {self.udp_ip}:{self.udp_port}, "
-                  f"Metadata: {metadata_addr}, Latency: {JITTER_BUFFER_LATENCY_MS}ms, "
+                  f"Metadata: {metadata_addr}, Jitter Buffer: {JITTER_BUFFER_MAX_LATENCY_MS}ms, "
                   f"Output: {size_str}{record_str}")
+            print(f"  Metadata sync: max_age={metadata_age_ms}ms, "
+                  f"buffer_size={effective_metadata_buffer_size}, pre_roll={pre_roll_ms}ms")
         except Exception as e:
             print(f"Error creating pipeline: {e}")
             sys.exit(1)
@@ -403,7 +461,7 @@ class BaseVideoPlayer:
                                 if len(self.pts_to_sei_ts) > 100:
                                     self.pts_to_sei_ts = {
                                         k: v for k, v in self.pts_to_sei_ts.items()
-                                        if k > pts - 2 * 10**9
+                                        if k > pts - 2 * NS_SCALE
                                     }
                     except Exception:
                         pass
@@ -418,12 +476,12 @@ class BaseVideoPlayer:
         with self.metadata_lock:
             while self.metadata_buffer and self.metadata_buffer[0][0] <= sei_ts:
                 ts, meta = self.metadata_buffer.popleft()
-                if abs(sei_ts - ts) < MAX_METADATA_AGE_NS:
+                if abs(sei_ts - ts) < self.max_metadata_age_ns:
                     best_metadata = meta
 
             if not best_metadata and self.current_active_metadata:
                 prev_ts = self.current_active_metadata.isp_timestamp_ns
-                if abs(sei_ts - prev_ts) < MAX_METADATA_AGE_NS:
+                if abs(sei_ts - prev_ts) < self.max_metadata_age_ns:
                     best_metadata = self.current_active_metadata
 
             if best_metadata:
@@ -605,3 +663,22 @@ class BaseVideoPlayer:
                             help='Enable performance timing for drawing operations')
         parser.add_argument('--perf-print-freq', type=int, default=30, metavar='N',
                             help='Print performance statistics every N frames (default: 30)')
+        # Latency tuning args are always part of the common set so every viewer
+        # exposes them consistently.
+        BaseVideoPlayer.add_latency_argparse_args(parser)
+
+    @staticmethod
+    def add_latency_argparse_args(parser):
+        """Register latency-tuning CLI args. Called automatically by add_common_argparse_args."""
+        parser.add_argument('--latency-preset', choices=LATENCY_PRESETS.keys(), default="no-latency",
+                            help='Latency preset: no-latency (default), low-latency, medium-latency, or high-latency '
+                                 '(for slow analytics pipelines)')
+        parser.add_argument('--max-metadata-age-ms', type=int, default=None,
+                            help=f'Maximum metadata age in ms before considered stale '
+                                 f'(overrides preset, default: {MAX_METADATA_AGE_NS // MS_SCALE})')
+        parser.add_argument('--metadata-buffer-size', type=int, default=None,
+                            help=f'Metadata buffer size '
+                                 f'(overrides preset, default: {METADATA_BUFFER_SIZE})')
+        parser.add_argument('--pre-roll-latency-ms', type=int, default=None,
+                            help=f'Pre-roll queue threshold in ms '
+                                 f'(overrides preset, default: {PRE_ROLL_LATENCY_NS // MS_SCALE})')

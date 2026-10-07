@@ -18,8 +18,11 @@
 #include <fstream> // IWYU pragma: keep
 #include <iomanip>
 #include <iostream>
+#include <ratio>
 #include <span>
+#include <sstream>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -37,7 +40,6 @@
 #include "video_device.hpp"
 #include "media_library_buffer.hpp"
 #include "sensor_types.hpp"
-#include "dsp_utils.hpp"
 
 #define MODULE_NAME LoggerType::Isp
 
@@ -336,14 +338,18 @@ bool IspManager::switch_mode(const ModeDescriptor &desc, const frontend_config_t
     if (!prepare_for_fast_toggle(m_fast_toggle_mode))
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to prepare for fast toggle");
+        m_fast_toggle_mode = FastToggleMode::OFF;
         return false;
     }
 
-    if (!setup_sensor_and_isp(desc, frontend_config))
+    // Disarm so a later start() cannot fire a toggle into a mode that was never set up. The kernel stays primed
+    // until the stream stops, so the caller has to restart the pipeline to recover.
+    if (!setup_sensor_and_isp(desc, frontend_config) || !setup_devices(desc, frontend_config))
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to switch to mode {}", to_string(desc.target_mode));
+        m_fast_toggle_mode = FastToggleMode::OFF;
         return false;
-
-    if (!setup_devices(desc, frontend_config))
-        return false;
+    }
 
     if (desc.is_hdr)
     {
@@ -649,6 +655,7 @@ static bool needs_mode_switch(bool is_target_mode, bool is_started)
 
 bool IspManager::set_config(const frontend_config_t &frontend_config)
 {
+    m_allocator.clear_last_alloc_errno();
     isp_utils::set_isp_config_files_path(frontend_config.isp_config.isp_config_files_path);
     m_input_resolution = frontend_config.input_config.resolution;
 
@@ -1007,6 +1014,11 @@ bool IspManager::is_current_mode_using_pre_isp_pipeline()
 {
     return m_current_mode == Mode::PRE_ISP_DENOISE || m_current_mode == Mode::HDR_DENOISE ||
            m_current_mode == Mode::HDR_NNCORE_STITCH || m_current_mode == Mode::PRE_ISP_SDR;
+}
+
+bool IspManager::last_config_failed_on_dma_memory() const
+{
+    return m_allocator.last_alloc_errno() == ENOMEM;
 }
 
 bool IspManager::is_current_mode_hdr()

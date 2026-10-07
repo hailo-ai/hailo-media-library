@@ -37,6 +37,7 @@ class IspResource : public Resource
     std::atomic<bool> m_isp_converge;
     std::shared_ptr<webserver::pipeline::IspBlender> m_isp_blender_ptr;
     std::shared_ptr<ConfigResourceMedialib> m_config_res;
+    std::string m_active_profile_name;
     common::auto_exposure_t get_auto_exposure();
     common::ae_ranges_t get_auto_exposure_ranges();
     common::backlight_filter_t get_blacklight();

@@ -10,6 +10,7 @@
 #include <thread>
 #include <unordered_map>
 #include <utility>
+#include <filesystem>
 
 #include "common/isp/v4l2_ctrl.hpp"
 #include "common/common.hpp"
@@ -56,12 +57,30 @@ IspResource::IspResource(std::shared_ptr<EventBus> event_bus, std::shared_ptr<Co
         WEBSERVER_LOG_INFO("Received configure isp notification");
         this->init();
     });
-    subscribe_callback(EventType::SWITCH_PROFILE, [this, config_res](ResourceStateChangeNotification /*notification*/) {
+
+    // Switch profile manually requested
+    subscribe_callback(EventType::SWITCH_PROFILE, [this](ResourceStateChangeNotification /*notification*/) {
+        if (m_isp_filters_manual_state == IspResource::FiltersManualState::FILTER_STATE_MANUAL)
+        {
+            // if MANUAL, reset to AUTO (manual mode doesn't survive a profile switch)
+            m_isp_filters_manual_state = IspResource::FiltersManualState::FILTER_STATE_AUTO;
+        }
+        this->init();
+    });
+
+    subscribe_callback(EventType::PROFILE_UPDATE, [this, config_res](ResourceStateChangeNotification notification) {
+        auto profile_state = notification.getResourceStateFromBase<ProfileState>();
+        const std::string &new_profile_name = profile_state->value.active_profile_name;
+        if (new_profile_name == m_active_profile_name)
+        {
+            // No change in profile, no need to reinitialize
+            return;
+        }
+        m_active_profile_name = new_profile_name;
+        // derives FORCE_AUTO (denoise-on) vs AUTO (denoise-off)
         m_isp_filters_manual_state = config_res->get_denoise_default_config()["enabled"].get<bool>()
                                          ? IspResource::FiltersManualState::FILTER_STATE_FORCE_AUTO
                                          : IspResource::FiltersManualState::FILTER_STATE_AUTO;
-
-        this->init();
     });
     subscribe_callback(EventType::UPDATE_BLENDER, [this](ResourceStateChangeNotification notification) {
         WEBSERVER_LOG_DEBUG("Received update blender notification");
@@ -74,6 +93,10 @@ IspResource::IspResource(std::shared_ptr<EventBus> event_bus, std::shared_ptr<Co
 
 void IspResource::reset_config()
 {
+    // derives FORCE_AUTO (denoise-on) vs AUTO (denoise-off)
+    m_isp_filters_manual_state = m_config_res->get_denoise_default_config()["enabled"].get<bool>()
+                                     ? IspResource::FiltersManualState::FILTER_STATE_FORCE_AUTO
+                                     : IspResource::FiltersManualState::FILTER_STATE_AUTO;
     this->init();
 }
 

@@ -110,9 +110,6 @@ class MediaLibraryMultiResize
      * the next start triggers a fresh output resolutions change callback.
      */
     void clean_on_stop();
-
-    /* Test-only accessor */
-    bool is_denoise_element_enabled() const;
 };
 
 /** @} */ // end of multi_resize_type_definitions

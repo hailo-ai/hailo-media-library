@@ -1,15 +1,20 @@
 #include "metadata_writer.hpp"
 
+#include "media_library/cloexec_fstream.hpp"
+
 #include <algorithm>
 #include <chrono>
+#include <compare>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
+#include <iomanip>
 #include <system_error>
+#include <utility>
 
+#include <jmorecfg.h>
 #include <jpeglib.h>
 
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
@@ -209,7 +214,7 @@ std::vector<uint8_t> MetadataWriter::encode_rgb_to_jpeg(const std::vector<uint8_
 bool MetadataWriter::save_metadata_json(const std::string &cycle_dir, const std::string &json_str)
 {
     const fs::path path = fs::path(cycle_dir) / "metadata.json";
-    std::ofstream out(path, std::ios::out | std::ios::binary | std::ios::trunc);
+    cloexec::ofstream out(path, std::ios::out | std::ios::binary | std::ios::trunc);
     if (!out)
     {
         HAILO_ANALYTICS_LOG_WARN("MetadataWriter: failed to open {} for write", path.string());

@@ -6,6 +6,21 @@ Changelog
 
     .. container:: header, open_by_default
 
+        .. rubric:: Latest Releases
+          :class: changelog
+
+    Comprehensive package updates and release notes are available in the Hailo Vision Processor software package release notes.
+
+.. container:: toggle
+
+    .. container:: header, open_by_default
+
+        .. rubric:: Media Library v1.12.1 (August 2026)
+          :class: changelog
+
+
+        Refer to the Hailo Vision Processor software package release notes
+
         .. rubric:: Media Library v1.12.0 (May 2026)
           :class: changelog
 

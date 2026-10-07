@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <fstream> // IWYU pragma: keep
 #include <iostream>
+#include <optional>
 #include <string>
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "media_library/cloexec_fstream.hpp"

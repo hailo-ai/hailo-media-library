@@ -1,5 +1,6 @@
 #include "common/common.hpp"
 
+#include <ctype.h>
 #include <stdlib.h>
 #include <tl/expected.hpp>
 #include <iostream>
@@ -194,6 +195,21 @@ media_library_return scale_osd_to_output_resolution(MediaLibraryPtr media_lib)
     if (!any_scaled)
         return media_library_return::MEDIA_LIBRARY_SUCCESS;
     return media_lib->set_override_parameters(profile);
+}
+
+Architecture get_architecture()
+{
+    cloexec::ifstream file("/sys/devices/soc0/machine");
+    if (!file.is_open())
+        return Architecture::Unknown;
+    std::string line;
+    std::getline(file, line);
+    std::transform(line.begin(), line.end(), line.begin(), ::tolower);
+    if (line.find("hailo-15l") != std::string::npos)
+        return Architecture::Hailo15L;
+    if (line.find("hailo-15") != std::string::npos)
+        return Architecture::Hailo15H;
+    return Architecture::Unknown;
 }
 
 } // namespace examples

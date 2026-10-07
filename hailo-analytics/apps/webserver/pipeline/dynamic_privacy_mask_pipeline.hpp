@@ -20,8 +20,9 @@ namespace pipeline
 class DynamicPrivacyMaskPipeline : public BasePipeline
 {
   public:
-    DynamicPrivacyMaskPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
-                               RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H);
+    DynamicPrivacyMaskPipeline(webserver::resources::ResourceRepository &resources,
+                               MediaLibraryInterfacePtr media_library, RTPConverterStage &webrtc_stage,
+                               Architecture platform = Architecture::Hailo15H, bool use_hailort_service = false);
     virtual std::string pipeline_name() const override;
     void start() override;
     std::string get_profile_name_by_type(ProfileType type) const override;

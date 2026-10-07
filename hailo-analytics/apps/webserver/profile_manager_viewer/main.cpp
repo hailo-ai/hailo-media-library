@@ -15,10 +15,7 @@
 #include "common/common.hpp"
 #include "resources/common/repository.hpp"
 #include "media_library/signal_utils.hpp"
-#include "hailo_analytics/pipeline/core/buffer.hpp"
 #include "hailo_analytics/pipeline/core/stage.hpp"
-#include "pipeline/isp_blender.hpp"
-#include "resources/common/events_utils.hpp"
 
 #define DEFAULT_CONFIGS_PATH "/etc/imaging/cfg/medialib_configs/"
 #define APPEND_CONFIG_PATH(path) DEFAULT_CONFIGS_PATH path
@@ -33,7 +30,7 @@ using namespace webserver::resources;
 std::atomic<bool> g_profile_manager_stopping(false);
 
 void flags_init(int argc, char *argv[], std::string &medialib_config_path, pipeline_t &initial_pipeline,
-                bool &tuning_mode)
+                bool &tuning_mode, bool &use_medialib_service)
 {
     try
     {
@@ -41,7 +38,11 @@ void flags_init(int argc, char *argv[], std::string &medialib_config_path, pipel
         options.add_options()("config", "Media library configuration path",
                               cxxopts::value<std::string>()->default_value(DEFAULT_MEDIALIB_CONFIG_PATH))(
             "tuning-mode", "Activate ProfileManager pipeline for Tuning Tool (HTTP control, multi-stream)",
-            cxxopts::value<bool>()->default_value("false"))("h,help", "Print usage");
+            cxxopts::value<bool>()->default_value("false"))("use-medialib-service",
+                                                            "Connect to media_library_service instead of hosting the "
+                                                            "media library in this process",
+                                                            cxxopts::value<bool>()->default_value("false"))(
+            "h,help", "Print usage");
 
         auto result = options.parse(argc, argv);
 
@@ -65,6 +66,9 @@ void flags_init(int argc, char *argv[], std::string &medialib_config_path, pipel
         medialib_config_path = config_path;
 
         tuning_mode = result["tuning-mode"].as<bool>();
+        use_medialib_service = result["use-medialib-service"].as<bool>();
+        WEBSERVER_LOG_INFO("Media library mode: {}",
+                           use_medialib_service ? "multi process (client/service)" : "single process");
 
         if (tuning_mode)
         {
@@ -95,9 +99,10 @@ int main(int argc, char *argv[])
     std::string medialib_config_path = "";
     pipeline_t initial_pipeline = pipeline_t::Basic; // Default to Basic
     bool tuning_mode = false;
+    bool use_medialib_service = false;
     Architecture arch = get_hailo_architecture();
 
-    flags_init(argc, argv, medialib_config_path, initial_pipeline, tuning_mode);
+    flags_init(argc, argv, medialib_config_path, initial_pipeline, tuning_mode, use_medialib_service);
 
     // Create HTTP server
     std::unique_ptr<HTTPServer> svr = HTTPServer::create();
@@ -149,7 +154,7 @@ int main(int argc, char *argv[])
     try
     {
         // We use the Factory for all cases to ensure correct construction
-        pipeline_factory = std::make_unique<PipelineFactory>(*resources, arch, initial_pipeline);
+        pipeline_factory = std::make_unique<PipelineFactory>(*resources, arch, initial_pipeline, use_medialib_service);
         if (pipeline_factory->set_override_persistent_settings(false) != AppStatus::SUCCESS)
         {
             WEBSERVER_LOG_ERROR("Failed to set override_persistent_settings");

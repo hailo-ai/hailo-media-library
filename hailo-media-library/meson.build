@@ -1,6 +1,6 @@
 # Project Declaration
 project('media-library', 'c', 'cpp',
-    version : '1.12.1',
+    version : '1.13.0',
     default_options : [ 'warning_level=2', 'werror=true',
                         'buildtype=' + get_option('buildtype'),
                         'c_std=c11', 'cpp_std=c++20']
@@ -8,6 +8,11 @@ project('media-library', 'c', 'cpp',
 
 # Compiler Arguments
 add_global_arguments('-Werror', language : 'cpp')
+
+# MEDIALIB_INTERNAL_API exposes osd::Configurer/Blender and PrivacyMaskConfigurer
+# class declarations in the gated public headers. Project-wide so subdir variable
+# shadowing of common_args cannot accidentally drop it.
+add_project_arguments('-DMEDIALIB_INTERNAL_API', language : 'cpp')
 
 pkgc = import('pkgconfig')
 build_docs = get_option('build_docs')
@@ -65,7 +70,7 @@ medialib_dependencies = [
     freetype_dep,
     harfbuzz_dep,
 ] + gstreamer_deps
-medialib_link_args = ['-lhailo-throttling', '-lcrypto', '-lhantro_vc8000e', '-lm']
+medialib_link_args = ['-lhailo-throttling', '-lcrypto', '-lhantro_vc8000e', '-lm', '-ljpeg']
 
 generated_protobuf_sources = []
 

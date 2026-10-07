@@ -23,8 +23,9 @@ namespace pipeline
 class ClipPipeline : public BasePipeline
 {
   public:
-    ClipPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
-                 RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H);
+    ClipPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryInterfacePtr media_library,
+                 RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H,
+                 bool use_hailort_service = false);
     static bool is_supported(webserver::resources::ResourceRepository &resources);
     static const ClipAppConfig &get_clip_config();
     virtual std::string pipeline_name() const override;

@@ -1,5 +1,10 @@
 #include "jpeg_ring_buffer_stage.hpp"
 
+#include <memory>
+#include <utility>
+
+#include <media_library/buffer_pool.hpp>
+
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
 namespace vlm_event_monitor

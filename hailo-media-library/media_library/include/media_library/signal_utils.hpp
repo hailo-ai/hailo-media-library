@@ -38,6 +38,20 @@ class SignalHandler
 
     // Register the signal handler after pipeline initialization is complete
     void register_signal_handler(hailo_exit_signal_t signal_handler);
+
+    /**
+     * @brief Register a callback that runs on its own thread when SIGINT arrives.
+     *
+     * Unlike register_signal_handler(), the callback does not run inside the signal handler, so it can
+     * safely log, allocate memory or make RPC calls.
+     *
+     * The rest of the program keeps running while the callback runs. Keep the callback small: ask the
+     * program to stop, and let the main thread do the cleanup.
+     *
+     * A second SIGINT (Ctrl+C) while the callback is still running kills the process.
+     */
+    void register_threaded_signal_handler(hailo_exit_signal_t signal_handler);
+
     SignalHandler(bool exit_on_signal = true)
         : signal_flag(false), exit_on_signal(exit_on_signal), signal_handler(nullptr)
     {
@@ -49,7 +63,11 @@ class SignalHandler
     bool exit_on_signal;
     hailo_exit_signal_t signal_handler;
 
+    void install(hailo_exit_signal_t signal_handler, bool threaded);
+    void run_callback(int signal);
+    static void stop_dispatcher();
     static void on_signal_callback(int signal);
+    static void dispatch_signal();
     static SignalHandler *instance;
 };
 

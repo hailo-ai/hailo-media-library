@@ -42,10 +42,13 @@
  *  @{
  */
 
-using PrivacyMaskBlender = class PrivacyMaskConfigurer;
-using PrivacyMaskBlenderPtr = std::shared_ptr<PrivacyMaskBlender>;
 #define MASK_SIZE 128
 using namespace privacy_mask_types;
+
+#if defined(MEDIALIB_INTERNAL_API)
+
+using PrivacyMaskBlender = class PrivacyMaskConfigurer;
+using PrivacyMaskBlenderPtr = std::shared_ptr<PrivacyMaskBlender>;
 
 class PrivacyMaskConfigurer : public std::enable_shared_from_this<PrivacyMaskConfigurer>
 {
@@ -262,5 +265,7 @@ class PrivacyMask
     media_library_return blend(HailoMediaLibraryBufferPtr input_buffer);
     void set_stream_id(const std::string &stream_id);
 };
+
+#endif // MEDIALIB_INTERNAL_API
 
 /** @} */ // end of privacy_mask_definitions

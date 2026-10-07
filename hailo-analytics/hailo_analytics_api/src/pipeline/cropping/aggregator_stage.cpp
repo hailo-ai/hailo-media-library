@@ -385,8 +385,8 @@ AggregatorStageBuild::Builder &AggregatorStageBuild::Builder::set_copy_sub_frame
     return *this;
 }
 
-AggregatorStageBuild::Builder &
-AggregatorStageBuild::Builder::set_subframe_wait_timeout(std::optional<std::chrono::milliseconds> timeout)
+AggregatorStageBuild::Builder &AggregatorStageBuild::Builder::set_subframe_wait_timeout(
+    std::optional<std::chrono::milliseconds> timeout)
 {
     m_subframe_wait_timeout = timeout;
     return *this;
@@ -398,11 +398,11 @@ std::shared_ptr<AggregatorStage> AggregatorStageBuild::Builder::buildptr() const
     THROW_IF_MISSING(m_main_inlet_name.has_value(), "set_main_inlet_name");
     THROW_IF_MISSING(m_sub_inlet_name.has_value(), "set_sub_inlet_name");
 
-    return std::make_shared<AggregatorStage>(
-        m_stage_name.value(), m_main_inlet_name.value(), m_main_queue_size, m_main_queue_leaky,
-        m_sub_inlet_name.value(), m_sub_queue_size, m_sub_queue_leaky, m_multi_scale, m_iou_threshold,
-        m_border_threshold, m_skip_migration, m_trace, m_static_sub_frames, m_copy_sub_frame_tensor_to_metadata,
-        m_subframe_wait_timeout);
+    return std::make_shared<AggregatorStage>(m_stage_name.value(), m_main_inlet_name.value(), m_main_queue_size,
+                                             m_main_queue_leaky, m_sub_inlet_name.value(), m_sub_queue_size,
+                                             m_sub_queue_leaky, m_multi_scale, m_iou_threshold, m_border_threshold,
+                                             m_skip_migration, m_trace, m_static_sub_frames,
+                                             m_copy_sub_frame_tensor_to_metadata, m_subframe_wait_timeout);
 }
 
 AggregatorStageBuild::Builder AggregatorStageBuild::create()

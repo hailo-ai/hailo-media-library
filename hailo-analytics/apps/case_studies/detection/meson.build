@@ -9,7 +9,7 @@ detection_app_src = ['main.cpp']
 executable('detection_case_study',
   detection_app_src,
   cpp_args : hailo_lib_args,
-  dependencies : libhailo_analytics_dep,
+  dependencies : [libhailo_analytics_dep, apps_common_dep],
   gnu_symbol_visibility : 'default',
   install: true,
   install_dir: detection_install_dir,

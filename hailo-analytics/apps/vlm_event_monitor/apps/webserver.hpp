@@ -3,19 +3,13 @@
 #include <memory>
 #include <string>
 
+#include <httplib.h>
 #include <tl/expected.hpp>
 
 #include "utils/vlm_app_config.hpp"
 
-namespace httplib
-{
-class Server;
-class Response;
-} // namespace httplib
-
 namespace vlm_event_monitor
 {
-class ChatSessionBroker;
 class EventStore;
 class SseBroadcaster;
 struct MonitoringStatus;

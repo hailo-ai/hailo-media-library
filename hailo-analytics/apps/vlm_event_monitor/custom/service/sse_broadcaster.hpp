@@ -1,7 +1,8 @@
 #pragma once
 
+#include <stddef.h>
+
 #include <atomic>
-#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -16,7 +17,6 @@
 namespace httplib
 {
 class Response;
-class DataSink;
 } // namespace httplib
 
 namespace vlm_event_monitor

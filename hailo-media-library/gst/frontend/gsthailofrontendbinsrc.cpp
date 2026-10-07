@@ -41,7 +41,6 @@
 #include "common/gstmedialibcommon.hpp"
 #include "config_parser.hpp"
 #include "denoise.hpp"
-#include "dsp_utils.hpp"
 #include "gstmedialibptrs.hpp"
 #include "hdr_manager.hpp"
 #include "pre_isp_denoise.hpp"
@@ -69,8 +68,8 @@ static void gst_hailofrontendbinsrc_release_pad(GstElement *element, GstPad *pad
 static gboolean gst_hailofrontendbinsrc_link_elements(GstElement *element);
 static void gst_hailofrontendbinsrc_dispose(GObject *object);
 static gboolean gst_hailofrontendbinsrc_denoise_enabled_changed(GstHailoFrontendBinSrc *self, bool enabled);
-static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, frontend_config_t &config,
-                                               std::string config_string = "");
+static media_library_return gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, frontend_config_t &config,
+                                                               std::string config_string = "");
 static std::optional<frontend_config_t> gst_hailofrontendbinsrc_load_config(GstHailoFrontendBinSrc *self,
                                                                             const std::string &config_string);
 static bool set_dummy_profile_in_gst_mode(GstHailoFrontendBinSrc *self, const frontend_config_t &frontend_config);
@@ -90,7 +89,8 @@ enum
     PROP_ISP_CONFIG,
     PROP_FREEZE,
     PROP_CONFIG_MANAGER_INTERACTOR,
-    PROP_NUM_BUFFERS
+    PROP_NUM_BUFFERS,
+    PROP_CONFIG_STATUS
 };
 
 // Pad Templates
@@ -173,6 +173,11 @@ static void gst_hailofrontendbinsrc_class_init(GstHailoFrontendBinSrcClass *klas
         g_param_spec_pointer("config-manager-interactor", "Config Manager Interactor pointer",
                              "Pointer to config manager interactor",
                              (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+    g_object_class_install_property(
+        gobject_class, PROP_CONFIG_STATUS,
+        g_param_spec_int("config-status", "Config status",
+                         "media_library_return of the last config, config-string or config-file-path set", 0, G_MAXINT,
+                         MEDIA_LIBRARY_SUCCESS, (GParamFlags)(G_PARAM_READABLE | G_PARAM_STATIC_STRINGS)));
 
     element_class->change_state = GST_DEBUG_FUNCPTR(gst_hailofrontendbinsrc_change_state);
     element_class->request_new_pad = GST_DEBUG_FUNCPTR(gst_hailofrontendbinsrc_request_new_pad);
@@ -280,15 +285,15 @@ static GstStateChangeReturn gst_hailofrontendbinsrc_v4l2src_change_state_wrapper
     return ret;
 }
 
-static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, frontend_config_t &config,
-                                               std::string config_string)
+static media_library_return gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, frontend_config_t &config,
+                                                               std::string config_string)
 {
     if (self->params->m_elements_linked &&
         self->params->m_frontend_config.input_config.resolution != config.input_config.resolution &&
         self->params->m_frontend_config.input_config.sensor_index != config.input_config.sensor_index)
     {
         GST_ERROR_OBJECT(self, "Input Video config cannot be changed while pipeline is running");
-        return;
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
     self->params->m_v4l2_ctrl_manager->set_sensor_index(config.input_config.sensor_index);
@@ -296,7 +301,7 @@ static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, fro
     if (!device_path.has_value())
     {
         GST_ERROR_OBJECT(self, "Failed to get video device path");
-        return;
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
     g_object_set(self->params->m_v4l2src, "device", device_path.value().c_str(), NULL);
 
@@ -306,8 +311,14 @@ static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, fro
     }
     if (!self->params->m_isp_manager->set_config(config))
     {
+        if (self->params->m_isp_manager->last_config_failed_on_dma_memory())
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Not enough contiguous DMA memory for the ISP mode switch, refusing the "
+                                               "new config");
+            return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
+        }
         GST_ERROR_OBJECT(self, "Failed to set ISP manager config");
-        return;
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
     if (self->params->m_frontend_config.input_config != config.input_config)
@@ -330,6 +341,7 @@ static void gst_hailofrontendbinsrc_set_config(GstHailoFrontendBinSrc *self, fro
         g_object_set(self->params->m_frontend, "config-string", config_string.c_str(), NULL);
     }
     g_object_set(self->params->m_frontend, "denoise-config", &(self->params->m_frontend_config), NULL);
+    return MEDIA_LIBRARY_SUCCESS;
 }
 
 static std::optional<frontend_config_t> gst_hailofrontendbinsrc_load_config(GstHailoFrontendBinSrc *self,
@@ -382,6 +394,7 @@ void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id, co
     switch (property_id)
     {
     case PROP_CONFIG_FILE_PATH: {
+        self->params->m_config_status = MEDIA_LIBRARY_CONFIGURATION_ERROR;
         self->params->config_file_path = glib_cpp::get_string_from_gvalue(value);
         GST_DEBUG_OBJECT(self, "config_file_path: %s", self->params->config_file_path.c_str());
         self->params->config_string = gstmedialibcommon::read_json_string_from_file(self->params->config_file_path);
@@ -400,10 +413,12 @@ void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id, co
         }
 
         // Set configurations
-        gst_hailofrontendbinsrc_set_config(self, config.value(), self->params->config_string);
+        self->params->m_config_status =
+            gst_hailofrontendbinsrc_set_config(self, config.value(), self->params->config_string);
         break;
     }
     case PROP_CONFIG_STRING: {
+        self->params->m_config_status = MEDIA_LIBRARY_CONFIGURATION_ERROR;
         self->params->config_string = g_value_get_string(value);
         gstmedialibcommon::strip_string_syntax(self->params->config_string);
         GST_DEBUG_OBJECT(self, "config-string: %s", self->params->config_string.c_str());
@@ -422,10 +437,12 @@ void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id, co
         }
 
         // Set configurations
-        gst_hailofrontendbinsrc_set_config(self, config.value(), self->params->config_string);
+        self->params->m_config_status =
+            gst_hailofrontendbinsrc_set_config(self, config.value(), self->params->config_string);
         break;
     }
     case PROP_CONFIG: {
+        self->params->m_config_status = MEDIA_LIBRARY_CONFIGURATION_ERROR;
         frontend_config_t *config = static_cast<frontend_config_t *>(g_value_get_pointer(value));
         if (!set_dummy_profile_in_gst_mode(self, *config))
         {
@@ -434,7 +451,7 @@ void gst_hailofrontendbinsrc_set_property(GObject *object, guint property_id, co
         }
         g_object_set(self->params->m_frontend, "denoise-config", config, NULL);
         GST_DEBUG_OBJECT(self, "Configure Pre ISP Denoise with config struct");
-        gst_hailofrontendbinsrc_set_config(self, *config);
+        self->params->m_config_status = gst_hailofrontendbinsrc_set_config(self, *config);
         break;
     }
     case PROP_FREEZE: {
@@ -501,6 +518,10 @@ void gst_hailofrontendbinsrc_get_property(GObject *object, guint property_id, GV
     }
     case PROP_ISP_CONFIG: {
         g_value_set_pointer(value, &hailofrontendbinsrc->params->m_frontend_config.isp_config);
+        break;
+    }
+    case PROP_CONFIG_STATUS: {
+        g_value_set_int(value, hailofrontendbinsrc->params->m_config_status);
         break;
     }
     case PROP_FREEZE: {

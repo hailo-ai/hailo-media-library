@@ -42,6 +42,7 @@ namespace osd
 template <typename TConfiguredOverlay, typename TOverlayMap, typename TMissingVector>
 void process_configured_overlays(const std::vector<std::shared_ptr<TConfiguredOverlay>> &configured,
                                  const std::unordered_set<std::string> &pending_removals,
+                                 const std::unordered_map<std::string, OverlayImplPtr> &pending_additions,
                                  const TOverlayMap &overlay_map, std::vector<OverlayImplPtr> &overlays,
                                  std::unordered_set<std::string> &requested_ids, TMissingVector &missing_overlays)
 {
@@ -57,6 +58,11 @@ void process_configured_overlays(const std::vector<std::shared_ptr<TConfiguredOv
         if (it != overlay_map.end())
         {
             overlays.push_back(it->second);
+            requested_ids.insert(overlay->id);
+        }
+        else if (pending_additions.contains(overlay->id))
+        {
+            LOGGER__MODULE__TRACE(MODULE_NAME, "Overlay id={} pending addition, skipping this pass", overlay->id);
             requested_ids.insert(overlay->id);
         }
         else
@@ -195,12 +201,12 @@ std::vector<OverlayImplPtr> OverlayRepository::get_blending_overlays(const confi
                                          m_pending_removals.end());
 
         // Process configured overlays (config structs come from media_library_types.hpp)
-        process_configured_overlays(config.image_overlays, m_pending_removals, m_overlays.image, overlays,
-                                    requested_ids, missing_image_overlays);
-        process_configured_overlays(config.text_overlays, m_pending_removals, m_overlays.text, overlays, requested_ids,
-                                    missing_text_overlays);
-        process_configured_overlays(config.datetime_overlays, m_pending_removals, m_overlays.datetime, overlays,
-                                    requested_ids, missing_datetime_overlays);
+        process_configured_overlays(config.image_overlays, m_pending_removals, m_pending_additions, m_overlays.image,
+                                    overlays, requested_ids, missing_image_overlays);
+        process_configured_overlays(config.text_overlays, m_pending_removals, m_pending_additions, m_overlays.text,
+                                    overlays, requested_ids, missing_text_overlays);
+        process_configured_overlays(config.datetime_overlays, m_pending_removals, m_pending_additions,
+                                    m_overlays.datetime, overlays, requested_ids, missing_datetime_overlays);
 
         // in the case of Custom overlays, just add them all as they are not part of the configurer
         for (const auto &overlay : m_overlays.custom)
@@ -301,30 +307,27 @@ std::vector<OverlayImplPtr> OverlayRepository::get_blending_overlays(const confi
 
 tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_overlay(const ImageOverlay &overlay)
 {
-    {
-        std::unique_lock lock(m_mutex);
-        if (m_pending_additions.contains(overlay.id))
-        {
-            LOGGER__MODULE__TRACE(MODULE_NAME, "Upsert custom overlay skipped (already pending) id={}", overlay.id);
-            return tl::make_unexpected(MEDIA_LIBRARY_SUCCESS);
-        }
-
-        m_pending_additions.insert(overlay.id);
-    }
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Upserting image overlay id={}", overlay.id);
 
-    auto overlay_expected = ImageOverlayImpl::create(overlay);
-    if (!overlay_expected.has_value())
+    ImageOverlayImplPtr impl;
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create image overlay {}", overlay.id);
+        std::unique_lock lock(m_mutex);
+        if (auto it = m_pending_additions.find(overlay.id); it != m_pending_additions.end())
         {
-            std::unique_lock lock(m_mutex);
-            m_pending_additions.erase(overlay.id);
+            LOGGER__MODULE__TRACE(MODULE_NAME, "Upsert overlay skipped (already pending) id={}", overlay.id);
+            return it->second;
         }
-        return tl::make_unexpected(overlay_expected.error());
+
+        auto overlay_expected = ImageOverlayImpl::create(overlay);
+        if (!overlay_expected.has_value())
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create image overlay {}", overlay.id);
+            return tl::make_unexpected(overlay_expected.error());
+        }
+        impl = overlay_expected.value();
+        m_pending_additions[overlay.id] = impl;
     }
 
-    ImageOverlayImplPtr impl = overlay_expected.value();
     if (m_frame_size_set)
     {
         auto ret = impl->create_dsp_overlays(m_frame_width, m_frame_height);
@@ -359,30 +362,27 @@ std::shared_future<tl::expected<OverlayImplPtr, media_library_return>> OverlayRe
 
 tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_overlay(const TextOverlay &overlay)
 {
-    {
-        std::unique_lock lock(m_mutex);
-        if (m_pending_additions.contains(overlay.id))
-        {
-            LOGGER__MODULE__TRACE(MODULE_NAME, "Upsert custom overlay skipped (already pending) id={}", overlay.id);
-            return tl::make_unexpected(MEDIA_LIBRARY_SUCCESS);
-        }
-
-        m_pending_additions.insert(overlay.id);
-    }
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Upserting text overlay id={}", overlay.id);
 
-    auto overlay_expected = TextOverlayImpl::create(overlay);
-    if (!overlay_expected.has_value())
+    TextOverlayImplPtr impl;
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create text overlay {}", overlay.id);
+        std::unique_lock lock(m_mutex);
+        if (auto it = m_pending_additions.find(overlay.id); it != m_pending_additions.end())
         {
-            std::unique_lock lock(m_mutex);
-            m_pending_additions.erase(overlay.id);
+            LOGGER__MODULE__TRACE(MODULE_NAME, "Upsert overlay skipped (already pending) id={}", overlay.id);
+            return it->second;
         }
-        return tl::make_unexpected(overlay_expected.error());
+
+        auto overlay_expected = TextOverlayImpl::create(overlay);
+        if (!overlay_expected.has_value())
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create text overlay {}", overlay.id);
+            return tl::make_unexpected(overlay_expected.error());
+        }
+        impl = overlay_expected.value();
+        m_pending_additions[overlay.id] = impl;
     }
 
-    TextOverlayImplPtr impl = overlay_expected.value();
     if (m_frame_size_set)
     {
         auto ret = impl->create_dsp_overlays(m_frame_width, m_frame_height);
@@ -417,30 +417,27 @@ std::shared_future<tl::expected<OverlayImplPtr, media_library_return>> OverlayRe
 
 tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_overlay(const DateTimeOverlay &overlay)
 {
-    {
-        std::unique_lock lock(m_mutex);
-        if (m_pending_additions.contains(overlay.id))
-        {
-            LOGGER__MODULE__TRACE(MODULE_NAME, "Upsert custom overlay skipped (already pending) id={}", overlay.id);
-            return tl::make_unexpected(MEDIA_LIBRARY_SUCCESS);
-        }
-
-        m_pending_additions.insert(overlay.id);
-    }
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Upserting datetime overlay id={}", overlay.id);
 
-    auto overlay_expected = DateTimeOverlayImpl::create(overlay);
-    if (!overlay_expected.has_value())
+    DateTimeOverlayImplPtr impl;
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create datetime overlay {}", overlay.id);
+        std::unique_lock lock(m_mutex);
+        if (auto it = m_pending_additions.find(overlay.id); it != m_pending_additions.end())
         {
-            std::unique_lock lock(m_mutex);
-            m_pending_additions.erase(overlay.id);
+            LOGGER__MODULE__TRACE(MODULE_NAME, "Upsert overlay skipped (already pending) id={}", overlay.id);
+            return it->second;
         }
-        return tl::make_unexpected(overlay_expected.error());
+
+        auto overlay_expected = DateTimeOverlayImpl::create(overlay);
+        if (!overlay_expected.has_value())
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create datetime overlay {}", overlay.id);
+            return tl::make_unexpected(overlay_expected.error());
+        }
+        impl = overlay_expected.value();
+        m_pending_additions[overlay.id] = impl;
     }
 
-    DateTimeOverlayImplPtr impl = overlay_expected.value();
     if (m_frame_size_set)
     {
         auto ret = impl->create_dsp_overlays(m_frame_width, m_frame_height);
@@ -476,30 +473,27 @@ std::shared_future<tl::expected<OverlayImplPtr, media_library_return>> OverlayRe
 
 tl::expected<OverlayImplPtr, media_library_return> OverlayRepository::upsert_overlay(const CustomOverlay &overlay)
 {
-    {
-        std::unique_lock lock(m_mutex);
-        if (m_pending_additions.contains(overlay.id))
-        {
-            LOGGER__MODULE__TRACE(MODULE_NAME, "Upsert custom overlay skipped (already pending) id={}", overlay.id);
-            return tl::make_unexpected(MEDIA_LIBRARY_SUCCESS);
-        }
-
-        m_pending_additions.insert(overlay.id);
-    }
     LOGGER__MODULE__DEBUG(MODULE_NAME, "Upserting custom overlay id={}", overlay.id);
 
-    auto overlay_expected = CustomOverlayImpl::create(overlay);
-    if (!overlay_expected.has_value())
+    CustomOverlayImplPtr impl;
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create custom overlay {}", overlay.id);
+        std::unique_lock lock(m_mutex);
+        if (auto it = m_pending_additions.find(overlay.id); it != m_pending_additions.end())
         {
-            std::unique_lock lock(m_mutex);
-            m_pending_additions.erase(overlay.id);
+            LOGGER__MODULE__TRACE(MODULE_NAME, "Upsert overlay skipped (already pending) id={}", overlay.id);
+            return it->second;
         }
-        return tl::make_unexpected(overlay_expected.error());
+
+        auto overlay_expected = CustomOverlayImpl::create(overlay);
+        if (!overlay_expected.has_value())
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create custom overlay {}", overlay.id);
+            return tl::make_unexpected(overlay_expected.error());
+        }
+        impl = overlay_expected.value();
+        m_pending_additions[overlay.id] = impl;
     }
 
-    CustomOverlayImplPtr impl = overlay_expected.value();
     if (m_frame_size_set)
     {
         auto ret = impl->create_dsp_overlays(m_frame_width, m_frame_height);

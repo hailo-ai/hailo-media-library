@@ -52,7 +52,7 @@ class OsdResource : public Resource
         std::vector<OsdResourceConfig<osd::TextOverlay>> text_overlays;
         std::vector<OsdResourceConfig<osd::ImageOverlay>> image_overlays;
         std::vector<OsdResourceConfig<osd::DateTimeOverlay>> datetime_overlays;
-        std::string osd_config;
+        config_stream_osd_t osd_config;
         OsdResourceState(nlohmann::json config);
     };
     OsdResource(std::shared_ptr<EventBus> event_bus, std::shared_ptr<ConfigResourceBase> configs);

@@ -84,7 +84,8 @@ bool DspImageEnhancement::init_histogram_dma_buffers()
     }
     m_histogram_eq_params = std::shared_ptr<dsp_histogram_equalization_params_t>(
         m_histogram_eq_dma_buffer, reinterpret_cast<dsp_histogram_equalization_params_t *>(eq_plane_ptr));
-    memset(m_histogram_eq_params.get(), 0, sizeof(dsp_histogram_equalization_params_t));
+    // Identity mapping until the first histogram arrives
+    std::iota(std::begin(m_histogram_eq_params->lut), std::end(m_histogram_eq_params->lut), uint8_t{0});
     return true;
 }
 
@@ -101,7 +102,7 @@ void DspImageEnhancement::sync_histogram_buffers_end()
 }
 
 DspImageEnhancement::DspImageEnhancement()
-    : m_denoise_element_enabled(false), m_enabled(false), m_running(true),
+    : m_enabled(false), m_running(true),
       m_isp_params{
           .enabled = false,
           .auto_luma = false,
@@ -184,7 +185,7 @@ dsp_image_enhancement_params_t DspImageEnhancement::get_default_disabled_dsp_par
                 .saturation_v_b = 0,
             },
         .histogram_params = m_do_histogram_equalization ? m_dsp_histogram_params.get() : nullptr,
-        .histogram_equalization_params = m_do_histogram_equalization ? m_histogram_eq_params.get() : nullptr,
+        .histogram_equalization_params = nullptr,
     };
 
     return params;
@@ -306,16 +307,12 @@ void DspImageEnhancement::update_lut(const Histogram &histogram)
     }
 }
 
-void DspImageEnhancement::update_dsp_params_from_histogram(bool is_denoise_enabled, const Histogram &histogram)
+void DspImageEnhancement::update_dsp_params_from_histogram(const Histogram &histogram)
 {
+    std::shared_lock<std::shared_mutex> lock(m_dsp_params_lock);
     if (m_do_histogram_equalization)
     {
         update_lut(histogram);
-    }
-
-    if (!is_denoise_enabled)
-    {
-        return;
     }
 
     auto [low_percentile_pixel, high_percentile_pixel] =
@@ -324,7 +321,6 @@ void DspImageEnhancement::update_dsp_params_from_histogram(bool is_denoise_enabl
     contrast = std::clamp(contrast, 0.0f, 10.0f);
     brightness = std::clamp(static_cast<int>(brightness), -128, 128);
 
-    std::shared_lock<std::shared_mutex> lock(m_dsp_params_lock);
     // if histogram equalization is enabled, or if we are in manual mode, we don't need to update the
     // contrast and brightness parameters from the histogram
     if (!m_dsp_params.histogram_params || m_do_histogram_equalization)
@@ -457,7 +453,6 @@ void DspImageEnhancement::read_params_from_isp()
                 break; // Exit the loop and stop the thread
             }
         }
-        m_enabled = m_isp_params.enabled;
         // NOTE: static_cast is required here because packed struct fields cannot be passed by reference
         // to variadic functions (such as the logger macro) due to alignment restrictions. Casting to the
         // appropriate value type ensures safe passing by value.
@@ -494,6 +489,7 @@ void DspImageEnhancement::read_params_from_isp()
             m_isp_params.histogram_equalization, static_cast<float>(m_isp_params.histogram_equalization_alpha),
             static_cast<float>(m_isp_params.histogram_equalization_clip_threshold));
         update_dsp_params_from_isp();
+        m_enabled = m_isp_params.enabled;
     }
     mq_close(mq);
 }

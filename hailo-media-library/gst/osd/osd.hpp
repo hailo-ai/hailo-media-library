@@ -40,6 +40,8 @@
 
 namespace osd
 {
+#if defined(MEDIALIB_INTERNAL_API)
+
 class OverlayRepository;
 using OverlayRepositoryPtr = std::shared_ptr<OverlayRepository>;
 
@@ -162,5 +164,7 @@ class OsdBlender
 };
 
 typedef std::shared_ptr<OsdBlender> OsdBlenderPtr;
+
+#endif // MEDIALIB_INTERNAL_API
 
 } // namespace osd

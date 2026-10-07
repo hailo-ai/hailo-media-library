@@ -4,6 +4,8 @@
 #include <cctype>
 #include <sstream>
 
+#include "event_monitor/event_config.hpp"
+
 namespace vlm_event_monitor
 {
 

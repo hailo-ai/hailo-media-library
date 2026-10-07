@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <media_library/media_library.hpp>
 #include <memory>
 #include <mutex>
@@ -9,10 +10,8 @@
 #include "pipeline.hpp"
 #include "resources/common/repository.hpp"
 #include "common/common.hpp"
-#include "hailo_analytics/pipeline/core/buffer.hpp"
 #include "hailo_analytics/pipeline/overlay/overlay_stage.hpp"
 #include "hailo_analytics/pipeline/routing/valve_stage.hpp"
-#include "hailo_analytics/pipeline/sinks/output_module.hpp"
 #include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
 #include "resources/common/events_utils.hpp"
 
@@ -27,7 +26,7 @@ class PipelineFactory
 {
   public:
     PipelineFactory(webserver::resources::ResourceRepository &resources, Architecture platform,
-                    const pipeline_t &initial_pipeline_type = pipeline_t::Basic);
+                    const pipeline_t &initial_pipeline_type = pipeline_t::Basic, bool use_medialib_service = false);
     ~PipelineFactory();
     BasePipeline *get_current_pipeline();
     pipeline_t get_current_pipeline_type();
@@ -35,6 +34,11 @@ class PipelineFactory
     hailo_analytics::pipeline::AppStatus set_override_persistent_settings(bool value);
 
   private:
+    MediaLibraryInterfacePtr create_media_library() const;
+    bool use_hailort_service() const
+    {
+        return m_use_medialib_service;
+    }
     void handle_detections_requirement(bool requires_detections);
     void handle_pipeline_change_event(ResourceStateChangeNotification notification);
     std::unique_ptr<BasePipeline> create_pipeline(const pipeline_t &pipeline_type);
@@ -44,9 +48,11 @@ class PipelineFactory
   private:
     webserver::resources::ResourceRepository &m_resources;
     Architecture m_platform;
-    pipeline_t m_current_pipeline_type;
+    // Written only under m_pipeline_mutex; atomic so GET /ai_pipeline does not wait out a reset or switch.
+    std::atomic<pipeline_t> m_current_pipeline_type;
     std::vector<pipeline_t> m_supported_pipelines;
-    std::shared_ptr<MediaLibrary> m_media_library;
+    MediaLibraryInterfacePtr m_media_library;
+    bool m_use_medialib_service;
     std::unique_ptr<BasePipeline> m_current_pipeline;
     mutable std::mutex m_pipeline_mutex;
     std::unique_ptr<RTPConverterStage> m_webrtc_stage;

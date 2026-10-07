@@ -21,25 +21,35 @@ This application demonstrates how to:
 Prerequisites
 =============
 
-Before running the application, you need to configure the device tree overlay.
-Pick the overlay that matches the platform/sensor combination on the device under test:
+Supported sensor pairs:
 
-**Hailo-15 SBC with two IMX678 sensors (4K @ 15 fps SDR):**
+- **Hailo-15 SBC with two IMX678 sensors** (4K @ 15 fps SDR)
+- **Hailo-15L SBC with two IMX662 sensors** (1080p @ 30 fps SDR)
 
-.. code-block:: bash
+No device-tree configuration is needed:
 
-    $ fw_setenv dtb_overlays '#conf-hailo_hailo15-sbc-sensor-1.dtbo'
-    $ reboot
+- **Hailo-15 SBC and Hailo-15L SBC** (machines ``hailo15-sbc``, ``hailo15l-sbc`` and ``hailo15l-sbc-nand``): U-Boot detects both sensors at boot and adds the device-tree overlays for them, including the lane-wiring overlays of the Hailo-15L SBC.
+- **Hailo-15 EVB with two camera ports** (machine ``hailo15-evb-2-camera-vpu``): sensors are not detected at boot. As in previous releases, the device tree enables both camera ports with a list of candidate sensors, including IMX678, and the kernel probes them. The other EVBs have a single camera port.
 
-**Hailo-15L SBC with two IMX662 sensors (1080p @ 30 fps SDR):**
+On an SBC, the detection result is printed on the U-Boot console, for example on a Hailo-15L SBC with two IMX662 sensors:
 
-The ``hailo15l-sbc-dual-imx662.dtbo`` overlay enables both IMX662 sensors at once
-(sensor 0 on i2c_0/0x10, sensor 1 on i2c_2/0x10). To enable only one of the two,
-use ``hailo15l-sbc-sensor0-imx662.dtbo`` or ``hailo15l-sbc-sensor1-imx662.dtbo``
-instead, separated by ``#`` if applying multiple overlays.
+.. code-block:: text
 
-After the reboot, the system will be ready to run the dual sensor application.
+    sensor: CSI0: imx662 at 0x10
+    sensor: CSI1: imx662 at 0x10
+    sensor: 2-lane link wiring
+    sensor: dual-link
 
+On a Hailo-15 SBC with two IMX678 sensors, the two ``sensor:`` lines report ``imx678 at 0x1a``, and there are no wiring lines.
+
+.. note::
+
+    On an SBC, previous releases required adding an overlay to ``dtb_overlays`` to enable the second sensor. Remove it: run ``fw_printenv dtb_overlays``, set the variable again without the entries below (keep any other overlay, such as the gyro overlay), and reboot.
+
+    - Hailo-15 SBC: ``#conf-hailo_hailo15-sbc-sensor-1.dtbo``. It is no longer needed, and U-Boot keeps it, so it enables camera port 1 even when no sensor is fitted there.
+    - Hailo-15L SBC: ``#conf-hailo_hailo15l-sbc-dual-imx662.dtbo``, ``#conf-hailo_hailo15l-sbc-sensor0-imx662.dtbo`` and ``#conf-hailo_hailo15l-sbc-sensor1-imx662.dtbo``. These overlays no longer exist.
+
+For the full description, including how to force a sensor with ``sensor_override``, see the Boot-Time Sensor Detection chapter of the Hailo Imaging documentation.
 
 Running the Application
 =======================
@@ -76,7 +86,18 @@ To run this application, follow these steps:
 
         $ ./apps/case_studies/dual_sensor_procesing_app/dual_sensor_procesing_app_case_study
 
-It will now be possible to see feeds from both sensors with inference overlays on the host machine.
+Both sensor feeds will now be displayed on the host machine, one per client instance.
+
+.. note::
+
+   This case study builds a streaming-only pipeline (frontend, encoder, UDP). It runs no inference and
+   publishes no analytics metadata, so no detection or landmark overlays are drawn. The viewer still opens
+   its ZeroMQ connection and reports ``ZMQ connected to: ...`` -- that message means the socket was opened,
+   not that metadata is arriving.
+
+   For a dual sensor application that does produce inference overlays, see
+   :doc:`dual_sensor_face_landmarks`, which runs a face landmarks pipeline on sensor 0 and publishes its
+   results over ZeroMQ.
 
 Application at a Glance
 =======================

@@ -7,19 +7,17 @@
 // hailo_analytics_api/streaming/ is tracked as near future phase stage implementation
 
 #include <atomic>
-#include <httplib.h>
 #include <nlohmann/json.hpp>
 #include <rtc/rtc.hpp>
 #include <gst/gst.h>
+#include <memory>
 #include <string>
 #include <thread>
 #include <mutex>
 #include <queue>
 
 #include <cstdint>
-#include <cstddef>
 
-#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/analytics/reference_camera_app_constructor.hpp"
 #include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
 

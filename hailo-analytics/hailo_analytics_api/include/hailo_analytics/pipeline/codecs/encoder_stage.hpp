@@ -35,7 +35,7 @@ namespace hailo_analytics::pipeline::codecs
  * m_analytics_metadata field, delivering AI results without going through the
  * AnalyticsDB singleton.
  */
-class EncoderStage : public hailo_analytics::pipeline::ThreadedStage
+class EncoderStage : public hailo_analytics::pipeline::ThreadedStage, public std::enable_shared_from_this<EncoderStage>
 {
   private:
     MediaLibraryInterfacePtr m_media_library; ///< Shared MediaLibrary interface instance.

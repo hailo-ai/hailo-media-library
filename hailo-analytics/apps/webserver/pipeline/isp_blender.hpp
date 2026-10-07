@@ -15,7 +15,7 @@ class IspBlender
   public:
     IspBlender();
 
-    void set_media_library(MediaLibraryPtr media_library);
+    void set_media_library(MediaLibraryInterfacePtr media_library);
     void unset_media_library();
     automatic_algorithms_config_t get_current_automatic_algorithms_config();
     void set_automatic_algorithms_config(const automatic_algorithms_config_t &config);
@@ -29,7 +29,7 @@ class IspBlender
     void applyProfile(const config_profile_t &cfg) const;
 
     mutable std::recursive_mutex mutex;
-    MediaLibraryPtr m_media_library;
+    MediaLibraryInterfacePtr m_media_library;
     bool pipeline_active;
 };
 } // namespace pipeline

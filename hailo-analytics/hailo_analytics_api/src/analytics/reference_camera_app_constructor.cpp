@@ -22,7 +22,6 @@
 #include "hailo_analytics/pipeline/core/stage.hpp"
 #include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
 #include "hailo_analytics/utils/profile_utils.hpp"
-#include "media_library/cloexec_fstream.hpp"
 
 namespace hailo_analytics::analytics::app_constructor
 {
@@ -129,7 +128,7 @@ tl::expected<std::string, CamAppReturnCode> CameraAppConstructor::get_main_strea
         return output_stream_id;
 }
 
-tl::expected<MediaLibraryPtr, CamAppReturnCode> CameraAppConstructor::get_media_library()
+tl::expected<MediaLibraryInterfacePtr, CamAppReturnCode> CameraAppConstructor::get_media_library()
 {
     if (!m_initialized)
         return tl::unexpected(CamAppReturnCode::UNINITIALIZED);
@@ -162,7 +161,7 @@ tl::expected<bool, CamAppReturnCode> CameraAppConstructor::initialize(CameraAppC
         params.media_library_config_path.empty() ? get_media_config_path().value() : params.media_library_config_path;
     if (params.media_library_component)
     {
-        m_media_library = std::shared_ptr<MediaLibrary>(params.media_library_component, [](MediaLibrary *) {});
+        m_media_library = params.media_library_component;
     }
     else
     {

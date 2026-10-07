@@ -1,6 +1,5 @@
 #include "thumb_storage_stage.hpp"
 
-#include <chrono>
 #include <cstring>
 
 #include "media_library/cloexec_fstream.hpp"

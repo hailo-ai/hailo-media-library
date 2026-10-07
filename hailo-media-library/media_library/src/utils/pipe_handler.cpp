@@ -98,7 +98,7 @@ bool PipeHandler::create_named_pipe(const std::string &path)
 
 int PipeHandler::open_pipe_fd(const std::string &pipe_path)
 {
-    int pipe_fd = open(pipe_path.c_str(), O_RDONLY | O_NONBLOCK);
+    int pipe_fd = open(pipe_path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
     if (pipe_fd == -1)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to open named pipe for reading: {}", strerror(errno));
@@ -267,7 +267,7 @@ bool PipeHandler::write_response(const std::string &response)
     }
 
     // Open response pipe for writing
-    int write_fd = open(m_response_pipe_path.c_str(), O_WRONLY | O_NONBLOCK);
+    int write_fd = open(m_response_pipe_path.c_str(), O_WRONLY | O_NONBLOCK | O_CLOEXEC);
     if (write_fd == -1)
     {
         // This is expected if no process has the pipe open for reading

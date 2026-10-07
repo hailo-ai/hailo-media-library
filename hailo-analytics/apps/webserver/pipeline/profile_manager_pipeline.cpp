@@ -1,7 +1,6 @@
 #include "profile_manager_pipeline.hpp"
 
 #include <stddef.h>
-#include <media_library/media_library_api_types.hpp>
 #include <nlohmann/json.hpp>
 #include <tl/expected.hpp>
 #include <iostream>
@@ -30,8 +29,6 @@
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "hailo_analytics/pipeline/overlay/overlay_stage.hpp"
 #include "hailo_analytics/pipeline/routing/valve_stage.hpp"
-#include "hailo_analytics/pipeline/sinks/output_module.hpp"
-#include "pipeline/isp_blender.hpp"
 #include "resources/common/event_bus.hpp"
 
 using namespace hailo_analytics::pipeline::sinks;
@@ -50,16 +47,16 @@ static std::mutex g_target_profile_mutex;
 static int g_enum_cycler = 0;
 
 ProfileManagerPipeline::ProfileManagerPipeline(webserver::resources::ResourceRepository &resources,
-                                               MediaLibraryPtr media_library, RTPConverterStage &webrtc_stage,
-                                               Architecture platform)
+                                               MediaLibraryInterfacePtr media_library, RTPConverterStage &webrtc_stage,
+                                               Architecture platform, bool use_hailort_service)
     : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight,
-                   PROFILE_MANAGER_SUPPORTED_PROFILES)
+                   PROFILE_MANAGER_SUPPORTED_PROFILES, use_hailort_service)
 {
 }
 
 ProfileManagerPipeline::~ProfileManagerPipeline()
 {
-    stop(true);
+    stop();
 }
 
 std::string ProfileManagerPipeline::pipeline_name() const
@@ -170,7 +167,7 @@ void ProfileManagerPipeline::register_endpoints()
             }
 
             // Perform Switch
-            stop(false); // Pause pipeline
+            stop(); // Pause pipeline
 
             // Update m_stream_4k_name — pick the first non-JPEG stream as the main
             // (WebRTC) stream. std::map iterates alphabetically, so a naive [0]
@@ -401,11 +398,6 @@ void ProfileManagerPipeline::start()
 
 void ProfileManagerPipeline::stop()
 {
-    stop(true);
-}
-
-void ProfileManagerPipeline::stop(bool full_shutdown)
-{
     WEBSERVER_LOG_INFO("Stopping ProfileManager pipeline...");
 
     if (m_app_resources->media_library)
@@ -425,20 +417,6 @@ void ProfileManagerPipeline::stop(bool full_shutdown)
         m_app_resources->pipeline->stop();
     }
 
-    if (!m_app_resources->media_library->m_encoders.empty())
-    {
-        WEBSERVER_LOG_INFO("Stopping Encoders");
-        for (auto &[name, encoder] : m_app_resources->media_library->m_encoders)
-        {
-            if (encoder)
-            {
-                std::cout << ">>> Stopping encoder: " << name << " <<<" << std::endl;
-                encoder->unsubscribe();
-                encoder->stop();
-            }
-        }
-    }
-
     if (m_app_resources->pipeline)
         m_app_resources->pipeline.reset();
     if (m_app_resources->frontend)
@@ -446,24 +424,22 @@ void ProfileManagerPipeline::stop(bool full_shutdown)
     if (!m_app_resources->encoders.empty())
         m_app_resources->encoders.clear();
 
-    if (full_shutdown)
-    {
-        WEBSERVER_LOG_INFO("Shutting down MediaLibrary");
-        std::cout << ">>> Shutting down MediaLibrary... <<<" << std::endl;
-        m_app_resources->media_library->shutdown();
-    }
-
     WEBSERVER_LOG_INFO("ProfileManager pipeline stopped successfully");
 }
 
 bool ProfileManagerPipeline::is_jpeg_encoder() const
 {
-    auto it = m_app_resources->media_library->m_encoders.find(m_stream_4k_name);
-    if (it == m_app_resources->media_library->m_encoders.end())
+    auto profile = m_app_resources->media_library->get_current_profile();
+    if (!profile.has_value())
     {
         return false;
     }
-    return std::holds_alternative<jpeg_encoder_config_t>(it->second->get_config());
+    auto stream = profile->encoded_output_streams.find(m_stream_4k_name);
+    if (stream == profile->encoded_output_streams.end())
+    {
+        return false;
+    }
+    return std::holds_alternative<jpeg_encoder_config_t>(stream->second.encoding);
 }
 
 void ProfileManagerPipeline::update_fps(uint32_t fps, config_profile_t &profile_config)

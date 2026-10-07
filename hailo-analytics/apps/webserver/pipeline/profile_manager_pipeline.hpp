@@ -19,14 +19,14 @@ namespace pipeline
 class ProfileManagerPipeline : public BasePipeline
 {
   public:
-    ProfileManagerPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
-                           RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H);
+    ProfileManagerPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryInterfacePtr media_library,
+                           RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H,
+                           bool use_hailort_service = false);
 
     virtual std::string pipeline_name() const override;
     ~ProfileManagerPipeline() override;
     void start() override;
     void stop() override;
-    void stop(bool full_shutdown = true);
     std::string get_profile_name_by_type(ProfileType type) const override;
     ProfileType get_profile_type_by_name(const std::string &name) const override;
     void register_endpoints() override;

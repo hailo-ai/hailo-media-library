@@ -1,10 +1,17 @@
 #include "vlm_inference_manager.hpp"
+#include "vlm_log_sink.hpp"
 
+#include <ostream>
 #include <chrono>
 #include <cstring>
+#include <exception>
 #include <iomanip>
-#include <iostream>
-#include <sstream>
+#include <ratio>
+#include <utility>
+
+#include <expected.hpp>
+#include <genai/vlm/vlm.hpp>
+#include <hailort.h>
 
 // FNV-1a 64-bit hash — fingerprint input buffers so we can tell across runs
 // whether identical inputs really produced identical bytes.
@@ -66,7 +73,7 @@ tl::expected<std::shared_ptr<VlmInferenceManager>, std::string> VlmInferenceMana
     vdevice_params.group_id = config.group_id.c_str();
     vdevice_params.multi_process_service = true;
 
-    std::cout << "Creating VDevice (group: " << config.group_id << ")..." << std::endl;
+    VLM_LOG_INFO_STREAM("Creating VDevice (group: " << config.group_id << ")...");
     auto vdevice_exp = hailort::VDevice::create(vdevice_params);
     if (!vdevice_exp)
     {
@@ -76,7 +83,7 @@ tl::expected<std::shared_ptr<VlmInferenceManager>, std::string> VlmInferenceMana
     instance->m_vdevice = std::move(vdevice_exp.value());
 
     // Create VLM from HEF
-    std::cout << "Loading VLM from HEF: " << config.hef_path << std::endl;
+    VLM_LOG_INFO_STREAM("Loading VLM from HEF: " << config.hef_path);
     auto vlm_params = hailort::genai::VLMParams(config.hef_path);
     auto vlm_exp = hailort::genai::VLM::create(instance->m_vdevice, vlm_params);
     if (!vlm_exp)
@@ -117,9 +124,10 @@ tl::expected<std::shared_ptr<VlmInferenceManager>, std::string> VlmInferenceMana
     instance->m_input_width = shape.width;
     instance->m_input_channels = shape.features;
 
-    std::cout << "VLM initialized. Input shape: " << shape.height << "x" << shape.width << "x" << shape.features << " ("
-              << instance->m_vlm->input_frame_size() << " bytes). Max tokens: " << config.default_max_generated_tokens
-              << std::endl;
+    VLM_LOG_INFO_STREAM("VLM initialized. Input shape: " << shape.height << "x" << shape.width << "x" << shape.features
+                                                         << " (" << instance->m_vlm->input_frame_size()
+                                                         << " bytes). Max tokens: "
+                                                         << config.default_max_generated_tokens);
 
     instance->m_initialized = true;
     return instance;
@@ -150,7 +158,7 @@ tl::expected<uint32_t, std::string> VlmInferenceManager::create_session()
     state.first_inference = true;
     m_sessions[session_id] = std::move(state);
 
-    std::cout << "Session " << session_id << " created" << std::endl;
+    VLM_LOG_DEBUG_STREAM("Session " << session_id << " created");
     return session_id;
 }
 
@@ -178,7 +186,7 @@ tl::expected<void, std::string> VlmInferenceManager::close_session(uint32_t sess
     }
 
     m_sessions.erase(iter);
-    std::cout << "Session " << session_id << " closed" << std::endl;
+    VLM_LOG_DEBUG_STREAM("Session " << session_id << " closed");
     return {};
 }
 
@@ -222,8 +230,8 @@ tl::expected<void, std::string> VlmInferenceManager::suspend_active_session()
     }
     iter->second.saved_context = std::move(ctx_exp.value());
 
-    std::cout << "Session " << m_active_session_id << " context saved (" << iter->second.saved_context->size()
-              << " bytes)" << std::endl;
+    VLM_LOG_DEBUG_STREAM("Session " << m_active_session_id << " context saved (" << iter->second.saved_context->size()
+                                    << " bytes)");
 
     m_vlm->clear_context();
     m_active_session_id = 0;
@@ -254,7 +262,7 @@ tl::expected<void, std::string> VlmInferenceManager::activate_session(uint32_t s
     // Restore target session if it has saved context
     if (iter->second.saved_context)
     {
-        std::cout << "Restoring session " << session_id << " context..." << std::endl;
+        VLM_LOG_DEBUG_STREAM("Restoring session " << session_id << " context...");
         auto status = m_vlm->load_context(hailort::MemoryView(*iter->second.saved_context));
         if (HAILO_SUCCESS != status)
         {
@@ -394,25 +402,25 @@ tl::expected<InferenceResult, std::string> VlmInferenceManager::run_generate(con
     // "identical" runs can be compared byte-for-byte. If hashes and messages
     // match across runs but output differs, the non-determinism is in the HEF
     // / sampling / device state, not in this app.
-    std::cout << "──── HailoRT generate() payload ────" << std::endl;
-    std::cout << "  max_generated_tokens : " << tokens_to_set << std::endl;
-    std::cout << "  include_system_prompt: " << (include_system_prompt ? "true" : "false") << std::endl;
-    std::cout << "  use_video_mode       : " << (request.use_video_mode ? "true" : "false") << std::endl;
-    std::cout << "  frame_count          : " << frame_buffers.size() << std::endl;
+    VLM_LOG_DEBUG_STREAM("──── HailoRT generate() payload ────");
+    VLM_LOG_DEBUG_STREAM("  max_generated_tokens : " << tokens_to_set);
+    VLM_LOG_DEBUG_STREAM("  include_system_prompt: " << (include_system_prompt ? "true" : "false"));
+    VLM_LOG_DEBUG_STREAM("  use_video_mode       : " << (request.use_video_mode ? "true" : "false"));
+    VLM_LOG_DEBUG_STREAM("  frame_count          : " << frame_buffers.size());
     for (size_t frame_index = 0; frame_index < frame_buffers.size(); frame_index++)
     {
         const auto &buf = frame_buffers[frame_index];
         uint64_t hash = fnv1a_hash(static_cast<const uint8_t *>(buf->data()), buf->size());
-        std::cout << "  frame[" << frame_index << "]             : size=" << buf->size() << " bytes  fnv1a=0x"
-                  << std::hex << std::setw(16) << std::setfill('0') << hash << std::dec << std::setfill(' ')
-                  << std::endl;
+        VLM_LOG_DEBUG_STREAM("  frame[" << frame_index << "]             : size=" << buf->size() << " bytes  fnv1a=0x"
+                                        << std::hex << std::setw(16) << std::setfill('0') << hash << std::dec
+                                        << std::setfill(' '));
     }
-    std::cout << "  messages (" << messages.size() << " entries):" << std::endl;
+    VLM_LOG_DEBUG_STREAM("  messages (" << messages.size() << " entries):");
     for (size_t message_index = 0; message_index < messages.size(); message_index++)
     {
-        std::cout << "    [" << message_index << "] " << messages[message_index] << std::endl;
+        VLM_LOG_DEBUG_STREAM("    [" << message_index << "] " << messages[message_index]);
     }
-    std::cout << "────────────────────────────────────" << std::endl;
+    VLM_LOG_DEBUG_STREAM("────────────────────────────────────");
 
     // Start generation
     auto t_start = std::chrono::steady_clock::now();

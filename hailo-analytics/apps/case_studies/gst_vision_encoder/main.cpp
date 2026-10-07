@@ -47,7 +47,6 @@
 #include <string>
 #include <vector>
 #include <chrono>
-#include <initializer_list>
 #include <iterator>
 #include <memory>
 #include <utility>

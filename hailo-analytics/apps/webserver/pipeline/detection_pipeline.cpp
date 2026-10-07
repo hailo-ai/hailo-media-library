@@ -1,6 +1,5 @@
 #include "detection_pipeline.hpp"
 
-#include <stdint.h>
 #include <hailo_postprocess_tools/objects/hailo_objects.hpp>
 #include <media_library/frontend.hpp>
 #include <tl/expected.hpp>
@@ -11,6 +10,7 @@
 #include <string_view>
 #include <vector>
 #include <memory>
+#include <functional>
 
 #include "common/common.hpp"
 #include "resources/common/isp/common.hpp"
@@ -31,8 +31,6 @@
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "hailo_analytics/pipeline/core/stage.hpp"
 #include "hailo_analytics/pipeline/cropping/tiling_stage.hpp"
-#include "hailo_analytics/pipeline/sinks/output_module.hpp"
-#include "pipeline/isp_blender.hpp"
 #include "hailo_analytics/pipeline/ai/analytics_db_stage.hpp"
 #include "hailo_analytics/pipeline/ai/ai_stage.hpp"
 #include "hailo_analytics/pipeline/routing/valve_stage.hpp"
@@ -66,10 +64,11 @@ namespace detection = hailo_analytics::analytics::detection;
     {ProfileType::Daylight, ProfileType::AiIspGen1, ProfileType::HighDynamicRange, ProfileType::AiIspGen2,             \
      ProfileType::AiIspGen3}
 
-DetectionPipeline::DetectionPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
-                                     RTPConverterStage &webrtc_stage, Architecture platform, bool suppress_metadata_ws)
+DetectionPipeline::DetectionPipeline(webserver::resources::ResourceRepository &resources,
+                                     MediaLibraryInterfacePtr media_library, RTPConverterStage &webrtc_stage,
+                                     Architecture platform, bool suppress_metadata_ws, bool use_hailort_service)
     : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight,
-                   DETECTION_PIPELINE_SUPPORTED_PROFILES),
+                   DETECTION_PIPELINE_SUPPORTED_PROFILES, use_hailort_service),
       m_suppress_metadata_ws(suppress_metadata_ws)
 {
 }
@@ -153,8 +152,6 @@ void DetectionPipeline::build_pipeline()
     if (single_tile)
     {
         tiling_cfg.tiling_config.bbox_tiles = SINGLE_TILE_LAYOUT;
-        tiling_cfg.tiling_config.output_width = ai_width;
-        tiling_cfg.tiling_config.output_height = ai_height;
         tiling_cfg.detection_config.ai_config.batch_size = 1;
         tiling_cfg.detection_config.ai_config.scheduler_threshold = 1;
         tiling_cfg.aggregator_config.multi_scale = false;
@@ -165,6 +162,7 @@ void DetectionPipeline::build_pipeline()
         tiling_cfg.detection_config.ai_config.scheduler_threshold = 5;
     }
     tiling_cfg.detection_config.ai_config.scheduler_timeout = std::chrono::milliseconds(50);
+    tiling_cfg.detection_config.ai_config.use_hailort_service = m_app_resources->use_hailort_service;
 
     const auto &detection_model =
         m_app_resources->platform == Architecture::Hailo15L ? ai_models::YOLOV8N : ai_models::YOLOV8S;
@@ -282,8 +280,7 @@ bool DetectionPipeline::is_single_tile_mode() const
     const bool sensor_match = sensor_type == webserver::common::SensorModel::SENSOR_IMX678 ||
                               sensor_type == webserver::common::SensorModel::SENSOR_IMX675 ||
                               sensor_type == webserver::common::SensorModel::SENSOR_IMX662;
-    const bool profile_match =
-        m_current_profile_type == ProfileType::AiIspGen3 || m_current_profile_type == ProfileType::AiIspGen3_1;
+    const bool profile_match = m_current_profile_type == ProfileType::AiIspGen3;
     return m_app_resources->platform == Architecture::Hailo15L && sensor_match && profile_match;
 }
 

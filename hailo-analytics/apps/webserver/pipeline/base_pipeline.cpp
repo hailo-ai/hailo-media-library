@@ -17,6 +17,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <variant>
 
 #include "pipeline.hpp"
 #include "common/common.hpp"
@@ -25,7 +26,6 @@
 #include "media_library/cloexec_fstream.hpp"
 #include "common/logger_macros.hpp"
 #include "hailo_analytics/pipeline/codecs/encoder_stage.hpp"
-#include "hailo_analytics/pipeline/core/buffer.hpp"
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "hailo_analytics/pipeline/core/stage.hpp"
 #include "hailo_analytics/pipeline/overlay/overlay_stage.hpp"
@@ -40,6 +40,7 @@
 #include "resources/common/repository.hpp"
 #include "resources/common/resources.hpp"
 #include "hailo_analytics/analytics/vision.hpp"
+#include "hailo_analytics/utils/stream_utils.hpp"
 
 #define FRONTEND_STAGE "frontend_stage"
 #define ENCODER_NAME(str) (std::string(str) + "_encoder")
@@ -57,20 +58,28 @@ using namespace webserver::resources;
 
 #define EVENT_SUBSCRIBER_ID "base_pipeline_subscriber"
 
-#define EVENT_SUBSCRIBER_ID "base_pipeline_subscriber"
-
-BasePipeline::BasePipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
+BasePipeline::BasePipeline(webserver::resources::ResourceRepository &resources, MediaLibraryInterfacePtr media_library,
                            RTPConverterStage &webrtc_stage, Architecture platform, ProfileType default_profile,
-                           std::vector<ProfileType> supported_profiles)
+                           std::vector<ProfileType> supported_profiles, bool use_hailort_service)
     : m_resources(resources), m_app_resources(std::make_shared<AppResources>()), m_webrtc_stage(webrtc_stage),
       m_supported_profiles(supported_profiles), m_default_profile(default_profile)
 {
     m_app_resources->media_library = media_library;
-    WEBSERVER_LOG_INFO("initializing Pipeline with platform: {}", ARCHITECTURE_STRING(platform));
+    WEBSERVER_LOG_INFO("initializing Pipeline with platform: {} (hailort_service={})", ARCHITECTURE_STRING(platform),
+                       use_hailort_service);
     m_app_resources->platform = platform;
+    m_app_resources->use_hailort_service = use_hailort_service;
     m_current_profile_type = default_profile;
     m_default_profile_type = default_profile;
     m_rotate_done_in_dewarp = is_env_variable_on(MEDIALIB_DEWARP_DSP_OPTIMIZATION_ENV_VAR);
+    m_profile_switch_valve_delay_ms =
+        get_env_variable_int(HCV_PROFILE_SWITCH_VALVE_DELAY_MS_ENV_VAR, DEFAULT_PROFILE_SWITCH_VALVE_DELAY_MS);
+    if (m_profile_switch_valve_delay_ms < 0)
+    {
+        WEBSERVER_LOG_WARN("Negative profile switch valve delay {} ms, clamping to 0", m_profile_switch_valve_delay_ms);
+        m_profile_switch_valve_delay_ms = 0;
+    }
+    WEBSERVER_LOG_INFO("Profile switch valve delay set to {} ms", m_profile_switch_valve_delay_ms);
     subscribe_callbacks();
 
     m_app_resources->m_isp_blender = std::make_shared<IspBlender>();
@@ -308,18 +317,12 @@ void BasePipeline::stop()
     }
     // Clear analytics DB first to release buffer pool references before stopping stages
     AnalyticsDB::instance().clear_db();
-    auto status = m_app_resources->media_library->shutdown();
-    if (status != media_library_return::MEDIA_LIBRARY_SUCCESS)
-    {
-        WEBSERVER_LOG_ERROR("Failed to shutdown media library, status: {}", status);
-        throw std::runtime_error("Failed to shutdown media library");
-    }
     WEBSERVER_LOG_INFO("BasePipeline stopped successfully");
 }
 
 static bool is_hdr_profile(ProfileType type)
 {
-    return type == ProfileType::HighDynamicRange || type == ProfileType::AiIspGen3_1;
+    return type == ProfileType::HighDynamicRange;
 }
 
 void BasePipeline::subscribe_callbacks()
@@ -376,31 +379,32 @@ void BasePipeline::subscribe_callbacks()
             if (!m_hdr_valve_active)
                 return;
             m_hdr_valve_active = false;
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+            if (m_profile_switch_valve_delay_ms > 0)
+                std::this_thread::sleep_for(std::chrono::milliseconds(m_profile_switch_valve_delay_ms));
             WEBSERVER_LOG_INFO("handeling after reset notification");
             m_resources.m_event_bus->notify(EventType::RESET_ISP, std::make_shared<EmptyState>(EmptyState()));
             m_resources.m_event_bus->notify(EventType::CHANGE_VALVE, std::make_shared<ProfileValveState>(true));
         });
-    m_resources.m_event_bus->subscribe(
-        EVENT_SUBSCRIBER_ID, EventType::RESET_CONFIG, EventPriority::EVENT_PRIORITY_HIGH,
-        [this](ResourceStateChangeNotification /*notification*/) {
-            WEBSERVER_LOG_INFO("Resetting pipeline config to default");
-            m_resources.m_event_bus->notify(EventType::SWITCH_PROFILE,
-                                            std::make_shared<ProfileTypeState>(this->m_default_profile_type));
+}
 
-            auto res = m_app_resources->media_library->reset_profiles();
-            if (res != media_library_return::MEDIA_LIBRARY_SUCCESS)
-            {
-                WEBSERVER_LOG_ERROR("Failed to revert profiles overrides error: {}", res);
-                throw std::runtime_error("Failed to revert profiles overrides");
-            }
+void BasePipeline::reset_config()
+{
+    WEBSERVER_LOG_INFO("Resetting pipeline config to default");
+    m_resources.m_event_bus->notify(EventType::SWITCH_PROFILE,
+                                    std::make_shared<ProfileTypeState>(this->m_default_profile_type));
 
-            auto current_profile = m_app_resources->media_library->get_current_profile().value();
-            std::string reset_profile_name = this->get_profile_name_by_type(m_current_profile_type);
-            m_resources.m_event_bus->notify(EventType::PROFILE_UPDATE, std::make_shared<ProfileState>(ProfileStateData{
-                                                                           current_profile, m_current_profile_type,
-                                                                           reset_profile_name, m_supported_profiles}));
-        });
+    auto res = m_app_resources->media_library->reset_profiles();
+    if (res != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        WEBSERVER_LOG_ERROR("Failed to revert profiles overrides error: {}", res);
+        throw std::runtime_error("Failed to revert profiles overrides");
+    }
+
+    auto current_profile = m_app_resources->media_library->get_current_profile().value();
+    std::string reset_profile_name = this->get_profile_name_by_type(m_current_profile_type);
+    m_resources.m_event_bus->notify(EventType::PROFILE_UPDATE, std::make_shared<ProfileState>(ProfileStateData{
+                                                                   current_profile, m_current_profile_type,
+                                                                   reset_profile_name, m_supported_profiles}));
 }
 
 std::shared_ptr<FrontendStage> BasePipeline::configure_frontend()
@@ -433,12 +437,27 @@ std::shared_ptr<EncoderStage> BasePipeline::configure_encoder_and_osd(const std:
     return m_app_resources->encoders[enc_name];
 }
 
+static std::string resolve_udp_port(const std::string &stream_name)
+{
+    try
+    {
+        return hailo_analytics::utils::port_from_stream_id(stream_name);
+    }
+    catch (const std::exception &error)
+    {
+        WEBSERVER_LOG_WARNING("Cannot derive UDP port for stream '{}' ({}), falling back to port {}", stream_name,
+                              error.what(), HOST_PORT);
+        return HOST_PORT;
+    }
+}
+
 std::shared_ptr<UdpStage> BasePipeline::configure_udp(const std::string &stream_name)
 {
     std::string udp_name = UDP_NAME(stream_name);
-    WEBSERVER_LOG_INFO("Creating udp {}", udp_name);
+    std::string udp_port = resolve_udp_port(stream_name);
+    WEBSERVER_LOG_INFO("Creating udp {} on port {}", udp_name, udp_port);
     std::shared_ptr<UdpStage> udp_stage = std::make_shared<UdpStage>(udp_name);
-    AppStatus udp_config_status = udp_stage->configure(HOST_IP, HOST_PORT, EncodingType::H264);
+    AppStatus udp_config_status = udp_stage->configure(HOST_IP, udp_port, EncodingType::H264);
     if (udp_config_status != AppStatus::SUCCESS)
     {
         std::cerr << "Failed to configure udp " << udp_name << std::endl;
@@ -458,6 +477,33 @@ std::string BasePipeline::read_string_from_file(const char *file_path)
     file_to_read.close();
     WEBSERVER_LOG_INFO("Read config from file: {}", file_path);
     return file_string;
+}
+
+config_profile_t BasePipeline::read_current_profile()
+{
+    auto expected_profile = m_app_resources->media_library->get_current_profile();
+    if (!expected_profile.has_value())
+    {
+        WEBSERVER_LOG_ERROR("Failed to get current profile");
+        throw std::runtime_error("Failed to get current profile");
+    }
+    return expected_profile.value();
+}
+
+hailo_encoder_config_t BasePipeline::read_stream_encoder_config(const config_profile_t &profile)
+{
+    auto stream = profile.encoded_output_streams.find(m_stream_4k_name);
+    if (stream == profile.encoded_output_streams.end())
+    {
+        WEBSERVER_LOG_ERROR("Stream {} not found in current profile", m_stream_4k_name);
+        throw std::runtime_error("Stream not found in current profile");
+    }
+    if (std::holds_alternative<jpeg_encoder_config_t>(stream->second.encoding))
+    {
+        WEBSERVER_LOG_CRITICAL("JPEG encoder config is not supported in webserver");
+        throw std::runtime_error("JPEG encoder config is not supported in webserver");
+    }
+    return std::get<hailo_encoder_config_t>(stream->second.encoding);
 }
 
 ProfileType BasePipeline::get_current_profile() const

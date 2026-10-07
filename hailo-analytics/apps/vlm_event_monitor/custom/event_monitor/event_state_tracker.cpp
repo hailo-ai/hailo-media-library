@@ -1,5 +1,8 @@
 #include "event_state_tracker.hpp"
 
+#include <compare>
+#include <utility>
+
 namespace vlm_event_monitor
 {
 

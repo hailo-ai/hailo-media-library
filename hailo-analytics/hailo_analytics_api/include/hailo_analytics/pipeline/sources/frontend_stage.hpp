@@ -32,7 +32,8 @@ namespace hailo_analytics::pipeline::sources
  * can be subscribed to by different downstream stages.
  * Typically used as a SOURCE stage at the beginning of a pipeline.
  */
-class FrontendStage : public hailo_analytics::pipeline::ThreadedStage
+class FrontendStage : public hailo_analytics::pipeline::ThreadedStage,
+                      public std::enable_shared_from_this<FrontendStage>
 {
   protected:
     MediaLibraryInterfacePtr m_media_library; ///< Shared MediaLibrary interface instance.

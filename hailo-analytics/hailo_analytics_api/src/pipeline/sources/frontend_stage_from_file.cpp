@@ -14,6 +14,7 @@
 #include <ratio>
 #include <stdexcept>
 #include <string>
+#include <functional>
 
 // Media-Library includes
 #include "media_library/buffer_pool.hpp"
@@ -41,7 +42,7 @@ FrontendStageFromFile::FrontendStageFromFile(std::string name, const std::string
     m_file_reader = nullptr;
 }
 
-AppStatus FrontendStageFromFile::create(MediaLibraryPtr media_library)
+AppStatus FrontendStageFromFile::create(MediaLibraryInterfacePtr media_library)
 {
     m_file_reader = std::make_shared<FileReader>(m_stage_name + "_reader", m_file_location, m_width, m_height, m_fps,
                                                  m_loop_enabled);
@@ -116,7 +117,7 @@ AppStatus FrontendStageFromFile::deinit()
     return FrontendStage::deinit();
 }
 
-AppStatus FrontendStageFromFile::configure(MediaLibraryPtr media_library)
+AppStatus FrontendStageFromFile::configure(MediaLibraryInterfacePtr media_library)
 {
     auto current_profile = media_library->get_current_profile();
     if (!current_profile.has_value() ||

@@ -6,12 +6,12 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <optional>
+#include <vector>
 
 #include "media_library/media_library.hpp"
 #include "common/common.hpp"
-#include "media_library/encoder.hpp"
-#include "osd.hpp"
-#include "osd_types.hpp"
+#include "media_library_types.hpp"
 
 struct Arguments
 {
@@ -39,36 +39,69 @@ bool parse_arguments(int argc, char *argv[], Arguments &args)
     return true;
 }
 
+static constexpr const char *STATUS_OVERLAY_ID = "status";
+
 void setup_osd_overlays(MediaLibraryPtr media_lib)
 {
-    std::string font_path = "/usr/share/fonts/ttf/LiberationMono-Bold.ttf";
-    osd::rgba_color_t white = {255, 255, 255, 255};
-    osd::rgba_color_t black = {0, 0, 0, 255};
+    const std::string font_path = "/usr/share/fonts/ttf/LiberationMono-Bold.ttf";
+    const rgba_color_t white = {255, 255, 255, 255};
+    const rgba_color_t black = {0, 0, 0, 255};
 
-    for (const auto &[stream_id, encoder] : media_lib->m_encoders)
+    auto profile_exp = media_lib->get_current_profile();
+    if (!profile_exp.has_value())
     {
-        auto blender = encoder->get_osd_blender();
+        std::cerr << "Failed to get current profile" << std::endl;
+        return;
+    }
+    config_profile_t profile = profile_exp.value();
 
-        osd::TextOverlay status_overlay("status", 0.5, 0.1, "Iteration: 0", white, black, 40.0f, 1, 1, font_path, 0,
-                                        osd::rotation_alignment_policy_t::CENTER);
-        blender->add_overlay(status_overlay);
-        blender->set_overlay_enabled("status", true);
+    auto status_overlay = std::make_shared<TextOverlay>();
+    status_overlay->id = STATUS_OVERLAY_ID;
+    status_overlay->x = 0.5f;
+    status_overlay->y = 0.1f;
+    status_overlay->label = "Iteration: 0";
+    status_overlay->text_color = white;
+    status_overlay->background_color = black;
+    status_overlay->font_size = 40;
+    status_overlay->line_thickness = 1;
+    status_overlay->z_index = 1;
+    status_overlay->font_path = font_path;
+    status_overlay->angle = 0;
+    status_overlay->rotation_alignment_policy = rotation_alignment_policy_t::CENTER;
+
+    for (auto &[stream_id, stream_cfg] : profile.encoded_output_streams)
+    {
+        stream_cfg.osd.text_overlays.push_back(status_overlay);
+    }
+
+    if (media_lib->set_override_parameters(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        std::cerr << "Failed to apply OSD overlays via profile override" << std::endl;
     }
 }
 
 void update_osd_dynamic(MediaLibraryPtr media_lib, int iteration)
 {
-    for (const auto &[stream_id, encoder] : media_lib->m_encoders)
-    {
-        auto blender = encoder->get_osd_blender();
+    auto profile_exp = media_lib->get_current_profile();
+    if (!profile_exp.has_value())
+        return;
+    config_profile_t profile = profile_exp.value();
 
-        auto status_exp = blender->get_overlay("status");
-        if (status_exp.has_value())
+    const std::string new_label = "Iteration: " + std::to_string(iteration);
+    for (auto &[stream_id, stream_cfg] : profile.encoded_output_streams)
+    {
+        for (auto &overlay : stream_cfg.osd.text_overlays)
         {
-            auto status_overlay = std::static_pointer_cast<osd::TextOverlay>(status_exp.value());
-            status_overlay->label = "Iteration: " + std::to_string(iteration);
-            blender->set_overlay(*status_overlay);
+            if (overlay && overlay->id == STATUS_OVERLAY_ID)
+            {
+                overlay->label = new_label;
+            }
         }
+    }
+
+    if (media_lib->set_override_parameters(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        std::cerr << "Failed to update status overlay via profile override" << std::endl;
     }
 }
 

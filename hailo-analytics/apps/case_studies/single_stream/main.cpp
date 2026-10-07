@@ -6,16 +6,14 @@
 #include <iostream>
 #include <chrono>
 #include <condition_variable>
-#include <iterator>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
-#include "media_library/cloexec_fstream.hpp"
+#include "media_library_factory.hpp"
 // medialibrary includes
 #include "media_library/signal_utils.hpp"
 // infra includes
@@ -23,6 +21,9 @@
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "hailo_analytics/utils/profile_utils.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+
+using hailo_analytics::pipeline::AppStatus;
 
 // defines
 #define HOST_IP hailo_analytics::analytics::vision::get_default_host_ip()
@@ -38,7 +39,6 @@ enum class ArgumentType
     Profile,
     HostIP,
     UdpPort,
-    UseMultiProcess,
     Error
 };
 
@@ -64,10 +64,12 @@ cxxopts::Options build_arg_parser()
     ("o,host-ip", "Host IP address for UDP output",
         cxxopts::value<std::string>()->default_value(HOST_IP))
     ("u,udp-port", "UDP output port (default: 5000)",
-        cxxopts::value<std::string>()->default_value(""))
-    ("use-multi-process", "Run media library as multi process client-service instead of unified process",
-        cxxopts::value<bool>()->default_value("false"));
+        cxxopts::value<std::string>()->default_value(""));
     // clang-format on
+
+    options.add_options()(apps::utils::USE_MEDIALIB_SERVICE_OPTION,
+                          "Connect to media_library_service instead of hosting the media library in this process",
+                          cxxopts::value<bool>()->default_value("false"));
 
     return options;
 }
@@ -112,11 +114,6 @@ std::vector<ArgumentType> handle_arguments(const cxxopts::ParseResult &result, c
         arguments.push_back(ArgumentType::UdpPort);
     }
 
-    if (result.count("use-multi-process"))
-    {
-        arguments.push_back(ArgumentType::UseMultiProcess);
-    }
-
     // Handle unrecognized options
     for (const auto &unrecognized : result.unmatched())
     {
@@ -132,66 +129,35 @@ struct AppResources
     MediaLibraryInterfacePtr media_library;
     hailo_analytics::pipeline::PipelinePtr pipeline;
     bool print_fps;
-    bool use_multi_process = false;
+    bool use_medialib_service = false;
     std::string medialib_config_path;
     std::string profile_name;
     std::string host_ip = HOST_IP;
     std::string udp_port;
 };
 
-std::string read_string_from_file(const char *file_path)
-{
-    cloexec::ifstream file_to_read;
-    file_to_read.open(file_path);
-    if (!file_to_read.is_open())
-        throw std::runtime_error(std::string("config path (") + file_path + ") is not valid");
-    std::string file_string((std::istreambuf_iterator<char>(file_to_read)), std::istreambuf_iterator<char>());
-    file_to_read.close();
-    std::cout << "Read config from file: " << file_path << std::endl;
-    return file_string;
-}
-
 /**
- * @brief Configure the frontend and encoders for the application.
+ * @brief Create the media library this app drives and apply its configuration.
  *
- * This function initializes the frontend and sets up encoders for each output stream
- * from the frontend. It reads configuration files to properly configure the components.
+ * Connects to media_library_service unless the app was asked to host the library itself, then
+ * initializes it and selects the requested profile.
  *
  * @param app_resources Shared pointer to the application's resources.
  */
-void configure_media_library(std::shared_ptr<AppResources> app_resources)
+AppStatus configure_media_library(std::shared_ptr<AppResources> app_resources)
 {
-
-    if (app_resources->use_multi_process)
+    auto media_library =
+        apps::utils::create_media_library(app_resources->use_medialib_service, app_resources->medialib_config_path);
+    if (!media_library.has_value())
     {
-        auto media_lib_expected = media_library_service::MediaLibraryClient::create();
-        if (!media_lib_expected.has_value())
-        {
-            std::cout << "Failed to create media library client" << std::endl;
-            throw std::runtime_error("Failed to create media library client");
-        }
-        app_resources->media_library = media_lib_expected.value();
+        return AppStatus::MEDIA_LIBRARY_ERROR;
     }
-    else
-    {
-        auto media_lib_expected = MediaLibrary::create();
-        if (!media_lib_expected.has_value())
-        {
-            std::cout << "Failed to create media library" << std::endl;
-            throw std::runtime_error("Failed to create media library");
-        }
-        app_resources->media_library = media_lib_expected.value();
-    }
-    if (app_resources->media_library->initialize(app_resources->medialib_config_path) !=
-        media_library_return::MEDIA_LIBRARY_SUCCESS)
-    {
-        std::cout << "Failed to initialize media library" << std::endl;
-        throw std::runtime_error("Failed to initialize media library");
-    }
+    app_resources->media_library = media_library.value();
     if (app_resources->profile_name != NO_PROFILE_SELECTED)
     {
         hailo_analytics::utils::set_initial_profile(app_resources->media_library, app_resources->profile_name);
     }
+    return AppStatus::SUCCESS;
 }
 
 /**
@@ -204,14 +170,14 @@ void configure_media_library(std::shared_ptr<AppResources> app_resources)
  *
  * @param app_resources Shared pointer to the application's resources, which includes the pipeline object.
  */
-void create_pipeline(std::shared_ptr<AppResources> app_resources)
+AppStatus create_pipeline(std::shared_ptr<AppResources> app_resources)
 {
     // Get output streams from frontend to configure all outputs
     auto output_streams = app_resources->media_library->get_frontend_output_streams();
     if (!output_streams.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to get output streams from frontend");
-        throw std::runtime_error("Failed to get output streams from frontend");
+        return AppStatus::MEDIA_LIBRARY_ERROR;
     }
 
     // Create base vision configuration and override host IP
@@ -229,9 +195,11 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     if (!pipeline.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create vision pipeline");
-        throw std::runtime_error("Failed to create vision pipeline");
+        return pipeline.error();
     }
     app_resources->pipeline = pipeline.value();
+
+    return AppStatus::SUCCESS;
 }
 
 /**
@@ -290,19 +258,25 @@ int main(int argc, char *argv[])
         case ArgumentType::UdpPort:
             app_resources->udp_port = result["udp-port"].as<std::string>();
             break;
-        case ArgumentType::UseMultiProcess:
-            app_resources->use_multi_process = result["use-multi-process"].as<bool>();
-            break;
         case ArgumentType::Error:
             return 1;
         }
     }
 
-    // Configure media library
-    configure_media_library(app_resources);
+    app_resources->use_medialib_service = result[apps::utils::USE_MEDIALIB_SERVICE_OPTION].as<bool>();
 
-    // Create pipeline and stages
-    create_pipeline(app_resources);
+    // Configure the media library and build the pipeline. Both read configuration the media
+    // library service may have built for a different application. configure_media_library()
+    // reports that as a status; pipeline construction still reports it by throwing.
+    if (configure_media_library(app_resources) != AppStatus::SUCCESS)
+    {
+        return 1;
+    }
+
+    if (create_pipeline(app_resources) != AppStatus::SUCCESS)
+    {
+        return 1;
+    }
 
     // Start pipeline
     std::cout << "Starting." << std::endl;

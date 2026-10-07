@@ -1,6 +1,7 @@
 #include "osd.hpp"
 
 #include <stddef.h>
+#include "media_library/config_parser.hpp"
 #include <iostream>
 #include <regex>
 #include <algorithm>
@@ -233,7 +234,16 @@ void OsdResource::reset_config()
 
 OsdResource::OsdResourceState::OsdResourceState(nlohmann::json config)
 {
-    osd_config = from_osd_config_to_medialib_config(config).dump();
+    // Parse the medialib-format OSD JSON into the profile struct here so the
+    // event handler downstream can consume a struct directly without pulling
+    // in ConfigParser itself.
+    const std::string medialib_osd_json = from_osd_config_to_medialib_config(config).dump();
+    ConfigParser config_parser(CONFIG_SCHEMA_OSD);
+    if (config_parser.config_string_to_struct(medialib_osd_json, osd_config) != MEDIA_LIBRARY_SUCCESS)
+    {
+        WEBSERVER_LOG_ERROR("Failed to parse OSD config string into struct");
+        throw std::runtime_error("Failed to parse OSD config string into struct");
+    }
     for (const char *category : CATEGORIES)
     {
         for (auto &entry : config[category]["items"])

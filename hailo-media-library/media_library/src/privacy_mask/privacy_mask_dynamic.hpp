@@ -5,6 +5,7 @@
 // Not part of the public privacy_mask API.
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 

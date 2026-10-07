@@ -226,7 +226,8 @@ class AggregatorStageBuild : public AggregatorStage
         float m_iou_threshold = 0.3;
         float m_border_threshold = 0.1;
         bool m_copy_sub_frame_tensor_to_metadata = false;
-        std::optional<std::chrono::milliseconds> m_subframe_wait_timeout = AggregatorStage::DEFAULT_SUBFRAME_WAIT_TIMEOUT;
+        std::optional<std::chrono::milliseconds> m_subframe_wait_timeout =
+            AggregatorStage::DEFAULT_SUBFRAME_WAIT_TIMEOUT;
 
       public:
         /**

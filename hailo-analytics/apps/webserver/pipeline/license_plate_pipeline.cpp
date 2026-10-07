@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string_view>
 #include <vector>
+#include <functional>
 
 #include "common/common.hpp"
 #include "resources/configs.hpp"
@@ -28,11 +29,9 @@
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "hailo_analytics/pipeline/core/stage.hpp"
 #include "hailo_analytics/pipeline/routing/valve_stage.hpp"
-#include "hailo_analytics/pipeline/sinks/output_module.hpp"
 #include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
-#include "pipeline/isp_blender.hpp"
-#include "resources/common/events_utils.hpp"
 #include "resources/common/resources.hpp"
+#include "hailo_analytics/pipeline/ai/analytics_db_stage.hpp"
 
 static constexpr std::string_view DETECTION_AI_SINK = "detection_ai";
 
@@ -57,10 +56,10 @@ namespace lpr = hailo_analytics::analytics::license_plate_recognition;
      ProfileType::AiIspGen3}
 
 LicensePlatePipeline::LicensePlatePipeline(webserver::resources::ResourceRepository &resources,
-                                           MediaLibraryPtr media_library, RTPConverterStage &webrtc_stage,
-                                           Architecture platform)
+                                           MediaLibraryInterfacePtr media_library, RTPConverterStage &webrtc_stage,
+                                           Architecture platform, bool use_hailort_service)
     : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight,
-                   LICENSE_PLATE_PIPELINE_SUPPORTED_PROFILES)
+                   LICENSE_PLATE_PIPELINE_SUPPORTED_PROFILES, use_hailort_service)
 {
 }
 
@@ -163,6 +162,8 @@ void LicensePlatePipeline::build_pipeline()
         tiling_cfg.detection_config.ai_config.scheduler_threshold = 1;
     }
 
+    tiling_cfg.detection_config.ai_config.use_hailort_service = m_app_resources->use_hailort_service;
+
     auto detection_pipeline_result =
         tiling::generate_tiling_detection_pipeline(std::string(DETECTION_AI_PIPELINE), tiling_cfg);
     if (!detection_pipeline_result.has_value())
@@ -172,6 +173,7 @@ void LicensePlatePipeline::build_pipeline()
     auto lpr_cfg = lpr_app::default_lpr_config();
     lpr_cfg.bbox_crop_config.input_width = ai_width;
     lpr_cfg.bbox_crop_config.input_height = ai_height;
+    lpr_cfg.ocr_config.ai_config.use_hailort_service = m_app_resources->use_hailort_service;
     auto lpr_pipeline_result = lpr::generate_bbox_crop_ocr_pipeline(std::string(LPR_PIPELINE), lpr_cfg);
     if (!lpr_pipeline_result.has_value())
         throw std::runtime_error("Failed to create license plate OCR pipeline");

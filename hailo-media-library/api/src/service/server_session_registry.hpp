@@ -190,6 +190,18 @@ class ServerSessionRegistry
         return false;
     }
 
+    /**
+     * @brief The client holding the current session, or empty if there is none.
+     *
+     * The single authoritative owner identity for the session: buffer ownership and any
+     * per-stream subscription is attributed to this client.
+     */
+    std::string active_client_id()
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_active_client_id;
+    }
+
   private:
     /** @brief Check whether the active session has exceeded the keepalive timeout. */
     bool is_expired() const

@@ -1,35 +1,53 @@
+/*
+ * Copyright (c) 2017-2026 Hailo Technologies Ltd. All rights reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ */
+
 #include "gsthailojpeg.hpp"
 
-#include <gst/gstghostpad.h>
+#include <gst/gst.h>
 #include <gst/gstparamspecs.h>
 #include <gst/video/video-format.h>
-#include <stdio.h>
-#include <fstream>
-#include <variant>
-#include <map>
-#include <memory>
-#include <optional>
+#include <gst/video/video-info.h>
+#include <gst/video/video.h>
+#include <jpeglib.h>
+#include <stddef.h>
 
-#include "media_library/buffer_pool.hpp"
-#include "common/gstmedialibcommon.hpp"
+#include <tl/expected.hpp>
+#include <utility>
+#include <variant>
+#include <vector>
+
 #include "buffer_utils.hpp"
-#include "media_library/encoder_config_types.hpp"
 #include "gstmedialibptrs.hpp"
+#include "jpeg_encoder.hpp"
+#include "media_library/buffer_pool.hpp"
+#include "media_library/encoder_config_types.hpp"
 #include "media_library_types.hpp"
 
 GST_DEBUG_CATEGORY_STATIC(gst_hailojpegenc_debug_category);
 #define GST_CAT_DEFAULT gst_hailojpegenc_debug_category
-
-#define INNER_QUEUE_SIZE 3
 
 #define gst_hailojpegenc_parent_class parent_class
 
 static void gst_hailojpegenc_set_property(GObject *object, guint property_id, const GValue *value, GParamSpec *pspec);
 static void gst_hailojpegenc_get_property(GObject *object, guint property_id, GValue *value, GParamSpec *pspec);
 static void gst_hailojpegenc_dispose(GObject *object);
-void construct_internal_pipeline(GstHailoJpegEnc *hailojpegenc);
-bool link_elements(GstHailoJpegEnc *hailojpegenc);
-void clear_internal_pipeline(GstHailoJpegEnc *hailojpegenc);
+static gboolean gst_hailojpegenc_start(GstVideoEncoder *encoder);
+static gboolean gst_hailojpegenc_stop(GstVideoEncoder *encoder);
+static gboolean gst_hailojpegenc_set_format(GstVideoEncoder *encoder, GstVideoCodecState *state);
+static GstFlowReturn gst_hailojpegenc_handle_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *frame);
+static void apply_user_config(GstHailoJpegEnc *self, const jpeg_encoder_config_t &new_config);
 
 GType gst_idct_method_get_type(void)
 {
@@ -59,24 +77,21 @@ enum
 };
 
 #define _do_init GST_DEBUG_CATEGORY_INIT(gst_hailojpegenc_debug_category, "hailojpegenc", 0, "hailojpegenc element");
-#define gst_hailo_encoder_parent_class parent_class
-G_DEFINE_TYPE_WITH_CODE(GstHailoJpegEnc, gst_hailojpegenc, GST_TYPE_BIN, _do_init);
+G_DEFINE_TYPE_WITH_CODE(GstHailoJpegEnc, gst_hailojpegenc, GST_TYPE_VIDEO_ENCODER, _do_init);
 
-GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE("src", GST_PAD_SRC, GST_PAD_ALWAYS,
-                                                            GST_STATIC_CAPS("image/jpeg, "
-                                                                            "width = (int) [ 1, 65535 ], "
-                                                                            "height = (int) [ 1, 65535 ], "
-                                                                            "framerate = (fraction) [ 0/1, MAX ], "
-                                                                            "sof-marker = (int) { 0, 1, 2, 4, 9 }"));
+static GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE(
+    "src", GST_PAD_SRC, GST_PAD_ALWAYS,
+    GST_STATIC_CAPS("image/jpeg, width = (int) [ 1, 65535 ], height = (int) [ 1, 65535 ], "
+                    "framerate = (fraction) [ 0/1, MAX ], sof-marker = (int) { 0, 1, 2, 4, 9 }"));
 
-GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE(
-    "sink", GST_PAD_SINK, GST_PAD_ALWAYS,
-    GST_STATIC_CAPS(GST_VIDEO_CAPS_MAKE("{ I420, YV12, YUY2, UYVY, Y41B, Y42B, YVYU, Y444, NV21, "
-                                        "NV12, RGB, BGR, RGBx, xRGB, BGRx, xBGR, GRAY8 }")));
+static GstStaticPadTemplate sink_template =
+    GST_STATIC_PAD_TEMPLATE("sink", GST_PAD_SINK, GST_PAD_ALWAYS, GST_STATIC_CAPS(GST_VIDEO_CAPS_MAKE("NV12")));
 
 static void gst_hailojpegenc_class_init(GstHailoJpegEncClass *klass)
 {
     GObjectClass *gobject_class = G_OBJECT_CLASS(klass);
+    GstElementClass *element_class = GST_ELEMENT_CLASS(klass);
+    GstVideoEncoderClass *venc_class = GST_VIDEO_ENCODER_CLASS(klass);
 
     gobject_class->set_property = gst_hailojpegenc_set_property;
     gobject_class->get_property = gst_hailojpegenc_get_property;
@@ -109,37 +124,54 @@ static void gst_hailojpegenc_class_init(GstHailoJpegEncClass *klass)
         g_param_spec_pointer("user-config", "Encoder user config",
                              "Encoder user config, used for setting the encoder configuration",
                              (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
+
+    gst_element_class_add_static_pad_template(element_class, &src_template);
+    gst_element_class_add_static_pad_template(element_class, &sink_template);
+    gst_element_class_set_static_metadata(element_class, "Hailo JPEG encoder", "Codec/Encoder/Image",
+                                          "Single-element JPEG encoder backed by JpegEncoder (libjpeg)",
+                                          "hailo.ai <contact@hailo.ai>");
+
+    venc_class->start = GST_DEBUG_FUNCPTR(gst_hailojpegenc_start);
+    venc_class->stop = GST_DEBUG_FUNCPTR(gst_hailojpegenc_stop);
+    venc_class->set_format = GST_DEBUG_FUNCPTR(gst_hailojpegenc_set_format);
+    venc_class->handle_frame = GST_DEBUG_FUNCPTR(gst_hailojpegenc_handle_frame);
 }
 
-void handle_new_config(GstHailoJpegEnc *hailojpegenc, std::optional<jpeg_encoder_config_t> old_encoder_config,
-                       jpeg_encoder_config_t new_encoder_config)
+static void gst_hailojpegenc_init(GstHailoJpegEnc *self)
 {
-    if ((!old_encoder_config))
-    {
-        // need to clean old pipeline that was set in init
-        clear_internal_pipeline(hailojpegenc);
-        hailojpegenc->params->num_of_threads = new_encoder_config.n_threads;
-        construct_internal_pipeline(hailojpegenc);
-    }
-    else if (old_encoder_config->n_threads != new_encoder_config.n_threads)
-    {
-        GST_WARNING_OBJECT(hailojpegenc, "Changing number of threads while running is not supported");
-    }
+    self->params = new GstHailoJpegEncParams();
+    self->params->jpeg_encoder = std::make_unique<JpegEncoder>();
+    jpeg_encoder_config_t initial{};
+    initial.quality = JPEG_DEFAULT_QUALITY;
+    initial.n_threads = DEFAULT_NUM_OF_THREADS;
+    self->params->jpeg_encoder->configure(initial);
+}
 
-    if ((!old_encoder_config) || old_encoder_config->quality != new_encoder_config.quality)
+static void gst_hailojpegenc_dispose(GObject *object)
+{
+    GstHailoJpegEnc *self = GST_HAILOJPEGENC(object);
+    if (self->params != nullptr)
     {
-        hailojpegenc->params->jpeg_quality = new_encoder_config.quality;
-        for (auto jpegenc : hailojpegenc->params->m_jpegencs)
-        {
-            g_object_set(jpegenc, "quality", hailojpegenc->params->jpeg_quality, NULL);
-        }
+        self->params->jpeg_encoder.reset();
+        delete self->params;
+        self->params = nullptr;
     }
+    G_OBJECT_CLASS(parent_class)->dispose(object);
+}
+
+static void apply_user_config(GstHailoJpegEnc *self, const jpeg_encoder_config_t &new_config)
+{
+    self->params->jpeg_quality = static_cast<int>(new_config.quality);
+    if (new_config.n_threads != 0)
+    {
+        self->params->num_of_threads = new_config.n_threads;
+    }
+    self->params->jpeg_encoder->configure(new_config);
 }
 
 static void gst_hailojpegenc_set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
 {
-    GstHailoJpegEnc *hailojpegenc = GST_HAILOJPEGENC(object);
-    GST_DEBUG_OBJECT(hailojpegenc, "set_property");
+    GstHailoJpegEnc *self = GST_HAILOJPEGENC(object);
 
     if ((object == nullptr) || (value == nullptr) || (pspec == nullptr))
     {
@@ -150,33 +182,41 @@ static void gst_hailojpegenc_set_property(GObject *object, guint prop_id, const 
     switch (prop_id)
     {
     case PROP_STREAM_ID: {
-        hailojpegenc->params->stream_id = std::string(g_value_get_string(value));
+        const gchar *str = g_value_get_string(value);
+        self->params->stream_id = str ? str : std::string();
         break;
     }
-    case PROP_MIN_FORCE_KEY_UNIT_INTERVAL: {
-        hailojpegenc->params->jpegenc_min_force_key_unit_interval = g_value_get_uint64(value);
-        for (auto jpegenc : hailojpegenc->params->m_jpegencs)
+    case PROP_MIN_FORCE_KEY_UNIT_INTERVAL:
+        self->params->jpegenc_min_force_key_unit_interval = g_value_get_uint64(value);
+        break;
+    case PROP_IDCT_METHOD:
+        self->params->jpeg_idct_method = g_value_get_enum(value);
+        break;
+    case PROP_USER_CONFIG: {
+        encoder_config_t *cfg = static_cast<encoder_config_t *>(g_value_get_pointer(value));
+        if (cfg != nullptr)
         {
-            g_object_set(jpegenc, "min-force-key-unit-interval",
-                         hailojpegenc->params->jpegenc_min_force_key_unit_interval, NULL);
+            self->params->encoder_user_config = *cfg;
+            if (std::holds_alternative<jpeg_encoder_config_t>(*cfg))
+            {
+                apply_user_config(self, std::get<jpeg_encoder_config_t>(*cfg));
+            }
+            else
+            {
+                GST_WARNING_OBJECT(self, "user-config is not a jpeg_encoder_config_t variant; ignored");
+            }
         }
         break;
     }
-    case PROP_IDCT_METHOD: {
-        hailojpegenc->params->jpeg_idct_method = g_value_get_enum(value);
-        for (auto jpegenc : hailojpegenc->params->m_jpegencs)
-        {
-            g_object_set(jpegenc, "idct-method", hailojpegenc->params->jpeg_idct_method, NULL);
-        }
+    default:
+        G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
         break;
-    }
     }
 }
 
 static void gst_hailojpegenc_get_property(GObject *object, guint property_id, GValue *value, GParamSpec *pspec)
 {
-    GstHailoJpegEnc *hailojpegenc = GST_HAILOJPEGENC(object);
-    GST_DEBUG_OBJECT(hailojpegenc, "get_property");
+    GstHailoJpegEnc *self = GST_HAILOJPEGENC(object);
 
     if ((object == nullptr) || (value == nullptr) || (pspec == nullptr))
     {
@@ -186,191 +226,175 @@ static void gst_hailojpegenc_get_property(GObject *object, guint property_id, GV
 
     switch (property_id)
     {
-    case PROP_MIN_FORCE_KEY_UNIT_INTERVAL: {
-        g_value_set_uint64(value, hailojpegenc->params->jpegenc_min_force_key_unit_interval);
+    case PROP_STREAM_ID:
+        g_value_set_string(value, self->params->stream_id.c_str());
         break;
-    }
-    case PROP_IDCT_METHOD: {
-        g_value_set_enum(value, hailojpegenc->params->jpeg_idct_method);
+    case PROP_MIN_FORCE_KEY_UNIT_INTERVAL:
+        g_value_set_uint64(value, self->params->jpegenc_min_force_key_unit_interval);
         break;
-    }
+    case PROP_IDCT_METHOD:
+        g_value_set_enum(value, self->params->jpeg_idct_method);
+        break;
+    case PROP_CONFIG:
+        g_value_set_pointer(value, &self->params->encoder_user_config);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
     }
 }
 
-static GstPadProbeReturn configure_on_new_config(GstPad *sinkpad, GstPadProbeInfo *info, gpointer _hailojpegenc)
+static GstBuffer *wrap_encoded_bitstream(GstHailoJpegEnc *self, JpegEncoder::EncodedFrame &out)
 {
-    GstHailoJpegEnc *hailojpegenc = static_cast<GstHailoJpegEnc *>(_hailojpegenc);
-
-    if (!GST_PAD_PROBE_INFO_BUFFER(info))
+    auto *owned_bitstream = new std::vector<uint8_t>(std::move(out.bitstream));
+    const size_t bitstream_size = owned_bitstream->size();
+    GstBuffer *output_buffer = gst_buffer_new_wrapped_full(
+        static_cast<GstMemoryFlags>(0), owned_bitstream->data(), bitstream_size, 0, bitstream_size, owned_bitstream,
+        [](gpointer p) { delete static_cast<std::vector<uint8_t> *>(p); });
+    if (output_buffer == nullptr)
     {
-        GST_ERROR_OBJECT(hailojpegenc, "Probe info does not contain a buffer");
-        return GST_PAD_PROBE_OK;
+        delete owned_bitstream;
+        GST_ERROR_OBJECT(self, "Failed to wrap JPEG bitstream (%zu bytes) in GstBuffer", bitstream_size);
     }
+    return output_buffer;
+}
 
-    GstBuffer *buffer = GST_PAD_PROBE_INFO_BUFFER(info); // cannot be casted to GstBufferPtr
-    GstCapsPtr caps = gst_pad_get_current_caps(sinkpad);
-    HailoMediaLibraryBufferPtr hailo_buffer = hailo_buffer_from_gst_buffer(buffer, caps);
+static void completion_thread_loop(GstHailoJpegEnc *self)
+{
+    GstVideoEncoder *encoder = GST_VIDEO_ENCODER(self);
+    auto *params = self->params;
+    while (true)
+    {
+        GstVideoCodecFrame *frame = nullptr;
+        {
+            std::unique_lock<std::mutex> lock(params->pending_mtx);
+            params->pending_cv.wait(
+                lock, [params]() { return params->stop_completion.load() || !params->pending_frames.empty(); });
+            if (params->pending_frames.empty())
+            {
+                return;
+            }
+            frame = params->pending_frames.front();
+            params->pending_frames.pop();
+        }
 
+        auto encoded = params->jpeg_encoder->dequeue();
+        if (!encoded.has_value())
+        {
+            GST_ERROR_OBJECT(self, "JpegEncoder::dequeue returned %d; dropping frame",
+                             static_cast<int>(encoded.error()));
+            frame->output_buffer = nullptr;
+            gst_video_encoder_finish_frame(encoder, frame);
+            continue;
+        }
+
+        GstBuffer *output_buffer = wrap_encoded_bitstream(self, encoded.value());
+        if (output_buffer == nullptr)
+        {
+            frame->output_buffer = nullptr;
+            gst_video_encoder_finish_frame(encoder, frame);
+            continue;
+        }
+        frame->output_buffer = output_buffer;
+        gst_video_encoder_finish_frame(encoder, frame);
+    }
+}
+
+static gboolean gst_hailojpegenc_start(GstVideoEncoder *encoder)
+{
+    GstHailoJpegEnc *self = GST_HAILOJPEGENC(encoder);
+    GST_INFO_OBJECT(self, "hailojpegenc start (stream-id='%s')", self->params->stream_id.c_str());
+
+    jpeg_encoder_config_t cfg{};
+    cfg.quality = static_cast<uint32_t>(self->params->jpeg_quality);
+    cfg.n_threads = self->params->num_of_threads;
+    self->params->jpeg_encoder->configure(cfg);
+
+    self->params->stop_completion.store(false);
+    self->params->completion_thread = std::thread(completion_thread_loop, self);
+    return TRUE;
+}
+
+static gboolean gst_hailojpegenc_stop(GstVideoEncoder *encoder)
+{
+    GstHailoJpegEnc *self = GST_HAILOJPEGENC(encoder);
+    GST_INFO_OBJECT(self, "hailojpegenc stop");
+    {
+        std::lock_guard<std::mutex> lock(self->params->pending_mtx);
+        self->params->stop_completion.store(true);
+    }
+    self->params->pending_cv.notify_all();
+
+    // Stop the encoder's worker pool BEFORE joining the completion thread. If the
+    // completion thread is parked inside JpegEncoder::dequeue() waiting for an in-flight
+    // frame's done flag, only the worker can wake it -- and the worker may take an
+    // arbitrary time to finish (or never, in pathological cases). stop_workers() forces
+    // the wake by setting m_stop and notifying m_out_ready, so dequeue() returns and
+    // the completion thread exits its loop.
+    self->params->jpeg_encoder->stop_workers();
+
+    if (self->params->completion_thread.joinable())
+    {
+        self->params->completion_thread.join();
+    }
+    return TRUE;
+}
+
+static gboolean gst_hailojpegenc_set_format(GstVideoEncoder *encoder, GstVideoCodecState *state)
+{
+    GstHailoJpegEnc *self = GST_HAILOJPEGENC(encoder);
+
+    GstCaps *output_caps = gst_caps_new_simple("image/jpeg", "width", G_TYPE_INT, GST_VIDEO_INFO_WIDTH(&state->info),
+                                               "height", G_TYPE_INT, GST_VIDEO_INFO_HEIGHT(&state->info), "framerate",
+                                               GST_TYPE_FRACTION, GST_VIDEO_INFO_FPS_N(&state->info),
+                                               GST_VIDEO_INFO_FPS_D(&state->info), "sof-marker", G_TYPE_INT, 0, NULL);
+
+    GstVideoCodecState *out_state = gst_video_encoder_set_output_state(encoder, output_caps, state);
+    if (out_state == nullptr)
+    {
+        GST_ERROR_OBJECT(self, "Failed to set output state");
+        return FALSE;
+    }
+    gst_video_codec_state_unref(out_state);
+    return gst_video_encoder_negotiate(encoder);
+}
+
+static GstFlowReturn gst_hailojpegenc_handle_frame(GstVideoEncoder *encoder, GstVideoCodecFrame *frame)
+{
+    GstHailoJpegEnc *self = GST_HAILOJPEGENC(encoder);
+
+    GstCapsPtr caps = gst_pad_get_current_caps(GST_VIDEO_ENCODER_SINK_PAD(encoder));
+    HailoMediaLibraryBufferPtr hailo_buffer = hailo_buffer_from_gst_buffer(frame->input_buffer, caps);
     if (!hailo_buffer)
     {
-        GST_ERROR_OBJECT(hailojpegenc, "Failed to get hailo buffer from gst buffer");
-        return GST_PAD_PROBE_OK;
+        GST_ERROR_OBJECT(self, "Failed to wrap input GstBuffer for JpegEncoder");
+        gst_video_codec_frame_unref(frame);
+        return GST_FLOW_ERROR;
     }
 
-    encoder_config_t attached_encoder_config =
-        hailo_buffer->get_attached_profile()->encoded_output_streams.at(hailojpegenc->params->stream_id).encoding;
-
-    if (attached_encoder_config == hailojpegenc->params->encoder_user_config)
+    auto rc = self->params->jpeg_encoder->submit(hailo_buffer);
+    if (rc != MEDIA_LIBRARY_SUCCESS)
     {
-        return GST_PAD_PROBE_OK;
+        GST_ERROR_OBJECT(self, "JpegEncoder::submit returned %d", static_cast<int>(rc));
+        gst_video_codec_frame_unref(frame);
+        return rc == MEDIA_LIBRARY_UNINITIALIZED ? GST_FLOW_FLUSHING : GST_FLOW_ERROR;
     }
 
-    auto old_encoder_config = std::get<jpeg_encoder_config_t>(hailojpegenc->params->encoder_user_config);
-    hailojpegenc->params->encoder_user_config = attached_encoder_config;
-    auto new_encoder_config = std::get<jpeg_encoder_config_t>(hailojpegenc->params->encoder_user_config);
-    handle_new_config(hailojpegenc, old_encoder_config, new_encoder_config);
-
-    return GST_PAD_PROBE_OK;
-}
-
-void init_ghost_sink(GstHailoJpegEnc *hailojpegenc)
-{
-    const gchar *pad_name = "sink";
-    GstPadPtr pad = gst_element_get_static_pad(hailojpegenc->params->m_roundrobin, pad_name);
-
-    GstPadTemplatePtr pad_tmpl = gst_static_pad_template_get(&sink_template);
-
-    GstPadPtr ghost_pad = gst_ghost_pad_new_from_template("sink", pad, pad_tmpl);
-    gst_pad_set_active(ghost_pad, TRUE);
-    gst_pad_add_probe(ghost_pad, GST_PAD_PROBE_TYPE_BUFFER, configure_on_new_config, hailojpegenc, NULL);
-    glib_cpp::ptrs::add_pad_to_element(GST_ELEMENT(hailojpegenc), ghost_pad);
-}
-
-void init_ghost_src(GstHailoJpegEnc *hailojpegenc)
-{
-    const gchar *pad_name = "src";
-
-    GstPadPtr pad = gst_element_get_static_pad(hailojpegenc->params->m_hailoroundrobin, pad_name);
-
-    GstPadTemplatePtr pad_tmpl = gst_static_pad_template_get(&src_template);
-
-    GstPadPtr ghost_pad = gst_ghost_pad_new_from_template("src", pad, pad_tmpl);
-    gst_pad_set_active(ghost_pad, TRUE);
-    glib_cpp::ptrs::add_pad_to_element(GST_ELEMENT(hailojpegenc), ghost_pad);
-}
-
-bool link_elements(GstHailoJpegEnc *hailojpegenc)
-{
-    for (uint i = 0; i < hailojpegenc->params->num_of_threads; i++)
+    // stop_completion is checked under pending_mtx -- the lock stop() also takes -- so a frame
+    // can't slip in after the completion thread has exited. Trade-off: if stop_completion
+    // flips between submit() above and the lock here, the submitted job becomes a bounded
+    // orphan in JpegEncoder's m_out_queue (no matching pending_frames entry, so the
+    // completion thread won't dequeue it). It's reclaimed when the encoder is next
+    // configure()d or destroyed -- bounded by n_threads and not a leak.
     {
-        if (!gst_element_link_many(hailojpegenc->params->m_roundrobin, hailojpegenc->params->m_queues[i],
-                                   hailojpegenc->params->m_jpegencs[i], hailojpegenc->params->m_hailoroundrobin, NULL))
+        std::lock_guard<std::mutex> lock(self->params->pending_mtx);
+        if (self->params->stop_completion.load())
         {
-            GST_ERROR_OBJECT(hailojpegenc, "Could not add link elements in bin");
-            return false;
+            gst_video_codec_frame_unref(frame);
+            return GST_FLOW_FLUSHING;
         }
+        self->params->pending_frames.push(frame);
     }
-    return true;
-}
-
-void clear_internal_pipeline(GstHailoJpegEnc *hailojpegenc)
-{
-    GST_DEBUG_OBJECT(hailojpegenc, "clear_internal_pipeline");
-    for (uint i = 0; i < hailojpegenc->params->num_of_threads; i++)
-    {
-        gboolean remove_success = gst_bin_remove(GST_BIN(hailojpegenc), hailojpegenc->params->m_queues[i]);
-        if (!remove_success)
-        {
-            GST_ERROR_OBJECT(hailojpegenc, "Could not remove queue element from bin");
-        }
-
-        remove_success = gst_bin_remove(GST_BIN(hailojpegenc), hailojpegenc->params->m_jpegencs[i]);
-        if (!remove_success)
-        {
-            GST_ERROR_OBJECT(hailojpegenc, "Could not remove jpegenc element from bin");
-        }
-    }
-    hailojpegenc->params->m_queues.clear();
-    hailojpegenc->params->m_jpegencs.clear();
-}
-
-void construct_internal_pipeline(GstHailoJpegEnc *hailojpegenc)
-{
-    std::string name;
-    GST_DEBUG_OBJECT(hailojpegenc, "construct_internal_pipeline");
-    for (uint i = 0; i < hailojpegenc->params->num_of_threads; i++)
-    {
-        std::stringstream ss;
-        ss << "jpegenc_" << i;
-        name = ss.str();
-        GstElement *jpegenc = gst_element_factory_make("jpegenc", name.c_str());
-        g_object_set(jpegenc, "min-force-key-unit-interval", hailojpegenc->params->jpegenc_min_force_key_unit_interval,
-                     NULL);
-        g_object_set(jpegenc, "quality", hailojpegenc->params->jpeg_quality, NULL);
-        g_object_set(jpegenc, "idct-method", hailojpegenc->params->jpeg_idct_method, NULL);
-
-        hailojpegenc->params->m_jpegencs.push_back(jpegenc);
-        if (!gst_bin_add(GST_BIN(hailojpegenc), jpegenc))
-        {
-            GST_ERROR_OBJECT(hailojpegenc, "could not add jpegenc to bin");
-        }
-
-        std::stringstream ss2;
-        ss2 << "queue_" << i;
-        name = ss2.str();
-        GstElement *queue = gst_element_factory_make("queue", name.c_str());
-        g_object_set(queue, "max-size-buffers", INNER_QUEUE_SIZE, NULL);
-        g_object_set(queue, "max-size-bytes", 0, NULL);
-        g_object_set(queue, "max-size-time", 0, NULL);
-        g_object_set(queue, "leaky", 0, NULL);
-        hailojpegenc->params->m_queues.push_back(queue);
-        if (!gst_bin_add(GST_BIN(hailojpegenc), queue))
-        {
-            GST_ERROR_OBJECT(hailojpegenc, "Could not add queue to bin");
-        }
-    }
-
-    link_elements(hailojpegenc);
-}
-
-static void gst_hailojpegenc_init(GstHailoJpegEnc *hailojpegenc)
-{
-    hailojpegenc->params = new GstHailoJpegEncParams();
-
-    GstElement *roundrobin = gst_element_factory_make("roundrobin", "roundrobin");
-    hailojpegenc->params->m_roundrobin = roundrobin;
-    if (!gst_bin_add(GST_BIN(hailojpegenc), hailojpegenc->params->m_roundrobin))
-    {
-        GST_ERROR_OBJECT(hailojpegenc, "Could not add roundrobin to bin");
-    }
-
-    GstElement *hailoroundrobin = gst_element_factory_make("hailoroundrobin", "hailoroundrobin");
-    g_object_set(hailoroundrobin, "mode", 1, NULL);
-    hailojpegenc->params->m_hailoroundrobin = hailoroundrobin;
-
-    if (!gst_bin_add(GST_BIN(hailojpegenc), hailojpegenc->params->m_hailoroundrobin))
-    {
-        GST_ERROR_OBJECT(hailojpegenc, "Could not add hailoroundrobin to bin");
-    }
-
-    construct_internal_pipeline(hailojpegenc);
-
-    init_ghost_sink(hailojpegenc);
-    init_ghost_src(hailojpegenc);
-}
-
-static void gst_hailojpegenc_dispose(GObject *object)
-{
-    GstHailoJpegEnc *hailojpegenc = GST_HAILOJPEGENC(object);
-    GST_DEBUG_OBJECT(hailojpegenc, "dispose");
-    if (hailojpegenc->params != nullptr)
-    {
-        delete hailojpegenc->params;
-        hailojpegenc->params = nullptr;
-    }
-
-    G_OBJECT_CLASS(parent_class)->dispose(object);
+    self->params->pending_cv.notify_one();
+    return GST_FLOW_OK;
 }

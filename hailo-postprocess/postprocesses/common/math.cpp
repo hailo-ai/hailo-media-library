@@ -3,7 +3,19 @@
  * Distributed under the LGPL license (https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt)
  **/
 #include "common/math.hpp"
+
+#include <xtensor/xarray.hpp>
+#include <xtensor/xfunction.hpp>
+#include <xtensor/xiterator.hpp>
+#include <xtensor/xmanipulation.hpp>
+#include <xtensor/xmath.hpp>
+#include <xtensor/xoperation.hpp>
+#include <xtensor/xreducer.hpp>
+#include <xtl/xiterator_base.hpp>
 #include <cmath>
+#include <tuple>
+#include <utility>
+#include <vector>
 
 namespace common
 {

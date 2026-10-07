@@ -1335,7 +1335,7 @@ void to_json(nlohmann::json &j, const eis_config_t &eis_conf)
 void from_json(const nlohmann::json &j, eis_config_t &eis_conf)
 {
     j.at("enabled").get_to(eis_conf.enabled);
-    j.at("stabilize").get_to(eis_conf.stabilize);
+    eis_conf.stabilize = j.value("stabilize", true); // default to true when missing (optional field)
     j.at("eis_config_path").get_to(eis_conf.eis_config_path);
     j.at("window_size").get_to(eis_conf.window_size);
     j.at("rotational_smoothing_coefficient").get_to(eis_conf.rotational_smoothing_coefficient);
@@ -2744,7 +2744,7 @@ void to_json(nlohmann::json &j, const config_dis_t &dis)
 void from_json(const nlohmann::json &j, config_eis_t &eis)
 {
     j.at("enabled").get_to(eis.enabled);
-    j.at("stabilize").get_to(eis.stabilize);
+    eis.stabilize = j.value("stabilize", true); // default to true when missing (optional field)
     j.at("eis_config_path").get_to(eis.eis_config_path);
     j.at("window_size").get_to(eis.window_size);
     j.at("rotational_smoothing_coefficient").get_to(eis.rotational_smoothing_coefficient);

@@ -96,6 +96,8 @@ media_library_encoder_lib_sources = [
     'src/hailo_encoder/hailo_encoder_impl.cpp',
     'src/hailo_encoder/encoder_config.cpp',
     'src/hailo_encoder/encoder_gop_config.cpp',
+    'src/hailo_encoder/jpeg_encoder.cpp',
+    'src/hailo_encoder/libjpeg_encode_session.cpp',
 ]
 
 libmedialib_encoder = static_library('medialib_encoder_impl',

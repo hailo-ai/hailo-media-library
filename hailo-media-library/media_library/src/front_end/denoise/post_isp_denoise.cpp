@@ -23,7 +23,11 @@
 
 #include "post_isp_denoise.hpp"
 
+#include <stdint.h>
+#include <algorithm>
+#include <cstring>
 #include <utility>
+#include <vector>
 
 #include "hailort_denoise.hpp"
 #include "buffer_pool.hpp"
@@ -44,6 +48,66 @@ static int round_up_to_multiple(int num_to_round, int multiple)
         return num_to_round;
 
     return num_to_round + multiple - remainder;
+}
+
+static constexpr uint8_t NEUTRAL_PIXEL_VALUE = 128;
+
+// The loopback pool is aligned for the network, so it can have more rows and a wider stride than the input
+// frame; the part the input does not reach gets a neutral value instead of leftover pool memory.
+static void fill_uncovered_area(uint8_t *dst_ptr, uint32_t dst_stride, uint32_t dst_size, uint32_t rows,
+                                uint32_t row_bytes)
+{
+    if (dst_stride > row_bytes)
+    {
+        for (uint32_t row = 0; row < rows; row++)
+        {
+            std::memset(dst_ptr + row * dst_stride + row_bytes, NEUTRAL_PIXEL_VALUE, dst_stride - row_bytes);
+        }
+    }
+    const uint32_t copied_bytes = rows * dst_stride;
+    if (dst_size > copied_bytes)
+    {
+        std::memset(dst_ptr + copied_bytes, NEUTRAL_PIXEL_VALUE, dst_size - copied_bytes);
+    }
+}
+
+static void seed_loopback_plane(const TensorBinding &src, const TensorBinding &dst, const char *channel_label)
+{
+    if (!src.buffer || !dst.buffer)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Cannot seed {} loopback: missing buffer", channel_label);
+        return;
+    }
+    const uint32_t src_plane = static_cast<uint32_t>(src.plane_id);
+    const uint32_t dst_plane = static_cast<uint32_t>(dst.plane_id);
+    auto *src_ptr = static_cast<const uint8_t *>(src.buffer->get_plane_ptr(src_plane));
+    auto *dst_ptr = static_cast<uint8_t *>(dst.buffer->get_plane_ptr(dst_plane));
+    const uint32_t src_stride = src.buffer->get_plane_stride(src_plane);
+    const uint32_t dst_stride = dst.buffer->get_plane_stride(dst_plane);
+    if (src_ptr == nullptr || dst_ptr == nullptr || src_stride == 0 || dst_stride == 0)
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Cannot seed {} loopback: invalid plane", channel_label);
+        return;
+    }
+    const uint32_t dst_size = dst.buffer->get_plane_size(dst_plane);
+    const uint32_t rows = std::min(src.buffer->get_plane_size(src_plane) / src_stride, dst_size / dst_stride);
+    const uint32_t row_bytes = std::min(src_stride, dst_stride);
+
+    if (src.buffer->is_dmabuf())
+        src.buffer->sync_start(src_plane);
+    if (dst.buffer->is_dmabuf())
+        dst.buffer->sync_start(dst_plane);
+    for (uint32_t row = 0; row < rows; row++)
+    {
+        std::memcpy(dst_ptr + row * dst_stride, src_ptr + row * src_stride, row_bytes);
+    }
+    fill_uncovered_area(dst_ptr, dst_stride, dst_size, rows, row_bytes);
+    if (dst.buffer->is_dmabuf())
+        dst.buffer->sync_end(dst_plane);
+    if (src.buffer->is_dmabuf())
+        src.buffer->sync_end(src_plane);
+    LOGGER__MODULE__INFO(MODULE_NAME, "Cold-start {} loopback seeded from input frame: rows={} row_bytes={}",
+                         channel_label, rows, row_bytes);
 }
 
 MediaLibraryPostIspDenoise::MediaLibraryPostIspDenoise() : MediaLibraryDenoise()
@@ -137,4 +201,14 @@ void MediaLibraryPostIspDenoise::copy_meta(HailoMediaLibraryBufferPtr input_buff
                                            HailoMediaLibraryBufferPtr output_buffer)
 {
     output_buffer->copy_metadata_from(input_buffer);
+}
+
+// The first frame after enable has no previous output to feed back, so the feedback starts from the
+// frame itself (the steady-state feedback of a static scene) instead of unwritten pool memory.
+void MediaLibraryPostIspDenoise::initialize_dummy_loopback_buffers(const NetworkInferenceBindings &bindings)
+{
+    seed_loopback_plane(bindings.inputs[HailortAsyncDenoisePostISP::InputIndex::Y_CHANNEL],
+                        bindings.outputs[HailortAsyncDenoisePostISP::OutputIndex::OUTPUT_Y_CHANNEL], "Y");
+    seed_loopback_plane(bindings.inputs[HailortAsyncDenoisePostISP::InputIndex::UV_CHANNEL],
+                        bindings.outputs[HailortAsyncDenoisePostISP::OutputIndex::OUTPUT_UV_CHANNEL], "UV");
 }

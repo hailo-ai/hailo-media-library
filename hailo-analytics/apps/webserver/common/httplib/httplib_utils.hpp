@@ -31,6 +31,7 @@ class HTTPServer
     ~HTTPServer();
     static std::unique_ptr<HTTPServer> create();
     void listen(const std::string &host, int port);
+    void stop();
     void set_mount_point(const std::string &mount_point, const std::string &path);
     void Get(const std::string &pattern, std::function<void()> callback);
     void Get(const std::string &pattern, std::function<nlohmann::json()> callback);

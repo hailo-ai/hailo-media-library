@@ -7,7 +7,6 @@
 
 #include "media_library/media_library.hpp"
 #include "media_library/analytics_db.hpp"
-#include "hailo_media_library_perfetto.hpp"
 #include "media_library/media_library_logger.hpp"
 #include "media_library/profile_utils.hpp"
 #include "media_library/buffer_pool.hpp"
@@ -15,6 +14,7 @@
 #include "proto_converters.hpp"
 #include "client_buffer_manager.hpp"
 #include "event_stream_reactors.hpp"
+#include "service_trace.hpp"
 #include "media_library.pb.h"
 #include "media_library/media_library_api_types.hpp"
 
@@ -31,7 +31,6 @@ void from_json(const nlohmann::json &j, config_profile_t &profile);
 #include <stdexcept>
 #include <random>
 #include <functional>
-#include <initializer_list>
 #include <memory>
 #include <string>
 #include <utility>
@@ -39,25 +38,6 @@ void from_json(const nlohmann::json &j, config_profile_t &profile);
 #include <unordered_map>
 
 #include "client_session_keeper.hpp"
-
-#ifdef HAVE_PERFETTO
-class ClientTraceScope
-{
-  public:
-    explicit ClientTraceScope(const char *name)
-    {
-        HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN(perfetto::DynamicString(name), SERVICE_CLIENT_TRACK,
-                                              MEDIA_LIBRARY_CATEGORY);
-    }
-    ~ClientTraceScope()
-    {
-        HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(SERVICE_CLIENT_TRACK, MEDIA_LIBRARY_CATEGORY);
-    }
-};
-#define CLIENT_TRACE_RPC(name) ClientTraceScope _trace_scope(name)
-#else
-#define CLIENT_TRACE_RPC(name)
-#endif
 
 using media_library_service::MediaLibraryService;
 
@@ -135,6 +115,43 @@ class MediaLibraryClient::Impl
 
     ClientSessionKeeper m_session_keeper;
     std::string m_init_config_string;
+
+    /// Attach or detach one encoder stream server-side. The server wires every encoder at
+    /// stream-open time, so both directions need an explicit call to stay in step.
+    media_library_return set_encoder_stream_subscription(const output_stream_id_t &stream_id, bool subscribe)
+    {
+        media_library_service::EncoderStreamSubscriptionRequest request;
+        request.set_client_id(m_client_id);
+        request.set_stream_id(stream_id);
+        MedialibraryStatusReply reply;
+        ClientContext context;
+        Status status = subscribe ? m_stub->SubscribeToEncoderStream(&context, request, &reply)
+                                  : m_stub->UnsubscribeFromEncoderStream(&context, request, &reply);
+        if (status.ok())
+            return convert_from_proto_status(reply.status());
+        LOGGER__MODULE__ERROR(LoggerType::ServiceClient, "{}EncoderStream gRPC failed: {}: {}",
+                              subscribe ? "SubscribeTo" : "UnsubscribeFrom", status.error_code(),
+                              status.error_message());
+        return media_library_return::MEDIA_LIBRARY_ERROR;
+    }
+
+    /// Ask the server to re-attach the frontend output to the buffer stream this client
+    /// already has open.
+    media_library_return subscribe_frontend_stream()
+    {
+        media_library_service::FrontendStreamSubscriptionRequest request;
+        request.set_client_id(m_client_id);
+        MedialibraryStatusReply reply;
+        ClientContext context;
+        Status status = m_stub->SubscribeToFrontendStream(&context, request, &reply);
+        if (status.ok())
+            return convert_from_proto_status(reply.status());
+        LOGGER__MODULE__ERROR(LoggerType::ServiceClient, "SubscribeToFrontendStream gRPC failed: {}: {}",
+                              status.error_code(), status.error_message());
+        return media_library_return::MEDIA_LIBRARY_ERROR;
+    }
+
+    std::chrono::seconds m_connect_timeout{DEFAULT_CONNECT_TIMEOUT};
     SubscriptionRegistry m_subs;
 
     ClientSessionKeeper::InitializeResult invoke_initialize()
@@ -167,6 +184,7 @@ class MediaLibraryClient::Impl
         MedialibraryStatusReply reply;
         ClientContext context;
         context.set_deadline(std::chrono::system_clock::now() + RPC_DEADLINE);
+        SERVICE_CLIENT_TRACE_SCOPE("KeepAlive");
         std::mutex mu;
         std::condition_variable cv;
         bool done = false;
@@ -371,9 +389,11 @@ class MediaLibraryClient::Impl
     }
 };
 
-MediaLibraryClient::MediaLibraryClient(std::string address, uint port) : pimpl_(std::make_unique<Impl>())
+MediaLibraryClient::MediaLibraryClient(std::string address, uint port, std::chrono::seconds connect_timeout)
+    : pimpl_(std::make_unique<Impl>())
 {
     pimpl_->m_client_id = generate_client_id();
+    pimpl_->m_connect_timeout = connect_timeout;
     pimpl_->m_stub = MediaLibraryService::NewStub(
         grpc::CreateChannel(address + ":" + std::to_string(port), grpc::InsecureChannelCredentials()));
 
@@ -418,10 +438,10 @@ MediaLibraryClient::~MediaLibraryClient()
                              status.error_message());
 }
 
-tl::expected<MediaLibraryInterfacePtr, media_library_return> MediaLibraryClient::create(const std::string &address,
-                                                                                        uint port)
+tl::expected<MediaLibraryInterfacePtr, media_library_return> MediaLibraryClient::create(
+    const std::string &address, uint port, std::chrono::seconds connect_timeout)
 {
-    auto client = std::make_shared<MediaLibraryClient>(address, port);
+    auto client = std::make_shared<MediaLibraryClient>(address, port, connect_timeout);
     return std::static_pointer_cast<MediaLibraryInterface>(client);
 }
 
@@ -430,7 +450,7 @@ media_library_return MediaLibraryClient::initialize(std::string medialib_config_
     CLIENT_TRACE_RPC("initialize");
     // Stash the config so the keeper's Initialize callback can replay it on transport retry.
     pimpl_->m_init_config_string = std::move(medialib_config_string);
-    return pimpl_->m_session_keeper.initialize();
+    return pimpl_->m_session_keeper.initialize(pimpl_->m_connect_timeout);
 }
 
 media_library_return MediaLibraryClient::start_pipeline()
@@ -877,6 +897,12 @@ tl::expected<std::vector<frontend_output_stream_t>, media_library_return> MediaL
 media_library_return MediaLibraryClient::unsubscribe_all_from_frontend()
 {
     CLIENT_TRACE_RPC("unsubscribe_all_from_frontend");
+    // Stop dispatching locally before telling the service to stop sending: buffers already
+    // queued here would otherwise reach callbacks whose stages are being destroyed.
+    if (pimpl_->m_frontend_buffer_manager)
+    {
+        pimpl_->m_frontend_buffer_manager->unsubscribe_all();
+    }
     {
         std::lock_guard<std::mutex> lock(pimpl_->m_subs.mu);
         pimpl_->m_subs.frontend_cbs.clear();
@@ -897,6 +923,7 @@ media_library_return MediaLibraryClient::unsubscribe_all_from_frontend()
 media_library_return MediaLibraryClient::add_buffer_to_encoder(output_stream_id_t stream_id,
                                                                HailoMediaLibraryBufferPtr buffer)
 {
+    SERVICE_CLIENT_TRACE_SCOPE("add_buffer_to_encoder");
     // TODO: future support in new buffer from the user
 
     // Look up the buffer_id for this buffer via the frontend buffer manager
@@ -917,7 +944,11 @@ media_library_return MediaLibraryClient::add_buffer_to_encoder(output_stream_id_
 
     media_library_service::MedialibraryStatusReply reply;
     ClientContext context;
-    Status status = pimpl_->m_stub->AddBufferToEncoder(&context, request, &reply);
+    Status status;
+    {
+        SERVICE_CLIENT_TRACE_SCOPE("AddBufferToEncoder_grpc_call");
+        status = pimpl_->m_stub->AddBufferToEncoder(&context, request, &reply);
+    }
     if (!status.ok())
     {
         LOGGER__ERROR("AddBufferToEncoder gRPC failed: {}", status.error_message());
@@ -946,7 +977,16 @@ media_library_return MediaLibraryClient::subscribe_to_frontend_output(FrontendCa
         std::lock_guard<std::mutex> lock(pimpl_->m_subs.mu);
         pimpl_->m_subs.frontend_cbs = fe_callbacks;
     }
-    return pimpl_->m_frontend_buffer_manager->subscribe(std::move(fe_callbacks));
+
+    // Only a re-subscribe needs the extra request: opening the buffer stream is what wires the
+    // frontend server-side, so the first subscribe gets that for free. A later one finds the
+    // stream still open but the callbacks gone, dropped by unsubscribe_all_from_frontend().
+    const bool stream_already_open = pimpl_->m_frontend_buffer_manager->is_stream_active();
+    media_library_return ret = pimpl_->m_frontend_buffer_manager->subscribe(std::move(fe_callbacks));
+    if (ret != MEDIA_LIBRARY_SUCCESS || !stream_already_open)
+        return ret;
+
+    return pimpl_->subscribe_frontend_stream();
 }
 
 media_library_return MediaLibraryClient::subscribe_to_encoder_output(output_stream_id_t stream_id,
@@ -963,16 +1003,29 @@ media_library_return MediaLibraryClient::subscribe_to_encoder_output(output_stre
         std::lock_guard<std::mutex> lock(pimpl_->m_subs.mu);
         pimpl_->m_subs.encoder_cbs[stream_id] = callback;
     }
-    return pimpl_->m_encoder_buffer_manager->subscribe(stream_id, std::move(callback));
+    media_library_return ret = pimpl_->m_encoder_buffer_manager->subscribe(stream_id, std::move(callback));
+    if (ret != MEDIA_LIBRARY_SUCCESS)
+        return ret;
+
+    return pimpl_->set_encoder_stream_subscription(stream_id, true);
 }
 
-media_library_return MediaLibraryClient::unsubscribe_from_encoder_output(output_stream_id_t)
+media_library_return MediaLibraryClient::unsubscribe_from_encoder_output(output_stream_id_t stream_id)
 {
-    LOGGER__MODULE__WARN(
-        LoggerType::ServiceClient,
-        "[MediaLibraryClient] unsubscribe_from_encoder_output not yet implemented over gRPC (requires DMA buffer "
-        "streaming - MSW-9794)");
-    return MEDIA_LIBRARY_UNINITIALIZED;
+    // Drop the registry entry too, otherwise replay_subscriptions() resurrects a callback
+    // whose owning stage is gone the next time the session is reacquired.
+    {
+        std::lock_guard<std::mutex> lock(pimpl_->m_subs.mu);
+        pimpl_->m_subs.encoder_cbs.erase(stream_id);
+    }
+    if (!pimpl_->m_encoder_buffer_manager)
+    {
+        return MEDIA_LIBRARY_SUCCESS;
+    }
+    LOGGER__MODULE__INFO(LoggerType::ServiceClient, "unsubscribe_from_encoder_output: stream_id={}", stream_id);
+    media_library_return ret = pimpl_->m_encoder_buffer_manager->unsubscribe(stream_id);
+    pimpl_->set_encoder_stream_subscription(stream_id, false);
+    return ret;
 }
 
 media_library_return MediaLibraryClient::on_profile_restricted(

@@ -1,5 +1,6 @@
 #include <cxxopts/cxxopts.hpp>
 #include <media_library/signal_utils.hpp>
+#include <tl/expected.hpp>
 #include <chrono>
 #include <condition_variable>
 #include <iostream>
@@ -9,9 +10,11 @@
 #include <vector>
 
 #include "dpm_common.hpp"
+#include "media_library_factory.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "hailo_analytics/analytics/ai_models_config.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
 
 enum class ArgumentType
 {
@@ -38,7 +41,7 @@ cxxopts::Options build_arg_parser()
     ("t,timeout", "Time to run",
         cxxopts::value<int>()->default_value("60"))
     ("p,print-fps", "Print FPS",
-        cxxopts::value<bool>()->default_value("false"))
+        cxxopts::value<bool>()->default_value("true"))
     ("c,config-file-path", "Media library configuration path",
         cxxopts::value<std::string>()->default_value(MEDIALIB_CONFIG_PATH))
     ("a,profile", "Profile name",
@@ -57,6 +60,10 @@ cxxopts::Options build_arg_parser()
     ("n,max-detections", "Maximum number of detections to process per frame",
         cxxopts::value<int>()->default_value(std::to_string(default_max_detections())));
     // clang-format on
+
+    options.add_options()(apps::utils::USE_MEDIALIB_SERVICE_OPTION,
+                          "Connect to media_library_service instead of hosting the media library in this process",
+                          cxxopts::value<bool>()->default_value("false"));
 
     return options;
 }
@@ -101,10 +108,14 @@ std::vector<ArgumentType> handle_arguments(const cxxopts::ParseResult &result, c
     return arguments;
 }
 
-void create_pipeline(std::shared_ptr<AppResources> app_resources)
+hailo_analytics::pipeline::AppStatus create_pipeline(std::shared_ptr<AppResources> app_resources)
 {
     auto vision_pipeline = create_frontend_pipeline(app_resources);
-    assemble_dpm_pipeline(app_resources, vision_pipeline);
+    if (!vision_pipeline.has_value())
+    {
+        return vision_pipeline.error();
+    }
+    return assemble_dpm_pipeline(app_resources, vision_pipeline.value());
 }
 
 std::mutex g_stop_mutex;
@@ -172,8 +183,20 @@ int main(int argc, char *argv[])
         }
     }
 
-    configure_media_library(app_resources);
-    create_pipeline(app_resources);
+    app_resources->use_medialib_service = result[apps::utils::USE_MEDIALIB_SERVICE_OPTION].as<bool>();
+
+    // Configure the media library and build the pipeline. Both read configuration the media
+    // library service may have built for a different application. configure_media_library()
+    // reports that as a status; pipeline construction still reports it by throwing.
+    if (configure_media_library(app_resources) != hailo_analytics::pipeline::AppStatus::SUCCESS)
+    {
+        return 1;
+    }
+
+    if (create_pipeline(app_resources) != hailo_analytics::pipeline::AppStatus::SUCCESS)
+    {
+        return 1;
+    }
 
     std::cout << "Starting." << std::endl;
     HAILO_ANALYTICS_LOG_INFO("Starting.");

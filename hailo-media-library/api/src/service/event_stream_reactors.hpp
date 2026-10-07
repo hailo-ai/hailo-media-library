@@ -1,8 +1,10 @@
 #pragma once
 
 #include "media_library/media_library_logger.hpp"
+#include "service_trace.hpp"
 #include <functional>
 #include <grpcpp/grpcpp.h>
+#include <memory>
 #include <mutex>
 #include <queue>
 
@@ -11,49 +13,71 @@
 template <typename EventT> class EventStreamBroker : public grpc::ServerWriteReactor<EventT>
 {
   public:
-    EventStreamBroker() : m_writing(false), m_finished(false)
+    /**
+     * @brief Create a broker that owns itself for as long as gRPC needs it.
+     *
+     * The self-reference stored here is the object's lifetime; OnDone() releases it. Callers
+     * keep weak references and lock them around each use, so a broker cannot be freed while
+     * another thread is still inside one of its methods.
+     */
+    static std::shared_ptr<EventStreamBroker> create()
     {
+        auto broker = std::shared_ptr<EventStreamBroker>(new EventStreamBroker());
+        broker->m_self = broker;
+        return broker;
     }
 
     void push_event(EventT event)
     {
-        if (enqueue_event(std::move(event)))
+        BROKER_TRACE_BEGIN("broker_push_event_enqueue");
+        bool should_write = enqueue_event(std::move(event));
+        BROKER_TRACE_END();
+        if (should_write)
+        {
+            BROKER_TRACE_BEGIN("broker_StartWrite");
             this->StartWrite(&m_current_event);
+            BROKER_TRACE_END();
+        }
     }
 
     void OnWriteDone(bool ok) override
     {
+        BROKER_TRACE_BEGIN("broker_OnWriteDone");
         auto action = dequeue_next(ok);
         if (action == WriteAction::FINISH)
             this->Finish(grpc::Status::OK);
         if (action == WriteAction::WRITE)
             this->StartWrite(&m_current_event);
+        BROKER_TRACE_END();
     }
 
     // Gracefully close the stream from the server side (e.g. when a new subscriber replaces this one).
     void finish()
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        if (!m_finished)
-        {
-            m_finished = true;
+        BROKER_TRACE_BEGIN("broker_finish");
+        if (claim_finish())
             this->Finish(grpc::Status::OK);
-        }
+        BROKER_TRACE_END();
     }
 
     void OnCancel() override
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        if (!m_finished)
-        {
-            m_finished = true;
+        BROKER_TRACE_BEGIN("broker_OnCancel");
+        if (claim_finish())
             this->Finish(grpc::Status::CANCELLED);
-        }
+        BROKER_TRACE_END();
     }
 
     void OnDone() override
     {
-        delete this;
+        BROKER_TRACE_BEGIN("broker_OnDone");
+        BROKER_TRACE_END();
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_done = true;
+        }
+        // Releasing the last reference runs the destructor, so it must happen outside the lock.
+        m_self.reset();
     }
 
   private:
@@ -64,16 +88,29 @@ template <typename EventT> class EventStreamBroker : public grpc::ServerWriteRea
         FINISH
     };
 
+    EventStreamBroker() : m_writing(false), m_finished(false)
+    {
+    }
+
+    /// Claim the sole right to call Finish(). The gRPC call must happen outside m_mutex:
+    /// once Finish() is in flight another thread can run OnDone and drop the last reference.
+    bool claim_finish()
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (m_finished || m_done)
+            return false;
+        m_finished = true;
+        return true;
+    }
+
     /// Enqueue an event and claim write ownership if idle.
     /// Returns true when the caller should call StartWrite (outside the lock).
     bool enqueue_event(EventT event)
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        if (m_finished)
+        if (m_finished || m_done)
             return false;
         m_pending_events.push(std::move(event));
-        LOGGER__MODULE__INFO(LoggerType::Service, "EventStreamBroker::push_event: pending_events={} writing={}",
-                             m_pending_events.size(), m_writing);
         if (m_writing)
             return false;
         m_writing = true;
@@ -107,11 +144,13 @@ template <typename EventT> class EventStreamBroker : public grpc::ServerWriteRea
         return WriteAction::NONE;
     }
 
+    std::shared_ptr<EventStreamBroker> m_self;
     std::mutex m_mutex;
     std::queue<EventT> m_pending_events;
     EventT m_current_event;
     bool m_writing;
     bool m_finished;
+    bool m_done{false};
 };
 
 // Client-side reactor for reading server-streaming events.
@@ -139,27 +178,44 @@ template <typename EventT> class EventStreamReader : public grpc::ClientReadReac
 
     void start()
     {
+        READER_TRACE_BEGIN("reader_start");
         this->StartCall();
         this->StartRead(&m_current_event);
+        READER_TRACE_END();
     }
 
     void OnReadDone(bool ok) override
     {
+        READER_TRACE_BEGIN("reader_OnReadDone");
         if (!ok)
+        {
+            READER_TRACE_END();
             return;
-        m_on_event(m_current_event);
+        }
+        {
+            READER_TRACE_BEGIN("reader_on_event_callback");
+            m_on_event(m_current_event);
+            READER_TRACE_END();
+        }
         // Do not issue another read if the owner has signalled cancellation.
         // The stream will end via OnDone after the context is cancelled.
         if (!m_cancelled.load(std::memory_order_acquire))
+        {
+            READER_TRACE_BEGIN("reader_StartRead");
             this->StartRead(&m_current_event);
+            READER_TRACE_END();
+        }
+        READER_TRACE_END();
     }
 
     void OnDone(const grpc::Status &status) override
     {
+        READER_TRACE_BEGIN("reader_OnDone");
         if (!status.ok())
         {
             LOGGER__MODULE__WARN(LoggerType::ServiceClient, "Event stream ended: {}", status.error_message());
         }
+        READER_TRACE_END();
         delete this;
     }
 

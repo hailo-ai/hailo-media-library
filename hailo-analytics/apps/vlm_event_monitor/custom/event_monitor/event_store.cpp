@@ -1,17 +1,30 @@
 #include "event_store.hpp"
 
+#include "media_library/cloexec_fstream.hpp"
+
+#include <cctype>
 #include <cerrno>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <filesystem>
 #include <fstream>
 #include <set>
-#include <sstream>
 #include <string>
 #include <utility>
 
-#include <yaml-cpp/yaml.h>
+#include <yaml-cpp/emitter.h>
+#include <yaml-cpp/emittermanip.h>
+#include <yaml-cpp/exceptions.h>
+#include <yaml-cpp/node/convert.h> // IWYU pragma: keep — provides YAML::convert<T> specializations used by Node::as<T>()
+#include <yaml-cpp/node/detail/impl.h> // IWYU pragma: keep — provides node_data::get<Key> template defs used by Node::operator[]
+#include <yaml-cpp/node/detail/iterator.h>
+#include <yaml-cpp/node/detail/iterator_fwd.h>
+#include <yaml-cpp/node/impl.h>
+#include <yaml-cpp/node/iterator.h>
+#include <yaml-cpp/node/node.h>
+#include <yaml-cpp/node/parse.h>
 
+#include "event_monitor/event_config.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
 namespace vlm_event_monitor
@@ -158,7 +171,7 @@ std::string atomic_write(const std::string &target_path, const std::string &cont
 {
     const std::string tmp_path = target_path + ".tmp";
     {
-        std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
+        cloexec::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
         if (!out)
         {
             return "failed to open " + tmp_path + " for write: " + std::strerror(errno);
@@ -227,7 +240,7 @@ EventCheckMode EventStore::mode() const
 
 EventStore::DiskSnapshot EventStore::read_from_disk() const
 {
-    std::ifstream in(m_yaml_path);
+    cloexec::ifstream in(m_yaml_path);
     if (!in)
     {
         return DiskSnapshot{};

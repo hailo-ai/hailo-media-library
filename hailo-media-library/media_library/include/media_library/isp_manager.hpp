@@ -34,6 +34,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 
 #include "buffer_pool.hpp"
 #include "config_attacher.hpp"
@@ -284,6 +285,7 @@ class IspManager
     void set_config_manager_interactor(const ConfigManagerInteractor *config_manager_interactor,
                                        bool profile_based_mode);
     bool set_config(const frontend_config_t &config);
+    bool last_config_failed_on_dma_memory() const;
     bool start();
     void stop();
     void deinit();

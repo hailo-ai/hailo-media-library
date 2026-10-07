@@ -10,6 +10,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <unordered_map>
 
 #include "hailo_analytics/pipeline/core/buffer.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"

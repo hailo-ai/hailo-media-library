@@ -17,7 +17,6 @@
 #define BASIC_HDR_PROFILE_NAME "High_Dynamic_Range_Basic"
 #define BASIC_AI_ISP_GEN2_PROFILE_NAME "AI_ISP_Gen2_Basic"
 #define BASIC_AI_ISP_GEN3_PROFILE_NAME "AI_ISP_Gen3_Basic"
-#define BASIC_AI_ISP_GEN3_1_PROFILE_NAME "AI_ISP_Gen3_1_Basic"
 
 #define DETECTION_DAYLIGHT_PROFILE_NAME "Daylight_Detection"
 #define DETECTION_AI_ISP_GEN1_PROFILE_NAME "AI_ISP_Gen1_Detection"
@@ -58,28 +57,32 @@ namespace pipeline
 
 struct AppResources
 {
-    MediaLibraryPtr media_library;
+    MediaLibraryInterfacePtr media_library;
     std::shared_ptr<FrontendStage> frontend;
     std::shared_ptr<ValveStage> valve_stage;
     std::shared_ptr<OverlayStage> overlay_stage;
     std::map<output_stream_id_t, std::shared_ptr<EncoderStage>> encoders;
     hailo_analytics::pipeline::PipelinePtr pipeline;
     Architecture platform;
+    bool use_hailort_service = false;
     std::shared_ptr<IspBlender> m_isp_blender;
 };
 
 class BasePipeline
 {
   public:
-    BasePipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
+    BasePipeline(webserver::resources::ResourceRepository &resources, MediaLibraryInterfacePtr media_library,
                  RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H,
-                 ProfileType default_profile = ProfileType::Daylight, std::vector<ProfileType> supported_profiles = {});
+                 ProfileType default_profile = ProfileType::Daylight, std::vector<ProfileType> supported_profiles = {},
+                 bool use_hailort_service = false);
     virtual ~BasePipeline();
 
     virtual void init(ProfileType profile_type);
     virtual void uninitialize();
     virtual void start();
     virtual void stop();
+    // Must run under the owner's pipeline lock: it blocks for seconds, and a concurrent switch destroys this object.
+    void reset_config();
 
     virtual ProfileType get_current_profile() const;
 
@@ -104,6 +107,8 @@ class BasePipeline
     std::string m_stream_4k_name = DEFAULT_STREAM_4K_NAME;
     ProfileType m_default_profile;
     bool m_hdr_valve_active = false;
+    static constexpr int DEFAULT_PROFILE_SWITCH_VALVE_DELAY_MS = 1000;
+    int m_profile_switch_valve_delay_ms = DEFAULT_PROFILE_SWITCH_VALVE_DELAY_MS;
 
     virtual void subscribe_callbacks();
     virtual void register_endpoints();
@@ -133,8 +138,8 @@ class BasePipeline
     virtual void callback_handle_update_profile(ResourceStateChangeNotification notif);
     void on_pipeline_profile_restricted(config_profile_t previous_profile, config_profile_t new_profile);
     void on_pipeline_profile_restriction_done();
-    virtual std::shared_ptr<osd::Blender> get_osd_blender();
-    virtual std::shared_ptr<PrivacyMaskBlender> get_privacy_blender();
+    config_profile_t read_current_profile();
+    hailo_encoder_config_t read_stream_encoder_config(const config_profile_t &profile);
     virtual hailo_encoder_config_t get_encoder_config();
     virtual void update_fps(uint32_t fps, config_profile_t &profile_config);
     virtual void update_resolution(const std::string &resolution, config_profile_t &profile_config);

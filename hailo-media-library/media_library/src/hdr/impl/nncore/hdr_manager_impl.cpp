@@ -196,6 +196,7 @@ std::optional<HdrManager::Impl::StitchContextPtr> HdrManager::Impl::get_stitch_c
 
 void HdrManager::Impl::mark_stitch_context_unused(HdrManager::Impl::StitchContextPtr context)
 {
+    context->m_stitched_buffer.reset();
     context->m_in_use = false;
 }
 

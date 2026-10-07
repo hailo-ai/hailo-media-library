@@ -8,10 +8,10 @@
 #include <rapidjson/encodings.h>
 #include <rapidjson/error/en.h>
 #include <rapidjson/error/error.h>
-#include <rapidjson/filereadstream.h>
 #include <rapidjson/reader.h>
 #include <rapidjson/schema.h>
 #include <rapidjson/stringbuffer.h>
+#include <rapidjson/stream.h>
 #include <stdexcept>
 
 #include "hailo_postprocess_tools/logger/hailo_postprocess_logger.hpp"
@@ -19,14 +19,14 @@
 namespace common
 {
 
-bool validate_json_with_schema(rapidjson::FileReadStream stream, const char *json_schema)
+bool validate_json_with_schema(const std::string &json_content, const char *json_schema)
 {
     rapidjson::Document d;
     d.Parse(json_schema);
     rapidjson::SchemaDocument sd(d);
     rapidjson::SchemaValidator validator(sd);
-    rapidjson::Document doc_config_json;
     rapidjson::Reader reader;
+    rapidjson::StringStream stream(json_content.c_str());
     if (!reader.Parse(stream, validator) && reader.GetParseErrorCode() != rapidjson::kParseErrorTermination)
     {
         HAILO_POSTPROCESS_LOG_ERROR("JSON error (offset {}): {}", static_cast<unsigned>(reader.GetErrorOffset()),

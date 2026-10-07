@@ -33,9 +33,10 @@
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "hailo_analytics/pipeline/overlay/overlay_stage.hpp"
 #include "hailo_analytics/pipeline/routing/valve_stage.hpp"
-#include "hailo_analytics/pipeline/sinks/output_module.hpp"
-#include "pipeline/isp_blender.hpp"
 #include "hailo_analytics/pipeline/codecs/encoder_stage.hpp"
+#include "hailo_analytics/analytics/common_configs.hpp"
+#include "hailo_analytics/analytics/detection.hpp"
+#include "hailo_analytics/analytics/tiling.hpp"
 
 namespace ai_models = hailo_analytics::analytics::ai_models;
 
@@ -71,11 +72,21 @@ using namespace webserver::resources;
 #define DPM_PIPELINE_SUPPORTED_PROFILES                                                                                \
     {ProfileType::Daylight, ProfileType::HighDynamicRange, ProfileType::AiIspGen2, ProfileType::AiIspGen3}
 
+// Lowlight bayer profiles run a denoise network next to the segmentor, so they get the smallest budget.
+static int max_detections_for_profile(Architecture platform, ProfileType profile)
+{
+    const bool is_15l = platform == Architecture::Hailo15L;
+    if (profile == ProfileType::AiIspGen2 || profile == ProfileType::AiIspGen3)
+        return is_15l ? DEFAULT_MAX_DETECTIONS_15L_LOWLIGHT_BAYER : DEFAULT_MAX_DETECTIONS_15H_LOWLIGHT_BAYER;
+    return is_15l ? DEFAULT_MAX_DETECTIONS_15L : DEFAULT_MAX_DETECTIONS_15H;
+}
+
 DynamicPrivacyMaskPipeline::DynamicPrivacyMaskPipeline(webserver::resources::ResourceRepository &resources,
-                                                       MediaLibraryPtr media_library, RTPConverterStage &webrtc_stage,
-                                                       Architecture platform)
+                                                       MediaLibraryInterfacePtr media_library,
+                                                       RTPConverterStage &webrtc_stage, Architecture platform,
+                                                       bool use_hailort_service)
     : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight,
-                   DPM_PIPELINE_SUPPORTED_PROFILES)
+                   DPM_PIPELINE_SUPPORTED_PROFILES, use_hailort_service)
 {
 }
 
@@ -166,13 +177,14 @@ void DynamicPrivacyMaskPipeline::build_pipeline()
             .buildptr();
 
     // Configure and generate the full DPM analytics pipeline
-    int max_detections =
-        (m_app_resources->platform == Architecture::Hailo15L) ? DEFAULT_MAX_DETECTIONS_15L : DEFAULT_MAX_DETECTIONS_15H;
+    int max_detections = max_detections_for_profile(m_app_resources->platform, m_current_profile_type);
 
     std::vector<std::string> initial_labels{std::string(LABEL_PERSON), std::string(LABEL_VEHICLE)};
     auto dpm_ai_config = hailo_analytics::analytics::dpm_analytics::build_dpm_config(ai_width, ai_height,
                                                                                      max_detections, initial_labels);
     dpm_ai_config.detector_label_filter_config.labels = initial_labels;
+    dpm_ai_config.tiling_config.detection_config.ai_config.use_hailort_service = m_app_resources->use_hailort_service;
+    dpm_ai_config.dpm_config.segmentation_config.ai_config.use_hailort_service = m_app_resources->use_hailort_service;
 
     auto dpm_ai_pipeline_status = hailo_analytics::analytics::dpm_analytics::generate_full_dpm_analytics_pipeline(
         std::string(DPM_AI_PIPELINE), dpm_ai_config);
@@ -471,17 +483,9 @@ void DynamicPrivacyMaskPipeline::callback_handle_profile_switch(ResourceStateCha
 {
     auto state = notif.getDirectResourceState<ProfileTypeState>();
 
-    // Adjust max_detections per profile: lowlight bayer has denoise NNC competing for DSP,
-    // so reduce segmentation budget.
     if (m_segmentor)
     {
-        int normal_max = (m_app_resources->platform == Architecture::Hailo15L) ? DEFAULT_MAX_DETECTIONS_15L
-                                                                               : DEFAULT_MAX_DETECTIONS_15H;
-        int lowlight_max = (m_app_resources->platform == Architecture::Hailo15L)
-                               ? DEFAULT_MAX_DETECTIONS_15L_LOWLIGHT_BAYER
-                               : DEFAULT_MAX_DETECTIONS_15H_LOWLIGHT_BAYER;
-        const bool is_bayer_denoise = state->value == ProfileType::AiIspGen2 || state->value == ProfileType::AiIspGen3;
-        int new_max = is_bayer_denoise ? lowlight_max : normal_max;
+        int new_max = max_detections_for_profile(m_app_resources->platform, state->value);
         m_segmentor->set_max_crops(static_cast<size_t>(new_max));
         WEBSERVER_LOG_INFO("DPM max_crops updated to {} for profile {}", new_max, static_cast<int>(state->value));
     }

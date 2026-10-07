@@ -6,15 +6,11 @@
 #include <shared_mutex>
 #include <string>
 #include <thread>
+#include <utility>
 
 #include <tl/expected.hpp>
 
-#include "media_library/frontend.hpp"
-
 #include "hailo_analytics/analytics/reference_camera_app_constructor.hpp"
-#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
-#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
-#include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
 
 #include "custom/event_monitor/chat_session_broker.hpp"
 #include "custom/event_monitor/event_check_runner.hpp"
@@ -26,9 +22,7 @@
 #include "custom/pipeline/nv12_to_rgb_stage.hpp"
 #include "custom/service/sse_broadcaster.hpp"
 #include "utils/vlm_app_config.hpp"
-#include "vlm_pipeline_defines.hpp"
-
-class VlmFramePreprocessor;
+#include "vlm_frame_preprocessor.hpp"
 
 // VLM-specific UserData carried through CameraAppConstructor::AppConfigOverride.
 struct VlmAppCustomData : public hailo_analytics::analytics::app_constructor::UserDataBase

@@ -25,10 +25,13 @@ hailo_analytics::analytics::tiling::tiling_detection_config_t default_tiling_con
 
 hailo_analytics::analytics::license_plate_recognition::bbox_crop_ocr_config_t default_lpr_config();
 
+// use_hailort_service routes inference through hailort_server rather than opening an exclusive
+// VDevice. It must be set whenever media_library_service owns the media library, so that the two
+// processes share the NN core instead of contending for it.
 tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus> build_tiling_pipeline(
-    const std::string &name, TrackingMode mode = TrackingMode::BALANCED);
+    const std::string &name, TrackingMode mode = TrackingMode::BALANCED, bool use_hailort_service = false);
 
 tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus> build_ocr_pipeline(
-    const std::string &name);
+    const std::string &name, bool use_hailort_service = false);
 
 } // namespace lpr_app

@@ -1,12 +1,40 @@
 #include "vlm_pipeline.hpp"
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
 #include <chrono>
+#include <map>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
+
+#include <media_library/frontend.hpp>
+
+#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "hailo_analytics/pipeline/core/pipeline.hpp"
+#include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
+#include "hailo_analytics/pipeline/sinks/output_module.hpp"
+#include "hailo_analytics/pipeline/sinks/rtp_converter_stage.hpp"
+#include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
 
 #include "custom/streaming/webrtc_streamer_ext.hpp"
+#include "event_monitor/chat_session_broker.hpp"
+#include "event_monitor/event_check_runner.hpp"
+#include "event_monitor/event_config.hpp"
+#include "event_monitor/event_state_tracker.hpp"
+#include "event_monitor/event_store.hpp"
+#include "event_monitor/inference_request_queue.hpp"
+#include "pipeline/jpeg_ring_buffer_stage.hpp"
+#include "pipeline/nv12_to_rgb_stage.hpp"
+#include "service/sse_broadcaster.hpp"
+#include "vlm_app_config.hpp"
 #include "vlm_frame_preprocessor.hpp"
+#include "vlm_inference_manager.hpp"
+#include "vlm_pipeline_defines.hpp"
 
 namespace
 {

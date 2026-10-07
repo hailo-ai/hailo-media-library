@@ -66,8 +66,6 @@ enum
     PROP_CONFIG_STR,
     PROP_STREAM_ID,
     PROP_WAIT_FOR_WRITABLE_BUFFER,
-    PROP_OSD_BLENDER,
-    PROP_PM_BLENDER,
     PROP_CONFIG_MANAGER_INTERACTOR,
 };
 
@@ -115,15 +113,6 @@ static void gst_hailoosd_class_init(GstHailoOsdClass *klass)
         g_param_spec_pointer("config-manager-interactor", "Config Manager Interactor pointer",
                              "Pointer to config manager interactor",
                              (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING)));
-
-    g_object_class_install_property(gobject_class, PROP_OSD_BLENDER,
-                                    g_param_spec_pointer("osd-blender", "OSD blender object",
-                                                         "Pointer to OSD blender object",
-                                                         (GParamFlags)(G_PARAM_READABLE)));
-    g_object_class_install_property(gobject_class, PROP_PM_BLENDER,
-                                    g_param_spec_pointer("privacy-mask-blender", "Privacy mask blender object",
-                                                         "Pointer to privacy mask blender object",
-                                                         (GParamFlags)(G_PARAM_READABLE)));
 
     gobject_class->dispose = gst_hailoosd_dispose;
     gobject_class->finalize = gst_hailoosd_finalize;
@@ -208,12 +197,6 @@ void gst_hailoosd_get_property(GObject *object, guint property_id, GValue *value
     {
     case PROP_WAIT_FOR_WRITABLE_BUFFER:
         g_value_set_boolean(value, hailoosd->params->wait_for_writable_buffer);
-        break;
-    case PROP_OSD_BLENDER:
-        g_value_set_pointer(value, hailoosd->params->osd_configurer.get());
-        break;
-    case PROP_PM_BLENDER:
-        g_value_set_pointer(value, hailoosd->params->privacy_mask_configurer.get());
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);

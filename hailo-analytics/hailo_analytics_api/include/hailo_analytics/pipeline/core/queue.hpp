@@ -5,6 +5,7 @@
 // General includes
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <optional>
 #include <queue>
 #include <mutex>
@@ -48,6 +49,7 @@ class Queue
     std::unique_ptr<std::condition_variable> m_condvar;
     std::shared_ptr<std::mutex> m_mutex;
     std::unique_ptr<QueueTracing> m_tracing;
+    std::function<void()> m_notify_cb;
 
   public:
     /**
@@ -144,6 +146,13 @@ class Queue
      * After reset, the queue can accept new buffers via push().
      */
     void reset();
+
+    /**
+     * @brief Register a callback fired lock-free (m_mutex released) after every push and flush, so
+     * a stage waiting on several queues can wake on its own condition_variable. Set once at
+     * construction — not thread-safe against concurrent push/flush.
+     */
+    void set_notify_callback(std::function<void()> cb);
 };
 
 using QueuePtr = std::shared_ptr<Queue>;

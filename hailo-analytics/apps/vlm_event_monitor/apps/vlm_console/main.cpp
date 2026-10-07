@@ -1,12 +1,20 @@
 #include "vlm_frame_preprocessor.hpp"
 #include "vlm_inference_manager.hpp"
 
+#include "media_library/cloexec_fstream.hpp"
+
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
-#include <fstream>
+#include <iomanip>
 #include <iostream>
-#include <sstream>
+#include <memory>
 #include <string>
+#include <tl/expected.hpp>
+#include <utility>
 #include <vector>
 
 #define TOKEN_PER_EVENT (5)
@@ -15,7 +23,7 @@ namespace fs = std::filesystem;
 
 static std::vector<uint8_t> read_file(const std::string &path)
 {
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    cloexec::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file)
     {
         return {};
@@ -466,10 +474,6 @@ int main(int argc, char **argv)
             if (!result)
             {
                 std::cerr << "Error: " << result.error() << std::endl;
-            }
-            else
-            {
-                std::cout << "Session " << result.value() << " created" << std::endl;
             }
         }
         else if (cmd == "close")

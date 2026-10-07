@@ -48,6 +48,7 @@
 #include <condition_variable>
 #include <iostream>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <chrono>
 #include <memory>
@@ -62,7 +63,6 @@
 #include "hailo_analytics/pipeline/overlay/overlay_stage.hpp"
 #include "hailo_analytics/pipeline/sinks/gst_sink_stage.hpp"
 #include "hailo_analytics/pipeline/sources/gst_source_stage.hpp"
-#include "hailo_analytics/pipeline/core/buffer.hpp"
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "hailo_analytics/pipeline/core/stage.hpp"
 #include "hailo_analytics/analytics/detection.hpp"

@@ -1,7 +1,6 @@
 #include "lpr_pipeline_builder.hpp"
 
 #include <ctype.h>
-#include <stddef.h>
 #include <stdint.h>
 #include <algorithm>
 #include <chrono>
@@ -122,15 +121,19 @@ lpr::bbox_crop_ocr_config_t default_lpr_config()
 }
 
 tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus> build_tiling_pipeline(
-    const std::string &name, TrackingMode mode)
+    const std::string &name, TrackingMode mode, bool use_hailort_service)
 {
-    return tiling::generate_tiling_detection_pipeline(name, default_tiling_config(mode));
+    auto cfg = default_tiling_config(mode);
+    cfg.detection_config.ai_config.use_hailort_service = use_hailort_service;
+    return tiling::generate_tiling_detection_pipeline(name, cfg);
 }
 
 tl::expected<hailo_analytics::pipeline::PipelinePtr, hailo_analytics::pipeline::AppStatus> build_ocr_pipeline(
-    const std::string &name)
+    const std::string &name, bool use_hailort_service)
 {
-    return lpr::generate_bbox_crop_ocr_pipeline(name, default_lpr_config());
+    auto cfg = default_lpr_config();
+    cfg.ocr_config.ai_config.use_hailort_service = use_hailort_service;
+    return lpr::generate_bbox_crop_ocr_pipeline(name, cfg);
 }
 
 } // namespace lpr_app

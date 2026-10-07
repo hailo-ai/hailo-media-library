@@ -2,7 +2,9 @@
 
 #include <algorithm>
 
-#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 
 VlmFramePreprocessor::VlmFramePreprocessor(uint32_t target_height, uint32_t target_width, uint32_t target_channels)
     : m_height(target_height), m_width(target_width), m_channels(target_channels)

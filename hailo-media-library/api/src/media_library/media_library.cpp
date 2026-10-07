@@ -31,8 +31,6 @@
 #include "media_library/snapshot.hpp"
 #include "media_library/media_library_api_types.hpp"
 #include "json_ref_utils.hpp"
-#include "osd.hpp"
-#include "privacy_mask.hpp"
 
 #define MODULE_NAME LoggerType::Api
 
@@ -600,42 +598,6 @@ media_library_return MediaLibrary::initialize(
     return MEDIA_LIBRARY_SUCCESS;
 }
 
-media_library_return MediaLibrary::configure_privacy_mask(MediaLibraryEncoderPtr encoder,
-                                                          const privacy_mask_config_t &privacy_mask_config)
-{
-    std::shared_ptr<PrivacyMaskBlender> privacy_mask_blender = encoder->get_privacy_mask_blender();
-    if (privacy_mask_blender == nullptr)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get privacy mask blender from encoder");
-        return MEDIA_LIBRARY_ERROR;
-    }
-    auto ret = privacy_mask_blender->configure(std::make_unique<privacy_mask_config_t>(privacy_mask_config));
-    if (ret != MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure privacy mask blender");
-        return ret;
-    }
-    return MEDIA_LIBRARY_SUCCESS;
-}
-
-media_library_return MediaLibrary::configure_osd(MediaLibraryEncoderPtr encoder, const config_stream_osd_t &osd_config)
-{
-    ConfigParser config_manager_osd = ConfigParser(ConfigSchema::CONFIG_SCHEMA_OSD);
-    std::string osd_string = config_manager_osd.config_struct_to_string<config_stream_osd_t>(osd_config);
-    std::shared_ptr<osd::Blender> osd_blender = encoder->get_osd_blender();
-    if (osd_blender == nullptr)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get OSD blender from encoder");
-        return MEDIA_LIBRARY_ERROR;
-    }
-    auto ret = osd_blender->configure(osd_string);
-    if (ret != MEDIA_LIBRARY_SUCCESS)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to configure OSD blender");
-        return ret;
-    }
-    return MEDIA_LIBRARY_SUCCESS;
-}
 media_library_return MediaLibrary::configure_frontend_encoder(
     frontend_config_t frontend_config,
     std::map<output_stream_id_t, config_encoded_output_stream_t> encoded_output_streams)
@@ -1245,7 +1207,6 @@ bool MediaLibrary::frontend_pause_required(config_profile_t previous_profile, co
 
     bool denoise_bayer_changed = new_profile.iq_settings.denoise.bayer != previous_profile.iq_settings.denoise.bayer;
     bool hdr_changed = new_profile.iq_settings.hdr.enabled != previous_profile.iq_settings.hdr.enabled;
-
     if (hdr_changed && !denoise_bayer_changed && !new_profile.iq_settings.denoise.bayer)
     {
         // Plain SDR<->HDR fast-toggles; pre-ISP SDR<->HDR doesn't, so pause.
@@ -1261,7 +1222,6 @@ bool MediaLibrary::frontend_pause_required(config_profile_t previous_profile, co
         return true;
     }
 
-    // SDR/PRE-ISP SDR <-> PRE ISP DENOISE change is fully handled by isp manager via fast toggle
     if (denoise_bayer_changed && !hdr_changed && !new_profile.iq_settings.hdr.enabled)
     {
         LOGGER__MODULE__DEBUG(MODULE_NAME, "Denoise setting changed, fully handled by isp manager");

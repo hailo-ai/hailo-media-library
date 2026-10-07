@@ -132,6 +132,7 @@ class HailoBucket
     std::deque<intptr_t> m_available_buffers;
     std::shared_ptr<std::mutex> m_bucket_mutex;
     std::condition_variable m_bucket_cv;
+    std::atomic<size_t> m_left_to_allocate{0};
 
     media_library_return allocate_chunk(size_t count, bool use_prealloc = false);
     media_library_return free(bool fail_on_used_buffers = true);
@@ -164,6 +165,7 @@ HailoBucket::HailoBucket(size_t buffer_size, size_t num_buffers, HailoMemoryType
 {
     m_bucket_mutex = std::make_shared<std::mutex>();
     m_used_buffers.reserve(m_num_buffers);
+    m_left_to_allocate.store(m_num_buffers);
 }
 
 HailoBucket::~HailoBucket()
@@ -233,6 +235,7 @@ media_library_return HailoBucket::allocate_chunk(size_t count, bool use_prealloc
         {
             m_available_buffers.push_front(buffer);
         }
+        m_left_to_allocate.fetch_sub(tmp_allocated_buffers.size());
         LOGGER__MODULE__DEBUG(MODULE_NAME, "{}: allocate_chunk done - available={} used={} total={}", m_name,
                               m_available_buffers.size(), m_used_buffers.size(),
                               m_available_buffers.size() + m_used_buffers.size());
@@ -303,10 +306,26 @@ media_library_return HailoBucket::acquire(intptr_t *buffer_ptr)
 
     if (m_available_buffers.empty())
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME,
-                              "{}: Buffer acquire failed - no available buffers remaining, "
-                              "please validate the max buffers size you set ({})",
-                              m_name, m_num_buffers);
+        size_t left_to_allocate = m_left_to_allocate.load();
+        if (left_to_allocate > 0)
+        {
+            LOGGER__MODULE__WARN(MODULE_NAME,
+                                 "{}: Buffer acquire transient miss while {} buffers still to be allocated", m_name,
+                                 left_to_allocate);
+        }
+        else if (m_used_buffers.size() == m_num_buffers)
+        {
+            LOGGER__MODULE__WARN(MODULE_NAME,
+                                 "{}: Buffer acquire transient miss - all {} buffers currently checked out downstream",
+                                 m_name, m_num_buffers);
+        }
+        else
+        {
+            LOGGER__MODULE__ERROR(MODULE_NAME,
+                                  "{}: Buffer acquire failed - no available buffers remaining, "
+                                  "please validate the max buffers size you set ({})",
+                                  m_name, m_num_buffers);
+        }
         return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
     }
 
@@ -765,6 +784,11 @@ static std::vector<PreallocItem> collect_encoder_and_privacy_mask_items(
 
 void MediaLibraryBufferPool::preallocate_from_config(const ConfigManagerInteractor &interactor)
 {
+    if (!PREALLOC_ENABLED)
+    {
+        LOGGER__MODULE__DEBUG(MODULE_NAME, "preallocate_from_config: pre-allocation disabled, skipping");
+        return;
+    }
     LOGGER__MODULE__INFO(MODULE_NAME, "preallocate_from_config: ENTERED");
 
     // Reap any prior bg thread before launching a new one. Under normal
@@ -841,7 +865,7 @@ media_library_return MediaLibraryBufferPool::init(size_t initial_chunk_size)
         for (HailoBucketPtr &bucket : m_buckets)
         {
             size_t first_chunk = std::min(initial_chunk_size, m_max_buffers);
-            if (bucket->allocate_chunk(first_chunk, /*use_prealloc=*/true) != MEDIA_LIBRARY_SUCCESS)
+            if (bucket->allocate_chunk(first_chunk, /*use_prealloc=*/PREALLOC_ENABLED) != MEDIA_LIBRARY_SUCCESS)
             {
                 LOGGER__MODULE__ERROR(MODULE_NAME, "{}: failed to allocate first chunk", m_name);
                 return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
@@ -1019,7 +1043,6 @@ media_library_return MediaLibraryBufferPool::acquire_buffer(HailoMediaLibraryBuf
         ret = m_buckets[0]->acquire(&y_channel_ptr);
         if (ret != MEDIA_LIBRARY_SUCCESS)
         {
-            // GST_ERROR_OBJECT(pool, "Failed to create buffer with status code %d", result);
             return MEDIA_LIBRARY_BUFFER_ALLOCATION_ERROR;
         }
 

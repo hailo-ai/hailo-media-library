@@ -4,11 +4,18 @@
  **/
 #pragma once
 
-#include "xtensor/xarray.hpp"
+#include <xtensor/xbuilder.hpp>
+#include <xtensor/xgenerator.hpp>
+#include <xtensor/xlayout.hpp>
+#include <xtensor/xslice.hpp>
+#include <xtensor/xstrided_view.hpp>
+#include <xtensor/xtensor_forward.hpp>
+
+// xarray.hpp pulls in xt::uvector which xtensor_forward.hpp only declares; needed at instantiation.
+#include "xtensor/xarray.hpp" // IWYU pragma: keep
 #include "xtensor/xeval.hpp"
 #include "xtensor/xsort.hpp"
 #include "xtensor/xview.hpp"
-#include "xtensor/xio.hpp"
 
 namespace common
 {

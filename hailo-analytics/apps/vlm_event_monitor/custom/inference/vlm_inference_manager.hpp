@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>
+
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -10,10 +12,12 @@
 #include <unordered_map>
 #include <vector>
 
+#include <buffer.hpp>
+#include <genai/llm/llm.hpp>
 #include <tl/expected.hpp>
+#include <vdevice.hpp>
 
 #include "hailo/genai/vlm/vlm.hpp"
-#include "hailo/hailort.hpp"
 
 static constexpr std::chrono::milliseconds DEFAULT_BUSY_WAIT_TIMEOUT{5000};
 

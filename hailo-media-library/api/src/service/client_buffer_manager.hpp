@@ -89,6 +89,18 @@ class ClientBufferManager : public std::enable_shared_from_this<ClientBufferMana
     /// @param fe_callbacks  Map of stream_id -> callback
     media_library_return subscribe(FrontendCallbacksMap fe_callbacks);
 
+    /**
+     * @brief Drop the callback registered for one stream.
+     *
+     * The stage that owns the callback may be destroyed right after this returns, so the
+     * entry must be gone before that happens or the dispatch worker will call into freed
+     * memory. Safe to call for a stream that was never subscribed.
+     */
+    media_library_return unsubscribe(const output_stream_id_t &stream_id);
+
+    /** @brief Drop every registered callback. */
+    media_library_return unsubscribe_all();
+
     /// Look up the buffer_id for a buffer received via this manager.
     /// Used by add_buffer_to_encoder to translate buffer -> buffer_id.
     /// @param buffer  The buffer to look up
@@ -98,6 +110,12 @@ class ClientBufferManager : public std::enable_shared_from_this<ClientBufferMana
     /// Stop buffer streaming: cancel the gRPC stream context and close UDS.
     /// Safe to call multiple times.
     void stop();
+
+    /// Whether the gRPC buffer stream is already open
+    bool is_stream_active() const
+    {
+        return m_buffer_stream_active.load(std::memory_order_acquire);
+    }
 
   private:
     /// Connect UDS and open the appropriate gRPC buffer stream based on

@@ -1,5 +1,9 @@
 #include "chat_session_broker.hpp"
 
+#include <compare>
+#include <optional>
+#include <ratio>
+#include <type_traits>
 #include <utility>
 
 #include <nlohmann/json.hpp>

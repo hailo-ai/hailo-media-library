@@ -1,10 +1,9 @@
 #include <hailo/hailodsp.h>
 #include <hailo/hailodsp_base.h>
-#include <stddef.h>
-#include <stdint.h>
 #include <sys/types.h>
 #include <tl/expected.hpp>
 #include <chrono>
+#include <cstdint>
 #include <cstring>
 #include <map>
 #include <memory>

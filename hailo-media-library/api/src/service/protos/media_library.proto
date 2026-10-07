@@ -46,6 +46,13 @@ service MediaLibraryService {
     rpc SubscribeToEncoderBufferStream (SubscribeToEncoderBufferStreamRequest) returns (stream BufferMetadata) {}
     rpc ReleaseBuffer (ReleaseBufferRequest) returns (MedialibraryStatusReply) {}
     rpc AddBufferToEncoder (AddBufferToEncoderRequest) returns (MedialibraryStatusReply) {}
+    // Re-attach the frontend output to the buffer stream opened by
+    // SubscribeToFrontendBufferStream. That stream is opened once per client, while the
+    // callbacks it installs are dropped by UnsubscribeAllFromFrontend, so a client that
+    // subscribes again over the same stream has to ask for the wiring back.
+    rpc SubscribeToFrontendStream (FrontendStreamSubscriptionRequest) returns (MedialibraryStatusReply) {}
+    rpc SubscribeToEncoderStream (EncoderStreamSubscriptionRequest) returns (MedialibraryStatusReply) {}
+    rpc UnsubscribeFromEncoderStream (EncoderStreamSubscriptionRequest) returns (MedialibraryStatusReply) {}
 }
 
 // ============================================================
@@ -335,6 +342,15 @@ message AddBufferToEncoderRequest {
 
 message SubscribeToFrontendBufferStreamRequest {
     string client_id = 1;
+}
+
+message FrontendStreamSubscriptionRequest {
+    string client_id = 1;
+}
+
+message EncoderStreamSubscriptionRequest {
+    string client_id = 1;
+    string stream_id = 2;
 }
 
 message SubscribeToEncoderBufferStreamRequest {

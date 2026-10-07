@@ -4,7 +4,6 @@
 #include <fstream>
 #include <string>
 #include <filesystem>
-#include <chrono>
 #include <system_error>
 
 #include "media_library/cloexec_fstream.hpp"

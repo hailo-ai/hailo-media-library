@@ -6,16 +6,14 @@
 #include <iostream>
 #include <chrono>
 #include <condition_variable>
-#include <iterator>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
-#include "media_library/cloexec_fstream.hpp"
+#include "media_library_factory.hpp"
 // medialibrary includes
 #include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
 #include "media_library/signal_utils.hpp"
@@ -24,6 +22,9 @@
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "hailo_analytics/utils/profile_utils.hpp"
+#include "hailo_analytics/pipeline/core/stage.hpp"
+
+using hailo_analytics::pipeline::AppStatus;
 
 // defines
 #define APP_NAME "dual_sensor_app"
@@ -60,7 +61,7 @@ void print_help(const cxxopts::Options &options)
 cxxopts::Options build_arg_parser()
 {
     // clang-format off
-    cxxopts::Options options("AI pipeline app");
+    cxxopts::Options options("Dual sensor processing app case study");
     options.add_options()
     ("h,help", "Show this help")
     ("t,timeout", "Time to run", 
@@ -78,6 +79,10 @@ cxxopts::Options build_arg_parser()
     ("o,host-ip", "Host IP address for UDP output", 
         cxxopts::value<std::string>()->default_value(HOST_IP));
     // clang-format on
+
+    options.add_options()(apps::utils::USE_MEDIALIB_SERVICE_OPTION,
+                          "Connect to media_library_service instead of hosting the media library in this process",
+                          cxxopts::value<bool>()->default_value("false"));
 
     return options;
 }
@@ -139,7 +144,7 @@ std::vector<ArgumentType> handle_arguments(const cxxopts::ParseResult &result, c
 
 struct MediaLibraryInstance
 {
-    std::shared_ptr<MediaLibrary> media_library;
+    MediaLibraryInterfacePtr media_library;
     std::string medialib_config_path;
     std::string profile_name;
 };
@@ -152,6 +157,7 @@ struct AppResources
 
     hailo_analytics::pipeline::PipelinePtr pipeline;
     bool print_fps;
+    bool use_medialib_service = false;
     std::string host_ip = HOST_IP;
 
     AppResources()
@@ -161,18 +167,6 @@ struct AppResources
     }
 };
 
-std::string read_string_from_file(const char *file_path)
-{
-    cloexec::ifstream file_to_read;
-    file_to_read.open(file_path);
-    if (!file_to_read.is_open())
-        throw std::runtime_error(std::string("config path (") + file_path + ") is not valid");
-    std::string file_string((std::istreambuf_iterator<char>(file_to_read)), std::istreambuf_iterator<char>());
-    file_to_read.close();
-    std::cout << "Read config from file: " << file_path << std::endl;
-    return file_string;
-}
-
 /**
  * @brief Configure the frontend and encoders for the application.
  *
@@ -181,29 +175,37 @@ std::string read_string_from_file(const char *file_path)
  *
  * @param app_resources Shared pointer to the application's resources.
  */
-void configure_media_library(std::shared_ptr<AppResources> app_resources)
+AppStatus configure_media_library(std::shared_ptr<AppResources> app_resources)
 {
+    // One service owns one media library, and its two buffer-transport sockets live at fixed
+    // paths, so a second instance cannot be started alongside it. Until the service supports
+    // that, a two-sensor app has to host both libraries itself.
+    if (app_resources->use_medialib_service)
+    {
+        std::cerr << "Error: "
+                  << apps::utils::service_mode_unsupported_message(
+                         "it drives " + std::to_string(AppResources::NUM_SENSORS) +
+                         " sensors, and media_library_service serves a single media library")
+                  << std::endl;
+        return AppStatus::INVALID_ARGUMENT;
+    }
+
     for (int i = 0; i < AppResources::NUM_SENSORS; ++i)
     {
-        auto media_lib_expected = MediaLibrary::create();
-        if (!media_lib_expected.has_value())
+        auto media_library = apps::utils::create_media_library(app_resources->use_medialib_service,
+                                                               app_resources->instances[i].medialib_config_path);
+        if (!media_library.has_value())
         {
-            std::cout << "Failed to create media library for sensor " << i << std::endl;
-            throw std::runtime_error("Failed to create media library");
+            return AppStatus::MEDIA_LIBRARY_ERROR;
         }
-        app_resources->instances[i].media_library = media_lib_expected.value();
-        if (app_resources->instances[i].media_library->initialize(app_resources->instances[i].medialib_config_path) !=
-            media_library_return::MEDIA_LIBRARY_SUCCESS)
-        {
-            std::cout << "Failed to initialize media library for sensor " << i << std::endl;
-            throw std::runtime_error("Failed to initialize media library");
-        }
+        app_resources->instances[i].media_library = media_library.value();
         if (app_resources->instances[i].profile_name != NO_PROFILE_SELECTED)
         {
             hailo_analytics::utils::set_initial_profile(app_resources->instances[i].media_library,
                                                         app_resources->instances[i].profile_name);
         }
     }
+    return AppStatus::SUCCESS;
 }
 
 /**
@@ -216,7 +218,7 @@ void configure_media_library(std::shared_ptr<AppResources> app_resources)
  *
  * @param app_resources Shared pointer to the application's resources, which includes the pipeline object.
  */
-void create_pipeline(std::shared_ptr<AppResources> app_resources)
+AppStatus create_pipeline(std::shared_ptr<AppResources> app_resources)
 {
     // Application Pipeline Builder
     hailo_analytics::pipeline::PipelineBuilder pip_builder;
@@ -224,11 +226,11 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     for (int i = 0; i < AppResources::NUM_SENSORS; ++i)
     {
         // Get output streams from frontend to configure each output with unique port
-        auto output_streams = app_resources->instances[i].media_library->m_frontend->get_outputs_streams();
+        auto output_streams = app_resources->instances[i].media_library->get_frontend_output_streams();
         if (!output_streams.has_value())
         {
             HAILO_ANALYTICS_LOG_ERROR("Failed to get output streams for sensor {}", i);
-            throw std::runtime_error("Failed to get output streams for sensor " + std::to_string(i));
+            return AppStatus::MEDIA_LIBRARY_ERROR;
         }
 
         hailo_analytics::analytics::vision::vision_config_t custom_config =
@@ -248,12 +250,14 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
         if (!sensor_pipeline.has_value())
         {
             HAILO_ANALYTICS_LOG_ERROR("Failed to create vision pipeline for sensor {}", i);
-            throw std::runtime_error("Failed to create vision pipeline for sensor " + std::to_string(i));
+            return sensor_pipeline.error();
         }
         pip_builder.add_stage(sensor_pipeline.value());
     }
 
     app_resources->pipeline = pip_builder.build(APP_NAME, true);
+
+    return AppStatus::SUCCESS;
 }
 
 /**
@@ -321,11 +325,20 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Configure media library
-    configure_media_library(app_resources);
+    app_resources->use_medialib_service = result[apps::utils::USE_MEDIALIB_SERVICE_OPTION].as<bool>();
 
-    // Create pipeline and stages
-    create_pipeline(app_resources);
+    // Configure the media library and build the pipeline. Both read configuration the media
+    // library service may have built for a different application, so a mismatch surfaces here
+    // as an exception; report it and exit rather than letting it reach std::terminate.
+    if (configure_media_library(app_resources) != AppStatus::SUCCESS)
+    {
+        return 1;
+    }
+
+    if (create_pipeline(app_resources) != AppStatus::SUCCESS)
+    {
+        return 1;
+    }
 
     // Start pipeline
     std::cout << "Starting." << std::endl;

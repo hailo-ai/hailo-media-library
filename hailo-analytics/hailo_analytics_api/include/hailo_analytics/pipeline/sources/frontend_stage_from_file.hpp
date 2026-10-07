@@ -70,7 +70,7 @@ class FrontendStageFromFile : public FrontendStage
      * @param media_library MediaLibrary instance
      * @return AppStatus indicating success or failure
      */
-    AppStatus create(MediaLibraryPtr media_library);
+    AppStatus create(MediaLibraryInterfacePtr media_library);
 
     /**
      * @brief Stop the frontend stage
@@ -95,7 +95,7 @@ class FrontendStageFromFile : public FrontendStage
      * @param media_library MediaLibrary instance
      * @return AppStatus indicating success or failure
      */
-    AppStatus configure(MediaLibraryPtr media_library);
+    AppStatus configure(MediaLibraryInterfacePtr media_library);
 
   private:
     /**

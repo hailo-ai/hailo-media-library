@@ -38,7 +38,6 @@
 #include "buffer_utils/buffer_utils.hpp"
 #include "media_library/media_library_types.hpp"
 #include "buffer_pool.hpp"
-#include "dsp_utils.hpp"
 #include "media_library_buffer.hpp"
 #include "post_isp_denoise.hpp"
 
@@ -268,6 +267,13 @@ static GstFlowReturn gst_hailo_denoise_push_output_frame(GstHailoDenoise *self, 
     if (GST_PAD_IS_FLUSHING(self->params->srcpad.get()))
     {
         GST_WARNING_OBJECT(self, "Pad is flushing, not pushing buffer");
+        return GST_FLOW_OK;
+    }
+
+    GstEventPtr segment = gst_pad_get_sticky_event(self->params->srcpad, GST_EVENT_SEGMENT, 0);
+    if (!segment)
+    {
+        GST_DEBUG_OBJECT(self, "No segment on srcpad since the last flush, dropping a frame denoised before it");
         return GST_FLOW_OK;
     }
 

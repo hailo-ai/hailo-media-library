@@ -773,7 +773,7 @@ WARN_LOGFILE           =
 
 INPUT                  = "@TOP_SRCDIR@/media_library/include" \
                          "@TOP_SRCDIR@/api/include" \
-                         "@TOP_SRCDIR@/gst/osd/osd.hpp"
+                         "@TOP_SRCDIR@/gst/osd/osd_types.hpp"
 
 # This tag can be used to specify the character encoding of the source files
 # that doxygen parses. Internally doxygen uses the UTF-8 encoding. Doxygen uses

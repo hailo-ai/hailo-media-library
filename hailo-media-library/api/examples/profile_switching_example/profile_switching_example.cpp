@@ -7,16 +7,15 @@
 #include <optional>
 #include <string>
 #include <thread>
-#include <utility>
 #include <vector>
 
 #include "common/common.hpp"
-#include "osd.hpp"
-#include "osd_types.hpp"
 #include "media_library/signal_utils.hpp"
 #include "media_library/media_library.hpp"
 #include "media_library/media_library_api_types.hpp"
 #include "cloexec_fstream.hpp"
+
+static constexpr const char *PROFILE_TEXT_OVERLAY_ID = "profile_text_overlay";
 
 void update_osd_profile_name(const std::string &profile_name)
 {
@@ -26,16 +25,23 @@ void update_osd_profile_name(const std::string &profile_name)
         return;
     }
 
-    for (auto &encoder : m_media_lib->m_encoders)
+    auto profile_exp = m_media_lib->get_current_profile();
+    if (!profile_exp.has_value())
+        return;
+    config_profile_t profile = profile_exp.value();
+
+    const std::string new_label = "Profile: " + profile_name;
+    for (auto &[stream_id, stream_cfg] : profile.encoded_output_streams)
     {
-        auto blender = encoder.second->get_osd_blender();
-        auto overlay_exp = blender->get_overlay("profile_text_overlay");
-        if (overlay_exp.has_value())
+        for (auto &overlay : stream_cfg.osd.text_overlays)
         {
-            std::shared_ptr<osd::TextOverlay> overlay = std::static_pointer_cast<osd::TextOverlay>(overlay_exp.value());
-            overlay->label = "Profile: " + profile_name;
-            blender->set_overlay(*overlay);
+            if (overlay && overlay->id == PROFILE_TEXT_OVERLAY_ID)
+                overlay->label = new_label;
         }
+    }
+    if (m_media_lib->set_override_parameters(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        std::cout << "Failed to update profile overlay via profile override" << std::endl;
     }
 }
 
@@ -193,21 +199,40 @@ int main()
     }
     current_profile_name = get_profile_exp.value().name;
 
-    osd::rgba_color_t red_argb = {255, 0, 0, 255};
-    osd::rgba_color_t blue_argb = {0, 0, 255, 255};
-    std::string font_path = "/usr/share/fonts/ttf/LiberationMono-Bold.ttf";
-    osd::TextOverlay profile_text_overlay("profile_text_overlay", 0.1, 0.4, "Current Profile: " + current_profile_name,
-                                          red_argb, blue_argb, 40.0f, 1, 1, font_path, 0,
-                                          osd::rotation_alignment_policy_t::CENTER);
+    const rgba_color_t red_argb = {255, 0, 0, 255};
+    const rgba_color_t blue_argb = {0, 0, 255, 255};
+    const std::string font_path = "/usr/share/fonts/ttf/LiberationMono-Bold.ttf";
+    auto profile_text_overlay = std::make_shared<TextOverlay>();
+    profile_text_overlay->id = PROFILE_TEXT_OVERLAY_ID;
+    profile_text_overlay->x = 0.1f;
+    profile_text_overlay->y = 0.4f;
+    profile_text_overlay->label = "Current Profile: " + current_profile_name;
+    profile_text_overlay->text_color = red_argb;
+    profile_text_overlay->background_color = blue_argb;
+    profile_text_overlay->font_size = 40;
+    profile_text_overlay->line_thickness = 1;
+    profile_text_overlay->z_index = 1;
+    profile_text_overlay->font_path = font_path;
+    profile_text_overlay->angle = 0;
+    profile_text_overlay->rotation_alignment_policy = rotation_alignment_policy_t::CENTER;
 
-    for (const auto &encoder : m_media_lib->m_encoders)
     {
-        encoder.second->get_osd_blender()->add_overlay(profile_text_overlay);
-    }
-    std::this_thread::sleep_for(std::chrono::seconds(1)); // let overlays be added before enabling
-    for (const auto &encoder : m_media_lib->m_encoders)
-    {
-        encoder.second->get_osd_blender()->set_overlay_enabled("profile_text_overlay", true);
+        auto profile_exp = m_media_lib->get_current_profile();
+        if (!profile_exp.has_value())
+        {
+            std::cout << "Failed to get current profile" << std::endl;
+            return 1;
+        }
+        config_profile_t profile = profile_exp.value();
+        for (auto &[stream_id, stream_cfg] : profile.encoded_output_streams)
+        {
+            stream_cfg.osd.text_overlays.push_back(profile_text_overlay);
+        }
+        if (m_media_lib->set_override_parameters(profile) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        {
+            std::cout << "Failed to apply initial profile_text_overlay" << std::endl;
+            return 1;
+        }
     }
 
     // register signal SIGINT and signal handler

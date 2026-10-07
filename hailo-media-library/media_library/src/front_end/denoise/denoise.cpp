@@ -234,7 +234,7 @@ media_library_return MediaLibraryDenoise::perform_denoise(NetworkInferenceBindin
         return media_library_return::MEDIA_LIBRARY_ERROR;
     }
     // Initialize loopback buffers with dummy buffers as optimization
-    if (initialize_loopback_buffers(bindings->outputs) != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    if (initialize_loopback_buffers(*bindings) != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "failed to initialize loopback buffers");
         return media_library_return::MEDIA_LIBRARY_ERROR;
@@ -552,15 +552,15 @@ media_library_return MediaLibraryDenoise::bind_loopback_buffers(NetworkInference
     return m_hailort_denoise->bind_loopback_buffers(std::move(bindings), loopback_buffers);
 }
 
-media_library_return MediaLibraryDenoise::initialize_loopback_buffers(const TensorBindings &loopback_buffers)
+media_library_return MediaLibraryDenoise::initialize_loopback_buffers(const NetworkInferenceBindings &bindings)
 {
     if (m_should_queue_dummy_loopback_buffer)
     {
         m_should_queue_dummy_loopback_buffer = false;
-        initialize_dummy_loopback_buffers(loopback_buffers);
+        initialize_dummy_loopback_buffers(bindings);
         for (int i = 0; i < m_loopback_limit; i++)
         {
-            queue_loopback_buffer(loopback_buffers);
+            queue_loopback_buffer(bindings.outputs);
         }
 
         LOGGER__MODULE__INFO(MODULE_NAME, "Denoise loopback buffers initialized successfully");

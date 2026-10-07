@@ -9,7 +9,7 @@ gst_vision_encoder_app_src = ['main.cpp']
 executable('gst_vision_encoder_case_study',
   gst_vision_encoder_app_src,
   cpp_args : hailo_lib_args,
-  dependencies : libhailo_analytics_dep,
+  dependencies : [libhailo_analytics_dep, apps_common_dep],
   gnu_symbol_visibility : 'default',
   install: true,
   install_dir: gst_vision_encoder_install_dir,

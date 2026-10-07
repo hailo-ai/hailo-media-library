@@ -1,5 +1,8 @@
 #include "inference_request_queue.hpp"
 
+#include <exception>
+#include <utility>
+
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
 namespace vlm_event_monitor

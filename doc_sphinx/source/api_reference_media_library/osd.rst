@@ -7,10 +7,11 @@ OSD - On Screen Display
 The OSD is an element that empowers users to draw dynamic text, images, and timestamps by leveraging the **DSP capabilities provided in Hailo-15**.
 Offloading the task of image blending to the DSP results in high performance overlays.
 
-It uses :code:`osd::Blender` class to blend overlays on incoming frames.
-
-A initial configuration can be specified via JSON. A example of such a JSON can be found at the end of this page.
-After the initial configuration, use the API to dynamically add and remove overlays in runtime.
+OSD overlays are configured through the profile system. Initial configuration is specified in the profile JSON
+(see the example at the end of this page); runtime changes are applied by editing the profile's ``osd`` config
+on the relevant encoded output stream and calling :code:`MediaLibrary::set_override_parameters()`. The
+underlying :code:`osd::Blender` is internal — it reads the OSD config from the profile attached to each frame
+and applies overlays without direct user interaction.
 
 Supported Overlay Types:
 ========================
@@ -175,64 +176,44 @@ All overlay types share these common parameters:
 .. warning::
    Setting rotation on DateTime overlays may cause performance issues.
 
-Blender API Reference
-=====================
+Runtime OSD Updates
+===================
 
-The ``osd::Blender`` class provides the main interface for managing overlays:
+All runtime OSD changes are applied through the profile system. The pattern is the same regardless of
+the overlay type (text, datetime, image, custom):
 
-**Creation:**
+1. Fetch the current profile from :code:`MediaLibrary::get_current_profile()`.
+2. Edit the desired stream's ``osd`` field in the returned :code:`config_profile_t`.
+3. Apply the change with :code:`MediaLibrary::set_override_parameters()`. The internal blender picks
+   up the new OSD configuration on subsequent frames.
+
+**Example: replace OSD config on an encoded stream**
 
 .. code-block:: c++
 
-   // Create a blender instance
-   auto blender_result = osd::Blender::create();
-   if (blender_result.has_value()) {
-       auto blender = blender_result.value();
+   // Fetch the current profile
+   auto profile_expected = media_library->get_current_profile();
+   if (!profile_expected.has_value()) {
+       // Handle error — no active profile
+       return;
    }
-   
-   // Create with JSON configuration
-   auto blender_with_config = osd::Blender::create(json_config_string);
+   config_profile_t profile = profile_expected.value();
 
-**Adding Overlays:**
+   // Modify the OSD config for the stream you want to update.
+   // 'sink0' here is the stream id from the medialib config — adjust for your setup.
+   config_stream_osd_t new_osd_config = /* ... build / load your OSD config ... */;
+   profile.encoded_output_streams["sink0"].osd = new_osd_config;
 
-.. code-block:: c++
-
-   // Synchronous
-   media_library_return result = blender->add_overlay(overlay);
-   
-   // Asynchronous
-   std::shared_future<media_library_return> future_result = blender->add_overlay_async(overlay);
-
-**Managing Overlays:**
-
-.. code-block:: c++
-
-   // Get overlay information
-   auto overlay_result = blender->get_overlay("overlay_id");
-   if (overlay_result.has_value()) {
-       auto overlay = overlay_result.value();
-       // Cast to specific type if needed
-       auto text_overlay = std::static_pointer_cast<osd::TextOverlay>(overlay);
+   // Apply — encoders pick up the new OSD on the next frame
+   media_library_return ret = media_library->set_override_parameters(profile);
+   if (ret != MEDIA_LIBRARY_SUCCESS) {
+       // Handle error
    }
-   
-   // Update overlay
-   blender->set_overlay(modified_overlay);
-   
-   // Enable/disable overlay
-   blender->set_overlay_enabled("overlay_id", true);
-   
-   // Remove overlay
-   blender->remove_overlay("overlay_id");
 
-**Frame Processing:**
-
-.. code-block:: c++
-
-   // Set frame dimensions (call once when frame size is known)
-   blender->set_frame_size(frame_width, frame_height);
-   
-   // Blend overlays onto frame
-   media_library_return result = blender->blend(buffer);
+The :code:`osd::Blender` / :code:`osd::Configurer` classes that actually drive the DSP-side blending
+are internal in this release; user code should not access them directly. Direct accessor methods that
+existed in earlier versions (:code:`MediaLibraryEncoder::get_osd_blender()`, the GStreamer
+``osd-blender`` element property) have been removed.
 
 Alignment and Positioning
 =========================
@@ -296,20 +277,24 @@ More examples can be found in:
 Error Handling
 ==============
 
-The OSD API uses the ``tl::expected`` pattern for error handling:
+OSD APIs use the ``tl::expected`` pattern for fallible lookups and a :code:`media_library_return`
+status code for mutating calls:
 
 .. code-block:: c++
 
-   auto blender_result = osd::Blender::create();
-   if (!blender_result.has_value()) {
-       media_library_return error = blender_result.error();
+   // Fetching the current profile may fail (no profile set yet)
+   auto profile_expected = media_library->get_current_profile();
+   if (!profile_expected.has_value()) {
+       media_library_return error = profile_expected.error();
        // Handle error
        return;
    }
-   auto blender = blender_result.value();
-   
-   // For operations returning media_library_return
-   media_library_return result = blender->add_overlay(overlay);
+   config_profile_t profile = profile_expected.value();
+
+   profile.encoded_output_streams["sink0"].osd = new_osd_config;
+
+   // Applying the change may fail (schema validation, thermal restriction, etc.)
+   media_library_return result = media_library->set_override_parameters(profile);
    if (result != MEDIA_LIBRARY_SUCCESS) {
        // Handle error
    }
@@ -323,7 +308,7 @@ Common Error Scenarios:
 - **Invalid formats**: Unsupported image formats or invalid color values
 - **Memory allocation**: Insufficient memory for overlay buffers
 
-.. doxygenfile:: osd.hpp
+.. doxygenfile:: osd_types.hpp
    :project: media_library
 
 JSON Examples

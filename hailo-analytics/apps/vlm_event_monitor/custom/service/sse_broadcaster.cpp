@@ -3,12 +3,15 @@
 #include <chrono>
 #include <cstdio>
 #include <ctime>
+#include <functional>
+#include <optional>
 #include <utility>
+#include <vector>
 
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 
-#include "hailo_analytics/logger/hailo_analytics_logger.hpp"
+#include "event_monitor/event_check_runner.hpp"
 
 namespace vlm_event_monitor
 {

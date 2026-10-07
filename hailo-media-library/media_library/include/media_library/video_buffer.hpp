@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "dma_buffer.hpp"
+#include "files_utils.hpp"
 #include "media_library_logger.hpp"
 
 namespace HDR

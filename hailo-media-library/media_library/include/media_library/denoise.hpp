@@ -128,8 +128,8 @@ class MediaLibraryDenoise
     void queue_inference_callback_buffer(NetworkInferenceBindingsPtr bindings);
     NetworkInferenceBindingsPtr dequeue_inference_callback_buffer();
     media_library_return acquire_loopback_buffer(NetworkInferenceBindingsPtr bindings);
-    media_library_return initialize_loopback_buffers(const TensorBindings &loopback_buffers);
-    virtual void initialize_dummy_loopback_buffers(const TensorBindings & /*loopback_buffers*/)
+    media_library_return initialize_loopback_buffers(const NetworkInferenceBindings &bindings);
+    virtual void initialize_dummy_loopback_buffers(const NetworkInferenceBindings & /*bindings*/)
     {
     }
 

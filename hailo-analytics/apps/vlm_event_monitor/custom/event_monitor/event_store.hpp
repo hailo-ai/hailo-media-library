@@ -1,6 +1,7 @@
 #pragma once
 
-#include <cstdint>
+#include <stddef.h>
+
 #include <functional>
 #include <memory>
 #include <mutex>

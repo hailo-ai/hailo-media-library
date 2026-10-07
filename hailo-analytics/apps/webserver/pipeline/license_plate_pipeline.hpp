@@ -15,8 +15,9 @@ namespace pipeline
 class LicensePlatePipeline : public BasePipeline
 {
   public:
-    LicensePlatePipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
-                         RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H);
+    LicensePlatePipeline(webserver::resources::ResourceRepository &resources, MediaLibraryInterfacePtr media_library,
+                         RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H,
+                         bool use_hailort_service = false);
     static bool is_supported(webserver::resources::ResourceRepository &resources, Architecture platform);
 
     virtual std::string pipeline_name() const override;

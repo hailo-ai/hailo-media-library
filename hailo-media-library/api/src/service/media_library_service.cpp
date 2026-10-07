@@ -11,23 +11,22 @@
 #include <optional>
 #include <thread>
 #include <chrono>
+#include <condition_variable>
+#include <compare>
 #include <mutex>
 #include <unordered_map>
 #include <cstdlib>
 #include <exception>
 #include <functional>
-#include <initializer_list>
 #include <map>
 #include <memory>
-#include <stdexcept>
 #include <string>
+#include <system_error>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include "media_library/cloexec_fstream.hpp"
 #include "media_library/media_library.hpp"
-#include "hailo_media_library_perfetto.hpp"
 #include "media_library/media_library_logger.hpp"
 #include "media_library/env_vars.hpp"
 #include "media_library/common.hpp"
@@ -39,6 +38,7 @@
 #include "media_library_service_buffer_uds.hpp"
 #include "event_stream_reactors.hpp"
 #include "server_session_registry.hpp"
+#include "service_trace.hpp"
 #include "buffer_pool.hpp"
 #include "media_library/media_library_api_types.hpp"
 #include "media_library_buffer.hpp"
@@ -52,43 +52,13 @@ constexpr const char *DEFAULT_SERVICE_CONFIG_BACKUP_PATH = "/etc/media-library-s
 /** @brief Filename for persisted media library configuration */
 constexpr const char *MEDIALIB_CONFIG_FILENAME = "medialib_config.json";
 
-#ifdef HAVE_PERFETTO
-class ServiceTraceScope
-{
-  public:
-    explicit ServiceTraceScope(const char *name)
-    {
-        HAILO_MEDIA_LIBRARY_TRACE_EVENT_BEGIN(perfetto::DynamicString(name), SERVICE_TRACK, MEDIA_LIBRARY_CATEGORY);
-    }
-    ~ServiceTraceScope()
-    {
-        HAILO_MEDIA_LIBRARY_TRACE_EVENT_END(SERVICE_TRACK, MEDIA_LIBRARY_CATEGORY);
-    }
-};
-#define SERVICE_TRACE_RPC(name) ServiceTraceScope _trace_scope(name)
-#else
-#define SERVICE_TRACE_RPC(name)
-#endif
-
 // Forward declarations — avoid including config_type_conversions.hpp which has
 // non-inline definitions that conflict with config_parser_internal at link time.
 void to_json(nlohmann::json &j, const config_profile_t &profile);
 void from_json(const nlohmann::json &j, config_profile_t &profile);
 
-#ifdef USE_JPEG_JSONS
-#define JPEG_SINK1 true
-#define IS_JPEG(id) (id != "sink0")
-#define FILE_ID(id) (IS_JPEG(id) ? "jpeg_" + id : id)
-#else
-#define JPEG_SINK1 false
-#define FILE_ID(id) (id)
-#define IS_JPEG(id) (false)
-#endif
-#define OUTPUT_FILE(id) get_output_file(FILE_ID(id), IS_JPEG(id))
-
 using grpc::CallbackServerContext;
 using grpc::Server;
-using grpc::ServerBuilder;
 using grpc::ServerUnaryReactor;
 using grpc::Status;
 
@@ -96,7 +66,6 @@ using media_library_service::GetPipelineStateReply;
 using media_library_service::GetPipelineStateRequest;
 using media_library_service::InitRequest;
 using media_library_service::MediaLibraryService;
-using media_library_service::MediaLibraryStatus;
 using media_library_service::MedialibraryStatusReply;
 using media_library_service::SetProfileRequest;
 using media_library_service::StartPipelineRequest;
@@ -105,6 +74,11 @@ using media_library_service::StopPipelineRequest;
 using media_library_proto_converters::convert_to_proto_pipeline_state;
 using media_library_proto_converters::convert_to_proto_status;
 using media_library_proto_converters::convert_to_proto_throttling_state;
+
+template <typename EventT> using BrokerPtr = std::shared_ptr<EventStreamBroker<EventT>>;
+template <typename EventT> using BrokerWeakPtr = std::weak_ptr<EventStreamBroker<EventT>>;
+using BufferBrokerPtr = BrokerPtr<media_library_service::BufferMetadata>;
+using BufferBrokerWeakPtr = BrokerWeakPtr<media_library_service::BufferMetadata>;
 
 // Thresholds for live-buffer cap and slow-path warnings.
 //
@@ -115,13 +89,11 @@ static constexpr size_t LIVE_BUFFER_DROP_THRESHOLD = 40;
 static constexpr size_t LIVE_BUFFER_WARN_THRESHOLD = 36;
 static constexpr int HEARTBEAT_INTERVAL_SEC = 5;
 
-// Pure utility functions — no state dependency
-
-inline std::string get_output_file(const std::string &id, bool is_jpeg)
-{
-    std::string suffix = (is_jpeg ? ".jpegenc" : ".h264");
-    return "/var/volatile/tmp/service_example_" + id + suffix;
-}
+// A pipeline switch fires several config RPCs in a row, and each backup takes seconds under the
+// media library's main lock. Settling first costs one backup per burst, not one per RPC.
+static constexpr std::chrono::seconds PERSIST_QUIET_PERIOD{2};
+// Cap so a steady stream of changes cannot postpone durability indefinitely.
+static constexpr std::chrono::seconds PERSIST_MAX_DELAY{10};
 
 // Server-side buffer tracking entry: holds a shared_ptr to the buffer while
 // the client process is using it, preventing pool reclamation.
@@ -156,6 +128,7 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
         if (m_encoder_buffer_uds_server.setup() != MEDIA_LIBRARY_SUCCESS)
             LOGGER__CRITICAL("Encoder BufferUdsServer setup failed — buffer streaming will not work");
         start_heartbeat_thread();
+        start_persist_thread();
     }
 
     ~MediaLibraryServiceImpl()
@@ -168,12 +141,10 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
         // Finish all active stream reactors so gRPC knows the streams are done.
         {
             std::lock_guard<std::mutex> lock(m_subscribe_mutex);
-            auto finish_reactor = [](auto *&reactor) {
-                if (reactor)
-                {
+            auto finish_reactor = [](auto &weak_reactor) {
+                if (auto reactor = weak_reactor.lock())
                     reactor->finish();
-                    reactor = nullptr;
-                }
+                weak_reactor.reset();
             };
             finish_reactor(m_pipeline_state_reactor);
             finish_reactor(m_profile_restricted_reactor);
@@ -191,14 +162,6 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
             m_media_lib->unsubscribe_all_from_frontend();
             m_media_lib->shutdown();
         }
-
-        // close all output files
-        for (auto &entry : m_output_files)
-        {
-            entry.second.close();
-        }
-
-        m_output_files.clear();
 
         // Clean up shared buffers
         {
@@ -227,6 +190,8 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
     void graceful_shutdown()
     {
         stop_heartbeat_thread();
+        flush_pending_persist();
+        stop_persist_thread();
         if (m_media_lib)
         {
             m_media_lib->stop_pipeline();
@@ -344,10 +309,12 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
         HailoMediaLibraryBufferPtr buffer, const std::string &client_id,
         media_library_service::BufferUdsServer &uds_server, bool &client_broken)
     {
+        SERVICE_TRACE_SCOPE("share_buffer_with_client");
         client_broken = false;
         uint64_t buffer_id;
         size_t live_count;
         {
+            SERVICE_TRACE_SCOPE("share_buffer_map_insert");
             std::lock_guard<std::mutex> lock(m_shared_buffers_mutex);
             live_count = m_shared_buffers.size();
             if (live_count >= LIVE_BUFFER_DROP_THRESHOLD)
@@ -369,9 +336,9 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
         }
         else
         {
-            LOGGER__MODULE__INFO(LoggerType::Service,
-                                 "share_buffer_with_client: buffer_id={} client={} live_buffers={}", buffer_id,
-                                 client_id, live_count);
+            LOGGER__MODULE__DEBUG(LoggerType::Service,
+                                  "share_buffer_with_client: buffer_id={} client={} live_buffers={}", buffer_id,
+                                  client_id, live_count);
         }
 
         // Collect all plane FDs
@@ -382,7 +349,11 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
         }
 
         // Send FDs over Unix socket (non-blocking)
-        auto status = uds_server.send_buffer_fds(plane_fds, buffer_id);
+        media_library_service::uds_buffer_send_status status;
+        {
+            SERVICE_TRACE_SCOPE("send_buffer_fds_uds");
+            status = uds_server.send_buffer_fds(plane_fds, buffer_id);
+        }
         if (status != media_library_service::uds_buffer_send_status::OK)
         {
             client_broken = (status == media_library_service::uds_buffer_send_status::Broken);
@@ -484,14 +455,15 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
     };
 
     void on_buffer_ready(HailoMediaLibraryBufferPtr buffer, uint32_t size, const std::string &stream_id,
-                         EventStreamBroker<media_library_service::BufferMetadata> *broker,
-                         media_library_service::BufferUdsServer &uds_server, std::mutex &send_mutex,
-                         const std::string &client_id)
+                         const BufferBrokerPtr &broker, media_library_service::BufferUdsServer &uds_server,
+                         std::mutex &send_mutex, const std::string &client_id)
     {
+        SERVICE_TRACE_SCOPE("on_buffer_ready");
         BufferSendResult result_status = BufferSendResult::SEND_FAILED;
         uint64_t buffer_id = 0;
 
         {
+            SERVICE_TRACE_SCOPE("on_buffer_ready_critical_section");
             std::lock_guard<std::mutex> lock(send_mutex);
             bool client_broken = false;
             auto result = share_buffer_with_client(buffer, client_id, uds_server, client_broken);
@@ -504,11 +476,18 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
             {
                 result_status = BufferSendResult::SEND_OK;
                 buffer_id = result.value();
-                auto metadata = build_buffer_metadata(buffer_id, buffer, stream_id, size);
+                media_library_service::BufferMetadata metadata;
+                {
+                    SERVICE_TRACE_SCOPE("build_buffer_metadata");
+                    metadata = build_buffer_metadata(buffer_id, buffer, stream_id, size);
+                }
                 LOGGER__MODULE__DEBUG(LoggerType::Service,
                                       "on_buffer_ready: buffer_id={} stream_id={} pushing gRPC buffer metadata",
                                       buffer_id, stream_id);
-                broker->push_event(std::move(metadata));
+                {
+                    SERVICE_TRACE_SCOPE("push_event");
+                    broker->push_event(std::move(metadata));
+                }
             }
         }
 
@@ -523,6 +502,9 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
             // Unsubscribe frontend callbacks to stop the dead-client callback
             // loop.  The pipeline keeps running (samples are drained) and a
             // new client can re-wire callbacks via SubscribeToFrontendBufferStream.
+            // Encoder callbacks are deliberately left attached: this can run inside an
+            // encoder dispatch, where detaching deadlocks, and cutting the frontend feed
+            // stops the encoders from producing anyway.
             m_media_lib->unsubscribe_all_from_frontend();
             return;
         }
@@ -541,6 +523,17 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
         {
             LOGGER__MODULE__INFO(LoggerType::Service, "flush_shared_buffers: releasing {} orphaned buffers", count);
             m_shared_buffers.clear();
+        }
+    }
+
+    void unsubscribe_from_all_encoder_streams()
+    {
+        if (!m_media_lib)
+            return;
+
+        for (const auto &encoder_entry : m_media_lib->m_encoders)
+        {
+            m_media_lib->unsubscribe_from_encoder_output(encoder_entry.first);
         }
     }
 
@@ -610,13 +603,13 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
             m_heartbeat_thread.join();
     }
 
-    void subscribe_elements()
+    media_library_return wire_frontend_to_encoders()
     {
         auto streams = m_media_lib->get_frontend_output_streams();
         if (!streams.has_value())
         {
-            LOGGER__MODULE__ERROR(LoggerType::Service, "Failed to get stream ids");
-            throw std::runtime_error("Failed to get stream ids");
+            LOGGER__MODULE__ERROR(LoggerType::Service, "Failed to get frontend output streams");
+            return streams.error();
         }
 
         FrontendCallbacksMap fe_callbacks;
@@ -636,13 +629,32 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
                 fe_callbacks[s.id] = [](HailoMediaLibraryBufferPtr, size_t) {};
             }
         }
-        m_media_lib->subscribe_to_frontend_output(fe_callbacks);
+
+        media_library_return subscribe_ret = m_media_lib->subscribe_to_frontend_output(fe_callbacks);
+        if (subscribe_ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__MODULE__ERROR(LoggerType::Service, "Failed to subscribe to frontend output (error {})",
+                                  static_cast<int>(subscribe_ret));
+        }
+        return subscribe_ret;
     }
 
     media_library_return reconfigure(const std::string &config_string)
     {
-        // Parse the new config to extract the requested default profile.
-        nlohmann::json config_json = nlohmann::json::parse(config_string, nullptr, false);
+        std::string config_content = config_string;
+        std::error_code config_path_ec;
+        if (std::filesystem::exists(config_string, config_path_ec))
+        {
+            auto file_content = files_utils::read_string_from_file(config_string);
+            if (!file_content.has_value() || file_content.value().empty())
+            {
+                LOGGER__MODULE__ERROR(LoggerType::Service, "Failed to read configuration file '{}'", config_string);
+                return media_library_return::MEDIA_LIBRARY_INVALID_ARGUMENT;
+            }
+            config_content = file_content.value();
+        }
+
+        nlohmann::json config_json = nlohmann::json::parse(config_content, nullptr, false);
         if (config_json.is_discarded())
         {
             LOGGER__MODULE__ERROR(LoggerType::Service, "Failed to parse new configuration JSON");
@@ -682,7 +694,7 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
                 LOGGER__MODULE__INFO(
                     LoggerType::Service,
                     "Persistent config mode: ignoring client config_string, keeping persisted configuration");
-                return setup_output_and_subscriptions();
+                return wire_frontend_to_encoders();
             }
             LOGGER__MODULE__INFO(LoggerType::Service, "Already initialized, applying new configuration");
             return reconfigure(config_string);
@@ -718,10 +730,10 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
         // initialization (from_persisted_config == false)
         if (!from_persisted_config)
         {
-            media_library_return setup_ret = setup_output_and_subscriptions();
-            if (setup_ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
+            media_library_return wire_ret = wire_frontend_to_encoders();
+            if (wire_ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
             {
-                return setup_ret;
+                return wire_ret;
             }
         }
 
@@ -749,12 +761,6 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
                                         DEFAULT_SERVICE_CONFIG_BACKUP_PATH);
     }
 
-    media_library_return setup_output_and_subscriptions()
-    {
-        subscribe_elements();
-        return media_library_return::MEDIA_LIBRARY_SUCCESS;
-    }
-
     media_library_return persist_config_string(const std::string &config_string)
     {
         std::string backup_path = get_backup_path();
@@ -767,6 +773,28 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
         return ret;
     }
 
+    media_library_return delete_persisted_config()
+    {
+        std::string backup_path = get_backup_path();
+        std::string config_file_path = (std::filesystem::path(backup_path) / MEDIALIB_CONFIG_FILENAME).string();
+        std::error_code ec;
+        if (!std::filesystem::exists(config_file_path, ec))
+        {
+            LOGGER__MODULE__DEBUG(LoggerType::Service, "No persisted config to delete at {}", config_file_path);
+            return media_library_return::MEDIA_LIBRARY_SUCCESS;
+        }
+        if (!std::filesystem::remove(config_file_path, ec) || ec)
+        {
+            LOGGER__MODULE__WARN(LoggerType::Service, "Failed to delete persisted config at {}: {}", config_file_path,
+                                 ec.message());
+            return media_library_return::MEDIA_LIBRARY_ERROR;
+        }
+        LOGGER__MODULE__INFO(LoggerType::Service,
+                             "Deleted persisted config at {}; service will remain stopped after restart",
+                             config_file_path);
+        return media_library_return::MEDIA_LIBRARY_SUCCESS;
+    }
+
     media_library_return persist_configuration()
     {
         media_library_return ret = m_media_lib->backup_profiles();
@@ -776,6 +804,87 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
                                  static_cast<int>(ret));
         }
         return ret;
+    }
+
+    /// Record that the configuration changed and let the persist worker write it once the
+    /// changes stop arriving.
+    void mark_config_dirty()
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_persist_mutex);
+            if (!m_config_dirty)
+                m_first_dirty_at = std::chrono::steady_clock::now();
+            m_config_dirty = true;
+        }
+        m_persist_cv.notify_one();
+    }
+
+    /// Write a pending change synchronously, so a change made moments before an orderly exit is
+    /// still durable. Safe to call with nothing pending.
+    void flush_pending_persist()
+    {
+        bool pending = false;
+        {
+            std::lock_guard<std::mutex> lock(m_persist_mutex);
+            pending = m_config_dirty;
+            m_config_dirty = false;
+        }
+        if (pending && m_media_lib)
+        {
+            LOGGER__MODULE__INFO(LoggerType::Service, "Flushing pending configuration before shutdown");
+            persist_configuration();
+        }
+    }
+
+    void persist_worker()
+    {
+        while (true)
+        {
+            std::unique_lock<std::mutex> lock(m_persist_mutex);
+            m_persist_cv.wait(lock, [this]() { return m_config_dirty || !m_persist_running; });
+            if (!m_persist_running)
+                return;
+
+            // Restart the quiet period on every new change, but never postpone the write past
+            // PERSIST_MAX_DELAY measured from the first change of the burst.
+            const auto write_by = m_first_dirty_at + PERSIST_MAX_DELAY;
+            while (m_persist_running)
+            {
+                m_config_dirty = false;
+                if (!m_persist_cv.wait_for(lock, PERSIST_QUIET_PERIOD,
+                                           [this]() { return m_config_dirty || !m_persist_running; }))
+                    break;
+                if (std::chrono::steady_clock::now() >= write_by)
+                    break;
+            }
+            if (!m_persist_running)
+                return;
+
+            m_config_dirty = false;
+            lock.unlock();
+            if (m_media_lib)
+                persist_configuration();
+        }
+    }
+
+    void start_persist_thread()
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_persist_mutex);
+            m_persist_running = true;
+        }
+        m_persist_thread = std::thread([this]() { persist_worker(); });
+    }
+
+    void stop_persist_thread()
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_persist_mutex);
+            m_persist_running = false;
+        }
+        m_persist_cv.notify_all();
+        if (m_persist_thread.joinable())
+            m_persist_thread.join();
     }
 
     // ========== RPC Handlers ==========
@@ -799,11 +908,11 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
 #define INIT_STREAM_BROKER(event_type, member_reactor)                                                                 \
     SERVICE_TRACE_RPC(__func__);                                                                                       \
     LOGGER__MODULE__TRACE(LoggerType::Service, "{} stream RPC called", __func__);                                      \
-    auto *reactor = new EventStreamBroker<event_type>();                                                               \
+    auto reactor = EventStreamBroker<event_type>::create();                                                            \
     {                                                                                                                  \
         std::lock_guard<std::mutex> lock(m_subscribe_mutex);                                                           \
-        if (member_reactor)                                                                                            \
-            (member_reactor)->finish();                                                                                \
+        if (auto previous_reactor = (member_reactor).lock())                                                           \
+            previous_reactor->finish();                                                                                \
         (member_reactor) = reactor;                                                                                    \
     }
 
@@ -864,6 +973,11 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
     {
         INIT_REACTOR(context, reply);
         media_library_return ret = m_media_lib->stop_pipeline();
+        if (ret == media_library_return::MEDIA_LIBRARY_SUCCESS)
+        {
+            // A client explicitly stopped the stream. Drop the persisted config.
+            delete_persisted_config();
+        }
         FINISH_WITH_STATUS(reactor, reply, ret, "Failed to stop pipeline");
     }
 
@@ -876,12 +990,7 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
         media_library_return ret = m_media_lib->set_profile(profile_name);
         if (ret == media_library_return::MEDIA_LIBRARY_SUCCESS)
         {
-            media_library_return persist_ret = persist_configuration();
-            if (persist_ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
-            {
-                LOGGER__MODULE__WARN(LoggerType::Service,
-                                     "Profile set successfully but failed to persist configuration");
-            }
+            mark_config_dirty();
         }
         FINISH_WITH_STATUS(reactor, reply, ret, "Failed to set profile to " + profile_name);
     }
@@ -922,6 +1031,8 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
             m_session_registry.release_active();
         }
 
+        unsubscribe_from_all_encoder_streams();
+
         LOGGER__MODULE__INFO(LoggerType::Service, "Client disconnected via Shutdown, pipeline continues streaming");
         reply->set_status(convert_to_proto_status(media_library_return::MEDIA_LIBRARY_SUCCESS));
         reactor->Finish(Status::OK);
@@ -936,6 +1047,7 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
         LOGGER__MODULE__TRACE(LoggerType::Service, "Uninitialize RPC called, client_id={}", request->client_id());
         ServerUnaryReactor *reactor = context->DefaultReactor();
         m_session_registry.release(request->client_id());
+        unsubscribe_from_all_encoder_streams();
         reply->set_status(convert_to_proto_status(media_library_return::MEDIA_LIBRARY_SUCCESS));
         reactor->Finish(Status::OK);
         return reactor;
@@ -1148,12 +1260,7 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
             media_library_return ret = m_media_lib->set_override_parameters(profile);
             if (ret == media_library_return::MEDIA_LIBRARY_SUCCESS)
             {
-                media_library_return persist_ret = persist_configuration();
-                if (persist_ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
-                {
-                    LOGGER__MODULE__WARN(LoggerType::Service,
-                                         "Override parameters set successfully but failed to persist configuration");
-                }
+                mark_config_dirty();
             }
             else
             {
@@ -1240,15 +1347,19 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
         INIT_STREAM_BROKER(media_library_service::PipelineStateChangeEvent, m_pipeline_state_reactor);
         if (m_media_lib)
         {
-            m_media_lib->subscribe_to_pipeline_state_change([reactor](media_library_pipeline_state_t state) {
+            BrokerWeakPtr<media_library_service::PipelineStateChangeEvent> weak_reactor = reactor;
+            m_media_lib->subscribe_to_pipeline_state_change([weak_reactor](media_library_pipeline_state_t state) {
+                auto broker = weak_reactor.lock();
+                if (!broker)
+                    return;
                 LOGGER__MODULE__DEBUG(LoggerType::Service, "Received pipeline state change notification with state: {}",
                                       (int)state);
                 media_library_service::PipelineStateChangeEvent event;
                 event.set_state(convert_to_proto_pipeline_state(state));
-                reactor->push_event(std::move(event));
+                broker->push_event(std::move(event));
             });
         }
-        return reactor;
+        return reactor.get();
     }
 
     grpc::ServerWriteReactor<media_library_service::ProfileRestrictedEvent> *SubscribeToProfileRestricted(
@@ -1258,17 +1369,21 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
         INIT_STREAM_BROKER(media_library_service::ProfileRestrictedEvent, m_profile_restricted_reactor);
         if (m_media_lib)
         {
+            BrokerWeakPtr<media_library_service::ProfileRestrictedEvent> weak_reactor = reactor;
             m_media_lib->subscribe_to_profile_restricted(
-                [reactor](const config_profile_t &previous_profile, const config_profile_t &new_profile) {
+                [weak_reactor](const config_profile_t &previous_profile, const config_profile_t &new_profile) {
+                    auto broker = weak_reactor.lock();
+                    if (!broker)
+                        return;
                     media_library_service::ProfileRestrictedEvent event;
                     nlohmann::json j_prev = previous_profile;
                     nlohmann::json j_new = new_profile;
                     event.set_previous_profile_json(j_prev.dump());
                     event.set_new_profile_json(j_new.dump());
-                    reactor->push_event(std::move(event));
+                    broker->push_event(std::move(event));
                 });
         }
-        return reactor;
+        return reactor.get();
     }
 
     grpc::ServerWriteReactor<media_library_service::ProfileRestrictionDoneEvent> *SubscribeToProfileRestrictionDone(
@@ -1278,12 +1393,16 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
         INIT_STREAM_BROKER(media_library_service::ProfileRestrictionDoneEvent, m_profile_restriction_done_reactor);
         if (m_media_lib)
         {
-            m_media_lib->subscribe_to_profile_restriction_done([reactor]() {
+            BrokerWeakPtr<media_library_service::ProfileRestrictionDoneEvent> weak_reactor = reactor;
+            m_media_lib->subscribe_to_profile_restriction_done([weak_reactor]() {
+                auto broker = weak_reactor.lock();
+                if (!broker)
+                    return;
                 media_library_service::ProfileRestrictionDoneEvent event;
-                reactor->push_event(std::move(event));
+                broker->push_event(std::move(event));
             });
         }
-        return reactor;
+        return reactor.get();
     }
 
     grpc::ServerWriteReactor<media_library_service::ThrottlingStateChangeEvent> *SubscribeToThrottlingStateChange(
@@ -1293,16 +1412,69 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
         INIT_STREAM_BROKER(media_library_service::ThrottlingStateChangeEvent, m_throttling_state_reactor);
         if (m_media_lib)
         {
-            m_media_lib->subscribe_to_throttling_state_change([reactor](media_library_throttling_state_t state) {
+            BrokerWeakPtr<media_library_service::ThrottlingStateChangeEvent> weak_reactor = reactor;
+            m_media_lib->subscribe_to_throttling_state_change([weak_reactor](media_library_throttling_state_t state) {
+                auto broker = weak_reactor.lock();
+                if (!broker)
+                    return;
                 media_library_service::ThrottlingStateChangeEvent event;
                 event.set_state(convert_to_proto_throttling_state(state));
-                reactor->push_event(std::move(event));
+                broker->push_event(std::move(event));
             });
         }
-        return reactor;
+        return reactor.get();
     }
 
     // ========== Buffer Streaming RPC Handlers ==========
+
+    BufferBrokerPtr frontend_stream_reactor()
+    {
+        std::lock_guard<std::mutex> lock(m_subscribe_mutex);
+        return m_frontend_buffer_stream_reactor.lock();
+    }
+
+    /**
+     * @brief Send every frontend output stream to the client's open buffer stream.
+     *
+     * This replaces whatever frontend callbacks are installed, including the default
+     * wire_frontend_to_encoders() wiring. The encoder stops being fed directly: the client
+     * receives each frame, processes it, and hands it back through add_buffer_to_encoder().
+     *
+     * @param reactor the open frontend buffer stream that frames are pushed to.
+     * @param client_id must be the session holder. Buffers are attributed to it in
+     *        m_shared_buffers, which on_client_death() sweeps when that peer dies.
+     */
+    media_library_return wire_frontend_streams(const BufferBrokerPtr &reactor, const std::string &client_id)
+    {
+        auto streams = m_media_lib->get_frontend_output_streams();
+        if (!streams.has_value())
+        {
+            LOGGER__MODULE__ERROR(LoggerType::Service, "Failed to get frontend output streams");
+            return streams.error();
+        }
+
+        FrontendCallbacksMap fe_callbacks;
+        BufferBrokerWeakPtr weak_reactor = reactor;
+        for (const auto &stream : streams.value())
+        {
+            fe_callbacks[stream.id] = [this, weak_reactor, stream_id = stream.id,
+                                       client_id](HailoMediaLibraryBufferPtr buffer, size_t size) {
+                auto broker = weak_reactor.lock();
+                if (!broker)
+                    return;
+                on_buffer_ready(buffer, size, stream_id, broker, m_frontend_buffer_uds_server,
+                                m_frontend_buffer_send_mutex, client_id);
+            };
+        }
+
+        media_library_return subscribe_ret = m_media_lib->subscribe_to_frontend_output(fe_callbacks);
+        if (subscribe_ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
+        {
+            LOGGER__MODULE__ERROR(LoggerType::Service, "Failed to subscribe to frontend output (error {})",
+                                  static_cast<int>(subscribe_ret));
+        }
+        return subscribe_ret;
+    }
 
     grpc::ServerWriteReactor<media_library_service::BufferMetadata> *SubscribeToFrontendBufferStream(
         CallbackServerContext * /*context*/,
@@ -1310,6 +1482,17 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
     {
         INIT_STREAM_BROKER(media_library_service::BufferMetadata, m_frontend_buffer_stream_reactor);
         std::string client_id = request->client_id();
+        if (client_id != m_session_registry.active_client_id())
+        {
+            // Checked before the teardown below: buffers shared over this stream are
+            // attributed to client_id and released on that client's death, so only the
+            // session holder may open it.
+            LOGGER__MODULE__ERROR(LoggerType::Service,
+                                  "SubscribeToFrontendBufferStream: client={} does not hold the session (owner={})",
+                                  client_id, m_session_registry.active_client_id());
+            reactor->finish();
+            return reactor.get();
+        }
 
         LOGGER__MODULE__INFO(LoggerType::Service, "SubscribeToFrontendBufferStream: client={} connecting UDS...",
                              client_id);
@@ -1336,28 +1519,82 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
 
         if (m_media_lib)
         {
-            // Wire frontend output callbacks -- send raw frame buffers to client.
-            // This overwrites the default subscribe_elements() wiring (frontend -> encoder),
-            // so the encoder will no longer receive input from the frontend directly.
-            // The client receives these, processes them, and calls
-            // add_buffer_to_encoder() when ready.
-            auto streams = m_media_lib->m_frontend->get_outputs_streams();
-            if (streams.has_value())
+            media_library_return wire_ret = wire_frontend_streams(reactor, client_id);
+            if (wire_ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
             {
-                FrontendCallbacksMap fe_callbacks;
-                for (const auto &s : streams.value())
-                {
-                    fe_callbacks[s.id] = [this, reactor, stream_id = s.id, client_id](HailoMediaLibraryBufferPtr buffer,
-                                                                                      size_t size) {
-                        on_buffer_ready(buffer, size, stream_id, reactor, m_frontend_buffer_uds_server,
-                                        m_frontend_buffer_send_mutex, client_id);
-                    };
-                }
-                m_media_lib->subscribe_to_frontend_output(fe_callbacks);
+                LOGGER__MODULE__ERROR(LoggerType::Service,
+                                      "SubscribeToFrontendBufferStream: client={} failed to wire frontend callbacks",
+                                      client_id);
             }
         }
 
-        return reactor;
+        return reactor.get();
+    }
+
+    /**
+     * @brief Re-attach the frontend output to the buffer stream this client already holds.
+     *
+     * The stream-open handler wires the frontend once; UnsubscribeAllFromFrontend drops
+     * that wiring. A client whose stream stays open across a teardown/subscribe cycle —
+     * an application switching pipelines, say — gets its frames back through here.
+     */
+    ServerUnaryReactor *SubscribeToFrontendStream(
+        CallbackServerContext *context, const media_library_service::FrontendStreamSubscriptionRequest *request,
+        MedialibraryStatusReply *reply) override
+    {
+        SERVICE_TRACE_RPC(__func__);
+        ServerUnaryReactor *reactor = context->DefaultReactor();
+        auto stream_reactor = frontend_stream_reactor();
+
+        if (!m_media_lib || !stream_reactor)
+        {
+            LOGGER__MODULE__ERROR(LoggerType::Service, "SubscribeToFrontendStream: no frontend buffer stream open");
+            FINISH_WITH_STATUS(reactor, reply, media_library_return::MEDIA_LIBRARY_UNINITIALIZED,
+                               "No frontend buffer stream open");
+        }
+        if (request->client_id() != m_session_registry.active_client_id())
+        {
+            LOGGER__MODULE__ERROR(LoggerType::Service,
+                                  "SubscribeToFrontendStream: client={} does not hold the session (owner={})",
+                                  request->client_id(), m_session_registry.active_client_id());
+            FINISH_WITH_STATUS(reactor, reply, media_library_return::MEDIA_LIBRARY_INVALID_ARGUMENT,
+                               "Client does not hold the session");
+        }
+
+        LOGGER__MODULE__INFO(LoggerType::Service, "SubscribeToFrontendStream: client={} re-wiring frontend callbacks",
+                             request->client_id());
+        media_library_return ret = wire_frontend_streams(stream_reactor, request->client_id());
+        FINISH_WITH_STATUS(reactor, reply, ret, "Failed to wire frontend output callbacks");
+    }
+
+    BufferBrokerPtr encoder_stream_reactor()
+    {
+        std::lock_guard<std::mutex> lock(m_subscribe_mutex);
+        return m_encoder_buffer_stream_reactor.lock();
+    }
+
+    /**
+     * @brief Route one encoder stream's output to the open encoder buffer stream.
+     *
+     * Replaces that encoder's previous callback, which is how both the initial
+     * SubscribeToEncoderBufferStream wiring and a later re-subscribe are expressed.
+     *
+     * @param client_id must be the session holder: it keys buffer ownership in
+     *        m_shared_buffers, which on_client_death() sweeps when that peer dies.
+     */
+    void wire_encoder_stream(const output_stream_id_t &stream_id, const BufferBrokerPtr &reactor,
+                             const std::string &client_id)
+    {
+        m_media_lib->unsubscribe_from_encoder_output(stream_id);
+        BufferBrokerWeakPtr weak_reactor = reactor;
+        m_media_lib->subscribe_to_encoder_output(
+            stream_id, [this, weak_reactor, stream_id, client_id](HailoMediaLibraryBufferPtr buffer, size_t size) {
+                auto broker = weak_reactor.lock();
+                if (!broker)
+                    return;
+                on_buffer_ready(buffer, size, stream_id, broker, m_encoder_buffer_uds_server,
+                                m_encoder_buffer_send_mutex, client_id);
+            });
     }
 
     grpc::ServerWriteReactor<media_library_service::BufferMetadata> *SubscribeToEncoderBufferStream(
@@ -1366,18 +1603,21 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
     {
         INIT_STREAM_BROKER(media_library_service::BufferMetadata, m_encoder_buffer_stream_reactor);
         std::string client_id = request->client_id();
+        if (client_id != m_session_registry.active_client_id())
+        {
+            // Buffers shared over this stream are attributed to client_id and released on
+            // that client's death, so only the session holder may open it.
+            LOGGER__MODULE__ERROR(LoggerType::Service,
+                                  "SubscribeToEncoderBufferStream: client={} does not hold the session (owner={})",
+                                  client_id, m_session_registry.active_client_id());
+            reactor->finish();
+            return reactor.get();
+        }
 
         LOGGER__MODULE__INFO(LoggerType::Service, "SubscribeToEncoderBufferStream: client={} connecting UDS...",
                              client_id);
 
-        // 1. Replace old encoder callbacks with no-ops to stop stale sends.
-        if (m_media_lib)
-        {
-            for (const auto &[stream_id, encoder] : m_media_lib->m_encoders)
-            {
-                m_media_lib->subscribe_to_encoder_output(stream_id, [](HailoMediaLibraryBufferPtr, size_t) {});
-            }
-        }
+        unsubscribe_from_all_encoder_streams();
 
         // 2. Serialize with in-flight encoder sends, then disconnect.
         {
@@ -1393,19 +1633,84 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
         if (m_media_lib)
         {
             // Wire encoder output callbacks -- send encoded buffers to client.
-            // This overwrites the default subscribe_elements() wiring (encoder -> file),
-            // so encoded output will go to the client instead of local files.
             for (const auto &[stream_id, encoder] : m_media_lib->m_encoders)
             {
-                m_media_lib->subscribe_to_encoder_output(
-                    stream_id, [this, reactor, stream_id_copy = stream_id, client_id](HailoMediaLibraryBufferPtr buffer,
-                                                                                      size_t size) {
-                        on_buffer_ready(buffer, size, stream_id_copy, reactor, m_encoder_buffer_uds_server,
-                                        m_encoder_buffer_send_mutex, client_id);
-                    });
+                wire_encoder_stream(stream_id, reactor, client_id);
             }
         }
 
+        return reactor.get();
+    }
+
+    ServerUnaryReactor *SubscribeToEncoderStream(CallbackServerContext *context,
+                                                 const media_library_service::EncoderStreamSubscriptionRequest *request,
+                                                 MedialibraryStatusReply *reply) override
+    {
+        SERVICE_TRACE_RPC(__func__);
+        ServerUnaryReactor *reactor = context->DefaultReactor();
+        const std::string &stream_id = request->stream_id();
+        auto stream_reactor = encoder_stream_reactor();
+
+        if (!m_media_lib || !stream_reactor)
+        {
+            LOGGER__MODULE__ERROR(LoggerType::Service,
+                                  "SubscribeToEncoderStream: no encoder buffer stream open (stream_id={})", stream_id);
+            FINISH_WITH_STATUS(reactor, reply, media_library_return::MEDIA_LIBRARY_UNINITIALIZED,
+                               "No encoder buffer stream open");
+        }
+        if (request->client_id() != m_session_registry.active_client_id())
+        {
+            LOGGER__MODULE__ERROR(LoggerType::Service,
+                                  "SubscribeToEncoderStream: client={} does not hold the session (owner={})",
+                                  request->client_id(), m_session_registry.active_client_id());
+            FINISH_WITH_STATUS(reactor, reply, media_library_return::MEDIA_LIBRARY_INVALID_ARGUMENT,
+                               "Client does not hold the session");
+        }
+        if (m_media_lib->m_encoders.find(stream_id) == m_media_lib->m_encoders.end())
+        {
+            LOGGER__MODULE__ERROR(LoggerType::Service, "SubscribeToEncoderStream: unknown stream_id={}", stream_id);
+            FINISH_WITH_STATUS(reactor, reply, media_library_return::MEDIA_LIBRARY_INVALID_ARGUMENT,
+                               "Unknown encoder stream id");
+        }
+
+        LOGGER__MODULE__INFO(LoggerType::Service, "SubscribeToEncoderStream: client={} stream_id={}",
+                             request->client_id(), stream_id);
+        wire_encoder_stream(stream_id, stream_reactor, request->client_id());
+        reply->set_status(convert_to_proto_status(media_library_return::MEDIA_LIBRARY_SUCCESS));
+        reactor->Finish(Status::OK);
+        return reactor;
+    }
+
+    ServerUnaryReactor *UnsubscribeFromEncoderStream(
+        CallbackServerContext *context, const media_library_service::EncoderStreamSubscriptionRequest *request,
+        MedialibraryStatusReply *reply) override
+    {
+        SERVICE_TRACE_RPC(__func__);
+        ServerUnaryReactor *reactor = context->DefaultReactor();
+        const std::string &stream_id = request->stream_id();
+
+        if (!m_media_lib)
+        {
+            FINISH_WITH_STATUS(reactor, reply, media_library_return::MEDIA_LIBRARY_UNINITIALIZED,
+                               "Media library not initialized");
+        }
+        // Only the session holder may detach one of its encoder streams.
+        if (request->client_id() != m_session_registry.active_client_id())
+        {
+            LOGGER__MODULE__ERROR(LoggerType::Service,
+                                  "UnsubscribeFromEncoderStream: client={} does not hold the session (owner={})",
+                                  request->client_id(), m_session_registry.active_client_id());
+            FINISH_WITH_STATUS(reactor, reply, media_library_return::MEDIA_LIBRARY_INVALID_ARGUMENT,
+                               "Client does not hold the session");
+        }
+
+        LOGGER__MODULE__INFO(LoggerType::Service, "UnsubscribeFromEncoderStream: client={} stream_id={}",
+                             request->client_id(), stream_id);
+        // Detaches every callback on that encoder. The service is the only subscriber, so
+        // this is equivalent to detaching ours; it would not be if that ever changed.
+        media_library_return ret = m_media_lib->unsubscribe_from_encoder_output(stream_id);
+        reply->set_status(convert_to_proto_status(ret));
+        reactor->Finish(Status::OK);
         return reactor;
     }
 
@@ -1413,16 +1718,16 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
                                       const media_library_service::ReleaseBufferRequest *request,
                                       MedialibraryStatusReply *reply) override
     {
+        SERVICE_TRACE_SCOPE("ReleaseBuffer");
         ServerUnaryReactor *reactor = context->DefaultReactor();
         uint64_t buffer_id = request->buffer_id();
 
-        LOGGER__MODULE__INFO(LoggerType::Service, "ReleaseBuffer: ENTER buffer_id={}", buffer_id);
+        LOGGER__MODULE__DEBUG(LoggerType::Service, "ReleaseBuffer: ENTER buffer_id={}", buffer_id);
 
         // Move the buffer out of the map before erasing so its destructor runs
         // OUTSIDE m_shared_buffers_mutex.  The destructor may block for seconds.
         HailoMediaLibraryBufferPtr buffer_to_free;
         std::string client_id;
-        size_t live_buffers_after;
         {
             std::lock_guard<std::mutex> lock(m_shared_buffers_mutex);
 
@@ -1440,10 +1745,6 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
             client_id = it->second.client_id;
             buffer_to_free = std::move(it->second.buffer); // Move out; destructor deferred
             m_shared_buffers.erase(it);
-            live_buffers_after = m_shared_buffers.size();
-
-            LOGGER__MODULE__INFO(LoggerType::Service, "ReleaseBuffer: buffer_id={} client={} live_buffers={}",
-                                 buffer_id, client_id, live_buffers_after);
         }
         // buffer_to_free destroyed here, outside the mutex.
 
@@ -1456,12 +1757,13 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
                                            const media_library_service::AddBufferToEncoderRequest *request,
                                            MedialibraryStatusReply *reply) override
     {
+        SERVICE_TRACE_SCOPE("AddBufferToEncoder");
         ServerUnaryReactor *reactor = context->DefaultReactor();
         uint64_t buffer_id = request->buffer_id();
         std::string stream_id = request->stream_id();
 
-        LOGGER__MODULE__INFO(LoggerType::Service, "AddBufferToEncoder: ENTER buffer_id={} stream_id={}", buffer_id,
-                             stream_id);
+        LOGGER__MODULE__DEBUG(LoggerType::Service, "AddBufferToEncoder: ENTER buffer_id={} stream_id={}", buffer_id,
+                              stream_id);
 
         // Look up the buffer in m_shared_buffers
         HailoMediaLibraryBufferPtr buffer;
@@ -1481,9 +1783,6 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
             buffer = it->second.buffer; // Copy the shared_ptr (increases refcount)
         }
 
-        LOGGER__MODULE__INFO(LoggerType::Service, "AddBufferToEncoder: buffer_id={} stream_id={}", buffer_id,
-                             stream_id);
-
         // Feed the buffer to the encoder
         media_library_return ret = m_media_lib->add_buffer_to_encoder(stream_id, buffer);
         if (ret != MEDIA_LIBRARY_SUCCESS)
@@ -1501,25 +1800,24 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
     std::atomic<bool> m_initialized{false};
     std::mutex m_initialize_mutex; // serializes self-init and client Initialize / reconfigure
     MediaLibraryPtr m_media_lib;
-    std::map<output_stream_id_t, cloexec::ofstream> m_output_files;
     std::optional<config_profile_t> m_user_profile;
     std::mutex m_profile_mutex; // protects m_user_profile
     bool m_persistent_config_mode{false};
     ServerSessionRegistry m_session_registry;
 
     std::mutex m_subscribe_mutex;
-    EventStreamBroker<media_library_service::PipelineStateChangeEvent> *m_pipeline_state_reactor = nullptr;
-    EventStreamBroker<media_library_service::ProfileRestrictedEvent> *m_profile_restricted_reactor = nullptr;
-    EventStreamBroker<media_library_service::ProfileRestrictionDoneEvent> *m_profile_restriction_done_reactor = nullptr;
-    EventStreamBroker<media_library_service::ThrottlingStateChangeEvent> *m_throttling_state_reactor = nullptr;
-    EventStreamBroker<media_library_service::BufferMetadata> *m_frontend_buffer_stream_reactor = nullptr;
-    EventStreamBroker<media_library_service::BufferMetadata> *m_encoder_buffer_stream_reactor = nullptr;
+    BrokerWeakPtr<media_library_service::PipelineStateChangeEvent> m_pipeline_state_reactor;
+    BrokerWeakPtr<media_library_service::ProfileRestrictedEvent> m_profile_restricted_reactor;
+    BrokerWeakPtr<media_library_service::ProfileRestrictionDoneEvent> m_profile_restriction_done_reactor;
+    BrokerWeakPtr<media_library_service::ThrottlingStateChangeEvent> m_throttling_state_reactor;
+    BufferBrokerWeakPtr m_frontend_buffer_stream_reactor;
+    BufferBrokerWeakPtr m_encoder_buffer_stream_reactor;
 
     // Buffer streaming state (shared across both frontend and encoder streams,
     // because ReleaseBuffer and AddBufferToEncoder need to find any buffer by ID)
     std::mutex m_shared_buffers_mutex;
     std::unordered_map<uint64_t, SharedBufferEntry> m_shared_buffers;
-    std::atomic<uint64_t> m_next_buffer_id{0};
+    std::atomic<uint64_t> m_next_buffer_id{1};
 
     // Per-stream mutexes ensure atomic UDS + gRPC ordering within each stream
     std::mutex m_frontend_buffer_send_mutex;
@@ -1532,6 +1830,13 @@ class MediaLibraryServiceImpl final : public MediaLibraryService::CallbackServic
     // Heartbeat thread — logs live_buffers and CMA free every HEARTBEAT_INTERVAL_SEC seconds
     std::atomic<bool> m_heartbeat_running{false};
     std::thread m_heartbeat_thread;
+
+    std::thread m_persist_thread;
+    std::mutex m_persist_mutex; // guards m_config_dirty, m_first_dirty_at and m_persist_running
+    std::condition_variable m_persist_cv;
+    bool m_config_dirty{false};
+    bool m_persist_running{false};
+    std::chrono::steady_clock::time_point m_first_dirty_at;
 };
 
 #undef INIT_REACTOR

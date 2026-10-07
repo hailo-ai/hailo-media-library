@@ -2,6 +2,8 @@
 
 #include <memory>
 #include <stdexcept>
+#include <functional>
+#include <vector>
 
 #include "common/common.hpp"
 #include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
@@ -12,10 +14,7 @@
 #include "hailo_analytics/pipeline/core/buffer.hpp"
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "hailo_analytics/pipeline/overlay/overlay_stage.hpp"
-#include "hailo_analytics/pipeline/sinks/output_module.hpp"
 #include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
-#include "pipeline/isp_blender.hpp"
-#include "resources/common/events_utils.hpp"
 
 #define TEE_STAGE "vision_tee"
 
@@ -27,13 +26,14 @@ using namespace webserver::pipeline;
 using namespace webserver::resources;
 
 #define BASIC_PIPELINE_SUPPORTED_PROFILES                                                                              \
-    {ProfileType::Daylight,  ProfileType::AiIspGen1, ProfileType::HighDynamicRange,                                    \
-     ProfileType::AiIspGen2, ProfileType::AiIspGen3, ProfileType::AiIspGen3_1}
+    {ProfileType::Daylight, ProfileType::AiIspGen1, ProfileType::HighDynamicRange, ProfileType::AiIspGen2,             \
+     ProfileType::AiIspGen3}
 
-BasicPipeline::BasicPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
-                             RTPConverterStage &webrtc_stage, Architecture platform)
+BasicPipeline::BasicPipeline(webserver::resources::ResourceRepository &resources,
+                             MediaLibraryInterfacePtr media_library, RTPConverterStage &webrtc_stage,
+                             Architecture platform, bool use_hailort_service)
     : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight,
-                   BASIC_PIPELINE_SUPPORTED_PROFILES)
+                   BASIC_PIPELINE_SUPPORTED_PROFILES, use_hailort_service)
 {
 }
 
@@ -56,8 +56,6 @@ std::string BasicPipeline::get_profile_name_by_type(ProfileType type) const
         return BASIC_AI_ISP_GEN2_PROFILE_NAME;
     case ProfileType::AiIspGen3:
         return BASIC_AI_ISP_GEN3_PROFILE_NAME;
-    case ProfileType::AiIspGen3_1:
-        return BASIC_AI_ISP_GEN3_1_PROFILE_NAME;
     default:
         throw std::runtime_error("profile type not supported in Basic Pipeline");
     }
@@ -75,8 +73,6 @@ ProfileType BasicPipeline::get_profile_type_by_name(const std::string &name) con
         return ProfileType::AiIspGen2;
     else if (name == BASIC_AI_ISP_GEN3_PROFILE_NAME)
         return ProfileType::AiIspGen3;
-    else if (name == BASIC_AI_ISP_GEN3_1_PROFILE_NAME)
-        return ProfileType::AiIspGen3_1;
     else
         throw std::runtime_error("profile name not supported in Basic Pipeline");
 }

@@ -46,7 +46,6 @@
 #include "gstmedialibcommon.hpp"
 #include "media_library/media_library_types.hpp"
 #include "media_library_buffer.hpp"
-#include "privacy_mask.hpp"
 
 #define ENCODER_QUEUE_NAME "encoder_q"
 #define MODULE_NAME LoggerType::Api
@@ -254,44 +253,6 @@ media_library_return MediaLibraryEncoder::Impl::add_buffer(HailoMediaLibraryBuff
     {
         return MEDIA_LIBRARY_ERROR;
     }
-    return MEDIA_LIBRARY_SUCCESS;
-}
-
-// ============================================================================
-// Blender Accessor Methods
-// ============================================================================
-
-std::shared_ptr<osd::Blender> MediaLibraryEncoder::Impl::get_osd_blender()
-{
-    return m_osd_blender;
-}
-
-std::shared_ptr<PrivacyMaskBlender> MediaLibraryEncoder::Impl::get_privacy_mask_blender()
-{
-    return m_privacy_mask_blender;
-}
-
-media_library_return MediaLibraryEncoder::Impl::load_blenders()
-{
-    GstElementPtr encoder_bin = glib_cpp::ptrs::get_bin_by_name(m_pipeline, m_stream_id);
-    if (encoder_bin == nullptr)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get encoder bin");
-        return MEDIA_LIBRARY_ERROR;
-    }
-    gpointer value = nullptr;
-    g_object_get(encoder_bin.as_g_object(), "osd-blender", &value, NULL);
-    osd::Blender *osd_blender = static_cast<osd::Blender *>(value);
-    if (osd_blender == nullptr)
-    {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get osd-blender from encoder bin");
-        return MEDIA_LIBRARY_ERROR;
-    }
-    m_osd_blender = osd_blender->shared_from_this();
-    value = nullptr;
-    g_object_get(encoder_bin.as_g_object(), "privacy-mask-blender", &value, NULL);
-    PrivacyMaskConfigurer *privacy_mask_blender = static_cast<PrivacyMaskConfigurer *>(value);
-    m_privacy_mask_blender = privacy_mask_blender->shared_from_this();
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -790,8 +751,7 @@ GstFlowReturn MediaLibraryEncoder::Impl::add_buffer_internal(GstBufferPtr &buffe
     return ret;
 }
 
-std::string MediaLibraryEncoder::Impl::create_pipeline(const InputParams &input_params, EncoderType encoder_type,
-                                                       codec_t codec)
+std::string MediaLibraryEncoder::Impl::create_pipeline(EncoderType encoder_type, codec_t codec)
 {
     std::string caps2;
     std::string pipeline;
@@ -799,12 +759,11 @@ std::string MediaLibraryEncoder::Impl::create_pipeline(const InputParams &input_
 
     if (encoder_type == EncoderType::Hailo)
     {
-        std::string codec_caps = (codec == CODEC_TYPE_HEVC) ? "video/x-h265" : "video/x-h264";
-        caps2 = codec_caps + ",framerate=" + std::to_string(input_params.framerate) + "/1";
+        caps2 = (codec == CODEC_TYPE_HEVC) ? "video/x-h265" : "video/x-h264";
     }
     else
     {
-        caps2 = std::string("image/jpeg,framerate=") + std::to_string(input_params.framerate) + "/1";
+        caps2 = "image/jpeg";
     }
 
     std::string config_attacher_prop = m_add_config_attacher ? " add-config-attacher=true" : "";
@@ -846,7 +805,7 @@ bool MediaLibraryEncoder::Impl::init_pipeline(const encoder_config_t &config, co
                                               EncoderType encoder_type, codec_t codec)
 {
     LOGGER__MODULE__INFO(MODULE_NAME, "Initializing encoder gst pipeline (struct)");
-    GstElementPtr pipeline = gst_parse_launch(create_pipeline(input_params, encoder_type, codec).c_str(), NULL);
+    GstElementPtr pipeline = gst_parse_launch(create_pipeline(encoder_type, codec).c_str(), NULL);
     if (pipeline == nullptr)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to create pipeline");
@@ -899,7 +858,6 @@ bool MediaLibraryEncoder::Impl::init_pipeline(const encoder_config_t &config, co
     m_appsrc = glib_cpp::ptrs::element_to_app_src(appsrc);
     m_pipeline = std::move(pipeline);
 
-    load_blenders();
     return true;
 }
 

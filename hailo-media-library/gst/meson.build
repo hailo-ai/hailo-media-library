@@ -62,7 +62,6 @@ headers_to_install = [
     'common/gstmedialibptrs.hpp',
     'buffer_utils/buffer_utils.hpp',
     'buffer_utils/gsthailobuffermeta.hpp',
-    'osd/osd.hpp',
     'osd/osd_types.hpp',
     'dsp/gsthailodspbasetransform.hpp',
     'dsp/gsthailodspbufferpool.hpp',

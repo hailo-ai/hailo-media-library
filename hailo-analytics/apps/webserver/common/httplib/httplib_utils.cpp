@@ -59,6 +59,7 @@ class HTTPServer::Impl
     Impl();
     static std::shared_ptr<HTTPServer::Impl> create();
     void listen(const std::string &host, int port);
+    void stop();
     void set_mount_point(const std::string &mount_point, const std::string &path);
     void Get(const std::string &pattern, std::function<void()> callback);
     void Get(const std::string &pattern, std::function<nlohmann::json()> callback);
@@ -101,6 +102,11 @@ std::unique_ptr<HTTPServer> HTTPServer::create()
 void HTTPServer::listen(const std::string &host, int port)
 {
     m_impl->listen(host, port);
+}
+
+void HTTPServer::stop()
+{
+    m_impl->stop();
 }
 
 void HTTPServer::set_mount_point(const std::string &mount_point, const std::string &path)
@@ -265,6 +271,12 @@ void HTTPServer::Impl::handle_request(HTTPMethod /*method*/, const httplib::Requ
 void HTTPServer::Impl::listen(const std::string &host, int port)
 {
     m_server.listen(host.c_str(), port);
+}
+
+void HTTPServer::Impl::stop()
+{
+    m_server.wait_until_ready();
+    m_server.stop();
 }
 
 void HTTPServer::Impl::set_mount_point(const std::string &mount_point, const std::string &path)

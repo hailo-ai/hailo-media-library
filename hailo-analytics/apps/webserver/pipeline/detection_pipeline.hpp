@@ -18,9 +18,9 @@ namespace pipeline
 class DetectionPipeline : public BasePipeline
 {
   public:
-    DetectionPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
+    DetectionPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryInterfacePtr media_library,
                       RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H,
-                      bool suppress_metadata_ws = false);
+                      bool suppress_metadata_ws = false, bool use_hailort_service = false);
 
     virtual std::string pipeline_name() const override;
     void start() override;

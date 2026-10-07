@@ -2,17 +2,23 @@
 #ifndef _GST_HAILOJPEGENC_HPP_
 #define _GST_HAILOJPEGENC_HPP_
 
-#include <gst/gst.h>
-#include <stdio.h> // IWYU pragma: keep // jpeglib.h uses FILE without including <stdio.h>
-#include <jpeglib.h>
 #include <glib-object.h>
 #include <glib.h>
+#include <gst/video/gstvideoencoder.h>
+#include <gst/video/video.h>
 #include <stdint.h>
 #include <sys/types.h>
-#include <vector>
+
+#include <atomic>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <queue>
 #include <string>
+#include <thread>
 
 #include "encoder_config_types.hpp"
+#include "media_library/jpeg_encoder.hpp"
 
 struct GstHailoJpegEnc;
 
@@ -27,31 +33,34 @@ G_BEGIN_DECLS
 static constexpr uint DEFAULT_NUM_OF_THREADS = 1;
 static constexpr uint64_t DEFAULT_MIN_FORCE_KEY_UNIT_INTERVAL = 0;
 static constexpr int JPEG_DEFAULT_QUALITY = 85;
-static constexpr int JPEG_DEFAULT_IDCT_METHOD = JDCT_FASTEST;
+static constexpr int JPEG_DEFAULT_IDCT_METHOD = 1; // JDCT_FASTEST without dragging jpeglib.h here
 
 typedef struct _GstHailoJpegEncParams
 {
     std::string stream_id;
     encoder_config_t encoder_user_config;
-    uint num_of_threads = DEFAULT_NUM_OF_THREADS;
-    GstElement *m_roundrobin = nullptr;
-    GstElement *m_hailoroundrobin = nullptr;
-    std::vector<GstElement *> m_jpegencs;
-    std::vector<GstElement *> m_queues;
+    std::unique_ptr<JpegEncoder> jpeg_encoder;
     uint64_t jpegenc_min_force_key_unit_interval = DEFAULT_MIN_FORCE_KEY_UNIT_INTERVAL;
     int jpeg_quality = JPEG_DEFAULT_QUALITY;
     int jpeg_idct_method = JPEG_DEFAULT_IDCT_METHOD;
+    uint num_of_threads = DEFAULT_NUM_OF_THREADS;
+
+    std::thread completion_thread;
+    std::mutex pending_mtx;
+    std::condition_variable pending_cv;
+    std::queue<GstVideoCodecFrame *> pending_frames;
+    std::atomic<bool> stop_completion{false};
 } GstHailoJpegEncParams;
 
 struct GstHailoJpegEnc
 {
-    GstBin parent;
+    GstVideoEncoder parent;
     GstHailoJpegEncParams *params = nullptr;
 };
 
 struct GstHailoJpegEncClass
 {
-    GstBinClass parent;
+    GstVideoEncoderClass parent;
 };
 
 GType gst_hailojpegenc_get_type(void);

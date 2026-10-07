@@ -23,6 +23,8 @@ enum class restricted_profile_type_t
 
 struct MediaLibraryConfig
 {
+    using profiles_by_name_t = std::map<std::string, std::shared_ptr<config_profile_t>>;
+
   private:
     std::string profile_in_use;
     std::string fallback_profile;
@@ -45,7 +47,9 @@ struct MediaLibraryConfig
     }
 
     media_library_return set(const std::string &medialib_json_config_string);
-    media_library_return reset_overriden_params();
+    // Re-reads and validates every profile of hml_json_config; takes seconds on target.
+    tl::expected<profiles_by_name_t, media_library_return> parse_profiles() const;
+    media_library_return reset_overriden_params(profiles_by_name_t default_profiles);
 
     // Used to create a dummy profile for gst mode / when user doesn't use profiles
     media_library_return set_dummy_profile(const frontend_config_t &frontend_config);
@@ -88,7 +92,8 @@ class ConfigManager
 
     bool has_interactors();
 
-    media_library_return reset_profiles_overriden_params(const ConfigManagerInteractor *interactor);
+    media_library_return reset_profiles_overriden_params(const ConfigManagerInteractor *interactor,
+                                                         MediaLibraryConfig::profiles_by_name_t default_profiles);
 
     std::mutex registration_mutex;
 
@@ -119,6 +124,9 @@ class ConfigManagerInteractor
     ConfigManagerInteractor();
 
     static std::mutex interaction_mtx;
+    // Held across reading or writing profile files, which takes seconds. Lock order: profile_files_mtx, then
+    // interaction_mtx, which is only held briefly because every frame's profile lookup needs it.
+    static std::mutex profile_files_mtx;
     std::string m_default_medialib_config;
 
   public:

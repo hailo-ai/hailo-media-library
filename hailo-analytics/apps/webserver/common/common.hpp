@@ -9,6 +9,7 @@
 
 #define V4L2_DEVICE_NAME "/dev/video0"
 #define MEDIALIB_DEWARP_DSP_OPTIMIZATION_ENV_VAR ("MEDIALIB_DEWARP_DSP_OPTIMIZATION")
+#define HCV_PROFILE_SWITCH_VALVE_DELAY_MS_ENV_VAR ("HCV_PROFILE_SWITCH_VALVE_DELAY_MS")
 
 namespace webserver::common
 {
@@ -83,6 +84,8 @@ inline bool json_extract_value(const nlohmann::json &json, const std::string &ke
 
 bool is_env_variable_on(const std::string &env_var_name, const std::string &required_value = "1");
 
+int get_env_variable_int(const std::string &env_var_name, int default_value);
+
 enum class Architecture
 {
     Hailo15H,
@@ -126,12 +129,10 @@ enum class ProfileType
     HighDynamicRange,
     AiIspGen2,
     AiIspGen3,
-    AiIspGen3_1,
 };
 
 NLOHMANN_JSON_SERIALIZE_ENUM(ProfileType, {{ProfileType::Daylight, "Daylight"},
                                            {ProfileType::AiIspGen1, "AI-ISP Gen1"},
                                            {ProfileType::HighDynamicRange, "High Dynamic Range"},
                                            {ProfileType::AiIspGen2, "AI-ISP Gen2"},
-                                           {ProfileType::AiIspGen3, "AI-ISP Gen3"},
-                                           {ProfileType::AiIspGen3_1, "AI-ISP Gen3.1 (Preview)"}})
+                                           {ProfileType::AiIspGen3, "AI-ISP Gen3"}})

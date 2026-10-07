@@ -107,18 +107,25 @@ AppStatus FrontendStage::subscribe_output_streams()
     for (auto s : streams.value())
     {
         HAILO_ANALYTICS_LOG_INFO("subscribing to frontend for '{}'", s.id);
-        fe_callbacks[s.id] = [s, this](HailoMediaLibraryBufferPtr buffer, size_t /*size*/) {
+        // User weak_ptr here: The media library client outlives this stage, and a buffer can still
+        // be dispatched after the pipeline drops it. An expired handle means drop the buffer.
+        std::weak_ptr<FrontendStage> weak_self = shared_from_this();
+        fe_callbacks[s.id] = [s, weak_self](HailoMediaLibraryBufferPtr buffer, size_t /*size*/) {
+            auto self = weak_self.lock();
+            if (!self)
+                return;
+
             // Only push buffers if the stage has been started
-            if (!m_started.load())
+            if (!self->m_started.load())
             {
                 HAILO_ANALYTICS_LOG_DEBUG("FrontendStage '{}': Dropping buffer for stream '{}' - stage not started yet",
-                                          m_stage_name, s.id);
+                                          self->m_stage_name, s.id);
                 return;
             }
 
             hailo_analytics::pipeline::BufferPtr wrapped_buffer =
                 std::make_shared<hailo_analytics::pipeline::Buffer>(buffer);
-            for (auto &subscriber : m_stream_subscribers[s.id])
+            for (auto &subscriber : self->m_stream_subscribers[s.id])
             {
                 subscriber->push(wrapped_buffer, s.id);
             }

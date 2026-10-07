@@ -1,10 +1,17 @@
 #include "vlm_app_config_parser.hpp"
 
-#include <cctype>
-#include <fstream>
-#include <sstream>
+#include "media_library/cloexec_fstream.hpp"
 
-#include <yaml-cpp/yaml.h>
+#include <stdint.h>
+
+#include <fstream>
+
+#include <yaml-cpp/exceptions.h>
+#include <yaml-cpp/node/convert.h> // IWYU pragma: keep — provides YAML::convert<T> specializations used by Node::as<T>()
+#include <yaml-cpp/node/detail/impl.h> // IWYU pragma: keep — provides node_data::get<Key> template defs used by Node::operator[]
+#include <yaml-cpp/node/impl.h>
+#include <yaml-cpp/node/node.h>
+#include <yaml-cpp/node/parse.h>
 
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
 
@@ -126,7 +133,7 @@ void parse_chat(const YAML::Node &root, ChatConfig &out)
 
 bool VlmAppConfigParser::parse_from_file(const std::string &path)
 {
-    std::ifstream file(path);
+    cloexec::ifstream file(path);
     if (!file.is_open())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to open VLM app config: {}", path);

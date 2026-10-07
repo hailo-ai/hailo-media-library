@@ -2,7 +2,6 @@
 #include <media_library/buffer_pool.hpp>
 #include <media_library/media_library.hpp>
 #include <media_library/media_library_api_types.hpp>
-#include <hailort.h>
 #include <stdint.h>
 #include <hailo_gst_tensor_metadata.hpp>
 #include <media_library/media_library_buffer.hpp>
@@ -127,13 +126,20 @@ AppStatus EncoderStage::create(MediaLibraryInterfacePtr media_library, const out
 {
     m_media_library = media_library;
     m_stream_id = stream_id;
+    // User weak_ptr here: The media library client outlives this stage, and a buffer can still
+    // be dispatched after the pipeline drops it. An expired handle means drop the buffer.
+    std::weak_ptr<EncoderStage> weak_self = shared_from_this();
     auto status = m_media_library->subscribe_to_encoder_output(
-        m_stream_id, [this](HailoMediaLibraryBufferPtr buffer, size_t size) {
+        m_stream_id, [weak_self](HailoMediaLibraryBufferPtr buffer, size_t size) {
+            auto self = weak_self.lock();
+            if (!self)
+                return;
+
             hailo_analytics::pipeline::BufferPtr wrapped_buffer =
                 std::make_shared<hailo_analytics::pipeline::Buffer>(buffer);
-            SizeMetadataPtr size_meta = std::make_shared<SizeMetadata>(this->m_stage_name, size);
+            SizeMetadataPtr size_meta = std::make_shared<SizeMetadata>(self->m_stage_name, size);
             wrapped_buffer->add_metadata(size_meta);
-            this->send_to_subscribers(wrapped_buffer);
+            self->send_to_subscribers(wrapped_buffer);
         });
     if (status != MEDIA_LIBRARY_SUCCESS)
     {
@@ -146,9 +152,10 @@ AppStatus EncoderStage::create(MediaLibraryInterfacePtr media_library, const out
 
 AppStatus EncoderStage::init()
 {
-    if (!m_media_library)
+    if (!m_media_library && !m_attach_analytics_metadata)
     {
-        HAILO_ANALYTICS_LOG_ERROR("Encoder {} not configured. Call configure()", m_stage_name);
+        HAILO_ANALYTICS_LOG_ERROR("Encoder {} not configured. Call configure() or enable attach_analytics_metadata",
+                                  m_stage_name);
         return AppStatus::UNINITIALIZED;
     }
     return AppStatus::SUCCESS;

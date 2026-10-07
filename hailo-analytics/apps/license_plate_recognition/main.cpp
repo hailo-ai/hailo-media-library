@@ -10,12 +10,12 @@
 #include <map>
 #include <chrono>
 #include <condition_variable>
-#include <initializer_list>
 #include <iterator>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -24,6 +24,7 @@
 #include "media_library/signal_utils.hpp"
 // infra includes
 #include "config_path_utils.hpp"
+#include "media_library_factory.hpp"
 #include "lpr_pipeline_builder.hpp"
 #include "hailo_analytics/analytics/vision.hpp"
 #include "hailo_analytics/analytics/analytic_metadata_zmq_sender.hpp"
@@ -33,7 +34,6 @@
 #include "hailo_analytics/pipeline/core/pipeline_builder.hpp"
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "hailo_analytics/pipeline/core/stage.hpp"
-#include "hailo_analytics/pipeline/sources/frontend_stage.hpp"
 
 // constants
 static constexpr const char *VISION_PIPELINE = "vision_pipeline";
@@ -99,6 +99,10 @@ cxxopts::Options build_arg_parser()
     ("m,tracking-mode", "Tracking mode for LPR: slow, fast, balanced (default: balanced)",
         cxxopts::value<std::string>()->default_value("balanced"));
     // clang-format on
+
+    options.add_options()(apps::utils::USE_MEDIALIB_SERVICE_OPTION,
+                          "Connect to media_library_service instead of hosting the media library in this process",
+                          cxxopts::value<bool>()->default_value("false"));
 
     return options;
 }
@@ -170,9 +174,10 @@ std::vector<ArgumentType> handle_arguments(const cxxopts::ParseResult &result, c
 
 struct AppResources
 {
-    std::shared_ptr<MediaLibrary> media_library;
+    MediaLibraryInterfacePtr media_library;
     hailo_analytics::pipeline::PipelinePtr pipeline;
     bool print_fps;
+    bool use_medialib_service = false;
     std::string medialib_config_path;
     std::string profile_name;
     std::string host_ip = HOST_IP;
@@ -278,18 +283,13 @@ void configure_media_library(std::shared_ptr<AppResources> app_resources)
                                          app_resources->fps, app_resources->temp_config_files);
     }
 
-    auto media_lib_expected = MediaLibrary::create();
+    auto media_lib_expected =
+        apps::utils::create_media_library(app_resources->use_medialib_service, medialib_config_string);
     if (!media_lib_expected.has_value())
     {
-        std::cout << "Failed to create media library" << std::endl;
-        throw std::runtime_error("Failed to create media library");
+        throw std::runtime_error("Failed to configure media library");
     }
     app_resources->media_library = media_lib_expected.value();
-    if (app_resources->media_library->initialize(medialib_config_string) != media_library_return::MEDIA_LIBRARY_SUCCESS)
-    {
-        std::cout << "Failed to initialize media library" << std::endl;
-        throw std::runtime_error("Failed to initialize media library");
-    }
     if (app_resources->profile_name != NO_PROFILE_SELECTED)
     {
         hailo_analytics::utils::set_initial_profile(app_resources->media_library, app_resources->profile_name);
@@ -321,7 +321,7 @@ hailo_analytics::pipeline::PipelinePtr create_vision_pipeline_from_file(std::sha
     }
 
     // Get output streams and build vision config
-    auto output_streams = app_resources->media_library->m_frontend->get_outputs_streams();
+    auto output_streams = app_resources->media_library->get_frontend_output_streams();
     if (!output_streams.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to get stream ids");
@@ -370,7 +370,7 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     else
     {
         // Camera mode (original behavior)
-        auto output_streams = app_resources->media_library->m_frontend->get_outputs_streams();
+        auto output_streams = app_resources->media_library->get_frontend_output_streams();
         if (!output_streams.has_value())
         {
             HAILO_ANALYTICS_LOG_ERROR("Failed to get stream ids");
@@ -392,7 +392,8 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     }
 
     // AI Pipeline Stages
-    auto tiling_pipeline_status = lpr_app::build_tiling_pipeline(TILING_PIPELINE, app_resources->tracking_mode);
+    auto tiling_pipeline_status = lpr_app::build_tiling_pipeline(TILING_PIPELINE, app_resources->tracking_mode,
+                                                                 app_resources->use_medialib_service);
     if (!tiling_pipeline_status.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create tiling pipeline");
@@ -400,7 +401,7 @@ void create_pipeline(std::shared_ptr<AppResources> app_resources)
     }
     hailo_analytics::pipeline::PipelinePtr tiling_pipeline = tiling_pipeline_status.value();
 
-    auto ocr_pipeline_status = lpr_app::build_ocr_pipeline(OCR_PIPELINE);
+    auto ocr_pipeline_status = lpr_app::build_ocr_pipeline(OCR_PIPELINE, app_resources->use_medialib_service);
     if (!ocr_pipeline_status.has_value())
     {
         HAILO_ANALYTICS_LOG_ERROR("Failed to create OCR pipeline");
@@ -517,6 +518,18 @@ int main(int argc, char *argv[])
         case ArgumentType::Error:
             return 1;
         }
+    }
+
+    app_resources->use_medialib_service = result[apps::utils::USE_MEDIALIB_SERVICE_OPTION].as<bool>();
+
+    if (app_resources->use_medialib_service && !app_resources->file_path.empty())
+    {
+        std::cerr << "Error: "
+                  << apps::utils::service_mode_unsupported_message(
+                         "reading from a file pushes frames into the frontend, which only a media library hosted "
+                         "in this process accepts")
+                  << std::endl;
+        return 1;
     }
 
     // Configure media library

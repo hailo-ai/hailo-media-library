@@ -159,14 +159,15 @@ void ConfigManager::set_restricted_profile_type(const ConfigManagerInteractor *i
     m_interactor_to_hml_config[interactor].current_restriction = restricted_profile_type;
 }
 
-media_library_return ConfigManager::reset_profiles_overriden_params(const ConfigManagerInteractor *interactor)
+media_library_return ConfigManager::reset_profiles_overriden_params(
+    const ConfigManagerInteractor *interactor, MediaLibraryConfig::profiles_by_name_t default_profiles)
 {
     assert(m_interactor_to_hml_config.find(interactor) != m_interactor_to_hml_config.end());
 
-    auto status = m_interactor_to_hml_config[interactor].reset_overriden_params();
+    auto status = m_interactor_to_hml_config[interactor].reset_overriden_params(std::move(default_profiles));
     if (status != MEDIA_LIBRARY_SUCCESS)
     {
-        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to parse medialib config json string", (void *)interactor);
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to reset profiles overrides", (void *)interactor);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
 
@@ -252,10 +253,26 @@ media_library_return ConfigManager::validate_profile_rules(ConfigManagerInteract
 
 media_library_return ConfigManagerInteractor::reset_profiles()
 {
-    std::lock_guard<std::mutex> lock(interaction_mtx);
     LOGGER__MODULE__DEBUG(MODULE_NAME, "[{}] Resetting profiles overrides, setting default medialib config",
                           (void *)this);
-    if (ConfigManager::get_instance().reset_profiles_overriden_params(this) != MEDIA_LIBRARY_SUCCESS)
+    std::lock_guard<std::mutex> files_lock(profile_files_mtx);
+    auto hml_config_exp = get_medialib_config();
+    if (!hml_config_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to get medialib config", (void *)this);
+        return hml_config_exp.error();
+    }
+    auto default_profiles_exp = hml_config_exp.value().parse_profiles();
+    if (!default_profiles_exp.has_value())
+    {
+        LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to parse medialib config json string", (void *)this);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
+    }
+
+    std::lock_guard<std::mutex> lock(interaction_mtx);
+    auto status =
+        ConfigManager::get_instance().reset_profiles_overriden_params(this, std::move(default_profiles_exp.value()));
+    if (status != MEDIA_LIBRARY_SUCCESS)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to set medialib config during reset", (void *)this);
         return MEDIA_LIBRARY_CONFIGURATION_ERROR;
@@ -353,6 +370,7 @@ ConfigManagerInteractor::~ConfigManagerInteractor()
 }
 
 std::mutex ConfigManagerInteractor::interaction_mtx;
+std::mutex ConfigManagerInteractor::profile_files_mtx;
 
 tl::expected<std::unique_ptr<ConfigManagerInteractor>, media_library_return> ConfigManagerInteractor::create(
     const std::string &medialib_json_config_string)
@@ -664,8 +682,8 @@ std::optional<std::shared_ptr<const config_profile_t>> ConfigManagerInteractor::
 std::optional<std::shared_ptr<const config_profile_t>> ConfigManagerInteractor::
     get_current_profile_without_overriden_params() const
 {
-    std::lock_guard<std::mutex> lock(interaction_mtx);
-    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    std::lock_guard<std::mutex> files_lock(profile_files_mtx);
+    auto hml_config_exp = get_medialib_config();
     if (!hml_config_exp.has_value())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "[{}] Failed to get medialib config", (void *)this);
@@ -885,23 +903,28 @@ tl::expected<std::map<std::string, std::shared_ptr<config_profile_t>>, media_lib
     return name_to_profile;
 }
 
-media_library_return MediaLibraryConfig::reset_overriden_params()
+tl::expected<MediaLibraryConfig::profiles_by_name_t, media_library_return> MediaLibraryConfig::parse_profiles() const
 {
     auto medialib_conf_exp = get_medialib_config_from_hml_json_config(hml_json_config);
     if (!medialib_conf_exp.has_value())
     {
-        return medialib_conf_exp.error();
+        return tl::unexpected(medialib_conf_exp.error());
     }
-    medialib_config_t medialib_conf = medialib_conf_exp.value();
-    auto name_to_profile_exp = get_profiles_by_name_from_hml_conf(medialib_conf);
-    if (!name_to_profile_exp.has_value())
+    return get_profiles_by_name_from_hml_conf(medialib_conf_exp.value());
+}
+
+media_library_return MediaLibraryConfig::reset_overriden_params(profiles_by_name_t default_profiles)
+{
+    if (default_profiles.find(profile_in_use) == default_profiles.end())
     {
-        return name_to_profile_exp.error();
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Profile in use '{}' does not exist in medialib_config", profile_in_use);
+        return MEDIA_LIBRARY_CONFIGURATION_ERROR;
     }
-    profile_by_name = std::move(name_to_profile_exp.value());
-    default_profile_name = medialib_conf.default_profile;
-    version = medialib_conf.version;
-    set_profile_in_use(profile_in_use);
+    profile_by_name = std::move(default_profiles);
+    if (!fallback_profile.empty() && profile_by_name.find(fallback_profile) == profile_by_name.end())
+    {
+        fallback_profile = profile_in_use;
+    }
     return MEDIA_LIBRARY_SUCCESS;
 }
 
@@ -946,9 +969,9 @@ media_library_return MediaLibraryConfig::set_dummy_profile(const frontend_config
 media_library_return ConfigManagerInteractor::backup_profiles(const std::string &backup_folder_path)
 {
     LOGGER__MODULE__INFO(MODULE_NAME, "Backing up profiles to: {}", backup_folder_path);
-    std::lock_guard<std::mutex> lock(interaction_mtx);
+    std::lock_guard<std::mutex> files_lock(profile_files_mtx);
 
-    auto hml_config_exp = ConfigManager::get_instance().get_medialib_config(this);
+    auto hml_config_exp = get_medialib_config();
     if (!hml_config_exp.has_value())
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to get medialib config");
@@ -980,19 +1003,18 @@ std::shared_ptr<config_profile_t> MediaLibraryConfig::get_profile_in_use() const
 tl::expected<std::shared_ptr<config_profile_t>, media_library_return> MediaLibraryConfig::
     get_profile_in_use_without_overriden_params() const
 {
-    auto medialib_conf_exp = get_medialib_config_from_hml_json_config(hml_json_config);
-    if (!medialib_conf_exp.has_value())
+    auto profiles_exp = parse_profiles();
+    if (!profiles_exp.has_value())
     {
-        return tl::unexpected(medialib_conf_exp.error());
+        return tl::unexpected(profiles_exp.error());
     }
-    medialib_config_t medialib_conf = medialib_conf_exp.value();
-    auto name_to_profile_exp = get_profiles_by_name_from_hml_conf(medialib_conf);
-    if (!name_to_profile_exp.has_value())
+    auto profile_it = profiles_exp.value().find(profile_in_use);
+    if (profile_it == profiles_exp.value().end())
     {
-        return tl::unexpected(name_to_profile_exp.error());
+        LOGGER__MODULE__ERROR(MODULE_NAME, "Profile in use '{}' does not exist in medialib_config", profile_in_use);
+        return tl::unexpected(MEDIA_LIBRARY_CONFIGURATION_ERROR);
     }
-
-    return name_to_profile_exp.value().at(profile_in_use);
+    return profile_it->second;
 }
 
 std::optional<std::shared_ptr<config_profile_t>> MediaLibraryConfig::get_fallback_profile() const

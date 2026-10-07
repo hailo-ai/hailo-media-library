@@ -31,7 +31,6 @@ namespace hailo_analytics::analytics::app_constructor
 using EncoderStage = hailo_analytics::pipeline::codecs::EncoderStage;
 using FrontendStage = hailo_analytics::pipeline::sources::FrontendStage;
 using PipelinePtr = std::shared_ptr<hailo_analytics::pipeline::Pipeline>;
-using MediaLibraryPtr = std::shared_ptr<MediaLibrary>;
 
 enum CamAppReturnCode
 {
@@ -121,9 +120,9 @@ class CameraAppConstructor : public std::enable_shared_from_this<CameraAppConstr
   public:
     struct InitializerParams
     {
-        // When non-null, this MediaLibrary is borrowed (not owned). The caller is
+        // When set, this media library is borrowed (not owned). The caller is
         // responsible for keeping it alive and releasing it after this app is stopped.
-        MediaLibrary *media_library_component;
+        MediaLibraryInterfacePtr media_library_component;
         std::string media_library_config_path;
         std::string media_library_profile_name;
         bool initialize_media_library_configuration;
@@ -196,7 +195,7 @@ class CameraAppConstructor : public std::enable_shared_from_this<CameraAppConstr
 
     tl::expected<std::string, CamAppReturnCode> get_media_config_path();
 
-    tl::expected<MediaLibraryPtr, CamAppReturnCode> get_media_library();
+    tl::expected<MediaLibraryInterfacePtr, CamAppReturnCode> get_media_library();
 
     tl::expected<PipelinePtr, CamAppReturnCode> get_pipeline();
 
@@ -215,7 +214,7 @@ class CameraAppConstructor : public std::enable_shared_from_this<CameraAppConstr
 
   private:
     PipelinePtr m_pipeline;
-    MediaLibraryPtr m_media_library;
+    MediaLibraryInterfacePtr m_media_library;
     MediaStageComponents m_components;
     std::vector<std::shared_ptr<CameraAppExtension>> m_app_extensions;
     std::optional<AppConfigOverride> m_config_override;

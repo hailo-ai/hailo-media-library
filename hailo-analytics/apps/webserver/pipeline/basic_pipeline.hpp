@@ -16,8 +16,9 @@ namespace pipeline
 class BasicPipeline : public BasePipeline
 {
   public:
-    BasicPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryPtr media_library,
-                  RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H);
+    BasicPipeline(webserver::resources::ResourceRepository &resources, MediaLibraryInterfacePtr media_library,
+                  RTPConverterStage &webrtc_stage, Architecture platform = Architecture::Hailo15H,
+                  bool use_hailort_service = false);
 
     virtual std::string pipeline_name() const override;
     void start() override;

@@ -9,7 +9,7 @@ single_stream_app_src = ['main.cpp']
 executable('single_stream_case_study',
   single_stream_app_src,
   cpp_args : hailo_lib_args,
-  dependencies : libhailo_analytics_dep,
+  dependencies : [libhailo_analytics_dep, apps_common_dep],
   gnu_symbol_visibility : 'default',
   install: true,
   install_dir: single_stream_install_dir,

@@ -79,6 +79,8 @@ struct _GstHailoFrontendBinSrcParams
                                     std::default_delete<ConfigManagerInteractor>{}}; // may be owning or non-owning
     std::shared_ptr<ConfigParser> m_frontend_config_parser;
     frontend_config_t m_frontend_config;
+    // Property setters cannot return a status; the owner reads this back through "config-status"
+    media_library_return m_config_status = MEDIA_LIBRARY_SUCCESS;
     std::unique_ptr<IspManager>
         m_isp_manager; // order matters! should be before hdr and pre_isp_denoise for proper destruction
     std::unique_ptr<HdrManager> m_hdr;

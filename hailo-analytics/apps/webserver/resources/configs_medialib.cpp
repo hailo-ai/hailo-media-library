@@ -15,13 +15,13 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <filesystem>
+#include <system_error>
 
 #include "configs.hpp"
 #include "common/common.hpp"
 #include "common/httplib/httplib_utils.hpp"
 #include "common/logger_macros.hpp"
-
-#include <filesystem>
 #include "media_library/cloexec_fstream.hpp"
 #include "resources/common/event_bus.hpp"
 #include "resources/common/events_utils.hpp"

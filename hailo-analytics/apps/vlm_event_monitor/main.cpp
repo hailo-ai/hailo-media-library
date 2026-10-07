@@ -1,10 +1,15 @@
+#include <cstdlib>
 #include <filesystem>
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <linux/sysinfo.h>
+#include <memory>
 #include <string>
 #include <sys/sysinfo.h>
 #include <thread>
+
+#include <tl/expected.hpp>
 
 #include "media_library/signal_utils.hpp"
 #include "hailo_analytics/logger/hailo_analytics_logger.hpp"
@@ -12,6 +17,7 @@
 #include "apps/vlm_pipeline_defines.hpp"
 #include "apps/webserver.hpp"
 #include "utils/vlm_app_config_parser.hpp"
+#include "vlm_app_config.hpp"
 
 namespace
 {

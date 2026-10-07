@@ -86,9 +86,8 @@ class DspImageEnhancement
     DspImageEnhancement();
     ~DspImageEnhancement();
     dsp_image_enhancement_params_t get_dsp_params();
-    void update_dsp_params_from_histogram(bool is_denoise_enabled, const Histogram &histogram);
+    void update_dsp_params_from_histogram(const Histogram &histogram);
     bool is_enabled();
-    bool m_denoise_element_enabled;
     dsp_image_enhancement_params_t get_default_disabled_dsp_params();
 
     /* These getters and setters are currently only used for the Unit tests */

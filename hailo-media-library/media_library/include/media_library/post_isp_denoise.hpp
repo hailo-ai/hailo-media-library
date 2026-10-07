@@ -47,6 +47,7 @@ class MediaLibraryPostIspDenoise final : public MediaLibraryDenoise
     media_library_return acquire_output_buffers(NetworkInferenceBindingsPtr bindings) override;
     bool process_inference(NetworkInferenceBindingsPtr bindings) override;
     void copy_meta(HailoMediaLibraryBufferPtr input_buffer, HailoMediaLibraryBufferPtr output_buffer) override;
+    void initialize_dummy_loopback_buffers(const NetworkInferenceBindings &bindings) override;
 
   public:
     bool is_enabled(const denoise_config_t &denoise_configs) override;

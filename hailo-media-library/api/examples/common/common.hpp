@@ -215,4 +215,13 @@ void scale_osd_pixel_fields(config_stream_osd_t &osd, double scale);
 // profile's sensor input height as the reference.
 media_library_return scale_osd_to_output_resolution(MediaLibraryPtr media_lib);
 
+enum class Architecture
+{
+    Hailo15H,
+    Hailo15L,
+    Unknown,
+};
+
+Architecture get_architecture();
+
 } // namespace examples

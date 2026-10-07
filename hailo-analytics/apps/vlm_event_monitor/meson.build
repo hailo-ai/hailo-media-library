@@ -12,8 +12,28 @@ vlm_event_monitor_install_dir = apps_install_dir + '/vlm_event_monitor'
 
 ################################################
 # VLM Inference Manager
+#
+# Built twice from the same source so each consumer gets the right log
+# back end (see custom/inference/vlm_log_sink.hpp):
+#   - _app_     : VLM_USE_ANALYTICS_LOG=1 → routes logs to spdlog via the
+#                 hailo_analytics logger.
+#   - _console_ : no define → routes logs to std::cout / std::cerr
 ################################################
-vlm_inference_manager_lib = static_library('vlm_inference_manager',
+vlm_inference_manager_app_lib = static_library('vlm_inference_manager_app',
+    'custom/inference/vlm_inference_manager.cpp',
+    cpp_args : hailo_lib_args + ['-DVLM_USE_ANALYTICS_LOG=1'],
+    dependencies : [libhailo_analytics_dep],
+    include_directories : include_directories('custom/inference'),
+    gnu_symbol_visibility : 'default',
+)
+
+vlm_inference_manager_app_dep = declare_dependency(
+    link_with : vlm_inference_manager_app_lib,
+    dependencies : [libhailo_analytics_dep],
+    include_directories : include_directories('custom/inference'),
+)
+
+vlm_inference_manager_console_lib = static_library('vlm_inference_manager_console',
     'custom/inference/vlm_inference_manager.cpp',
     cpp_args : hailo_lib_args,
     dependencies : [libhailo_analytics_dep],
@@ -21,8 +41,8 @@ vlm_inference_manager_lib = static_library('vlm_inference_manager',
     gnu_symbol_visibility : 'default',
 )
 
-vlm_inference_manager_dep = declare_dependency(
-    link_with : vlm_inference_manager_lib,
+vlm_inference_manager_console_dep = declare_dependency(
+    link_with : vlm_inference_manager_console_lib,
     dependencies : [libhailo_analytics_dep],
     include_directories : include_directories('custom/inference'),
 )
@@ -74,7 +94,7 @@ vlm_event_monitor_lib = static_library('vlm_event_monitor',
         yaml_cpp_dep,
         libjpeg_link,
         libhailo_analytics_dep,
-        vlm_inference_manager_dep,
+        vlm_inference_manager_app_dep,
         vlm_frame_preprocessor_dep,
     ],
     gnu_symbol_visibility : 'default',
@@ -89,7 +109,7 @@ vlm_event_monitor_dep = declare_dependency(
         yaml_cpp_dep,
         libjpeg_link,
         libhailo_analytics_dep,
-        vlm_inference_manager_dep,
+        vlm_inference_manager_app_dep,
         vlm_frame_preprocessor_dep,
     ],
     include_directories : vlm_event_monitor_include_dirs,
@@ -114,7 +134,7 @@ executable('vlm_event_monitor',
 executable('vlm_console',
     'apps/vlm_console/main.cpp',
     cpp_args : hailo_lib_args,
-    dependencies : [vlm_inference_manager_dep, vlm_frame_preprocessor_dep],
+    dependencies : [vlm_inference_manager_console_dep, vlm_frame_preprocessor_dep],
     gnu_symbol_visibility : 'default',
     install : true,
     install_dir : vlm_event_monitor_install_dir / 'console',
@@ -134,7 +154,6 @@ install_data(
 install_data(
     sources : [
         'resources/webfrontend/index.html',
-        'resources/webfrontend/jszip.min.js',
     ],
     install_dir : vlm_event_monitor_install_dir / 'resources/webfrontend',
 )

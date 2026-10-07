@@ -1,15 +1,12 @@
 #include <media_library/dis_common.h>
 #include <stdint.h>
-#include <media_library/dsp_utils.hpp>
 #include <media_library/encoder_config_types.hpp>
 #include <media_library/media_library.hpp>
 #include <media_library/media_library_api_types.hpp>
-#include <media_library/privacy_mask.hpp>
+#include <media_library/privacy_mask_types.hpp>
 #include <nlohmann/json.hpp>
-#include <osd.hpp>
 #include <tl/expected.hpp>
-#include <algorithm>
-#include <exception>
+#include <stddef.h>
 #include <map>
 #include <memory>
 #include <optional>
@@ -20,6 +17,7 @@
 #include <utility>
 #include <variant>
 #include <vector>
+#include <algorithm>
 
 #include "pipeline.hpp"
 #include "resources/encoder.hpp"
@@ -28,7 +26,6 @@
 #include "common/common.hpp"
 #include "common/logger_macros.hpp"
 #include "hailo_analytics/pipeline/routing/valve_stage.hpp"
-#include "pipeline/isp_blender.hpp"
 #include "resources/common/event_bus.hpp"
 #include "resources/common/events_utils.hpp"
 #include "resources/common/repository.hpp"
@@ -42,17 +39,15 @@ template <typename T> static inline T clamp01(T v)
     return std::max<T>(0, std::min<T>(1, v));
 }
 
-// Gen3 and Gen3.1 are treated as the same lowlight generation.
-static inline bool is_gen3_or_3_1(ProfileType p)
-{
-    return p == ProfileType::AiIspGen3 || p == ProfileType::AiIspGen3_1;
-}
+// Range enforced by the deprecated PrivacyMaskConfigurer::set_pixelization_size.
+static constexpr size_t PIXELIZATION_SIZE_MIN = 2;
+static constexpr size_t PIXELIZATION_SIZE_MAX = 64;
 
-// Bracket via Daylight only for transitions between Gen2 and {Gen3, Gen3.1}.
+// Bracket via Daylight only for transitions between Gen2 and Gen3.
 static inline bool requires_daylight_bracket(ProfileType from, ProfileType to)
 {
-    return (from == ProfileType::AiIspGen2 && is_gen3_or_3_1(to)) ||
-           (is_gen3_or_3_1(from) && to == ProfileType::AiIspGen2);
+    return (from == ProfileType::AiIspGen2 && to == ProfileType::AiIspGen3) ||
+           (from == ProfileType::AiIspGen3 && to == ProfileType::AiIspGen2);
 }
 
 void BasePipeline::callback_handle_update_profile(ResourceStateChangeNotification notif)
@@ -229,15 +224,9 @@ void BasePipeline::update_fps(uint32_t fps, config_profile_t &profile_config)
     {
         resolution.framerate = fps;
     }
-    // NOTE: waiting for encoder api from mosko
-    encoder_config_t encoder = m_app_resources->media_library->m_encoders[m_stream_4k_name]->get_config();
-    if (std::holds_alternative<jpeg_encoder_config_t>(encoder))
-    {
-        WEBSERVER_LOG_CRITICAL("JPEG encoder config is not supported in webserver");
-        throw std::runtime_error("JPEG encoder config is not supported in webserver");
-    }
-    hailo_encoder_config_t &hailo_encoder_config = std::get<hailo_encoder_config_t>(encoder);
+    hailo_encoder_config_t hailo_encoder_config = read_stream_encoder_config(profile_config);
     hailo_encoder_config.input_stream.framerate = fps;
+    profile_config.encoded_output_streams[m_stream_4k_name].encoding = hailo_encoder_config;
 }
 
 void BasePipeline::update_resolution(const std::string &resolution, config_profile_t &profile_config)
@@ -290,7 +279,6 @@ void BasePipeline::update_resolution(const std::string &resolution, config_profi
     hailo_encoder_config_t &hailo_encoder_config = std::get<hailo_encoder_config_t>(encoder);
     hailo_encoder_config.input_stream.width = width;
     hailo_encoder_config.input_stream.height = height;
-    // NOTE: waiting for encoder api from mosko
     profile_config.encoded_output_streams[m_stream_4k_name].encoding = hailo_encoder_config;
 }
 
@@ -321,15 +309,7 @@ void BasePipeline::update_rotation(const std::string &rotation, config_profile_t
         WEBSERVER_LOG_DEBUG("Rotation angle changed from {} to {}", angle, rotation);
     }
     // CONFIGURE ENCODER
-    // NOTE: waiting for encoder api from mosko
-    //  encoder_config_t& encoder = profile_config.encoder_configs[m_stream_4k_name];
-    encoder_config_t encoder = m_app_resources->media_library->m_encoders[m_stream_4k_name]->get_config();
-    if (std::holds_alternative<jpeg_encoder_config_t>(encoder))
-    {
-        WEBSERVER_LOG_CRITICAL("JPEG encoder config is not supported in webserver");
-        throw std::runtime_error("JPEG encoder config is not supported in webserver");
-    }
-    hailo_encoder_config_t &hailo_encoder_config = std::get<hailo_encoder_config_t>(encoder);
+    hailo_encoder_config_t hailo_encoder_config = read_stream_encoder_config(profile_config);
     auto currentAngle = rotation_string_map.at(rotation);
     auto profileAngle = angle;
 
@@ -362,7 +342,7 @@ void BasePipeline::callback_handle_profile_switch(ResourceStateChangeNotificatio
     const ProfileType to = state->value;
     WEBSERVER_LOG_INFO("Pipeline: Switching profile {} -> {}", static_cast<int>(from), static_cast<int>(to));
 
-    // Gen2 <-> Gen3/Gen3.1 must transit through Daylight (product requirement: lowlight pairs are
+    // Gen2 <-> Gen3 must transit through Daylight (product requirement: lowlight pairs are
     // not switched directly; the intermediate Daylight stop is hidden from the user).
     if (requires_daylight_bracket(from, to))
     {
@@ -375,8 +355,6 @@ void BasePipeline::callback_handle_profile_switch(ResourceStateChangeNotificatio
             throw std::runtime_error("Failed to bracket-switch to Daylight before " +
                                      this->get_profile_name_by_type(to));
         }
-        // Reflect the library's actual state: if the second apply below fails and we throw,
-        // m_current_profile_type stays at Daylight (matching the library) instead of the stale `from`.
         m_current_profile_type = ProfileType::Daylight;
     }
 
@@ -409,25 +387,7 @@ void BasePipeline::callback_handle_profile_switch(ResourceStateChangeNotificatio
 
 hailo_encoder_config_t BasePipeline::get_encoder_config()
 {
-    auto expected_profile = m_app_resources->media_library->get_current_profile();
-    if (!expected_profile.has_value())
-    {
-        WEBSERVER_LOG_ERROR("Failed to get current profile");
-        throw std::runtime_error("Failed to get current profile");
-    }
-    config_profile_t current_profile = expected_profile.value();
-
-    // NOTE: waiting for encoder api from mosko
-    //  encoder_config_t encoder_config = current_profile.m_encoders[m_stream_4k_name];
-    encoder_config_t encoder_config =
-        m_app_resources->media_library->m_encoders[m_stream_4k_name]
-            ->get_config(); // TODO get the config form the profile(mosko need to be updated from the real struct)
-    if (std::holds_alternative<jpeg_encoder_config_t>(encoder_config))
-    {
-        WEBSERVER_LOG_CRITICAL("JPEG encoder config is not supported in webserver");
-        throw std::runtime_error("JPEG encoder config is not supported in webserver");
-    }
-    return std::get<hailo_encoder_config_t>(encoder_config);
+    return read_stream_encoder_config(read_current_profile());
 }
 
 void BasePipeline::callback_handle_encoder(ResourceStateChangeNotification notif)
@@ -435,21 +395,8 @@ void BasePipeline::callback_handle_encoder(ResourceStateChangeNotification notif
     WEBSERVER_LOG_DEBUG("Pipeline: Handling encoder resource state change");
     auto state = notif.getResourceStateFromBase<EncoderResource::EncoderResourceState>();
 
-    auto expected_profile = m_app_resources->media_library->get_current_profile();
-    if (!expected_profile.has_value())
-    {
-        WEBSERVER_LOG_ERROR("Failed to get current profile");
-        throw std::runtime_error("Failed to get current profile");
-    }
-    config_profile_t current_profile = expected_profile.value();
-
-    encoder_config_t encoder_config = m_app_resources->media_library->m_encoders[m_stream_4k_name]->get_config();
-    if (std::holds_alternative<jpeg_encoder_config_t>(encoder_config))
-    {
-        WEBSERVER_LOG_CRITICAL("JPEG encoder config is not supported in webserver");
-        throw std::runtime_error("JPEG encoder config is not supported in webserver");
-    }
-    hailo_encoder_config_t &hailo_encoder_config = std::get<hailo_encoder_config_t>(encoder_config);
+    config_profile_t current_profile = read_current_profile();
+    hailo_encoder_config_t hailo_encoder_config = read_stream_encoder_config(current_profile);
     state->value.fill_encoder_element_config(hailo_encoder_config);
 
     current_profile.encoded_output_streams[m_stream_4k_name].encoding = hailo_encoder_config;
@@ -463,24 +410,27 @@ void BasePipeline::callback_handle_encoder(ResourceStateChangeNotification notif
     WEBSERVER_LOG_DEBUG("Pipeline: Encoder resource state change handled");
 }
 
-std::shared_ptr<osd::Blender> BasePipeline::get_osd_blender()
-{
-    return m_app_resources->media_library->m_encoders[m_stream_4k_name]->get_osd_blender();
-}
-
-std::shared_ptr<PrivacyMaskBlender> BasePipeline::get_privacy_blender()
-{
-    return m_app_resources->media_library->m_encoders[m_stream_4k_name]->get_privacy_mask_blender();
-}
-
 void BasePipeline::callback_handle_osd(ResourceStateChangeNotification notif)
 {
     WEBSERVER_LOG_DEBUG("Pipeline: Handling OSD resource state change");
-
-    std::shared_ptr<osd::Blender> osd_blender = get_osd_blender();
     auto state = notif.getResourceStateFromBase<OsdResource::OsdResourceState>();
-    osd_blender->configure(state->osd_config);
 
+    // Update the OSD config in the current profile and apply via set_override_parameters
+    auto expected_profile = m_app_resources->media_library->get_current_profile();
+    if (!expected_profile.has_value())
+    {
+        WEBSERVER_LOG_ERROR("Failed to get current profile");
+        throw std::runtime_error("Failed to get current profile");
+    }
+    config_profile_t current_profile = expected_profile.value();
+    current_profile.encoded_output_streams[m_stream_4k_name].osd = state->osd_config;
+
+    media_library_return ret = m_app_resources->media_library->set_override_parameters(current_profile);
+    if (ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
+    {
+        WEBSERVER_LOG_ERROR("Failed to apply OSD config via profile override");
+        throw std::runtime_error("Failed to apply OSD config via profile override");
+    }
     WEBSERVER_LOG_DEBUG("Pipeline: OSD resource state change handled");
 }
 
@@ -488,51 +438,115 @@ void BasePipeline::callback_handle_privacy_mask(ResourceStateChangeNotification 
 {
     WEBSERVER_LOG_DEBUG("Pipeline: Handling privacy mask resource state change");
     auto state = notif.getResourceStateFromBase<PrivacyMaskResource::PrivacyMaskResourceState>();
-    auto masks = state->masks;
-    std::shared_ptr<PrivacyMaskBlender> privacy_blender = get_privacy_blender();
+
+    auto expected_profile = m_app_resources->media_library->get_current_profile();
+    if (!expected_profile.has_value())
+    {
+        WEBSERVER_LOG_ERROR("Failed to get current profile");
+        throw std::runtime_error("Failed to get current profile");
+    }
+    config_profile_t current_profile = expected_profile.value();
+    auto &masking = current_profile.encoded_output_streams[m_stream_4k_name].masking;
+
+    // Update color or pixelization mode — pixelization range matches the
+    // pre-deprecation PrivacyMaskConfigurer::set_pixelization_size check.
     if (state->color)
     {
-        privacy_blender->set_color(state->color.value());
+        masking.mask_type = PrivacyMaskType::COLOR;
+        masking.color_value = state->color.value();
     }
     else if (state->pixelization_size)
     {
-        privacy_blender->set_pixelization_size(state->pixelization_size.value());
-    }
-    for (std::string id : state->changed_to_enabled)
-    {
-        WEBSERVER_LOG_DEBUG("Pipeline: recived candidate mask to add: {} ", id);
-        if (masks.find(id) != masks.end())
+        size_t pixelization = state->pixelization_size.value();
+        if (pixelization < PIXELIZATION_SIZE_MIN || pixelization > PIXELIZATION_SIZE_MAX)
         {
-            WEBSERVER_LOG_DEBUG("Pipeline: Adding privacy mask: {}", id);
-            privacy_blender->add_static_privacy_mask(masks[id]);
+            WEBSERVER_LOG_ERROR("Invalid pixelization size {}; must be in [{}, {}]", pixelization,
+                                PIXELIZATION_SIZE_MIN, PIXELIZATION_SIZE_MAX);
+            throw std::runtime_error("Invalid pixelization size");
+        }
+        masking.mask_type = PrivacyMaskType::PIXELIZATION;
+        masking.pixelization_size = pixelization;
+    }
+
+    // Ensure the static privacy mask config exists before modifying masks
+    if (!masking.static_privacy_mask_config.has_value())
+    {
+        masking.static_privacy_mask_config = static_privacy_mask_config_t{true, {}};
+    }
+    auto &static_masks = masking.static_privacy_mask_config.value().masks;
+
+    // Add newly enabled masks — vertex-count and total-mask-count checks
+    // mirror the pre-deprecation PrivacyMaskConfigurer::add_static_privacy_mask
+    // guards. Invalid items are skipped with a warning instead of poisoning
+    // the whole batch.
+    for (const std::string &id : state->changed_to_enabled)
+    {
+        auto it = state->masks.find(id);
+        if (it == state->masks.end())
+            continue;
+        if (it->second.vertices.size() > MAX_NUM_OF_VERTICES_IN_POLYGON)
+        {
+            WEBSERVER_LOG_WARN("Pipeline: skipping mask '{}': {} vertices exceeds max {}", id,
+                               it->second.vertices.size(), MAX_NUM_OF_VERTICES_IN_POLYGON);
+            continue;
+        }
+        if (static_masks.size() >= MAX_NUM_OF_STATIC_PRIVACY_MASKS)
+        {
+            WEBSERVER_LOG_WARN("Pipeline: skipping mask '{}': already at max {} static masks", id,
+                               MAX_NUM_OF_STATIC_PRIVACY_MASKS);
+            continue;
+        }
+        WEBSERVER_LOG_DEBUG("Pipeline: Adding privacy mask: {}", id);
+        static_masks.push_back(it->second);
+    }
+
+    // Remove disabled masks
+    for (const std::string &id : state->changed_to_disabled)
+    {
+        WEBSERVER_LOG_DEBUG("Pipeline: Removing privacy mask: {}", id);
+        std::erase_if(static_masks, [&id](const polygon &p) { return p.id == id; });
+    }
+
+    // Update polygon vertices — preserves the pre-deprecation update-only
+    // semantic of PrivacyMaskConfigurer::set_static_privacy_mask: missing
+    // masks are skipped with a warning, not silently added.
+    for (const std::string &mask_id : state->polygon_to_update)
+    {
+        auto it = state->masks.find(mask_id);
+        if (it == state->masks.end())
+            continue;
+        if (it->second.vertices.size() > MAX_NUM_OF_VERTICES_IN_POLYGON)
+        {
+            WEBSERVER_LOG_WARN("Pipeline: skipping update for '{}': {} vertices exceeds max {}", mask_id,
+                               it->second.vertices.size(), MAX_NUM_OF_VERTICES_IN_POLYGON);
+            continue;
+        }
+        auto mask_it = std::find_if(static_masks.begin(), static_masks.end(),
+                                    [&mask_id](const polygon &p) { return p.id == mask_id; });
+        if (mask_it != static_masks.end())
+        {
+            WEBSERVER_LOG_DEBUG("Pipeline: Updating privacy mask: {}", mask_id);
+            *mask_it = it->second;
+        }
+        else
+        {
+            WEBSERVER_LOG_WARN("Pipeline: polygon_to_update for missing mask '{}'; ignoring", mask_id);
         }
     }
-    for (std::string id : state->changed_to_disabled)
+
+    // Delete polygons
+    for (const std::string &mask_id : state->polygon_to_delete)
     {
-        WEBSERVER_LOG_DEBUG("Pipeline: recived candidate mask to disable: {} ", id);
-        if (masks.find(id) != masks.end())
-        {
-            WEBSERVER_LOG_DEBUG("Pipeline: Removing privacy mask: {}", id);
-            privacy_blender->remove_static_privacy_mask(id);
-        }
+        WEBSERVER_LOG_DEBUG("Pipeline: Deleting privacy mask: {}", mask_id);
+        std::erase_if(static_masks, [&mask_id](const polygon &p) { return p.id == mask_id; });
     }
-    for (std::string &mask : state->polygon_to_update)
+
+    // Apply the complete masking config via set_override_parameters
+    media_library_return ret = m_app_resources->media_library->set_override_parameters(current_profile);
+    if (ret != media_library_return::MEDIA_LIBRARY_SUCCESS)
     {
-        WEBSERVER_LOG_DEBUG("Pipeline: recived candidate mask to update: {} ", mask);
-        if (masks.find(mask) != masks.end())
-        {
-            WEBSERVER_LOG_DEBUG("Pipeline: Updating privacy mask: {}", mask);
-            privacy_blender->set_static_privacy_mask(masks[mask]);
-        }
-    }
-    for (std::string &mask : state->polygon_to_delete)
-    {
-        WEBSERVER_LOG_DEBUG("Pipeline: recived candidate mask to delete: {} ", mask);
-        if (masks.find(mask) != masks.end())
-        {
-            WEBSERVER_LOG_DEBUG("Pipeline: Deleting privacy mask: {}", mask);
-            privacy_blender->remove_static_privacy_mask(mask);
-        }
+        WEBSERVER_LOG_ERROR("Failed to apply privacy mask config via profile override");
+        throw std::runtime_error("Failed to apply privacy mask config via profile override");
     }
     WEBSERVER_LOG_DEBUG("Pipeline: Privacy mask resource state change handled");
 }

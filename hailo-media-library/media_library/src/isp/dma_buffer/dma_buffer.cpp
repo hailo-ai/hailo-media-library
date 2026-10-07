@@ -124,8 +124,9 @@ bool DMABufferAllocator::alloc(size_t size, DMABuffer &o_dma_buffer)
     }
     if (ioctl(*m_heap_fd, DMA_HEAP_IOCTL_ALLOC, &heap_data) != 0)
     {
-        LOGGER__MODULE__ERROR(LOGGER_TYPE, "DMA heap allocation failed with errno: {} ({}). size {}", errno,
-                              strerror(errno), size);
+        m_last_alloc_errno = errno;
+        LOGGER__MODULE__ERROR(LOGGER_TYPE, "DMA heap allocation failed with errno: {} ({}). size {}",
+                              m_last_alloc_errno, strerror(m_last_alloc_errno), size);
         return false;
     }
 
@@ -145,6 +146,16 @@ bool DMABufferAllocator::alloc(size_t size, DMABuffer &o_dma_buffer)
 
     o_dma_buffer.init(files_utils::make_shared_fd((int)heap_data.fd), heap_data.len);
     return true;
+}
+
+int DMABufferAllocator::last_alloc_errno() const
+{
+    return m_last_alloc_errno;
+}
+
+void DMABufferAllocator::clear_last_alloc_errno()
+{
+    m_last_alloc_errno = 0;
 }
 
 bool DMABufferAllocator::open_dma_heap_device(const char *name)

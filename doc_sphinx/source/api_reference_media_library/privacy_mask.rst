@@ -18,70 +18,117 @@ There are two types of privacy masks:
   For an example of Dynamic Privacy Masking, you can refer to the `dynamic_privacy_mask` reference application.
 
 
-The `PrivacyMaskBlender` object manages the vector of static privacy masks and the settings for both static and dynamic privacy masks. This blender is controlled by the `HailoEncoder` and can be accessed by both the GStreamer and C++ APIs.
+Privacy masks are configured through the profile system. Initial configuration is specified in the profile
+JSON (see :ref:`Masking Configurations <masking-configurations-label>`); runtime changes are applied by
+editing the profile's ``masking`` config on the relevant encoded output stream and calling
+:code:`MediaLibrary::set_override_parameters()`. The underlying blender is internal — it reads the masking
+config from the profile attached to each frame and applies the static and dynamic masks without direct
+user interaction.
 
-To access the blender in the C++ API:
+Runtime Masking Updates
+-----------------------
 
-.. note::
+All runtime masking changes are applied through the profile system. The pattern is the same regardless of
+what is being changed (mask mode, static polygons, dynamic masking):
 
-   The ``get_privacy_mask_blender()`` method is available on ``MediaLibraryEncoder`` instances.
-   The unified ``MediaLibrary`` API does not yet expose a direct accessor for the privacy mask blender.
-   Use the GStreamer API (shown below) for accessing the blender in pipeline-based applications.
+1. Fetch the current profile from :code:`MediaLibrary::get_current_profile()`.
+2. Edit the desired stream's ``masking`` field in the returned :code:`config_profile_t`.
+3. Apply the change with :code:`MediaLibrary::set_override_parameters()`. The internal blender picks
+   up the new masking configuration on subsequent frames.
 
-Alternatively, access it from the GStreamer `hailoencodebin` element using:
+The examples on this page use the following helper, which applies an edit to every encoded output stream:
 
 .. code-block:: c++
 
-  GstElementPtr encoder = glib_cpp::ptrs::get_bin_by_name(m_pipeline, "hailoencodebin");
-  PrivacyMaskBlenderPtr privacy_mask_blender;
-  // Retrieve the privacy mask blender from the frontend bin
-  GValue val = G_VALUE_INIT;
-  g_object_get_property(frontend.as_g_object(), "privacy-mask-blender", &val);
-  void *value_ptr = g_value_get_pointer(&val);
-  privacy_mask_blender = reinterpret_cast<PrivacyMaskBlender *>(value_ptr)->shared_from_this();
-  g_value_unset(&val);
+    static bool apply_masking_update(MediaLibraryPtr media_lib,
+                                     const std::function<void(privacy_mask_config_t &)> &mutate)
+    {
+        auto profile_expected = media_lib->get_current_profile();
+        if (!profile_expected.has_value())
+            return false;
 
+        config_profile_t profile = profile_expected.value();
+        for (auto &[stream_id, stream_config] : profile.encoded_output_streams)
+        {
+            mutate(stream_config.masking);
+        }
+        return media_lib->set_override_parameters(profile) == MEDIA_LIBRARY_SUCCESS;
+    }
+
+The :code:`PrivacyMaskConfigurer` / :code:`PrivacyMask` classes that actually drive the DSP-side masking
+are internal in this release; user code should not access them directly. Direct accessor methods that
+existed in earlier versions (:code:`MediaLibraryEncoder::get_privacy_mask_blender()`, the GStreamer
+``privacy-mask-blender`` element property) have been removed.
+
+Mask Modes
+----------
 The resulting privacy mask, which combines the static and dynamic masks, supports two operational modes:
 
-  1. **Color Mode**: The privacy mask is drawn with a specific color, configurable via the `set_color` API.
-  2. **Pixelization Mode**: The privacy mask is drawn with a pixelization effect, with intensity adjustable via the `set_pixelization_size` API.
+  1. **Color Mode**: The privacy mask is drawn with a specific color, configured via ``mask_type`` and ``color_value``.
+  2. **Pixelization Mode**: The privacy mask is drawn with a pixelization effect, with intensity configured via ``pixelization_size``.
 
 The mode can be changed both before and during pipeline execution. For example:
 
 .. code-block:: c++
 
     // Set the mode to color and configure the color to black
-    privacy_mask_blender->set_color({0, 0, 0});
+    apply_masking_update(media_lib, [](privacy_mask_config_t &masking) {
+        masking.mask_type = PrivacyMaskType::COLOR;
+        masking.color_value = rgb_color_t{0, 0, 0};
+    });
 
     // Set the mode to pixelization and configure the pixelization size to 40
-    privacy_mask_blender->set_pixelization_size(40);
+    apply_masking_update(media_lib, [](privacy_mask_config_t &masking) {
+        masking.mask_type = PrivacyMaskType::PIXELIZATION;
+        masking.pixelization_size = 40;
+    });
 
 Static Privacy Mask
 --------------------
-Static privacy masks can be added, removed, or updated both before and during pipeline execution. For example:
+Static privacy masks are held in ``masking.static_privacy_mask_config`` and can be added, removed, or
+updated both before and during pipeline execution. For example:
 
 .. code-block:: c++
 
     polygon example_polygon;
     example_polygon.id = "privacy_mask1";
-    example_polygon.vertices.push_back(vertex(125, 40));
-    example_polygon.vertices.push_back(vertex(980, 40));
-    example_polygon.vertices.push_back(vertex(980, 600));
-    example_polygon.vertices.push_back(vertex(125, 600));
-    privacy_mask_blender->add_static_privacy_mask(example_polygon);
+    example_polygon.vertices = {vertex(125, 40), vertex(980, 40), vertex(980, 600), vertex(125, 600)};
 
-    auto polygon_exp = privacy_mask_blender->get_static_privacy_mask("privacy_mask1");
-    polygon polygon1 = polygon_exp.value();
-    polygon1.vertices[0].x = 600;
-    polygon1.vertices[0].y = 120;
-    privacy_mask_blender->set_static_privacy_mask(polygon1);
+    // Add a polygon
+    apply_masking_update(media_lib, [&](privacy_mask_config_t &masking) {
+        if (!masking.static_privacy_mask_config.has_value())
+            masking.static_privacy_mask_config = static_privacy_mask_config_t{true, {}};
+        masking.static_privacy_mask_config->masks.push_back(example_polygon);
+    });
 
-    privacy_mask_blender->remove_static_privacy_mask("privacy_mask1");
+    // Move the first vertex of an existing polygon
+    apply_masking_update(media_lib, [](privacy_mask_config_t &masking) {
+        if (!masking.static_privacy_mask_config.has_value())
+            return;
+        for (auto &mask : masking.static_privacy_mask_config->masks)
+        {
+            if (mask.id == "privacy_mask1" && !mask.vertices.empty())
+            {
+                mask.vertices[0].x = 600;
+                mask.vertices[0].y = 120;
+            }
+        }
+    });
 
-When static privacy masks are manipulated via the API, a quantized bitmask is generated to efficiently represent the polygons. This bitmask is applied to each incoming frame to render the polygons using the DSP.
+    // Remove a polygon
+    apply_masking_update(media_lib, [](privacy_mask_config_t &masking) {
+        if (!masking.static_privacy_mask_config.has_value())
+            return;
+        auto &masks = masking.static_privacy_mask_config->masks;
+        masks.erase(std::remove_if(masks.begin(), masks.end(),
+                                   [](const polygon &mask) { return mask.id == "privacy_mask1"; }),
+                    masks.end());
+    });
+
+When the static privacy mask configuration changes, a quantized bitmask is generated to efficiently represent the polygons. This bitmask is applied to each incoming frame to render the polygons using the DSP.
 
 Restrictions for static privacy masks:
-  - A maximum of 8 static privacy masks can be included in the blender.
+  - A maximum of 8 static privacy masks can be configured per stream.
   - Each polygon can have a maximum of 8 vertices.
 
 Dynamic Privacy Mask
@@ -99,11 +146,14 @@ The blender supports two modes for receiving per-frame AI results, automatically
 To enable and configure the dynamic privacy mask, follow these steps:
 
 1. **Enable Dynamic Privacy Mask**:
-   Use the ``set_dynamic_mask_enabled`` API to enable or disable the dynamic privacy mask.
+   Toggle ``masking.dynamic_privacy_mask_config->enabled``.
 
    .. code-block:: c++
 
-       privacy_mask_blender->set_dynamic_mask_enabled(true);
+       apply_masking_update(media_lib, [](privacy_mask_config_t &masking) {
+           if (masking.dynamic_privacy_mask_config.has_value())
+               masking.dynamic_privacy_mask_config->enabled = true;
+       });
 
 2. **Configure analytics entries**:
    In the JSON configuration, list the analytics ids to consider and the ``masked_labels`` to apply per id. Both modes use this same configuration shape:
@@ -126,7 +176,7 @@ Restrictions:
 
 Configuration
 -------------
-The privacy mask can be configured using the `privacy_mask` section in the encoder configuration file.
+The privacy mask can be configured using the `masking` section of the profile configuration, per encoded output stream.
 
 The configuration must include the following parameters:
 
@@ -138,15 +188,19 @@ Additional parameters for static and dynamic privacy mask configurations:
 
   - **static_privacy_mask**:
       * **enabled**: Boolean indicating whether static privacy masks are enabled (default: `true`).
-      * **masks**: A list of static privacy masks to be added to the blender. Each mask is defined as a polygon with:
+      * **masks**: A list of static privacy masks to apply to the stream. Each mask is defined as a polygon with:
           * **name**: The ID of the privacy mask.
           * **polygon_points**: A list of vertices defining the polygon, with each vertex specified by its x and y coordinates.
 
   - **dynamic_privacy_mask**:
       * **enabled**: Boolean indicating whether the dynamic privacy mask is enabled (default: `false`).
-      * **analytics_data_id**: The ID of the analytics data used in the Analytics Database.
-      * **masked_labels**: A list of labels to be masked by the dynamic privacy mask.
       * **dilation_size**: Specifies the dilation effect size in pixels (default: `0`, range: `0` to `15`).
+      * Buffer-attached mode fields — **masked_labels** (labels to mask) and **label_to_class_id** (label to segmentor class index mapping). Both are required together.
+      * Analytics Database mode fields — **analytics** (a list of entries, each with an **analytics_data_id** and its own **masked_labels**), **timeout_ms**, **delta_ms** and **query_type**. All four are required together.
+
+.. note::
+   The two dynamic modes are mutually exclusive in the configuration: a profile may carry the buffer-attached
+   fields or the Analytics Database fields, but not both.
 
 .. note::
    When static privacy masks are configured, any existing static privacy masks are removed and replaced with the new configuration.
@@ -154,9 +208,9 @@ Additional parameters for static and dynamic privacy mask configurations:
 API
 ---
 
-.. doxygenfile:: privacy_mask.hpp
-   :project: media_library
-
+The privacy mask configuration structures (:code:`privacy_mask_config_t`, :code:`static_privacy_mask_config_t`,
+:code:`dynamic_privacy_mask_config_t`, :code:`polygon`) are documented in
+:doc:`Media Library Types <media_library_types>`.
 
 .. doxygenfile:: privacy_mask_types.hpp
    :project: media_library

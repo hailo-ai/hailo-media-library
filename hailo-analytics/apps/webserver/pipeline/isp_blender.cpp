@@ -114,7 +114,7 @@ config_profile_t IspBlender::get_profile_by_name(const std::string &profile_name
     return expected_profile.value();
 }
 
-void IspBlender::set_media_library(MediaLibraryPtr media_library)
+void IspBlender::set_media_library(MediaLibraryInterfacePtr media_library)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex);
     m_media_library = media_library;

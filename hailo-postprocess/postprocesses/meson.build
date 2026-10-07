@@ -6,6 +6,7 @@ post_proc_install_dir = get_option('post_processes_install_dir')
 yolo_hailortpp_sources = [
     'detection/yolo_hailortpp.cpp',
     'common/nms.cpp',
+    'common/file_reader.cpp',
 ]
 
 shared_library('yolo_hailortpp_post',
@@ -44,6 +45,7 @@ detection_new_api_post_sources = [
   'detection/yolo_postprocess.cpp',
   'detection/yolo_output.cpp',
   'common/nms.cpp',
+  'common/file_reader.cpp',
 ]
 
 shared_library('yolo_post',

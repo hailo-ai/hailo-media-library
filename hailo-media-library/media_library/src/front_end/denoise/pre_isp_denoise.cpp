@@ -365,12 +365,14 @@ media_library_return MediaLibraryPreIspDenoise::acquire_output_buffers(NetworkIn
     return media_library_return::MEDIA_LIBRARY_SUCCESS;
 }
 
-void MediaLibraryPreIspDenoise::initialize_dummy_loopback_buffers(const TensorBindings &loopback_buffers)
+void MediaLibraryPreIspDenoise::initialize_dummy_loopback_buffers(const NetworkInferenceBindings &bindings)
 {
     if (m_hailort_denoise->type() != HailortAsyncDenoiseType::PreISPHdm)
     {
         return;
     }
+
+    const auto &loopback_buffers = bindings.outputs;
 
     const auto &fusion_binding = loopback_buffers[HailortAsyncDenoisePreISPHdm::OutputIndex::OUTPUT_FUSION_CHANNEL];
     const uint16_t fusion_init =

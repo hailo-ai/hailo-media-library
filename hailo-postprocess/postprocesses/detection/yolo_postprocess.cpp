@@ -2,7 +2,6 @@
  * Copyright (c) 2021-2022 Hailo Technologies Ltd. All rights reserved.
  * Distributed under the LGPL license (https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt)
  **/
-#include <rapidjson/encodings.h>
 #include <vector>
 #include <algorithm>
 #include <sstream>
@@ -15,9 +14,9 @@
 #include "yolo_postprocess.hpp"
 #include "hailo_postprocess_tools/logger/hailo_postprocess_logger.hpp"
 #include "common/nms.hpp"
+#include "common/file_reader.hpp"
 #include "hailo_postprocess_tools/objects/json_config.hpp"
 #include "rapidjson/document.h"
-#include "rapidjson/filereadstream.h"
 #include "detection/yolo_output.hpp"
 #include "hailo_postprocess_tools/objects/hailo_tensors.hpp"
 
@@ -465,7 +464,6 @@ YoloParams *init(const std::string config_path, const std::string function_name)
     else
     {
         params = new YoloParams;
-        char config_buffer[4096];
         const char *json_schema = R""""({
         "$schema": "http://json-schema.org/draft-04/schema#",
         "type": "object",
@@ -516,17 +514,12 @@ YoloParams *init(const std::string config_path, const std::string function_name)
         ]
         })"""";
 
-        std::FILE *fp = fopen(config_path.c_str(), "r");
-        if (fp == nullptr)
-        {
-            throw std::runtime_error("JSON config file is not valid");
-        }
-        rapidjson::FileReadStream stream(fp, config_buffer, sizeof(config_buffer));
-        bool valid = common::validate_json_with_schema(stream, json_schema);
+        std::string config_content = common::read_file(config_path);
+        bool valid = common::validate_json_with_schema(config_content, json_schema);
         if (valid)
         {
             rapidjson::Document doc_config_json;
-            doc_config_json.ParseStream(stream);
+            doc_config_json.Parse(config_content.c_str());
 
             // parse labels
             auto labels = doc_config_json["labels"].GetArray();
@@ -565,7 +558,6 @@ YoloParams *init(const std::string config_path, const std::string function_name)
                 throw std::runtime_error(oss.str());
             }
         }
-        fclose(fp);
     }
     return params;
 }

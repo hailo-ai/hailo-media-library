@@ -31,7 +31,7 @@ void SnapshotCli::monitor_response_pipe()
     // Open with O_RDWR so the pipe never sees EOF when the writer closes.
     // This keeps the fd permanently readable, avoiding the gap between
     // close/reopen where write_response() would get ENXIO.
-    m_response_pipe_fd = open(SnapshotManager::RESPONSE_PIPE_PATH, O_RDWR | O_NONBLOCK);
+    m_response_pipe_fd = open(SnapshotManager::RESPONSE_PIPE_PATH, O_RDWR | O_NONBLOCK | O_CLOEXEC);
     if (m_response_pipe_fd == -1)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to open response pipe: {}", strerror(errno));
@@ -170,7 +170,7 @@ void SnapshotCli::prepare_for_response(const std::string &command)
 
 bool SnapshotCli::write_command_to_pipe(const std::string &command)
 {
-    int fd = open(SnapshotManager::PIPE_PATH, O_WRONLY);
+    int fd = open(SnapshotManager::PIPE_PATH, O_WRONLY | O_CLOEXEC);
     if (fd == -1)
     {
         LOGGER__MODULE__ERROR(MODULE_NAME, "Failed to open command pipe");

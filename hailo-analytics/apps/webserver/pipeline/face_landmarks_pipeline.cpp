@@ -1,12 +1,15 @@
 #include "face_landmarks_pipeline.hpp"
 
+#include <stddef.h>
 #include <nlohmann/json.hpp>
 #include <tl/expected.hpp>
 #include <media_library/frontend.hpp>
+#include <media_library/media_library_types.hpp>
 #include <memory>
 #include <stdexcept>
-#include <string_view>
 #include <vector>
+#include <functional>
+#include <optional>
 
 #include "common/common.hpp"
 #include "resources/configs.hpp"
@@ -23,11 +26,12 @@
 #include "hailo_analytics/pipeline/core/buffer.hpp"
 #include "hailo_analytics/pipeline/core/pipeline.hpp"
 #include "hailo_analytics/pipeline/routing/valve_stage.hpp"
-#include "hailo_analytics/pipeline/sinks/output_module.hpp"
 #include "hailo_analytics/pipeline/sinks/udp_stage.hpp"
-#include "pipeline/isp_blender.hpp"
 #include "resources/common/events_utils.hpp"
 #include "resources/common/resources.hpp"
+#include "hailo_analytics/analytics/common_configs.hpp"
+#include "hailo_analytics/analytics/detection.hpp"
+#include "hailo_analytics/pipeline/ai/analytics_db_stage.hpp"
 
 // Stream definitions
 #define VISION_SINK "sink0"
@@ -49,10 +53,10 @@ using namespace webserver::resources;
      ProfileType::AiIspGen3}
 
 FaceLandmarksPipeline::FaceLandmarksPipeline(webserver::resources::ResourceRepository &resources,
-                                             MediaLibraryPtr media_library, RTPConverterStage &webrtc_stage,
-                                             Architecture platform)
+                                             MediaLibraryInterfacePtr media_library, RTPConverterStage &webrtc_stage,
+                                             Architecture platform, bool use_hailort_service)
     : BasePipeline(resources, media_library, webrtc_stage, platform, ProfileType::Daylight,
-                   FACE_LANDMARKS_PIPELINE_SUPPORTED_PROFILES)
+                   FACE_LANDMARKS_PIPELINE_SUPPORTED_PROFILES, use_hailort_service)
 {
 }
 
@@ -116,6 +120,7 @@ void FaceLandmarksPipeline::build_pipeline()
 
     // AI sub-pipelines
     auto tiling_cfg = face_landmarks_app::default_tiling_config();
+    tiling_cfg.detection_config.ai_config.use_hailort_service = m_app_resources->use_hailort_service;
     auto tiling_pipeline =
         hailo_analytics::analytics::tiling::generate_tiling_detection_pipeline(TILING_PIPELINE, tiling_cfg).value();
 
@@ -126,6 +131,7 @@ void FaceLandmarksPipeline::build_pipeline()
         throw std::runtime_error("Failed to get current profile");
     }
     auto landmarks_cfg = face_landmarks_app::default_landmarks_config(current_profile.value());
+    landmarks_cfg.landmarks_config.ai_config.use_hailort_service = m_app_resources->use_hailort_service;
     auto landmarks_pipeline =
         hailo_analytics::analytics::face_landmarks::generate_bbox_landmarks_pipeline(LANDMARKS_PIPELINE, landmarks_cfg)
             .value();

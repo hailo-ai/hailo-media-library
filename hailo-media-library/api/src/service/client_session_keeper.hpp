@@ -119,9 +119,16 @@ class ClientSessionKeeper
      * retries until success or stop(). On the first
      * SUCCESS, starts the background keepalive thread and returns.
      * Non-retryable failures are returned immediately.
+     *
+     * @param timeout Give up after this long on transient failures. Zero means retry
+     *                indefinitely.
      */
-    media_library_return initialize()
+    media_library_return initialize(std::chrono::seconds timeout = std::chrono::seconds::zero())
     {
+        const bool bounded = timeout > std::chrono::seconds::zero();
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        bool waiting_logged = false;
+
         while (m_alive)
         {
             auto result = m_invoke_initialize();
@@ -133,8 +140,29 @@ class ClientSessionKeeper
             if (!result.retryable)
                 return result.status;
 
-            LOGGER__MODULE__WARN(LoggerType::ServiceClient, "Initialize deferred, retrying in {} ms",
-                                 KEEPALIVE_INTERVAL.count());
+            if (bounded && std::chrono::steady_clock::now() >= deadline)
+            {
+                LOGGER__MODULE__ERROR(LoggerType::ServiceClient,
+                                      "Initialize gave up after {} s: the media library service is not reachable",
+                                      timeout.count());
+                return media_library_return::MEDIA_LIBRARY_ERROR;
+            }
+
+            // The per-attempt cadence is fast enough to be noisy over a long wait, so say
+            // something useful once and let the debug log carry the rest.
+            if (!waiting_logged)
+            {
+                LOGGER__MODULE__WARN(
+                    LoggerType::ServiceClient, "Media library service not reachable yet; retrying every {} ms{}",
+                    KEEPALIVE_INTERVAL.count(), bounded ? " until the connect timeout expires" : " indefinitely");
+                waiting_logged = true;
+            }
+            else
+            {
+                LOGGER__MODULE__DEBUG(LoggerType::ServiceClient, "Initialize deferred, retrying in {} ms",
+                                      KEEPALIVE_INTERVAL.count());
+            }
+
             if (wait_for_stop(KEEPALIVE_INTERVAL))
                 return media_library_return::MEDIA_LIBRARY_ERROR;
         }

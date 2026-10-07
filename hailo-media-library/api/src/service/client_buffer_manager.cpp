@@ -1,5 +1,4 @@
 #include "client_buffer_manager.hpp"
-
 #include <grpcpp/grpcpp.h>
 #include <google/protobuf/repeated_ptr_field.h>
 #include <hailo_v4l2/hailo_v4l2.h>
@@ -10,6 +9,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "service_trace.hpp"
 #include "event_stream_reactors.hpp"
 #include "media_library/media_library_logger.hpp"
 #include "media_library/buffer_pool.hpp"
@@ -64,6 +64,36 @@ media_library_return ClientBufferManager::subscribe(FrontendCallbacksMap fe_call
         LOGGER__INFO("Registered {} callbacks", fe_callbacks.size());
     }
     return start_buffer_streaming();
+}
+
+media_library_return ClientBufferManager::unsubscribe(const output_stream_id_t &stream_id)
+{
+    // Keep the callable alive past the erase: a dispatch worker may be running it right
+    // now, holding its own shared_ptr copy taken outside the mutex.
+    std::shared_ptr<AppWrapperCallback> removed;
+    {
+        std::lock_guard<std::mutex> lock(m_callbacks_mutex);
+        auto it = m_callbacks.find(stream_id);
+        if (it == m_callbacks.end())
+        {
+            return MEDIA_LIBRARY_SUCCESS;
+        }
+        removed = std::move(it->second);
+        m_callbacks.erase(it);
+    }
+    LOGGER__INFO("Removed callback for stream_id='{}'", stream_id);
+    return MEDIA_LIBRARY_SUCCESS;
+}
+
+media_library_return ClientBufferManager::unsubscribe_all()
+{
+    std::unordered_map<std::string, std::shared_ptr<AppWrapperCallback>> removed;
+    {
+        std::lock_guard<std::mutex> lock(m_callbacks_mutex);
+        removed.swap(m_callbacks);
+    }
+    LOGGER__INFO("Removed {} callbacks", removed.size());
+    return MEDIA_LIBRARY_SUCCESS;
 }
 
 tl::expected<uint64_t, media_library_return> ClientBufferManager::lookup_buffer_id(
@@ -198,6 +228,7 @@ media_library_return ClientBufferManager::start_buffer_streaming()
 
 void ClientBufferManager::on_buffer_metadata_received(const media_library_service::BufferMetadata &metadata)
 {
+    SERVICE_CLIENT_TRACE_SCOPE("on_buffer_metadata_received");
     if (!m_buffer_stream_active.load(std::memory_order_acquire))
     {
         LOGGER__ERROR("Buffer metadata received but streaming not active, ignoring buffer_id={}", metadata.buffer_id());
@@ -213,8 +244,11 @@ void ClientBufferManager::on_buffer_metadata_received(const media_library_servic
     // NOTE: if future work allows concurrent buffer streams, the UDS receive
     // path will need a concurrent queue to correctly pair FDs with metadata.
     uint64_t received_buffer_id = 0;
-    std::vector<media_library_service::FileDescriptor> received_fds =
-        m_buffer_uds_client.receive_buffer_fds(metadata.planes_count(), received_buffer_id);
+    std::vector<media_library_service::FileDescriptor> received_fds;
+    {
+        SERVICE_CLIENT_TRACE_SCOPE("receive_buffer_fds_uds");
+        received_fds = m_buffer_uds_client.receive_buffer_fds(metadata.planes_count(), received_buffer_id);
+    }
 
     // During client reconnection, a few stale UDS messages from the  previous
     // session may sit in the kernel buffer.  Drain them until we find the
@@ -267,7 +301,11 @@ void ClientBufferManager::on_buffer_metadata_received(const media_library_servic
     }
 
     // Construct the real HailoMediaLibraryBufferPtr
-    HailoMediaLibraryBufferPtr buffer = create_client_buffer(buffer_id, metadata, std::move(received_fds));
+    HailoMediaLibraryBufferPtr buffer;
+    {
+        SERVICE_CLIENT_TRACE_SCOPE("create_client_buffer");
+        buffer = create_client_buffer(buffer_id, metadata, std::move(received_fds));
+    }
 
     if (!buffer)
     {
@@ -279,6 +317,7 @@ void ClientBufferManager::on_buffer_metadata_received(const media_library_servic
     // Enqueue the buffer for dispatch on the dedicated worker thread.
     // This returns immediately, unblocking the gRPC completion thread.
     {
+        SERVICE_CLIENT_TRACE_SCOPE("dispatch_queue_enqueue");
         std::lock_guard<std::mutex> lock(m_dispatch_queue_mutex);
         if (m_dispatch_queue.size() >= m_max_dispatch_buffers)
         {
@@ -318,7 +357,10 @@ void ClientBufferManager::dispatch_worker_loop()
         }
         // Invoke user callback outside the mutex — the callback may block
         // (e.g., add_buffer_to_encoder does a synchronous gRPC call).
-        (*item.callback)(item.buffer, item.encoded_data_size);
+        {
+            SERVICE_CLIENT_TRACE_SCOPE("dispatch_user_callback");
+            (*item.callback)(item.buffer, item.encoded_data_size);
+        }
     }
 
     // Drain any remaining items before exiting (shutdown path).
@@ -332,7 +374,10 @@ void ClientBufferManager::dispatch_worker_loop()
         // Release the lock while invoking the callback to avoid holding the
         // queue mutex during potentially long user callbacks.
         lock.unlock();
-        (*item.callback)(item.buffer, item.encoded_data_size);
+        {
+            SERVICE_CLIENT_TRACE_SCOPE("dispatch_user_callback_drain");
+            (*item.callback)(item.buffer, item.encoded_data_size);
+        }
         lock.lock();
     }
 }
@@ -458,6 +503,7 @@ HailoMediaLibraryBufferPtr ClientBufferManager::create_client_buffer(
 
 void ClientBufferManager::release_buffer_async(uint64_t buffer_id)
 {
+    SERVICE_CLIENT_TRACE_SCOPE("release_buffer_async");
     // Queue the release — safe to call from any thread including gRPC completion thread.
     // The actual gRPC call happens on m_release_worker.
     {
@@ -496,6 +542,7 @@ void ClientBufferManager::release_worker_loop()
 
 void ClientBufferManager::send_release_buffer(uint64_t buffer_id)
 {
+    SERVICE_CLIENT_TRACE_SCOPE("send_release_buffers");
     // Synchronous call — runs on m_release_worker thread, so blocking is fine.
     // The async callback API (CallbackUnaryCallImpl) segfaults in gRPC 1.46.
     grpc::ClientContext context;
@@ -503,7 +550,11 @@ void ClientBufferManager::send_release_buffer(uint64_t buffer_id)
     request.set_buffer_id(buffer_id);
     media_library_service::MedialibraryStatusReply reply;
 
-    grpc::Status status = m_stub.ReleaseBuffer(&context, request, &reply);
+    grpc::Status status;
+    {
+        SERVICE_CLIENT_TRACE_SCOPE("ReleaseBuffer_grpc_call");
+        status = m_stub.ReleaseBuffer(&context, request, &reply);
+    }
     if (!status.ok())
     {
         LOGGER__ERROR("ReleaseBuffer RPC failed for buffer_id={}: {}", buffer_id, status.error_message());

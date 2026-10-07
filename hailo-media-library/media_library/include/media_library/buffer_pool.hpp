@@ -179,6 +179,13 @@ class MediaLibraryBufferPool : public std::enable_shared_from_this<MediaLibraryB
      * @endcode
      */
     /**
+     * @brief Whether startup pre-allocation is active. It only saves the first-chunk DMA allocations of
+     * pools created at pipeline startup, so it is off: preallocate_from_config() returns immediately and
+     * init() allocates its first chunk directly instead of consulting the pre-alloc cache.
+     */
+    static constexpr bool PREALLOC_ENABLED = false;
+
+    /**
      * @brief Pre-allocates DMA buffers into a static cache for fast synchronous pool initialization.
      * Call before pool creation to avoid CMA allocation latency during init().
      *
@@ -207,6 +214,7 @@ class MediaLibraryBufferPool : public std::enable_shared_from_this<MediaLibraryB
      * Runs asynchronously on a background thread.
      * Components: dewarp, post-ISP denoise, each multi-resize output, motion detection,
      * and encoder outputs (gop_size buffers per encoder).
+     * No-op while PREALLOC_ENABLED is false.
      */
     static void preallocate_from_config(const ConfigManagerInteractor &interactor);
 

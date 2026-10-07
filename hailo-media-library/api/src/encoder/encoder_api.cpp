@@ -31,8 +31,6 @@
 #include "config_manager.hpp"
 #include "encoder_config_types.hpp"
 #include "media_library_types.hpp"
-#include "osd.hpp"
-#include "privacy_mask.hpp"
 
 tl::expected<MediaLibraryEncoderPtr, media_library_return> MediaLibraryEncoder::create(
     const output_stream_id_t &stream_id)
@@ -75,16 +73,6 @@ media_library_return MediaLibraryEncoder::stop()
 media_library_return MediaLibraryEncoder::add_buffer(HailoMediaLibraryBufferPtr ptr)
 {
     return m_impl->add_buffer(ptr);
-}
-
-std::shared_ptr<osd::Blender> MediaLibraryEncoder::get_osd_blender()
-{
-    return m_impl->get_osd_blender();
-}
-
-std::shared_ptr<PrivacyMaskBlender> MediaLibraryEncoder::get_privacy_mask_blender()
-{
-    return m_impl->get_privacy_mask_blender();
 }
 
 media_library_return MediaLibraryEncoder::set_config(encoder_config_t &config)

@@ -35,13 +35,11 @@
 
 #include "media_library/config_parser.hpp"
 #include "media_library/encoder.hpp"
-#include "media_library/privacy_mask.hpp"
 #include "media_library/media_library_types.hpp"
 #include "buffer_pool.hpp"
 #include "config_manager.hpp"
 #include "encoder_config_types.hpp"
 #include "gstmedialibptrs.hpp"
-#include "osd.hpp"
 
 #define MIN_QUEUE_SIZE 5
 
@@ -80,8 +78,6 @@ class MediaLibraryEncoder::Impl final
     MediaLibraryBufferPoolPtr m_buffer_pool;
     std::shared_ptr<std::thread> m_main_loop_thread;
     std::string m_json_config_str;
-    std::shared_ptr<osd::Blender> m_osd_blender;
-    std::shared_ptr<PrivacyMaskConfigurer> m_privacy_mask_blender;
     appsrc_state m_appsrc_state;
     EncoderType m_encoder_type;
     float m_current_fps;
@@ -110,9 +106,6 @@ class MediaLibraryEncoder::Impl final
     media_library_return start();
     media_library_return stop();
     media_library_return add_buffer(HailoMediaLibraryBufferPtr ptr);
-    std::shared_ptr<osd::Blender> get_osd_blender();
-    std::shared_ptr<PrivacyMaskBlender> get_privacy_mask_blender();
-    media_library_return load_blenders();
     media_library_return set_config(const encoder_config_t &config);
     media_library_return set_config(const std::string &json_config);
     media_library_return set_force_videorate(bool force);
@@ -166,7 +159,7 @@ class MediaLibraryEncoder::Impl final
     GstFlowReturn add_buffer_internal(GstBufferPtr &buffer);
     std::string create_pipeline_string(const std::string &encoder_json_config, const InputParams &input_params,
                                        EncoderType encoder_type);
-    std::string create_pipeline(const InputParams &input_params, EncoderType encoder_type, codec_t codec);
+    std::string create_pipeline(EncoderType encoder_type, codec_t codec);
     std::string get_fpsdisplaysink_name() const;
     const ConfigManagerInteractor *m_config_manager_interactor = nullptr;
     bool m_add_config_attacher = false;

@@ -4,11 +4,13 @@
 <head>
     <meta charset="UTF-8">
     <title>VLM Smart Event Monitor</title>
-    <!-- Stage 4 — debug bundle download. Vendored as a single file under
-         resources/webfrontend/jszip.min.js. Only used by the per-event
-         3-dot "Download debug bundle" button; loads even when the feature
-         is unavailable (event.debug absent), at the cost of ~95 KB. -->
-    <script src="jszip.min.js"></script>
+    <!-- Debug bundle download. Only used by the per-event
+         3-dot "Download debug bundle" button. Loaded from a public CDN
+         to keep the device install slim; requires that the machine
+         opening this page has internet access. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
+        integrity="sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <style>
         :root {
             --bg-page: #1a1f2e;
